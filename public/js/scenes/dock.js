@@ -355,6 +355,8 @@ export class DockScene extends BaseScene {
     if (this.active && this.active !== c) this.putBack();
     this.activate(c);
     this.hand = p;
+    this.showRay();
+    if (p.line) { p.line.visible = false; this.rayHidden = p; } // the hand holds it: no ray in the way
     this.unsnap();
     const ctrl = this.ctrlMatrix(p);
     const hand = V().setFromMatrixPosition(ctrl);
@@ -374,8 +376,16 @@ export class DockScene extends BaseScene {
     this.engine.haptic(p, 0.35, 30);
   }
 
+  /** Shows the ray of a hand again (it was hidden while that hand held a molecule). */
+  showRay() {
+    const p = this.rayHidden;
+    if (p?.line) p.line.visible = p.source?.targetRayMode !== 'screen';
+    this.rayHidden = null;
+  }
+
   releaseXR(c, p) {
     if (this.hand === p) this.hand = null;
+    this.showRay();
     if (c !== this.active || c.s !== 'active') return;
     c.pose.pos.copy(c.view.group.position);
     c.pose.quat.copy(c.view.group.quaternion);
@@ -536,7 +546,8 @@ export class DockScene extends BaseScene {
     u.uReveal.value = -0.3 + 0.62 * clamp(T / 1.5, 0, 1);
     u.uEdge.value = clamp((1.8 - T) / 0.4, 0, 1);
     const k = clamp(T / 1.7, 0, 1);
-    if (k !== this.screenK) { this.screenK = k; this.redrawAI(); }
+    // The counter runs up (redrawn a dozen times a second: the canvas upload is not free).
+    if (k !== this.screenK && (k === 1 || T - (this.aiDrawT ?? -1) > 0.08)) { this.screenK = k; this.aiDrawT = T; this.redrawAI(); }
     if (T > 1.7) {
       const s = clamp((T - 1.7) / 0.6, 0, 1);
       if (s !== this.shown) { this.shown = s; this.redrawAI(); }
@@ -613,6 +624,7 @@ export class DockScene extends BaseScene {
     if (!c || c.s !== 'active') return;
     if (this.hand && this.hand.held === c.view.proxy) this.hand.held = null;
     this.hand = null;
+    this.showRay();
     c.s = 'tray';
     c.view.clearGlow();
     if (this.active === c) { this.active = null; this.snapped = false; this.removeGhost(); }
@@ -664,6 +676,7 @@ export class DockScene extends BaseScene {
 
   startLab(c) {
     if (this.hand) { if (this.hand.held === c.view.proxy) this.hand.held = null; this.hand = null; }
+    this.showRay();
     c.pose.pos.copy(c.view.group.position);
     c.pose.quat.copy(c.view.group.quaternion);
     c.fit = Math.round((this.fitOut.fit ?? 0) * 100) / 100;
@@ -795,6 +808,7 @@ export class DockScene extends BaseScene {
   }
 
   clearCandidates() {
+    this.showRay();
     if (!this.level) return;
     for (const c of this.level.candidates) {
       if (!c.view) continue;
@@ -849,6 +863,8 @@ export class DockScene extends BaseScene {
       const topY = this.bench.getWorldPosition(_v).y - 0.04;
       this.column.scale.y = Math.max(0.05, topY - e.floorY);
     }
+    // Phones held upright: the intro panel alone (the bench would only peek in at the bottom).
+    if (this.mode === 'intro' && this.touch) this.bench.visible = window.innerWidth > window.innerHeight;
     if (this.mode !== 'over' && this.mode !== 'lab') this.pumpBuilds(this.isXR ? 3 : 6);
     if (this.mode === 'screen') this.updateScreen(dt);
     if (this.mode === 'play') {
@@ -1279,6 +1295,7 @@ export class DockScene extends BaseScene {
 
   dispose() {
     this.mode = 'over';
+    this.showRay();
     this.app.echo?.suppress(false);
     this.engine.fitEnabled = true;
     if (!this.isXR) this.engine.camera.rotation.set(0, 0, 0);
