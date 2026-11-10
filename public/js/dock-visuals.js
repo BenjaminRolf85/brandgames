@@ -60,8 +60,9 @@ export function makeKit() {
     cyl: new THREE.CylinderGeometry(1, 1, 1, 12, 1, true),
     torus: new THREE.TorusGeometry(B * 0.6, 0.0028, 8, 40),
     proxy: new THREE.SphereGeometry(1, 12, 8),
-    atomMat: new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.26, metalness: 0.02, clearcoat: 1, clearcoatRoughness: 0.12 }),
-    bondMat: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.15 }),
+    // White base materials: the per-atom and per-bond colors come from the tokens (instance colors).
+    atomMat: new THREE.MeshPhysicalMaterial({ roughness: 0.26, metalness: 0.02, clearcoat: 1, clearcoatRoughness: 0.12 }),
+    bondMat: new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.15 }),
     ringMat: new THREE.MeshStandardMaterial({ color: hex('xr-dock-bond'), roughness: 0.3, metalness: 0.3, emissive: hex('xr-dock-bond'), emissiveIntensity: 0.15 }),
     // Glow shows through the protein: a clashing atom sits inside the wall.
     glowMat: new THREE.ShaderMaterial({ uniforms: { uBoost: { value: 1 } }, vertexShader: GLOW_VS, fragmentShader: GLOW_FS, ...additive, depthTest: false }),
@@ -91,7 +92,7 @@ export class MoleculeView {
     const g = (this.group = new THREE.Group());
     g.userData.noFit = true; // instanced unit geometry would confuse the camera framing
     const n = mol.atoms.length;
-    const white = new THREE.Color(0xffffff);
+    const light = col('xr-dock-bond');
     if (!ghost) {
       this.atoms = new THREE.InstancedMesh(kit.sphere, kit.atomMat, n);
       mol.atoms.forEach((a, i) => {
@@ -110,7 +111,7 @@ export class MoleculeView {
           const d = mid.clone().sub(from);
           _q.setFromUnitVectors(UP, d.clone().normalize());
           this.bonds.setMatrixAt(k, _m.compose(from, _q, _s.set(0.0048, d.length(), 0.0048)));
-          this.bonds.setColorAt(k, _c.setHex(hex(ELEMENTS[el].token)).lerp(white, 0.42));
+          this.bonds.setColorAt(k, _c.setHex(hex(ELEMENTS[el].token)).lerp(light, 0.42));
           k += 1;
         }
       }
@@ -173,7 +174,7 @@ export class MoleculeView {
  */
 export function proteinMaterial() {
   const mat = new THREE.MeshPhysicalMaterial({
-    color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0, clearcoat: 0.3, clearcoatRoughness: 0.4,
+    vertexColors: true, roughness: 0.5, metalness: 0, clearcoat: 0.3, clearcoatRoughness: 0.4,
     sheen: 0.25, sheenRoughness: 0.55, sheenColor: col('xr-dock-protein-sheen'), envMapIntensity: 0.55,
   });
   const u = { uRim: { value: col('xr-dock-protein-rim') }, uRimK: { value: 0.35 }, uReveal: { value: 1 }, uEdge: { value: 0 } };
@@ -324,7 +325,7 @@ export function makeScreening(count = 900) {
 /** 8 x 12 wells of liquid on the microplate (plate top center at the origin). */
 export function makeWells() {
   const geo = new THREE.CylinderGeometry(0.0034, 0.0034, 0.0016, 12);
-  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+  const mat = new THREE.MeshBasicMaterial({ toneMapped: false });
   const wells = new THREE.InstancedMesh(geo, mat, 96);
   const empty = col('xr-dock-well');
   for (let r = 0; r < 8; r++) {

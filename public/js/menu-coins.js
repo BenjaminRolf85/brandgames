@@ -18,6 +18,7 @@ export const CARD_ART = {
   // Games for our clients (rendered in Blender by their build scripts)
   bike: 'assets/cards/bike.webp',
   bricks: 'assets/cards/bricks.webp',
+  green: 'assets/cards/green.webp',
   roast: 'assets/cards/roast.webp',
   pinball: 'assets/cards/pinball.webp',
 };
