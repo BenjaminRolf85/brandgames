@@ -76,8 +76,9 @@ export class Flipper {
 
 /** A 3D ramp: points [x, y, h] (h above the playfield), sampled into an arc-length table. */
 export class Ramp {
-  constructor({ id, points, mouth, dir, vMin = 0.9, samples = 160 }) {
+  constructor({ id, points, mouth, dir, vMin = 0.9, samples = 160, drag = 0.25 }) {
     this.id = id;
+    this.drag = drag; // rolling loss on the ramp (per m/s)
     this.mouth = mouth; // [[ax, ay], [bx, by]] line across the mouth
     this.dir = dir; // unit vector into the ramp
     this.vMin = vMin;
@@ -463,7 +464,7 @@ export class World {
     const r = st.ramp;
     const p = r.at(st.s);
     // Gravity along the path: the slope of the playfield plus the height above it.
-    const a = -(this.g * p.dy + this.gUp * p.dh) - 0.25 * st.u;
+    const a = -(this.g * p.dy + this.gUp * p.dh) - r.drag * st.u;
     st.u += a * h;
     st.s += st.u * h;
     const q = r.at(st.s);

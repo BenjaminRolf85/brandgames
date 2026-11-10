@@ -21,8 +21,11 @@ import { IconBurst, makeLamps, makeFlasher, ICON } from './pinball-fx.js';
 import { makePhoneGate, makeTvGate, drawPosters, makeEnvelope, makeBubbleTop, makeBranchFx, makeCharacters } from './pinball-props.js';
 import { drawStudio, makeKpiChart, BG_W, BG_H, CHART } from './pinball-backglass.js';
 import { buildDetails, drawDetailArt, detailInserts } from './pinball-details.js';
+import { drawCity, drawShots } from './pinball-art.js';
+import { buildTown, PEOPLE_SPOTS, PEOPLE_SCALE } from './pinball-town.js';
 
 export const MODEL_URL = 'assets/models/pinball.glb';
+export const TOYS_URL = 'assets/models/pinball-toys.glb';
 const col = (token) => new THREE.Color(hex(token));
 const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false };
 /** Playfield point (x, y) at height h, in the field group's space. */
@@ -160,8 +163,16 @@ const SOLID = {
   PbStandup: ['xr-pinball-standup', 0, 0.35],
   PbStar: ['xr-pinball-star', 0, 0.2],
   PbSpinner: ['xr-pinball-spinner', 0.8, 0.25],
+  PbAgency: ['xr-pinball-agency', 0, 0.5],
+  PbAgencyTrim: ['xr-pinball-agency-trim', 0.1, 0.4],
+  PbVan: ['xr-pinball-van', 0.1, 0.35],
+  PbWheel: ['xr-pinball-ch-social', 0.1, 0.3],
+  PbWheel2: ['xr-pinball-ch-email', 0.1, 0.3],
+  PbMailbox: ['xr-pinball-mailbox', 0.1, 0.35],
+  PbHorn: ['xr-pinball-sticker', 0, 0.3],
+  PbPlant: ['xr-pinball-tree-light', 0, 0.6],
 };
-const GLOWS = { PbCoinGlow: 'xr-pinball-coin-light', PbWindowGlow: 'xr-pinball-window' };
+const GLOWS = { PbCoinGlow: 'xr-pinball-coin-light', PbWindowGlow: 'xr-pinball-window', PbGlassGlow: 'xr-pinball-glass', PbLampGlow: 'xr-pinball-light' };
 
 function convert(m, posterTex) {
   const name = m.name;
@@ -178,12 +189,12 @@ function convert(m, posterTex) {
 
 /** Loads the Blender model and gives it token materials: { parts, anchors }. */
 export async function loadPinballModel() {
-  const gltf = await loadGLTF(MODEL_URL);
+  const [gltf, toys] = await Promise.all([loadGLTF(MODEL_URL), loadGLTF(TOYS_URL)]);
   const posterTex = posterTexture();
   const made = new Map();
   const parts = {};
   const anchors = {};
-  for (const node of gltf.scene.children) {
+  for (const node of [...gltf.scene.children, ...toys.scene.children]) {
     if (!node.isMesh && !node.children.length) { anchors[node.name] = node.position.clone(); continue; }
     const root = node.clone(true);
     root.traverse((o) => {
@@ -377,10 +388,10 @@ function makeSling(sl, mats) {
 
 // ---------- the playfield art ----------
 
-const PPM = 1700; // canvas pixels per meter
 const PF = { w: BOARD.x1 - BOARD.x0, h: BOARD.y1 - BOARD.y0 };
 
-function drawPlayfield(table) {
+function drawPlayfield(table, lite = false) {
+  const PPM = lite ? 1900 : 3150; // canvas pixels per meter (about 1800 x 4060 px)
   const W = Math.round(PF.w * PPM);
   const H = Math.round(PF.h * PPM);
   const c = document.createElement('canvas');
@@ -390,75 +401,18 @@ function drawPlayfield(table) {
   const X = (x) => (x - BOARD.x0) * PPM;
   const Y = (y) => (BOARD.y1 - y) * PPM;
   const M = (m) => m * PPM;
-  // Board edge outside the walls.
-  ctx.fillStyle = color('xr-pinball-cabinet-dark');
-  ctx.fillRect(0, 0, W, H);
-  // The field inside the outer wall (with the arc).
+  // The whole board: the town seen from above (also outside the arch and behind it).
+  drawCity(ctx, { X, Y, M, W, H, table });
   const outer = table.walls[0].pts;
   ctx.save();
   ctx.beginPath();
   outer.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
   ctx.closePath();
   ctx.clip();
-  const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, color('xr-pinball-field-2'));
-  bg.addColorStop(0.55, color('xr-pinball-field'));
-  bg.addColorStop(1, color('xr-pinball-field-2'));
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, W, H);
-  // The town map: blocks, a park, streets with dashed center lines.
-  ctx.globalAlpha = 0.55;
-  ctx.fillStyle = color('xr-pinball-field-2');
-  const rnd = mulberry(5);
-  for (let i = 0; i < 70; i++) {
-    const x = -0.23 + rnd() * 0.46;
-    const y = 0.12 + rnd() * 0.72;
-    const w = 0.02 + rnd() * 0.03;
-    const h = 0.015 + rnd() * 0.025;
-    ctx.beginPath();
-    ctx.roundRect(X(x), Y(y + h), M(w), M(h), M(0.004));
-    ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = color('xr-pinball-park');
-  ctx.beginPath();
-  ctx.ellipse(X(0), Y(0.72), M(0.15), M(0.12), 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = color('xr-pinball-tree-light');
-  for (let i = 0; i < 26; i++) {
-    const a = rnd() * Math.PI * 2;
-    const r = 0.06 + rnd() * 0.07;
-    ctx.beginPath();
-    ctx.arc(X(Math.cos(a) * r * 1.1), Y(0.72 + Math.sin(a) * r * 0.85), M(0.006), 0, Math.PI * 2);
-    ctx.fill();
-  }
-  const street = (pts, wid = 0.02) => {
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = color('xr-pinball-street');
-    ctx.lineWidth = M(wid);
-    ctx.beginPath();
-    pts.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
-    ctx.stroke();
-    ctx.setLineDash([M(0.008), M(0.008)]);
-    ctx.strokeStyle = color('xr-pinball-street-line');
-    ctx.lineWidth = M(0.0018);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  };
-  const ring = [];
-  for (let i = 0; i <= 40; i++) ring.push([Math.cos((i / 40) * Math.PI * 2) * 0.072, 0.5 + Math.sin((i / 40) * Math.PI * 2) * 0.072]);
-  street(ring);
-  street([[-0.068, 0.52], [-0.12, 0.555], [-0.168, 0.585]]);
-  street([[0.068, 0.52], [0.12, 0.555], [0.168, 0.585]]);
-  street([[-0.07, 0.48], [-0.14, 0.462], [-0.21, 0.465]]);
-  street([[0.07, 0.48], [0.14, 0.466], [0.19, 0.468]]);
-  street([[0, 0.572], [0, 0.64]]);
-  street([[0, 0.428], [0, 0.33]]);
-  street([[-0.15, 0.33], [-0.06, 0.31], [0.06, 0.31], [0.15, 0.33]], 0.016);
+  drawShots(ctx, { X, Y, M });
   // Lane area under the arc: a warm band behind the four target-group lanes.
-  ctx.fillStyle = color('xr-pinball-cabinet');
-  ctx.globalAlpha = 0.6;
+  ctx.fillStyle = color('xr-pinball-cabinet-dark');
+  ctx.globalAlpha = 0.55;
   ctx.fillRect(X(GUIDE_X[0]), Y(LANE_Y[1] + 0.01), M(GUIDE_X[4] - GUIDE_X[0]), M(LANE_Y[1] - LANE_Y[0] + 0.03));
   ctx.globalAlpha = 1;
   ctx.textAlign = 'center';
@@ -474,6 +428,10 @@ function drawPlayfield(table) {
     drawGlyph(ctx, ln.group, X(ln.x), Y(ln.y), M(0.024), color('xr-pinball-lane-light'), 2.2);
     ctx.fillStyle = color('xr-pinball-field-text');
     ctx.font = font('black', M(0.0105));
+    ctx.lineWidth = M(0.0026);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = color('xr-pinball-dark');
+    ctx.strokeText(t(`pinballLane_${ln.group}`), X(ln.x), Y(LANE_Y[0] - 0.014));
     ctx.fillText(t(`pinballLane_${ln.group}`), X(ln.x), Y(LANE_Y[0] - 0.014));
   }
   // Channel inserts: dark plastic with the channel color's outline, icon and name.
@@ -493,6 +451,10 @@ function drawPlayfield(table) {
     ctx.fillStyle = color('xr-pinball-field-text');
     ctx.font = font('black', M(0.0092));
     const ly = ins.dy > 0.9 ? ins.y - INS_R - 0.009 : ins.y - INS_R - 0.009;
+    ctx.lineWidth = M(0.0024);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = color('xr-pinball-dark');
+    ctx.strokeText(t(`pinballCh_${ch}`).toUpperCase(), X(ins.x), Y(ly));
     ctx.fillText(t(`pinballCh_${ch}`).toUpperCase(), X(ins.x), Y(ly));
   }
   // The marketing funnel: awareness, interest, conversion (narrower towards the bottom).
@@ -776,7 +738,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
     legs.push({ leg, foot, top: a.y });
   }
   // The playfield board with its art (a little self-lit, so it reads well in a dark room).
-  const pfTex = drawPlayfield(table);
+  const pfTex = drawPlayfield(table, lite);
   // A clear coat over the art (a wear-free shine that mirrors the room); plain in the lite mode.
   const boardOpts = { map: pfTex, emissiveMap: pfTex, emissive: hex('xr-pinball-white'), emissiveIntensity: 0.42, roughness: 0.32, metalness: 0.05 };
   const board = new THREE.Mesh(new THREE.PlaneGeometry(PF.w, PF.h), lite
@@ -903,8 +865,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
   const phone = makePhoneGate(table.ramps.right);
   field.add(tv.group, phone.group);
   // The target groups as cut-outs behind the top arch.
-  const spots = [-0.15, -0.05, 0.05, 0.15].map((x) => [x, ARC.y + Math.sqrt(ARC.r * ARC.r - (x - ARC.x) ** 2) + 0.016]);
-  const chars = makeCharacters(spots);
+  const chars = makeCharacters(PEOPLE_SPOTS, PEOPLE_SCALE);
   field.add(chars.group);
   // Apron with its two instruction cards.
   const ap = apronShape();
@@ -1026,6 +987,8 @@ export function buildMachine(table, model, { lite = false } = {}) {
   // trough window, price card, sling flashers.
   const det = buildDetails({ root, field, parts, anchors, table, lite });
   owned.push(...det.owned);
+  // The agency town: toys behind the arch and on the playfield.
+  const town = buildTown({ field, parts, lite });
   // The AI's tip: a floating arrow over the recommended channel, a light beam and a ring.
   const tip = makeTipArrow();
   field.add(tip.group);
@@ -1093,7 +1056,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
     for (let i = 0; i <= 20; i++) pts.push(new THREE.Vector3(-0.285 + (0.62 * i) / 20, top + 0.01 * Math.sin(i * 1.3), zf));
     for (const x of [-0.278, 0.328]) {
       for (let i = 0; i <= 16; i++) {
-        const y = -0.06 + (1.3 * i) / 16;
+        const y = -0.06 + (1.48 * i) / 16;
         pts.push(new THREE.Vector3(x, y * Math.sin(SLOPE) + 0.088 * Math.cos(SLOPE), -y * Math.cos(SLOPE) + 0.088 * Math.sin(SLOPE)));
       }
     }
@@ -1107,7 +1070,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
   const lampCol = new THREE.Color();
   const state = {
     root, field, board, legs, dmd, inserts, tip, slings, bumpers, drops, column, gate: gateWire, plunger, flippers, owned,
-    fx, phone, tv, branch, chars, chart, balls, det,
+    fx, phone, tv, branch, chars, chart, balls, det, town,
     /** Legs reach down to the floor (y in the root's parent space, scale of the machine). */
     setFloor(floorLocalY) {
       for (const l of legs) {
@@ -1135,6 +1098,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
       }
       fx?.dispose?.();
       det?.dispose?.();
+      town?.dispose?.();
       for (const o of owned) o?.dispose?.();
       owned.length = 0;
     },
@@ -1220,6 +1184,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
       tv.update(dt, time);
       branch.update(dt, time);
       chars.update(dt, time);
+      town.update(dt, time);
       bgBulbs?.userData.tick(time);
       railBulbs?.userData.tick(time + 1.3);
     },

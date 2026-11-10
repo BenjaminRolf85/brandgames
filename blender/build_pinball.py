@@ -39,6 +39,13 @@
 # vertex colors.
 # Usage: blender -b -P build_pinball.py -- <out.glb> <out.blend>
 #        blender -b -P build_pinball.py -- coin <out.png>   (the menu coin picture)
+#        blender -b -P build_pinball.py -- toys <out.glb>   (pinball-toys.glb: the agency town)
+# Toys (field frame, origin on the playfield, facing the player): PinAgency (the agency's studio
+# building, rooftop sign face PbSign with UVs), PinStudio (video studio: stage, screen PbScreen,
+# camera on a dolly, studio light), PinTower (broadcast tower, beacon PbBeacon), PinBillboard
+# (on stilts, poster face PbBillboard with UVs), PinWheelStand and PinWheel (the like wheel; the
+# wheel turns about z, origin on its axle), PinVan (delivery van, wrap PbWrap with UVs),
+# PinMegaphone (turns about y on top of the advertising column), PinMailbox.
 import os, sys, math
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bpy, bmesh
@@ -47,6 +54,7 @@ from bhelpers import init, P, material, link, tbox, tcyl, ttorus, merge, bake_ao
 
 ARGS = sys.argv[sys.argv.index('--') + 1:]
 COIN = ARGS[0] == 'coin'
+TOYS = ARGS[0] == 'toys'
 init()
 
 A = math.radians(7)
@@ -95,7 +103,7 @@ SPINNER = material('PbSpinner', (0.85, 0.87, 0.9), 0.8, 0.25)
 
 BX0, BX1 = -0.288, 0.338   # outer sides
 IX0, IX1 = -0.268, 0.318   # inner sides
-YF, YB = -0.075, 1.30      # front and back of the cabinet (playfield y)
+YF, YB = -0.075, 1.48      # front and back of the cabinet (playfield y; the town behind the arch)
 HT = 0.07                  # top rim above the playfield (glass level)
 YBOT = -0.30               # bottom of the cabinet (machine y)
 
@@ -594,6 +602,179 @@ def build_parts():
     return parts
 
 
+
+# ---------------------------------------------------------------- toys (the agency town)
+
+def uvquad(name, pts, mat):
+    """A quad with UVs 0..1 (pts: bottom left, bottom right, top right, top left; three.js)."""
+    bm = bmesh.new()
+    uv = bm.loops.layers.uv.new('UVMap')
+    vs = [bm.verts.new(P(*q)) for q in pts]
+    f = bm.faces.new(vs)
+    for loop, c in zip(f.loops, ((0, 0), (1, 0), (1, 1), (0, 1))):
+        loop[uv].uv = c
+    return link(name, bm, mat)
+
+
+def toys():
+    T = {}
+    AG = material('PbAgency', (0.95, 0.9, 0.85), 0.0, 0.5)
+    AG2 = material('PbAgencyTrim', (0.55, 0.3, 0.95), 0.1, 0.4)
+    GLASS = material('PbGlassGlow', (0, 0, 0), emit=(0.5, 0.85, 1.0))
+    SIGN = material('PbSign', (1, 1, 1), 0.0, 0.5)
+    SCREEN = material('PbScreen', (1, 1, 1), 0.0, 0.5)
+    LAMP = material('PbLampGlow', (0, 0, 0), emit=(1.0, 0.95, 0.8))
+    BEACON = material('PbBeacon', (0.9, 0.1, 0.1), 0.0, 0.3)
+    BILL = material('PbBillboard', (1, 1, 1), 0.0, 0.5)
+    VAN = material('PbVan', (1.0, 1.0, 1.0), 0.1, 0.35)
+    WRAP = material('PbWrap', (1, 1, 1), 0.0, 0.4)
+    WHEEL = material('PbWheel', (1.0, 0.3, 0.6), 0.1, 0.3)
+    WHEEL2 = material('PbWheel2', (0.3, 0.8, 1.0), 0.1, 0.3)
+    MAIL = material('PbMailbox', (1.0, 0.8, 0.1), 0.1, 0.35)
+    HORN = material('PbHorn', (0.95, 0.95, 0.95), 0.0, 0.3)
+    # The agency: two blocks of studio with big glass fronts, a roof terrace, a sign on the roof.
+    p = [tbox('base', (0, 0.002, 0), (0.118, 0.004, 0.072), DARK),
+         tbox('block1', (-0.018, 0.034, 0), (0.07, 0.06, 0.06), AG, bev=0.0015),
+         tbox('block2', (0.033, 0.024, 0.006), (0.044, 0.04, 0.05), AG2, bev=0.0015)]
+    for k in range(3):  # glass floors of block 1
+        p.append(tbox('glass', (-0.018, 0.016 + k * 0.017, 0.0302), (0.062, 0.011, 0.001), GLASS))
+    for k in range(2):
+        p.append(tbox('glass2', (0.033, 0.014 + k * 0.016, 0.0312), (0.038, 0.01, 0.001), GLASS))
+    p.append(tbox('entrance', (-0.018, 0.005, 0.031), (0.016, 0.009, 0.002), DARK))
+    p.append(tbox('canopy', (-0.018, 0.0105, 0.035), (0.026, 0.0014, 0.01), AG2))
+    p.append(tbox('roof', (-0.018, 0.0655, 0), (0.074, 0.003, 0.064), AG2))
+    for x in (-0.048, 0.012):
+        p.append(tcyl('signLeg', (x * 0.62 - 0.006, 0.072, -0.004), 0.0012, 0.012, CHROME, segs=6))
+    p.append(tbox('signBack', (-0.018, 0.084, -0.0055), (0.07, 0.022, 0.003), DARK))
+    p.append(uvquad('sign', [(-0.052, 0.0735, -0.0038), (0.016, 0.0735, -0.0038), (0.016, 0.0945, -0.0038), (-0.052, 0.0945, -0.0038)], SIGN))
+    p.append(tcyl('ac', (0.04, 0.0465, -0.01), 0.006, 0.006, CHROME, segs=12))
+    p.append(tbox('plant', (0.002, 0.07, 0.022), (0.012, 0.006, 0.008), material('PbPlant', (0.2, 0.7, 0.3), 0.0, 0.6)))
+    T['agency'] = merge(p, 'PinAgency')
+    # The video studio: stage, a big screen, a camera on a dolly, a studio light.
+    p = [tbox('stage', (0, 0.003, 0), (0.07, 0.006, 0.05), DARK, bev=0.001),
+         tbox('wall', (0, 0.03, -0.021), (0.066, 0.048, 0.004), AG2),
+         uvquad('screen', [(-0.029, 0.012, -0.0188), (0.029, 0.012, -0.0188), (0.029, 0.048, -0.0188), (-0.029, 0.048, -0.0188)], SCREEN)]
+    # Dolly: base with wheels, column, camera body and lens (looking at the screen's front).
+    cx, cz = 0.012, 0.014
+    p.append(tbox('dolly', (cx, 0.009, cz), (0.022, 0.004, 0.016), CHROME, bev=0.001))
+    for dx in (-0.009, 0.009):
+        for dz in (-0.006, 0.006):
+            p.append(tcyl('wheel', (cx + dx, 0.0055, cz + dz), 0.0028, 0.002, DARK, axis='x', segs=10))
+    p.append(tcyl('column', (cx, 0.02, cz), 0.0018, 0.02, CHROME, segs=8))
+    p.append(tbox('camera', (cx, 0.033, cz + 0.002), (0.011, 0.01, 0.018), DARK, bev=0.0015))
+    p.append(tcyl('lens', (cx, 0.033, cz - 0.01), 0.0035, 0.008, CHROME, axis='z', segs=12))
+    p.append(tcyl('lensGlass', (cx, 0.033, cz - 0.0142), 0.0028, 0.0008, GLASS, axis='z', segs=12))
+    p.append(tbox('rec', (cx + 0.004, 0.0395, cz + 0.008), (0.002, 0.002, 0.002), BEACON))
+    # Studio light on a stand.
+    lx, lz = -0.022, 0.012
+    for k in range(3):
+        a = k * 2.094
+        p.append(tcyl('leg', (lx + math.cos(a) * 0.006, 0.012, lz + math.sin(a) * 0.006), 0.0008, 0.024, CHROME, segs=6,
+                      rot=Matrix.Rotation(0.25, 3, 'X') @ Matrix.Rotation(a, 3, 'Z')))
+    p.append(tcyl('pole', (lx, 0.03, lz), 0.001, 0.036, CHROME, segs=6))
+    p.append(tcyl('head', (lx, 0.048, lz), 0.009, 0.012, DARK, axis='z', segs=16, r2=0.007))
+    p.append(tcyl('bulb', (lx, 0.048, lz + 0.0062), 0.0068, 0.001, LAMP, axis='z', segs=16))
+    T['studio'] = merge(p, 'PinStudio')
+    # Broadcast tower: four tapered legs with cross braces, dishes, a beacon on top.
+    p = []
+    H = 0.165
+    for sx in (-1, 1):
+        for sz in (-1, 1):
+            bm = bmesh.new()
+            a = Vector(P(sx * 0.012, 0, sz * 0.012))
+            b = Vector(P(sx * 0.003, H, sz * 0.003))
+            bmesh.ops.create_cone(bm, cap_ends=True, segments=6, radius1=0.0011, radius2=0.0008, depth=(b - a).length)
+            d = (b - a).normalized()
+            q = Vector((0, 0, 1)).rotation_difference(d).to_matrix().to_4x4()
+            bmesh.ops.transform(bm, matrix=Matrix.Translation((a + b) / 2) @ q, verts=bm.verts)
+            ob = link('towerLeg', bm, ACCENT)
+            p.append(ob)
+    for k in range(7):
+        y = 0.01 + k * 0.022
+        w = 0.012 - (0.009 * y / H)
+        for (cxx, czz, ax) in ((0, w, 'x'), (0, -w, 'x'), (w, 0, 'z'), (-w, 0, 'z')):
+            p.append(tcyl('brace', (cxx, y, czz), 0.0006, 2 * w, CHROME if k % 2 else ACCENT, axis=ax, segs=4))
+    for (y, sz) in ((0.1, 1), (0.125, -1)):
+        p.append(tcyl('dish', (0.007, y, 0.004 * sz), 0.009, 0.002, CHROME, axis='x', segs=16, r2=0.004))
+    p.append(tcyl('mast', (0, H + 0.008, 0), 0.0008, 0.018, CHROME, segs=6))
+    p.append(blob('beacon', (0, H + 0.018, 0), 0.0032, BEACON, segs=12, rings=8))
+    T['tower'] = merge(p, 'PinTower')
+    # Billboard on stilts: two posts, a frame, a catwalk with lamps, the poster face.
+    p = []
+    for x in (-0.025, 0.025):
+        p.append(tcyl('stilt', (x, 0.035, -0.004), 0.0018, 0.07, CHROME, segs=8))
+        p.append(tbox('foot', (x, 0.001, -0.004), (0.008, 0.002, 0.008), DARK))
+    p.append(tbox('frame', (0, 0.093, -0.004), (0.078, 0.05, 0.004), DARK, bev=0.001))
+    p.append(uvquad('face', [(-0.036, 0.0705, -0.0018), (0.036, 0.0705, -0.0018), (0.036, 0.1155, -0.0018), (-0.036, 0.1155, -0.0018)], BILL))
+    p.append(tbox('catwalk', (0, 0.0685, 0.004), (0.078, 0.0015, 0.01), CHROME))
+    for x in (-0.024, 0.0, 0.024):
+        p.append(tcyl('lampArm', (x, 0.068, 0.009), 0.0007, 0.006, CHROME, segs=4))
+        p.append(tbox('lamp', (x, 0.0705, 0.011), (0.006, 0.0025, 0.004), LAMP))
+    T['billboard'] = merge(p, 'PinBillboard')
+    # The like wheel: an A-frame stand and a turning wheel with colored cabins (hearts drawn by the app).
+    p = [tbox('base', (0, 0.003, 0), (0.05, 0.006, 0.024), DARK, bev=0.001)]
+    for sz in (-1, 1):
+        for sx in (-1, 1):
+            a = Vector(P(sx * 0.022, 0.004, sz * 0.009))
+            b = Vector(P(0, 0.056, sz * 0.007))
+            bm = bmesh.new()
+            bmesh.ops.create_cone(bm, cap_ends=True, segments=6, radius1=0.0016, radius2=0.0012, depth=(b - a).length)
+            d = (b - a).normalized()
+            q = Vector((0, 0, 1)).rotation_difference(d).to_matrix().to_4x4()
+            bmesh.ops.transform(bm, matrix=Matrix.Translation((a + b) / 2) @ q, verts=bm.verts)
+            p.append(link('aLeg', bm, CHROME))
+    p.append(tcyl('axle', (0, 0.056, 0), 0.0016, 0.022, CHROME, axis='z', segs=10))
+    T['wheelStand'] = merge(p, 'PinWheelStand')
+    p = [ttorus('rim', (0, 0, 0.004), 0.04, 0.0014, WHEEL, axis='z', segs=48, tsegs=6),
+         ttorus('rim2', (0, 0, -0.004), 0.04, 0.0014, WHEEL, axis='z', segs=48, tsegs=6),
+         tcyl('hub', (0, 0, 0), 0.006, 0.012, WHEEL2, axis='z', segs=16)]
+    for k in range(8):
+        a = k * math.pi / 4
+        c, s_ = math.cos(a), math.sin(a)
+        p.append(tcyl('spoke', (c * 0.02, s_ * 0.02, 0), 0.0006, 0.04, CHROME, segs=4, rot=Matrix.Rotation(-a + math.pi / 2, 3, 'Y')))
+        p.append(tcyl('cabin', (c * 0.04, s_ * 0.04, 0), 0.0065, 0.009, WHEEL2 if k % 2 else WHEEL, axis='z', segs=16, bev=0.001))
+    T['wheel'] = merge(p, 'PinWheel')
+    # Delivery van (front to +x), with a wrap on both sides.
+    p = [tbox('body', (0.0, 0.017, 0), (0.05, 0.022, 0.022), VAN, bev=0.003),
+         tbox('cab', (0.021, 0.012, 0), (0.014, 0.014, 0.0215), VAN, bev=0.003),
+         tbox('windshield', (0.0282, 0.019, 0), (0.001, 0.007, 0.018), GLASS),
+         tbox('bumper', (0.029, 0.007, 0), (0.002, 0.004, 0.022), CHROME)]
+    for sz in (-1, 1):
+        p.append(uvquad('wrap', [(-0.024, 0.008, sz * 0.0112), (0.012, 0.008, sz * 0.0112), (0.012, 0.027, sz * 0.0112), (-0.024, 0.027, sz * 0.0112)][::sz] if sz > 0 else
+                       [(0.012, 0.008, -0.0112), (-0.024, 0.008, -0.0112), (-0.024, 0.027, -0.0112), (0.012, 0.027, -0.0112)], WRAP))
+        for x in (-0.015, 0.018):
+            p.append(tcyl('tire', (x, 0.0055, sz * 0.0105), 0.0055, 0.004, DARK, axis='z', segs=14))
+            p.append(tcyl('rim', (x, 0.0055, sz * 0.0126), 0.0028, 0.0006, CHROME, axis='z', segs=10))
+    T['van'] = merge(p, 'PinVan')
+    # Megaphone on a swivel (mouth to +z), for the top of the advertising column.
+    p = [tcyl('pole', (0, 0.006, 0), 0.0014, 0.012, CHROME, segs=8),
+         tcyl('horn', (0, 0.018, 0.004), 0.004, 0.026, HORN, axis='z', segs=20, r2=0.013),
+         ttorus('rimH', (0, 0.018, 0.017), 0.0128, 0.0014, ACCENT, axis='z', segs=24, tsegs=6),
+         tcyl('back', (0, 0.018, -0.012), 0.0055, 0.008, ACCENT, axis='z', segs=16, bev=0.001),
+         tbox('grip', (0, 0.011, -0.006), (0.004, 0.01, 0.004), DARK)]
+    T['megaphone'] = merge(p, 'PinMegaphone')
+    # Mailbox on a short post.
+    p = [tcyl('post', (0, 0.006, 0), 0.0015, 0.012, CHROME, segs=8),
+         tbox('box', (0, 0.019, 0), (0.016, 0.014, 0.012), MAIL, bev=0.002),
+         blob('top', (0, 0.026, 0), 0.008, MAIL, s=(1, 0.45, 0.75), segs=16, rings=6),
+         tbox('slot', (0, 0.022, 0.0062), (0.009, 0.0012, 0.0008), DARK),
+         tbox('label', (0, 0.015, 0.0062), (0.008, 0.004, 0.0006), ACCENT)]
+    T['mailbox'] = merge(p, 'PinMailbox')
+    return T
+
+
+if TOYS:
+    OUT_GLB = ARGS[1]
+    T = toys()
+    assets = [(o, 0.01) for o in T.values()]
+    bake_ao(assets, {'PbGlassGlow', 'PbLampGlow', 'PbSign', 'PbScreen', 'PbBillboard', 'PbWrap'}, distance=0.03, samples=24)
+    print('faces', sum(len(o.data.polygons) for o, _ in assets))
+    bpy.ops.export_scene.gltf(filepath=OUT_GLB, export_format='GLB', use_selection=False, export_apply=True,
+                              export_yup=True, export_animations=False, export_normals=True,
+                              export_vertex_color='ACTIVE', export_active_vertex_color_when_no_material=True)
+    print('DONE')
+    sys.exit(0)
+
 # ---------------------------------------------------------------- export
 
 if not COIN:
@@ -704,6 +885,25 @@ for ob in (env, flap, seal):
     ob.matrix_world = Matrix.Translation(P(-0.085, 0.075, -0.15)) @ Matrix.Rotation(0.35, 4, 'Z') @ Matrix.Rotation(-0.25, 4, 'X') @ ob.matrix_world
 place(parts['plunger'], 9, 9)
 parts['plunger'].hide_render = True
+# The agency town: the like wheel and the agency behind, the megaphone on the column, colorful
+# city blocks printed on the playfield.
+TY = toys()
+for k in ('tower', 'billboard', 'van', 'mailbox', 'studio'):
+    TY[k].hide_render = True
+place(TY['wheelStand'], 0.125, 0.335, rot=-0.3)
+TY['wheel'].matrix_world = Matrix.Translation(P(0.125, 0.056, -0.335)) @ Matrix.Rotation(-0.3, 4, 'Z') @ TY['wheel'].matrix_world
+place(TY['agency'], -0.03, 0.43, rot=0.15, s=1.2)
+TY['megaphone'].matrix_world = Matrix.Translation(P(-0.07, 0.1, -0.205)) @ Matrix.Rotation(0.7, 4, 'Z') @ TY['megaphone'].matrix_world
+rnd_cols = [(1.0, 0.31, 0.6), (1.0, 0.54, 0.16), (1.0, 0.82, 0.25), (0.24, 0.81, 0.43), (0.18, 0.83, 0.91), (0.61, 0.36, 1.0)]
+import random
+random.seed(5)
+for i in range(70):
+    x = -0.2 + random.random() * 0.4
+    y = 0.03 + random.random() * 0.4
+    w = 0.012 + random.random() * 0.02
+    m = material('blk%d' % i, rnd_cols[i % 6], 0.0, 0.5, emit=rnd_cols[i % 6])
+    m.node_tree.nodes['Principled BSDF'].inputs['Emission Strength'].default_value = 0.25
+    tbox('block', (x, 0.0004, -y), (w, 0.0008, w * (0.6 + random.random() * 0.6)), m)
 # Fairy lights in the background (soft bokeh).
 cols = [(1, 0.18, 0.25), (1, 0.82, 0.48), (0.56, 0.89, 0.44), (0.35, 0.85, 1.0), (0.9, 0.48, 0.85)]
 for i in range(26):

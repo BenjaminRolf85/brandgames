@@ -20,9 +20,22 @@
   /* playfield */
   --xr-pinball-field:          #13248a;
   --xr-pinball-field-2:        #2b1d86;
-  --xr-pinball-street:         #3a54c8;   /* the town map painted on the playfield */
-  --xr-pinball-street-line:    #8aa2ff;
-  --xr-pinball-park:           #11705e;
+  --xr-pinball-street:         #2a1d52;   /* the town map painted on the playfield */
+  --xr-pinball-street-line:    #ffd23f;
+  --xr-pinball-park:           #23a865;
+  --xr-pinball-ground:         #3a1d5c;   /* plum ground between the blocks */
+  --xr-pinball-district-1:     #ff4f9a;   /* districts: pink, orange, yellow, green, cyan, violet */
+  --xr-pinball-district-2:     #ff8a2a;
+  --xr-pinball-district-3:     #ffd23f;
+  --xr-pinball-district-4:     #3ccf6e;
+  --xr-pinball-district-5:     #2fd3e8;
+  --xr-pinball-district-6:     #9b5cff;
+  --xr-pinball-river:          #3fd6ff;
+  --xr-pinball-river-deep:     #1677d6;
+  --xr-pinball-river-bank:     #f7e3b0;
+  --xr-pinball-bridge:         #e9e2f5;
+  --xr-pinball-plaza:          #d9709f;
+  --xr-pinball-plaza-line:     #ffb3d5;
   --xr-pinball-field-text:     #e8ecf6;
   --xr-pinball-danger:         #ff4d5e;   /* outlanes */
   --xr-pinball-wall:           #2b40a6;
@@ -42,6 +55,12 @@
   --xr-pinball-star:           #ffffff;   /* star rollovers */
   --xr-pinball-spinner:        #e8ecf4;
   --xr-pinball-trough:         #04060d;   /* the ball trough window */
+  --xr-pinball-agency:         #fff4ec;   /* the agency town's toys */
+  --xr-pinball-agency-trim:    #9b5cff;
+  --xr-pinball-glass:          #8fe8ff;
+  --xr-pinball-beacon:         #ff3048;
+  --xr-pinball-van:            #ffffff;
+  --xr-pinball-mailbox:        #ffc21a;
   --xr-pinball-sling:          #ff3b48;
   --xr-pinball-bumper-body:    #f6f2e8;
   --xr-pinball-bumper-base:    #1a1f33;

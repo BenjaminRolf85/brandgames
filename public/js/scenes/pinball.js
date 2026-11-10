@@ -589,6 +589,7 @@ export class PinballScene extends BaseScene {
     this.popup(`+${pts * this.factor()}`, CH_TOKEN[ch], x, y);
     if (ch !== 'social' || followed || !this.msg) this.message(t('pinballKpiReachUp', { n: fmt(people) }), line, ch === 'social' && !followed ? 0.8 : 1.6);
     this.flash(CH_TOKEN[ch], x, y);
+    this.machine?.town.hit(ch);
     this.themed(ch, x, y, k, n);
     this.chBall.add(ch);
     this.funnelStep(ch, people, clicks);
@@ -977,12 +978,13 @@ export class PinballScene extends BaseScene {
       for (const o of this.layer.children) if (o.w && o.h) add(o);
       if (pts.length) return pts;
     }
-    const field = [[-0.27, -0.03], [0.32, -0.03], [-0.27, 1.07], [0.32, 1.07]];
+    const field = [[-0.27, -0.03], [0.32, -0.03], [-0.27, 1.2], [0.32, 1.2]];
     for (const [x, y] of field) pts.push(m.world(x, y, 0), m.world(x, y, 0.07));
     const head = m.root;
     // Phones held sideways frame the playfield (the head may be cut off at the top).
     const tight = this.engine.touchUI && window.innerWidth > window.innerHeight;
-    const top = new THREE.Vector3(0, tight ? 0.3 : 0.86, -1.08);
+    // Browser: the backglass's lower part (its studio scene); the headset sees all of it anyway.
+    const top = new THREE.Vector3(0, tight ? 0.36 : this.engine.isXR ? 0.9 : 0.7, -1.26);
     for (const x of [-0.29, 0.34]) pts.push(head.localToWorld(top.clone().setX(x)));
     pts.push(head.localToWorld(new THREE.Vector3(0.025, -0.05, 0.15))); // plunger knob, lockdown
     if (this.mode !== 'intro' && this.planPanel?.visible) {
@@ -1142,6 +1144,10 @@ export class PinballScene extends BaseScene {
         else if (attract) ins.level = 0.15 + 0.85 * chase(i, GROUPS.length, 6);
         else ins.level = this.personas?.has(i) ? 0.9 : 0.12 + (this.xbUsed ? 0 : 0.15 * blink);
       });
+      for (let i = 0; i < 4; i++) {
+        const ins = I[`star${i}`];
+        if (ins) ins.level = showing ? strobe(i + 3) : 0.15 + 0.85 * chase(i, 4, attract ? 7 : 2.5);
+      }
       this.table.drops.forEach((q, i) => {
         const ins = I[`drop${i}`];
         if (!ins) return;

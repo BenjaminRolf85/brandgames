@@ -18,7 +18,7 @@ import { t } from './i18n.js';
 import { SLOPE, GROUPS, GUIDE_X, LANE_Y, KICKBACK, ARC, SPINNER } from './pinball-layout.js';
 import { drawGlyph } from './pinball-visuals.js';
 import { makeFlasher } from './pinball-fx.js';
-import { drawPortrait } from './pinball-props.js';
+import { drawPortrait, drawFigure } from './pinball-props.js';
 
 const fp = (x, y, h = 0) => new THREE.Vector3(x, h, -y);
 const SA = Math.sin(SLOPE);
@@ -26,7 +26,7 @@ const CA = Math.cos(SLOPE);
 /** Playfield point -> machine frame (the root), like FP() in blender/build_pinball.py. */
 const FP = (x, y, h = 0) => new THREE.Vector3(x, y * SA + h * CA, -y * CA + h * SA);
 /** The cabinet's measures (blender/build_pinball.py: BX0, BX1, IX0, IX1, YF, YB, HT, YBOT). */
-export const CAB = { x0: -0.288, x1: 0.338, ix0: -0.268, ix1: 0.318, yf: -0.075, yb: 1.3, ht: 0.07, ybot: -0.3 };
+export const CAB = { x0: -0.288, x1: 0.338, ix0: -0.268, ix1: 0.318, yf: -0.075, yb: 1.48, ht: 0.07, ybot: -0.3 };
 const GROUP_TOKEN = GROUPS.map((g, i) => `xr-pinball-group-${i + 1}`);
 
 /** Where the new inserts are on the playfield. */
@@ -40,7 +40,13 @@ export const SPOTS = {
   })(),
   inlane: [{ x: -0.177, y: 0.274 }, { x: 0.177, y: 0.274 }],
   dropNo: [0.425, 0.465, 0.505].map((y) => ({ x: -0.199, y, r: 0.0068 })),
+  stars: [50, 130, 240, 300].map((d) => ({ x: Math.cos((d * Math.PI) / 180) * 0.105, y: 0.5 + Math.sin((d * Math.PI) / 180) * 0.105 })),
 };
+const starPts = (x, y, r) => Array.from({ length: 10 }, (_, i) => {
+  const a = Math.PI / 2 + (i * Math.PI) / 5;
+  const rr = i % 2 ? r * 0.45 : r;
+  return [x + Math.cos(a) * rr, y + Math.sin(a) * rr];
+});
 /** The persona lamps: in front of each standup target. */
 const personaSpot = (s) => ({ x: s.x + s.nx * 0.03, y: s.y + s.ny * 0.03, r: 0.0085 });
 
@@ -338,40 +344,63 @@ function drawBackboxSide(ctx, W, H) {
   ctx.fillRect(0, H * 0.954, W, H * 0.008);
 }
 
-/** Wood grain for the side blades inside the cabinet, with a printed pinstripe. */
-function drawWood(ctx, W, H) {
+/**
+ * The printed side blades inside the cabinet: an evening skyline of the town, billboards and
+ * speech bubbles, the target groups walking along; a wooden top edge.
+ */
+function drawBlade(ctx, W, H) {
   const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, color('xr-pinball-wood-light'));
-  g.addColorStop(1, color('xr-pinball-wood'));
+  g.addColorStop(0, color('xr-pinball-district-6'));
+  g.addColorStop(0.55, color('xr-pinball-district-1'));
+  g.addColorStop(1, color('xr-pinball-district-2'));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
-  const rnd = mulberry(3);
-  ctx.strokeStyle = color('xr-pinball-wood-grain');
-  for (let k = 0; k < 26; k++) {
-    const y0 = rnd() * H;
-    const amp = 2 + rnd() * 5;
-    const fq = 0.004 + rnd() * 0.01;
-    ctx.globalAlpha = 0.25 + rnd() * 0.4;
-    ctx.lineWidth = 0.6 + rnd() * 1.6;
-    ctx.beginPath();
-    for (let x = 0; x <= W; x += 16) {
-      const y = y0 + Math.sin(x * fq + k) * amp + Math.sin(x * fq * 3.1) * amp * 0.3;
-      if (x) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+  const rnd = mulberry(9);
+  const ground = H * 0.775; // the playfield's level on the blade (h = 0; the blade starts 2 cm below)
+  // Two rows of buildings: far ones in violet, near ones in the cabinet's blue, lit windows.
+  for (const [tok, hMin, hMax, alpha] of [['xr-pinball-district-6', 0.25, 0.5, 0.7], ['xr-pinball-cabinet-dark', 0.15, 0.36, 1]]) {
+    let x = -10;
+    while (x < W) {
+      const w = 30 + rnd() * 70;
+      const h = H * (hMin + rnd() * (hMax - hMin));
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = color(tok);
+      ctx.fillRect(x, ground - h, w, h + H);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = color('xr-pinball-window');
+      for (let wy = ground - h + 6; wy < ground - 6; wy += 10) {
+        for (let wx = x + 5; wx < x + w - 6; wx += 9) if (rnd() < 0.45) ctx.fillRect(wx, wy, 4, 5);
+      }
+      x += w + 2;
     }
-    ctx.stroke();
   }
-  // A few knots.
-  for (let k = 0; k < 5; k++) {
-    const x = rnd() * W;
-    const y = H * (0.3 + rnd() * 0.4);
-    ctx.globalAlpha = 0.35;
-    ctx.beginPath();
-    ctx.ellipse(x, y, 18, 5, 0, 0, Math.PI * 2);
-    ctx.stroke();
+  // Billboards and speech bubbles over the roofs.
+  for (let k = 0; k < 12; k++) {
+    const x = (k + 0.5) * (W / 12) + (rnd() - 0.5) * 60;
+    const y = H * (0.2 + rnd() * 0.15);
+    if (k % 3 === 0) {
+      ctx.fillStyle = color('xr-pinball-white');
+      ctx.fillRect(x - 26, y - 14, 52, 28);
+      ctx.fillStyle = color(`xr-pinball-district-${1 + (k % 6)}`);
+      ctx.fillRect(x - 23, y - 11, 46, 22);
+      ctx.fillStyle = color('xr-pinball-white');
+      ctx.font = font('black', 15);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(['#', '@', '+1', '!'][k % 4], x, y + 1);
+    } else {
+      bubble(ctx, x, y, 11, ['heart', 'like', 'at', 'video', 'app', 'poster'][k % 6]);
+    }
   }
-  ctx.globalAlpha = 1;
+  // The target groups walking along the street.
+  GROUPS.forEach((gr, i) => {
+    for (let r = 0; r < 3; r++) drawFigure(ctx, gr, ((r * 4 + i + 0.5) / 12) * W, ground + 2, H * 0.42);
+  });
+  // The wooden top edge.
+  ctx.fillStyle = color('xr-pinball-wood');
+  ctx.fillRect(0, 0, W, H * 0.07);
   ctx.fillStyle = color('xr-pinball-lane-light');
-  ctx.fillRect(0, H * 0.08, W, 3);
+  ctx.fillRect(0, H * 0.07, W, 2);
 }
 
 // ---------- plastics ----------
@@ -549,6 +578,7 @@ export function detailInserts(table) {
     const p = personaSpot(s);
     out.push({ key: `persona${i}`, circle: p, token: GROUP_TOKEN[i], x: p.x, y: p.y, size: 0.05 });
   });
+  SPOTS.stars.forEach((p, i) => out.push({ key: `star${i}`, pts: starPts(p.x, p.y, 0.012), token: `xr-pinball-district-${[3, 1, 5, 2][i]}`, x: p.x, y: p.y, size: 0.06 }));
   return out;
 }
 
@@ -680,9 +710,9 @@ export function buildDetails({ root, field, parts, anchors, table, lite }) {
   ]), bbMat);
   bbMesh.userData.noFit = true;
   root.add(bbMesh);
-  // ---- wooden side blades inside the cabinet (above the playfield) ----
-  const wc = canvas(2048, 128);
-  drawWood(wc.ctx, 2048, 128);
+  // ---- printed side blades inside the cabinet (above the playfield) ----
+  const wc = canvas(3072, 192);
+  drawBlade(wc.ctx, 3072, 192);
   const woodTex = own(texture(wc.c));
   const woodMat = own(new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.42, metalness: 0.05, polygonOffset: true, polygonOffsetFactor: -1 }));
   const blade = (x) => {

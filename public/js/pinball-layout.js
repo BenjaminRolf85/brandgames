@@ -12,7 +12,8 @@ import { World, Ramp } from './pinball-physics.js';
 export const BALL_R = 0.0145;
 export const SLOPE = (7 * Math.PI) / 180; // visual tilt of the playfield
 export const GRAVITY = 1.35; // along the slope (m/s^2), a little snappier than a real 6.5 degrees
-export const BOARD = { x0: -0.262, x1: 0.312, y0: -0.02, y1: 1.1 }; // the wooden playfield board
+export const BOARD = { x0: -0.262, x1: 0.312, y0: -0.02, y1: 1.27 }; // the playfield board (the town behind the arch included)
+const RAMP_DRAG = 0.08; // the long wireforms roll freely (a short ramp has 0.25)
 export const LANE_X = 0.267; // shooter lane center
 export const PLUNGER_Y = 0.074; // plunger tip at rest
 export const PLUNGER_TRAVEL = 0.05;
@@ -51,10 +52,14 @@ function rampPath(side) {
   const m = rampMouth(1);
   const a = add(m.M, m.d, 0.022);
   const b = add(m.M, m.d, 0.064);
+  // Up the outside, over the top arch into the town behind it, around the studio there, back
+  // over the lanes and down onto the inlane.
   const P = [
-    [a[0], a[1], 0.0], [b[0], b[1], 0.012], [-0.206, 0.7, 0.032], [-0.21, 0.78, 0.054],
-    [-0.19, 0.858, 0.072], [-0.145, 0.9, 0.082], [-0.107, 0.872, 0.084], [-0.112, 0.77, 0.078],
-    [-0.118, 0.63, 0.064], [-0.13, 0.51, 0.046], [-0.158, 0.44, 0.026], [-0.175, 0.392, 0.008], [-0.176, 0.378, 0.0],
+    [a[0], a[1], 0.0], [b[0], b[1], 0.012], [-0.206, 0.7, 0.032], [-0.216, 0.8, 0.05],
+    [-0.222, 0.9, 0.06], [-0.214, 1.0, 0.064], [-0.192, 1.1, 0.064], [-0.15, 1.185, 0.064],
+    [-0.097, 1.195, 0.064], [-0.068, 1.12, 0.064], [-0.072, 1.0, 0.07], [-0.095, 0.9, 0.076],
+    [-0.108, 0.84, 0.077], [-0.112, 0.77, 0.074], [-0.118, 0.63, 0.062], [-0.13, 0.51, 0.046],
+    [-0.158, 0.44, 0.026], [-0.175, 0.392, 0.008], [-0.176, 0.378, 0.0],
   ];
   return P.map(([x, y, h]) => [x * side, y, h]);
 }
@@ -139,7 +144,7 @@ export function buildTable() {
     wall([m.l1, m.r1], 'rail', { e: 0.2 });
     const outerX = side > 0 ? -0.24 : 0.2445;
     wall([[outerX, 0.735], [m.r1[0] + 0.003 * side, m.r1[1] + 0.003]], 'wall');
-    const ramp = w.addRamp({ id, points: rampPath(side), mouth: m.mouth, dir: m.d, vMin: 0.9 });
+    const ramp = w.addRamp({ id, points: rampPath(side), mouth: m.mouth, dir: m.d, vMin: 0.9, drag: RAMP_DRAG });
     ramp.channel = channel;
     ramps[id] = { ramp, mouth: m, channel, side };
   }
