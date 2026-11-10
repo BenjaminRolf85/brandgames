@@ -88,13 +88,14 @@ export class GreenScene extends BaseScene {
     board.visible = xr || !over; // behind the results only in the headset (on the table)
     if (this.region) {
       this.region.cloudY = xr ? 0.27 : 0.16;
-      this.region.showSun = xr;
+      this.region.showSun = xr && !over;
       this.region.turbineYaw = -0.35 - (touch && portrait && !intro && !over ? Math.PI / 2 : 0);
     }
     if (xr) {
-      board.position.set(0, eye - num('xr-green-table-drop') - (over ? 0.16 : 0), num('xr-green-table-z'));
+      // Behind the results the diorama sinks a little and comes closer, below the sight lines.
+      board.position.set(0, eye - num('xr-green-table-drop') - (over ? 0.24 : 0), num('xr-green-table-z') + (over ? 0.1 : 0));
       board.rotation.set(0, 0, 0);
-      board.scale.setScalar(over ? 0.8 : 1);
+      board.scale.setScalar(over ? 0.7 : 1);
     } else if (intro) {
       board.position.set(0, eye - (touch && portrait ? 1.02 : 0.98), -1.6);
       board.rotation.set(tilt, 0, 0);
@@ -104,9 +105,9 @@ export class GreenScene extends BaseScene {
       board.rotation.set(tilt, 0, 0);
       board.scale.setScalar(1.2);
     } else if (!touch) {
-      board.position.set(0, eye - 0.06, -1.4);
+      board.position.set(0, eye - 0.13, -1.4);
       board.rotation.set(tilt, 0, 0);
-      board.scale.setScalar(1.08);
+      board.scale.setScalar(1.34);
     } else if (portrait) {
       // Phone held upright: the map turns a quarter (sea at the top, fields below) and is
       // seen a little more from above, so it fills the tall screen and the plots get bigger.
@@ -144,26 +145,34 @@ export class GreenScene extends BaseScene {
     }
     this.fc.rotation.set(0, 0, 0);
     this.fc.scale.setScalar(1);
+    this.dash.scale.setScalar(1);
+    this.cards.scale.setScalar(this.engine.isXR ? 0.86 : 1);
     this.dash.visible = !touch;
     this.cards.visible = !touch;
     this.spacer.visible = false;
     if (xr) {
-      placeOnArc(this.fc, -0.74, eye - 0.08, 1.0);
-      placeOnArc(this.dash, 0.74, eye - 0.08, 1.0);
+      placeOnArc(this.fc, -0.66, eye - 0.17, 1.0);
+      placeOnArc(this.dash, 0.66, eye - 0.17, 1.0);
+      // Tilted back a little towards the eyes (you look down at the table).
+      this.fc.rotation.x = -0.18;
+      this.dash.rotation.x = -0.18;
       // The cards lie like a tray at the front edge of the table, tilted towards you.
-      this.cards.position.set(0, eye - num('xr-green-table-drop') - 0.03, num('xr-green-table-z') + 0.47);
-      this.cards.rotation.set(-0.95, 0, 0);
+      this.cards.position.set(0, eye - num('xr-green-table-drop') - 0.05, num('xr-green-table-z') + 0.45);
+      this.cards.rotation.set(-0.85, 0, 0);
     } else if (!touch) {
-      this.fc.position.set(-0.88, eye + 0.02, -1.4);
-      this.dash.position.set(0.88, eye + 0.02, -1.4);
-      this.cards.position.set(0, eye - 0.57, -1.4);
+      this.fc.scale.setScalar(1.14);
+      this.dash.scale.setScalar(1.14);
+      this.fc.position.set(-1.08, eye - 0.07, -1.4);
+      this.dash.position.set(1.08, eye - 0.07, -1.4);
+      this.cards.position.set(0, eye - 0.86, -1.4);
+      this.cards.scale.setScalar(1.12);
       this.cards.rotation.set(0, 0, 0);
     } else if (portrait) {
       this.fc.position.set(0, eye + 0.5, -1.4);
     } else this.landFrame();
     this.toastAt = xr ? new THREE.Vector3(0, eye + 0.06, num('xr-green-table-z') - 0.2)
       : touch && portrait ? new THREE.Vector3(0, eye - 0.2, -1.2)
-        : touch ? this.toastAt : new THREE.Vector3(0, eye + 0.36, -1.3);
+        : touch ? this.toastAt : new THREE.Vector3(0, eye + 0.4, -1.3);
   }
 
   /**
@@ -681,7 +690,7 @@ export class GreenScene extends BaseScene {
         if (Math.floor(this.time * 2) !== this.hudTick) { this.hudTick = Math.floor(this.time * 2); this.refreshHud?.(); }
       }
       // Calm planning weather (a winter morning at Christmas).
-      const calm = { wind: 0.55, sun: 1, cloud: this.engine.isXR ? 0.3 : 0, rain: 0, snowfall: CHRISTMAS ? 0.22 : 0, snow: 0.65, night: 0, storm: 0 };
+      const calm = { wind: 0.55, sun: 1, cloud: this.engine.isXR && this.mode !== 'over' ? 0.3 : 0, rain: 0, snowfall: CHRISTMAS && this.mode !== 'over' ? 0.22 : 0, snow: 0.65, night: 0, storm: 0 };
       for (const k of Object.keys(calm)) this.vis[k] += (calm[k] - this.vis[k]) * Math.min(1, dt * 1.5);
       this.vis.month += (2.4 - this.vis.month) * Math.min(1, dt);
       this.vis.cutout = false;

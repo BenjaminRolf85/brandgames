@@ -237,8 +237,8 @@ def coin(scene_json, out_png):
     attr = nt.nodes.new('ShaderNodeVertexColor')
     attr.layer_name = 'Col'
     hsv = nt.nodes.new('ShaderNodeHueSaturation')
-    hsv.inputs['Saturation'].default_value = 1.45
-    hsv.inputs['Value'].default_value = 0.8
+    hsv.inputs['Saturation'].default_value = 1.18
+    hsv.inputs['Value'].default_value = 0.86
     nt.links.new(attr.outputs['Color'], hsv.inputs['Color'])
     nt.links.new(hsv.outputs['Color'], bsdf.inputs['Base Color'])
     bsdf.inputs['Roughness'].default_value = 0.45
@@ -295,7 +295,7 @@ def coin(scene_json, out_png):
     grad.gradient_type = 'SPHERICAL'
     tc = nt.nodes.new('ShaderNodeTexCoord')
     mp = nt.nodes.new('ShaderNodeMapping')
-    mp.inputs['Scale'].default_value = (0.9, 0.9, 0.9)
+    mp.inputs['Scale'].default_value = (0.62, 0.62, 0.62)
     ramp = nt.nodes.new('ShaderNodeValToRGB')
     # Spherical gradient: 1 in the middle, 0 at the rim: a glow behind the protein.
     ramp.color_ramp.elements[0].color = (*srgb(data['bg'][1]), 1)
@@ -311,7 +311,7 @@ def coin(scene_json, out_png):
     bmesh.ops.create_circle(bm, cap_ends=True, segments=64, radius=4.0)
     bmesh.ops.rotate(bm, verts=bm.verts, cent=Vector(), matrix=Matrix.Rotation(math.pi / 2, 3, 'X'))
     back = link('Backdrop', bm, bg)
-    back.location = P(0, 0.02, -0.9)
+    back.location = P(0, -0.06, -0.9)
     import random
     rnd = random.Random(7)
     for i in range(44):
