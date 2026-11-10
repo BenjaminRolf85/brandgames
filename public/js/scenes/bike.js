@@ -29,20 +29,21 @@ import { EVENT } from '../event.js';
 import { makeEnvironment, radialTexture } from '../robot-visuals.js';
 import { TIRES, PRESSURES, BEST, planScans, rate, sensorText, liveScan } from '../bike-ai.js';
 import {
-  makeCourse, makeTerrain, Scatter, makeSky, makeBase, makeScanFx, makeGuideDots, makeSnow, makeMist, makeSparks,
+  makeCourse, makeTerrain, Scatter, makeSky, makeBase, makeScanFx, makeGuideDots, makeSnow, makeMist, makeSparks, makeCurtains, vergeHeight,
   HZ, ITEMS, RAMPS, RAMP_H, S0, STOP_GAP, HALF, EDGE,
 } from '../bike-world.js';
 import {
   loadBikeGLTF, loadWorldGLTF, loadJumpsGLTF, modelKit, BikeRig, EchoRider, SwallowGuide, ScanDrone, makeArch, pitSign, TIRE_NODES, TIRE_TOKENS,
 } from '../bike-models.js';
 import { makeWeatherLayer, makeRain, WEATHER_LOOK } from '../bike-weather.js';
+import { makeTracks, makeSpeedLines } from '../bike-tracks.js';
 
 const clamp = THREE.MathUtils.clamp;
 const lerp = THREE.MathUtils.lerp;
 const smooth = (a, b, x) => { const k = clamp((x - a) / (b - a), 0, 1); return k * k * (3 - 2 * k); };
 const easeOut = (k) => 1 - (1 - k) ** 3;
 
-const V_NOM = 5.0; // m/s at bike scale with a neutral choice
+const V_NOM = 5.3; // m/s at bike scale with a neutral choice
 const SCAN_T = 2.2; // seconds of scanning
 const CHOOSE_T = EVENT ? 8 : 10; // seconds to choose
 const BRAKE = 5; // m/s^2
@@ -160,7 +161,7 @@ export class BikeScene extends BaseScene {
     cg.add(this.fx.group);
     this.dots = makeGuideDots();
     cg.add(this.dots);
-    this.snow = makeSnow(this.course);
+    this.snow = makeSnow(this.course, 260, this.clip);
     cg.add(this.snow);
     this.mist = makeMist();
     cg.add(this.mist);
@@ -172,8 +173,13 @@ export class BikeScene extends BaseScene {
       if (layer) cg.add(layer);
       return layer;
     });
-    this.rain = makeRain();
+    this.rain = makeRain(320, this.clip);
     cg.add(this.rain);
+    // Tire tracks (one recycled ribbon per wheel) and speed lines on fast descents.
+    this.tracks = makeTracks(this.clip);
+    cg.add(this.tracks.group);
+    this.speedLines = makeSpeedLines(70, this.clip);
+    cg.add(this.speedLines);
     // A soft shadow under the bike that stays on the ground: it shows the height of a jump.
     this.blob = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.9).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-bike-hole'), transparent: true, opacity: 0.5, depthWrite: false }));
     this.blob.userData.noFit = true;
@@ -184,8 +190,11 @@ export class BikeScene extends BaseScene {
     const len1 = -WIN.frontXR * S;
     this.base = makeBase(WIN.side * 2 * S, len0, len1, 0.07);
     st.add(this.base);
+    // Its cut edges follow the hills (headset).
+    this.curtains = makeCurtains(this.base.userData.earth);
+    st.add(this.curtains);
     // Light: a key light with a shadow over the window around the bike, a cool rim light.
-    const key = new THREE.DirectionalLight(0xffffff, 1.55);
+    const key = new THREE.DirectionalLight(hex('xr-bike-key-light'), 1.55);
     key.position.set(-0.55, 1.4, 0.5);
     key.target.position.set(0, 0, -0.55);
     const rim = new THREE.DirectionalLight(hex('xr-bike-sky-1-low'), 0.6);
@@ -202,8 +211,8 @@ export class BikeScene extends BaseScene {
       key.shadow.mapSize.set(1024, 1024);
       Object.assign(key.shadow.camera, { left: -0.75, right: 0.75, top: 1.2, bottom: -1.0, near: 0.1, far: 3.2 });
       key.shadow.camera.updateProjectionMatrix();
-      key.shadow.bias = -0.0006;
-      key.shadow.normalBias = 0.01;
+      key.shadow.bias = -0.0015;
+      key.shadow.normalBias = 0.02;
     }
     // Browser: a sky around the camera.
     if (!this.engine.isXR) {
@@ -251,14 +260,14 @@ export class BikeScene extends BaseScene {
     for (const p of c.props) { if (!groups.has(p.n)) groups.set(p.n, []); groups.get(p.n).push(p); }
     const big = new Set(['PrTree', 'PrPine', 'PrPineSnow', 'PrLamp', 'PrSnowman', 'PrHay', 'PrFence', 'PrBush', 'PrLantern', 'PrSign', 'PrStump', 'PrRock', 'PrRockSnow']);
     big.add('PitGantry');
-    for (const [n, list] of groups) this.scatters.push(new Scatter(this.cg, partsOf(n), list, c, { shadow: !lite && big.has(n) }));
-    this.hzScatters = Object.entries(HZ).map(([type, spec]) => new Scatter(this.cg, partsOf(spec.node), c.hazards.filter((h) => h.type === type), c, { shadow: !lite }));
+    for (const [n, list] of groups) this.scatters.push(new Scatter(this.cg, partsOf(n), list, c, { shadow: !lite && big.has(n), ground: 'verge' }));
+    this.hzScatters = Object.entries(HZ).map(([type, spec]) => new Scatter(this.cg, partsOf(spec.node), c.hazards.filter((h) => h.type === type), c, { shadow: !lite, tilt: true }));
     // Ramps: the course knows their middle; the model's lip is 0.8 ahead.
-    for (const [kind, node] of Object.entries(RAMPS)) this.scatters.push(new Scatter(this.cg, partsOf(node), c.ramps.filter((r) => r.kind === kind), c, { shadow: !lite }));
+    for (const [kind, node] of Object.entries(RAMPS)) this.scatters.push(new Scatter(this.cg, partsOf(node), c.ramps.filter((r) => r.kind === kind), c, { shadow: !lite, tilt: true }));
     // The pit stop signs.
     this.pitSigns = c.weather.map((w) => {
       const sign = pitSign(t('bikePitSign'), this.clip);
-      sign.position.applyAxisAngle(new THREE.Vector3(0, 1, 0), c.yaw(w.pit + 1.6)).add(c.point(w.pit + 1.6, 0));
+      sign.position.applyAxisAngle(new THREE.Vector3(0, 1, 0), c.yaw(w.pit + 1.6)).add(c.pointH(w.pit + 1.6, 0));
       sign.rotation.y = c.yaw(w.pit + 1.6);
       this.cg.add(sign);
       return sign;
@@ -268,7 +277,7 @@ export class BikeScene extends BaseScene {
     // The start and finish arches.
     this.arches = [[S0 - 0.8, t('bikeStart')], [c.finish, t('bikeFinish')]].map(([s, text]) => {
       const a = makeArch(W, text, this.clip);
-      a.position.copy(c.point(s, 0));
+      a.position.copy(c.pointH(s, 0));
       a.rotation.y = c.yaw(s);
       this.cg.add(a);
       return a;
@@ -1309,7 +1318,7 @@ export class BikeScene extends BaseScene {
   // ---------------------------------------------------------------- jumps
 
   /** Takes off: a hop, or off a ramp (pressed close to the lip: big air). */
-  takeoff(ramp, auto = false) {
+  takeoff(ramp, auto = false, climb = 0) {
     let vy = HOP;
     let big = false;
     let lip = false;
@@ -1323,7 +1332,8 @@ export class BikeScene extends BaseScene {
         lip = q > 0.7;
       }
     }
-    Object.assign(this, { inAir: true, vy, big, lipBonus: lip, airT: 0, tuckT: 0, tiltT: 0, feature: !!ramp, fromRamp: ramp ?? null, slowDone: false });
+    // The climb of the slope adds to the jump (and a descent takes from it).
+    Object.assign(this, { inAir: true, vy: vy + climb, big, lipBonus: lip, airT: 0, tuckT: 0, tiltT: 0, feature: !!ramp, crest: false, fromRamp: ramp ?? null, slowDone: false });
     this.jumps += 1;
     sfx.jump();
     this.rider?.mood(big ? 'happy' : 'focus', 0.8);
@@ -1335,8 +1345,13 @@ export class BikeScene extends BaseScene {
   /** Touchdown: clean (straight, wheelie released) gives points, a boost and the combo. */
   land(ground) {
     this.inAir = false;
-    this.y = ground;
+    this.Y = ground;
+    this.Yprev = ground;
+    this.y = 0;
     this.vy = 0;
+    // A real flight off a crest or a drop counts as a jump.
+    if (this.crest && this.airT > 0.28) this.feature = true;
+    if (this.crest && this.airT < 0.2) { this.jumps -= 1; this.groundVy = this.speed * this.course.dh(this.sB); return; }
     const clean = Math.abs(this.roll) < 0.3 && this.pitch < 0.24;
     this.camDip = this.big ? 1 : 0.6;
     const kind = this.course.sectionAt(this.sB).kind;
@@ -1464,8 +1479,13 @@ export class BikeScene extends BaseScene {
   finish() {
     if (this.mode === 'over') return;
     // Time: from the best possible ride to 60 % slower.
-    const dist = this.course.finish - (S0 - STOP_GAP);
-    const best = dist / (V_NOM * 1.08) + 2;
+    // The best time: the perfect choice's speed along the hills, plus the stops' braking.
+    const c = this.course;
+    let best = 2;
+    for (let x = S0 - STOP_GAP; x < c.finish; x += 0.5) {
+      const sl = c.dh(x);
+      best += 0.5 / (V_NOM * 1.08 * clamp(1 - sl * (sl > 0 ? 2.3 : 1.9), 0.4, 1.55));
+    }
     const slow = best * 1.6;
     this.pts.time = Math.round(TIME_PTS * clamp((slow - this.rideT) / (slow - best), 0, 1));
     const score = this.liveScore();
@@ -1547,6 +1567,7 @@ export class BikeScene extends BaseScene {
       default: break;
     }
     this.positionCourse();
+    this.updateCurtains();
     this.updateActors(gdt);
     if (!e.isXR) this.updateCamera(dt);
     this.layoutUI(dt);
@@ -1575,6 +1596,44 @@ export class BikeScene extends BaseScene {
     this.pumpAnim = Math.max(0, (this.pumpAnim ?? 0) - dt * 3);
   }
 
+  /** Headset: the diorama's cut edges follow the hills down to the base. */
+  updateCurtains() {
+    if (!this.curtains.visible) return;
+    const c = this.course;
+    const S = this.S;
+    this.cg.updateMatrix();
+    const inv = this.cg.matrix.clone().invert();
+    const C = this.curtains.userData.C;
+    const p = new THREE.Vector3();
+    const sample = (x, z) => {
+      p.set(x, 0, z).applyMatrix4(inv);
+      let s = -p.z;
+      let v = 0;
+      for (let k = 0; k < 3; k++) {
+        const d = c.dcx(s);
+        const n = 1 / Math.sqrt(1 + d * d);
+        v = (p.x - c.cx(s)) / n;
+        s = -(p.z - v * d * n);
+      }
+      const hy = c.h(s) + (Math.abs(v) < 2.1 ? 0.02 : vergeHeight(v, s, c.sectionAt(s).kind));
+      return { x, z, top: this.cg.position.y + hy * S };
+    };
+    const x0 = -this.win.side * S;
+    const x1 = this.win.side * S;
+    const z0 = this.win.back * S;
+    const z1 = -this.win.front * S;
+    const edge = (fx, fz) => Array.from({ length: C + 1 }, (_, i) => sample(fx(i / C), fz(i / C)));
+    const edges = [
+      edge((k) => x0 + (x1 - x0) * k, () => z0),
+      edge((k) => x0 + (x1 - x0) * k, () => z1),
+      edge(() => x0, (k) => z0 + (z1 - z0) * k),
+      edge(() => x1, (k) => z0 + (z1 - z0) * k),
+    ];
+    const bottom = Math.min(...edges.flat().map((q) => q.top)) - 0.012;
+    this.base.position.y = bottom;
+    this.curtains.userData.update(edges, bottom);
+  }
+
   updateWindow(dt) {
     const want = this.windowTarget();
     const k = Math.min(1, dt * 1.6);
@@ -1588,6 +1647,7 @@ export class BikeScene extends BaseScene {
     this.clip.forEach((p, i) => p.copy(this.clipLocal[i]).applyMatrix4(this.stage.matrixWorld));
     const narrow = this.win.side < 6;
     this.base.visible = narrow;
+    this.curtains.visible = narrow;
     this.base.userData.scroll(this.sB, 12);
   }
 
@@ -1647,6 +1707,10 @@ export class BikeScene extends BaseScene {
     if (this.slowT > 0) vT *= 0.55;
     if (this.mudT > 0) vT *= 0.42;
     if (this.boostT > 0) vT *= 1.15;
+    // Hills: slower uphill (much slower with the wrong tire), faster downhill.
+    const slope = c.dh(this.sB);
+    vT *= clamp(1 - slope * (slope > 0 ? 2.3 * (1 + 1.4 * (1 - g)) : 1.9), 0.4, 1.55);
+    this.slope = slope;
     if ((this.mode === 'brake' || this.mode === 'pitIn') && !this.inAir) {
       const left = Math.max(0, this.stopS - this.sB);
       this.speed = Math.min(this.speed, Math.sqrt(2 * BRAKE * left));
@@ -1659,7 +1723,7 @@ export class BikeScene extends BaseScene {
         return;
       }
     } else if (this.mode !== 'brake' && this.mode !== 'pitIn') {
-      this.speed += (vT - this.speed) * Math.min(1, dt * (vT > this.speed ? 1.3 : 2.5));
+      if (!this.inAir) this.speed += (vT - this.speed) * Math.min(1, dt * (vT > this.speed ? (slope < -0.02 ? 2.2 : 1.3) : 2.5));
     }
     // Lateral: towards the target, slower with little grip; drift outwards in curves.
     const vmax = 2.4 + 1.6 * g;
@@ -1689,7 +1753,7 @@ export class BikeScene extends BaseScene {
     this.collide(prev, this.sB);
     // Little grip (the wrong tire): now and then the bike slips away in a curve.
     if (g < 0.72 && this.mode === 'ride' && this.slipT <= 0) {
-      this.gripSlip = (this.gripSlip ?? 0) + dt * (0.72 - g) * (0.6 + Math.abs(c.ddcx(this.sB)) * 25);
+      this.gripSlip = (this.gripSlip ?? 0) + dt * (0.72 - g) * (0.6 + Math.abs(c.ddcx(this.sB)) * 25 + Math.max(0, slope) * 6);
       if (this.gripSlip > 1.6) {
         this.gripSlip = 0;
         this.slipT = 0.8;
@@ -1713,30 +1777,49 @@ export class BikeScene extends BaseScene {
     if (this.air < AIR_FLAT && this.mode === 'ride' && !this.inAir) this.beginFlat();
   }
 
-  /** Jump physics: ramps under the wheels, takeoff, air time with tricks, landing. */
+  /**
+   * Jump physics on the hills (heights are absolute: Y, vy): ramps under the wheels, takeoff (the
+   * slope's climb adds to it), crests and drops that throw the bike up when the ground falls away
+   * faster than gravity pulls, air time with tricks, landing. this.y is the height above ground.
+   */
   updateJump(dt, prevS) {
     const c = this.course;
     const ramp = c.rampAt(this.sB, this.u);
-    const ground = ramp ? RAMP_H * clamp((this.sB - (ramp.s - 0.8)) / 1.6, 0, 1) : 0;
+    const ground = c.h(this.sB) + (ramp ? RAMP_H * clamp((this.sB - (ramp.s - 0.8)) / 1.6, 0, 1) : 0);
+    const climb = this.speed * c.dh(this.sB); // vertical speed when following the trail
     if (!this.inAir) {
       if (this.jumpQueued > 0 && this.mode === 'ride') {
         this.jumpQueued = 0;
         // Pressed at the lip but the wheels just left it: still a jump off the ramp.
         const r = ramp ?? (this.onRamp && this.sB - this.onRamp.lip < 0.4 ? this.onRamp : null);
-        this.y = r && !ramp ? RAMP_H : ground;
-        this.takeoff(r);
+        this.Y = r && !ramp ? c.h(this.sB) + RAMP_H : ground;
+        this.takeoff(r, false, climb);
       } else if (this.onRamp && !ramp && prevS < this.onRamp.lip + 0.05 && this.sB >= this.onRamp.lip - 0.05) {
-        this.y = RAMP_H;
-        this.takeoff(this.onRamp, true); // off the lip without a jump: a small launch
-      } else this.y = ground;
+        this.Y = c.h(this.sB) + RAMP_H;
+        this.takeoff(this.onRamp, true, climb); // off the lip without a jump: a small launch
+      } else {
+        // Over a crest or a drop the ground can fall away faster than gravity pulls: the bike flies.
+        const fly = this.Yprev === undefined ? ground : this.Yprev + (this.groundVy ?? 0) * dt - 0.5 * GRAVITY * dt * dt;
+        if (!ramp && this.speed > 3 && this.mode === 'ride' && fly > ground + 0.0015) {
+          Object.assign(this, { inAir: true, Y: fly, vy: (this.groundVy ?? 0) - GRAVITY * dt, big: false, lipBonus: false, airT: 0, tuckT: 0, tiltT: 0, feature: false, crest: true, fromRamp: null });
+          this.jumps += 1;
+        } else this.Y = ground;
+      }
+      if (!this.inAir) {
+        this.groundVy = climb;
+        this.pitch += (0 - this.pitch) * Math.min(1, dt * 10);
+        this.roll += (0 - this.roll) * Math.min(1, dt * 10);
+      }
       this.onRamp = this.inAir ? null : ramp;
-      this.pitch += (0 - this.pitch) * Math.min(1, dt * 10);
-      this.roll += (0 - this.roll) * Math.min(1, dt * 10);
+      this.Yprev = this.Y;
+      this.y = this.Y - ground;
       return;
     }
     this.airT += dt;
     this.vy -= GRAVITY * dt;
-    this.y += this.vy * dt;
+    this.Y += this.vy * dt;
+    this.Yprev = this.Y;
+    this.y = this.Y - ground;
     // Tricks: hold the jump for a wheelie, steer for a tilt.
     const tuck = this.jumpHeld && this.airT > 0.14;
     this.pitch += ((tuck ? 0.5 : 0) - this.pitch) * Math.min(1, dt * 9);
@@ -1748,7 +1831,7 @@ export class BikeScene extends BaseScene {
     }
     this.roll += (-dir * 0.6 - this.roll) * Math.min(1, dt * 7);
     if (Math.abs(this.roll) > 0.3) this.tiltT += dt;
-    if (this.y <= ground && this.vy < 0) this.land(ground);
+    if (this.Y <= ground && this.vy < climb) this.land(ground);
   }
 
   collide(s0, s1) {
@@ -1782,7 +1865,7 @@ export class BikeScene extends BaseScene {
   /** Sparks at a spot of the course (course units, so they suit the diorama's scale). */
   spark(s, v, y, token, n = 14, speed = 2.2) {
     const p = this.course.point(s, v);
-    p.y = y;
+    p.y = y + this.course.h(s);
     this.sparks.userData.emit(p, token, n, speed);
   }
 
@@ -1915,7 +1998,8 @@ export class BikeScene extends BaseScene {
     const ca = Math.cos(a);
     const sa = Math.sin(a);
     this.cg.rotation.y = a;
-    this.cg.position.set(-(p.x * ca + p.z * sa) * this.S, 0, -(-p.x * sa + p.z * ca) * this.S);
+    // The bike stays at the diorama's height; the hills rise and fall around it.
+    this.cg.position.set(-(p.x * ca + p.z * sa) * this.S, -c.h(s) * this.S, -(-p.x * sa + p.z * ca) * this.S);
   }
 
   updateActors(dt) {
@@ -1942,30 +2026,37 @@ export class BikeScene extends BaseScene {
     if (this.bike) {
       const yawRel = -Math.atan2(this.latNow ?? 0, Math.max(1.5, this.speed)) * 0.9;
       this.bike.root.position.copy(c.point(s, this.u));
-      const groundY = ramp0(c, s, this.u);
+      const groundY = c.h(s) + ramp0(c, s, this.u);
       this.blob.position.set(this.bike.root.position.x, groundY + 0.04, this.bike.root.position.z);
-      this.blob.rotation.y = c.yaw(s);
-      const lift = Math.max(0, this.y - groundY);
+      this.blob.rotation.set(Math.atan(c.dh(s)), c.yaw(s), 0, 'YXZ');
+      const lift = this.inAir ? Math.max(0, this.y) : 0;
       this.blob.scale.setScalar(1 / (1 + lift * 0.6));
       this.blob.material.opacity = 0.5 / (1 + lift * 0.8);
-      this.bike.root.position.y = this.y;
-      // Nose up on a ramp, the wheelie pitch in the air.
+      this.bike.root.position.y = this.inAir ? this.Y : groundY;
+      // Along the slope (nose up on a ramp), along the flight in the air, plus the wheelie.
       const ramp = c.rampAt(s, this.u);
-      const slope = ramp && !this.inAir ? Math.atan2(RAMP_H, 1.6) : 0;
-      this.bike.root.rotation.set(slope + this.pitch, c.yaw(s) + (riding ? yawRel : 0), 0, 'YXZ');
+      const want = this.inAir ? Math.atan2(this.vy, Math.max(2, this.speed)) * 0.6 : Math.atan(c.dh(s)) + (ramp ? Math.atan2(RAMP_H, 1.6) : 0);
+      this.visPitch = (this.visPitch ?? want) + (want - (this.visPitch ?? want)) * Math.min(1, dt * 12);
+      this.bike.root.rotation.set(this.visPitch + this.pitch, c.yaw(s) + (riding ? yawRel : 0), 0, 'YXZ');
       const steer = clamp(yawRel * 1.4 - c.ddcx(s) * 4, -0.45, 0.45) * (riding ? 1 : 0);
       const roll = this.inAir ? this.roll : -clamp((this.latNow ?? 0) * 0.07, -0.25, 0.25) * (riding ? 1 : 0);
       this.bike.update(dt, { speed: this.speed, steer: this.inAir ? steer * 0.3 : steer, roll, wobble: this.wobble ?? 0 });
       this.bike.setBand(this.shields ?? 0);
       const look = this.mode === 'scan' ? this.drone?.root : this.mode === 'choose' || this.mode === 'over' || this.mode === 'intro' ? null : this.swallow?.root;
       const lookWorld = look ? look.getWorldPosition(new THREE.Vector3()) : this.engine.camera.getWorldPosition(new THREE.Vector3());
-      this.rider?.update(dt, { speed: this.speed, turn: this.mode === 'choose' || this.mode === 'intro' || this.mode === 'pit' ? 0.7 : 0, steer: clamp((this.latNow ?? 0) * 0.15, -0.4, 0.4), lookWorld, pedal: this.bike.crank, air: this.inAir ? 1 : 0, tuck: clamp(this.pitch / 0.5, 0, 1) });
+      // Downhill Echo tucks in, uphill it stands up on the pedals.
+      const sl = riding && !this.inAir ? c.dh(s) : 0;
+      this.rider?.update(dt, {
+        speed: this.speed, turn: this.mode === 'choose' || this.mode === 'intro' || this.mode === 'pit' ? 0.7 : 0, steer: clamp((this.latNow ?? 0) * 0.15, -0.4, 0.4), lookWorld, pedal: this.bike.crank,
+        air: this.inAir ? 1 : 0, tuck: Math.max(clamp(this.pitch / 0.5, 0, 1), clamp(-sl * 5, 0, 0.8)), climb: clamp(sl * 5, 0, 1),
+      });
+      this.updateTracks(dt, riding);
     }
     // The pump next to the bike while the tire is flat.
     if (this.pump) {
       this.pump.visible = this.mode === 'flat' || this.mode === 'pit';
       if (this.pump.visible) {
-        this.pump.position.copy(c.point(s - 0.2, this.u + (this.u > 1 ? -0.75 : 0.75)));
+        this.pump.position.copy(c.pointH(s - 0.2, this.u + (this.u > 1 ? -0.75 : 0.75)));
         this.pump.rotation.y = c.yaw(s) + 0.4;
         if (this.pumpHandle) this.pumpHandle.position.y = this.pumpY - Math.sin((this.pumpAnim ?? 0) * Math.PI) * 0.18;
       }
@@ -1978,11 +2069,11 @@ export class BikeScene extends BaseScene {
       if (riding) {
         const sa = s + ahead;
         want = c.point(sa, c.guideAt(sa + 1));
-        want.y = 2.0 + Math.sin(time * 1.7) * 0.15;
+        want.y = c.h(sa) + 2.0 + Math.sin(time * 1.7) * 0.15;
       } else {
         const a = time * 0.9;
         want = c.point(s + 3.5 + Math.sin(a) * 1.4, Math.cos(a) * 1.6);
-        want.y = 2.5 + Math.sin(time * 1.3) * 0.2;
+        want.y = c.h(s + 3.5) + 2.5 + Math.sin(time * 1.3) * 0.2;
       }
       const prev = sw.position.clone();
       if (!this.swInit) { sw.position.copy(want); this.swInit = true; }
@@ -2004,7 +2095,7 @@ export class BikeScene extends BaseScene {
       const area = this.scanArea ?? sec.b0;
       const sd = scanning ? sec.b0 + 2.4 : live ? Math.max(s + 4, w.s - 2) : s + 3.6;
       const want = c.point(sd, scanning || live ? 0 : -1.6 + Math.sin(time * 0.6) * 0.3);
-      want.y = scanning || live ? 3.6 : 3.0 + Math.sin(time * 2) * 0.08;
+      want.y = c.h(sd) + (scanning || live ? 3.6 : 3.0 + Math.sin(time * 2) * 0.08);
       d.position.lerp(want, Math.min(1, dt * (live ? 4 : 2.6)));
       d.rotation.set(scanning ? 0.18 : 0.06, c.yaw(sd), Math.sin(time * 1.4) * 0.05, 'YXZ');
       this.drone.update(dt);
@@ -2084,6 +2175,44 @@ export class BikeScene extends BaseScene {
     }
   }
 
+  /**
+   * Tire tracks (deep in mud, clear in snow, faint on wet ground) with the chosen tread, mud and
+   * snow spray from the rear wheel, and on fast descents speed lines and the wind.
+   */
+  updateTracks(dt, riding) {
+    const c = this.course;
+    const s = this.sB;
+    const w = this.wEv;
+    const kind = this.terrainNow ?? c.sectionAt(s).kind;
+    const wet = w && w.applied && (w.kind === 'rain' || w.kind === 'thaw') && s < w.end;
+    const a = kind === 'mud' ? 0.85 : kind === 'snow' ? 0.72 : wet ? 0.35 : 0;
+    const onGround = riding && !this.inAir && !c.rampAt(s, this.u) && this.speed > 0.3 && this.mode !== 'finish';
+    const tk = kind === 'mud' ? 'xr-bike-track-mud' : kind === 'snow' ? 'xr-bike-track-snow' : 'xr-bike-track-wet';
+    this.tints ??= {};
+    const tint = (this.tints[tk] ??= new THREE.Color(hex(tk)));
+    for (const [i, off] of [[0, -0.5], [1, 0.52]]) {
+      if (onGround && a > 0) this.tracks.add(i, c, s + off, this.u, c.h(s + off) + 0.045, a, this.choice.tire, tint);
+      else this.tracks.lift(i);
+    }
+    this.tracks.update(s);
+    // Spray from the rear wheel.
+    this.sprayT = (this.sprayT ?? 0) - dt;
+    if (onGround && a >= 0.6 && this.speed > 2 && this.sprayT <= 0) {
+      this.sprayT = 0.07;
+      const d = c.dcx(s);
+      const n = 1 / Math.sqrt(1 + d * d);
+      const back = new THREE.Vector3(-d * n, 0, n).multiplyScalar(this.speed * 0.35).add(new THREE.Vector3(0, 1.3, 0));
+      const p = c.pointH(s - 0.6, this.u);
+      p.y += 0.12;
+      this.sparks.userData.emit(p, kind === 'mud' ? 'xr-bike-mud-wet' : 'xr-bike-snow', 2, 0.7, 9, back, 0.55);
+    }
+    // The feel of speed on fast descents: speed lines, a wider view, the wind.
+    this.fast = clamp((this.speed - 5.6) / 1.6, 0, 1) * (riding ? 1 : 0);
+    this.speedLines.userData.update(dt, c, s, this.speed, this.fast);
+    this.windT = (this.windT ?? 0) - dt;
+    if (this.fast > 0.45 && this.windT <= 0) { this.windT = 1.1; sfx.whoosh(); }
+  }
+
   /** Browser: a chase camera behind the bike (higher while scanning, beside it while choosing). */
   updateCamera(dt) {
     const e = this.engine;
@@ -2099,10 +2228,23 @@ export class BikeScene extends BaseScene {
     else if (this.mode === 'choose' || this.mode === 'pit') { pos = portrait ? [0.2, 0.32, 0.52] : [0.28, 0.24, 0.42]; look = [0, 0.03, -0.5]; fov = portrait ? 62 : 50; }
     else if (this.mode === 'finish') { const a = 0.5 + this.phaseT * 0.35; pos = [Math.sin(a) * 0.42 + bx, 0.2, Math.cos(a) * 0.42]; look = [bx, 0.08, 0]; }
     else { pos = [bx, portrait ? 0.5 : 0.4, portrait ? 0.72 : 0.6]; look = [bx * 1.1, 0, portrait ? -0.66 : -0.95]; }
+    // Hills: the camera follows the slope behind the bike, looks at the trail's height ahead and
+    // stays above any crest in between (so the trail beyond stays in view and it never clips).
+    const S = this.S;
+    const c = this.course;
+    const s0 = this.sB;
+    const rel = (ds) => (c.h(s0 + ds) - c.h(s0)) * S;
+    const back = Math.max(0, pos[2]) / S;
+    const ahead = Math.max(1, -look[2] / S);
+    let crest = -1e9;
+    for (let d = -back; d <= ahead; d += 0.75) crest = Math.max(crest, rel(d));
+    pos[1] = Math.max(pos[1] + rel(-back) * 0.85, crest + 0.1);
+    look[1] += rel(ahead) * 0.9;
     // Follow a jump upwards a little; a landing dips the camera.
     const jy = (this.y ?? 0) * this.S;
     pos[1] += jy * 0.2 - (this.camDip ?? 0) * 0.035;
     look[1] += jy * 0.3;
+    fov += (this.fast ?? 0) * 9;
     const wantPos = this.stage.localToWorld(new THREE.Vector3(...pos));
     const wantLook = this.stage.localToWorld(new THREE.Vector3(...look));
     if (!this.camInit) {

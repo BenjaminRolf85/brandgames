@@ -39,8 +39,10 @@
   --xr-bike-mud-dark:       #3b2716;
   --xr-bike-mud-wet:        #75583a;
   --xr-bike-snow:           #eef4fb;
-  --xr-bike-snow-shade:     #c3d4ea;
-  --xr-bike-snow-track:     #d5e0ee;
+  --xr-bike-snow-shade:     #a9bdd8;
+  --xr-bike-snow-ground:    #d9e3f0;
+  --xr-bike-key-light:      #ffffff;
+  --xr-bike-snow-track:     #b6c6dc;
   --xr-bike-grass:          #5f9e3a;
   --xr-bike-grass-dark:     #3d7a2a;
   --xr-bike-grass-light:    #8cc05a;
@@ -158,6 +160,12 @@
   --xr-bike-sky-sun-low:    #ffe3a8;
   --xr-bike-sky-fog-top:    #9aa6b4;
   --xr-bike-sky-fog-low:    #dde3ea;
+
+  /* ---- tire tracks and the feel of speed ---- */
+  --xr-bike-track-mud:      #2c1d10;
+  --xr-bike-track-snow:     #7f97b9;
+  --xr-bike-track-wet:      #233243;
+  --xr-bike-speed:          #f4f8ff;   /* speed lines on fast descents */
 
   /* ---- terrain names in the UI ---- */
   --xr-bike-terrain-asphalt: #a9b4c6;

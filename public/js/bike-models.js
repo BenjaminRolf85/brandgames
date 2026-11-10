@@ -325,7 +325,7 @@ export class EchoRider {
   cheer() { this.cheerT = 1; this.face?.setMood('happy', 3); }
 
   /** state: { speed, turn (0..1 look back), steer, lookWorld, air (0..1), tuck (0..1) } */
-  update(dt, { speed = 0, turn = 0, steer = 0, lookWorld = null, pedal = 0, air = 0, tuck = 0 } = {}) {
+  update(dt, { speed = 0, turn = 0, steer = 0, lookWorld = null, pedal = 0, air = 0, tuck = 0, climb = 0 } = {}) {
     this.time += dt;
     const t = this.time;
     this.turn += (turn - this.turn) * Math.min(1, dt * 3);
@@ -334,9 +334,12 @@ export class EchoRider {
     // Pedaling bob and a little sway, leaning into the steering.
     this.air = (this.air ?? 0) + (air - (this.air ?? 0)) * Math.min(1, dt * 10);
     this.tuck = (this.tuck ?? 0) + (tuck - (this.tuck ?? 0)) * Math.min(1, dt * 10);
-    const bob = Math.abs(Math.sin(pedal)) * 0.025 * Math.min(1, speed / 2) * (1 - this.air);
-    this.body.position.set(Math.sin(pedal) * 0.012 * (1 - this.air), bob + this.cheerT * 0.08 * Math.abs(Math.sin(t * 6)) - this.tuck * 0.1 + this.air * 0.04, this.tuck * -0.06);
-    this.body.rotation.set(-0.1 - 0.12 * Math.min(1, speed / 3) - this.tuck * 0.35, this.turn * 0.9 - steer * 0.5, -steer * 0.6 + Math.sin(t * 30) * 0.2 * this.hurtT);
+    // Uphill: standing on the pedals (higher, leaning forward, rocking side to side).
+    this.climb = (this.climb ?? 0) + (climb - (this.climb ?? 0)) * Math.min(1, dt * 4);
+    const cl = this.climb;
+    const bob = Math.abs(Math.sin(pedal)) * (0.025 + cl * 0.03) * Math.min(1, speed / 2) * (1 - this.air);
+    this.body.position.set(Math.sin(pedal) * (0.012 + cl * 0.03) * (1 - this.air), bob + this.cheerT * 0.08 * Math.abs(Math.sin(t * 6)) - this.tuck * 0.1 + this.air * 0.04 + cl * 0.07, this.tuck * -0.06 - cl * 0.05);
+    this.body.rotation.set(-0.1 - 0.12 * Math.min(1, speed / 3) - this.tuck * 0.35 - cl * 0.2, this.turn * 0.9 - steer * 0.5, -steer * 0.6 + Math.sin(t * 30) * 0.2 * this.hurtT + Math.sin(pedal) * cl * 0.12);
     this.body.scale.set(1 + this.tuck * 0.06, 1 - this.tuck * 0.1, 1 + this.tuck * 0.06);
     if (this.wings) {
       // Wings folded forward to the grips; raised and waving when cheering.

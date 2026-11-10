@@ -56,6 +56,8 @@ const PROPS = {
     { n: 'PrBush', density: 0.22, v: [3.3, 7.5] },
     { n: 'PrTree', density: 0.2, v: [4.6, 15], scale: [0.8, 1.25] },
     { n: 'PrGrass', density: 0.55, v: [2.5, 6] },
+    { n: 'PrGrass', density: 0.5, v: [2.12, 2.4], scale: [0.6, 0.9] },
+    { n: 'PrSignpost', every: 64, v: [2.75, 2.9], side: 1, align: true },
   ],
   gravel: [
     { n: 'PrFence', every: 2.1, v: [3.25, 3.25], side: -1, align: true },
@@ -65,6 +67,8 @@ const PROPS = {
     { n: 'PrHay', density: 0.05, v: [4.6, 9] },
     { n: 'PrBush', density: 0.1, v: [3.6, 9] },
     { n: 'PrTree', density: 0.12, v: [5, 15], scale: [0.8, 1.25] },
+    { n: 'PrRock', density: 0.08, v: [2.3, 2.8], scale: [0.35, 0.6] },
+    { n: 'PrSignpost', every: 58, v: [2.7, 2.85], side: 1, align: true },
   ],
   mud: [
     { n: 'PrPine', density: 0.55, v: [3.4, 15], scale: [0.8, 1.3] },
@@ -73,6 +77,9 @@ const PROPS = {
     { n: 'PrMushroom', density: 0.12, v: [2.3, 4] },
     { n: 'PrStump', density: 0.08, v: [2.6, 6] },
     { n: 'PrLeaves', density: 0.4, v: [1.4, 2.7] },
+    { n: 'PrGrass', density: 0.35, v: [2.1, 2.5], scale: [0.6, 0.9] },
+    { n: 'PrRock', density: 0.07, v: [2.3, 2.9], scale: [0.4, 0.7] },
+    { n: 'PrSignpost', every: 70, v: [2.75, 2.9], side: -1, align: true },
   ],
   snow: [
     { n: 'PrPineSnow', density: 0.5, v: [3.4, 15], scale: [0.8, 1.3] },
@@ -81,6 +88,8 @@ const PROPS = {
     { n: 'PrLantern', every: 17, v: [2.55, 2.65], both: true, align: true },
     { n: 'PrPost', every: 9, v: [2.3, 2.4], both: true, align: true },
     { n: 'PrSnowman', every: 55, v: [3.5, 4.0], yaw: 0 },
+    { n: 'PrRockSnow', density: 0.05, v: [2.9, 3.4], scale: [0.4, 0.7] },
+    { n: 'PrSignpost', every: 66, v: [3.0, 3.1], side: 1, align: true },
   ],
 };
 
@@ -116,6 +125,30 @@ export function makeCourse(rnd) {
   };
   const yaw = (s) => -Math.atan(dcx(s)); // rotation.y of something facing along the trail
   const sectionAt = (s) => sections[clamp(Math.floor((s - S0) / SEC_LEN), 0, 3)];
+
+  // Elevation: hills per terrain (gentle on asphalt, rolling gravel, steep and bumpy forest mud,
+  // long descents in the snow), humps (crests that throw the bike up) and short steep drops.
+  const PROF = { asphalt: [[0.9, 72], [0.3, 32]], gravel: [[1.0, 46], [0.38, 18], [0.14, 8]], mud: [[1.15, 40], [0.3, 14], [0.08, 4.5]], snow: [[0.8, 66], [0.25, 24]] };
+  const TREND = { asphalt: 0.006, gravel: 0, mud: 0, snow: -0.04 };
+  const wph = sections.map(() => [rnd() * TAU, rnd() * TAU, rnd() * TAU]);
+  const humps = [];
+  const drops = [];
+  const env = (s) => smooth(S0 - 4, S0 + 18, s) * (1 - smooth(finish - 30, finish - 8, s));
+  const h = (s) => {
+    let waves = 0;
+    let trend = 0;
+    for (const sec of sections) {
+      const w = (sec.i === 0 ? 1 : smooth(sec.b0 - 7, sec.b0 + 7, s)) * (sec.i === 3 ? 1 : 1 - smooth(sec.b1 - 7, sec.b1 + 7, s));
+      if (w > 0) PROF[sec.kind].forEach(([A, L], k) => { waves += w * A * Math.sin((s * TAU) / L + wph[sec.i][k]); });
+      trend += TREND[sec.kind] * clamp(s - sec.b0, 0, SEC_LEN);
+    }
+    let y = env(s) * waves + trend;
+    for (const q of humps) if (Math.abs(s - q.c) < q.w / 2) y += q.a * 0.5 * (1 + Math.cos((TAU * (s - q.c)) / q.w));
+    for (const d of drops) y -= d.d * smooth(d.s, d.s + d.l, s);
+    return y;
+  };
+  const dh = (s) => (h(s + 0.05) - h(s - 0.05)) / 0.1;
+  const ddh = (s) => (h(s + 0.25) - 2 * h(s) + h(s - 0.25)) / 0.0625;
 
   const hazards = [];
   const items = [];
@@ -235,6 +268,22 @@ export function makeCourse(rnd) {
   hazards.sort((a, b) => a.s - b.s);
   items.sort((a, b) => a.s - b.s);
   items.forEach((it) => { it.taken = false; it.phase = rnd() * TAU; });
+  // Humps and drops, away from ramps, obstacles across the trail, the pit stop and the stops.
+  const SHAPES = { asphalt: ['hump'], gravel: ['hump', 'drop', 'hump'], mud: ['drop', 'hump', 'drop'], snow: ['drop', 'hump', 'drop'] };
+  const DROP = { asphalt: 0.6, gravel: 0.75, mud: 0.9, snow: 1.0 };
+  const busy = (s) => isReserved(s) || isReserved(s + 4) || hazards.some((x) => x.block && Math.abs(x.s - s) < 7) || ramps.some((r) => Math.abs(r.s - s) < 8)
+    || [...humps.map((q) => q.c), ...drops.map((d) => d.s)].some((x) => Math.abs(x - s) < 12);
+  for (const sec of sections) {
+    for (const shape of SHAPES[sec.kind]) {
+      for (let k = 0; k < 40; k++) {
+        const s = rr(sec.b0 + 16, sec.b1 - 16);
+        if (busy(s)) continue;
+        if (shape === 'hump') humps.push({ c: s, w: 4.4, a: 0.7 });
+        else drops.push({ s, l: 2.8, d: DROP[sec.kind] });
+        break;
+      }
+    }
+  }
 
   // Props along the sides (none on the arch posts at the start and the finish).
   const archS = [S0 - 0.8, finish];
@@ -353,7 +402,9 @@ export function makeCourse(rnd) {
 
   /** The ramp under the bike (s within its length, u within its width), or null. */
   const rampAt = (s, u) => ramps.find((r) => Math.abs(s - r.s) <= 0.8 && Math.abs(u - r.v) < r.w) ?? null;
-  return { sections, finish, length, cx, dcx, ddcx, point, yaw, sectionAt, hazards, items, props, ramps, weather, rampAt, guideAt, arcAt, starTotal: items.filter((it) => it.type === 'star').length };
+  /** Like point(), with the trail's height at s. */
+  const pointH = (s, v = 0, out = new THREE.Vector3()) => { point(s, v, out); out.y = h(s); return out; };
+  return { sections, finish, length, cx, dcx, ddcx, point, pointH, h, dh, ddh, humps, drops, yaw, sectionAt, hazards, items, props, ramps, weather, rampAt, guideAt, arcAt, starTotal: items.filter((it) => it.type === 'star').length };
 }
 
 // ---------------------------------------------------------------- textures
@@ -496,15 +547,31 @@ const TRAIL_PAINT = {
     }
     blobs(ctx, w, h, rnd, 120, 2, 4.5, [color('xr-bike-autumn'), color('xr-bike-autumn-2'), color('xr-bike-wood-dark')], 0.85, false, 0.5);
     blobs(ctx, w, h, rnd, 500, 0.6, 1.4, [color('xr-bike-mud-wet')], 0.9, false);
-    for (const [x0, x1] of [[0, w * 0.08], [w * 0.92, w]]) {
-      ctx.fillStyle = color('xr-bike-forest-floor');
-      ctx.globalAlpha = 0.75;
+    // ragged forest floor and moss creeping in from both edges
+    for (const [x0, x1] of [[0, w * 0.11], [w * 0.89, w]]) {
+      const g = ctx.createLinearGradient(x0, 0, x1, 0);
+      const floor = color('xr-bike-forest-floor');
+      g.addColorStop(x0 === 0 ? 0 : 1, floor);
+      g.addColorStop(x0 === 0 ? 0.55 : 0.45, floor);
+      g.addColorStop(x0 === 0 ? 1 : 0, 'rgba(0,0,0,0)');
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = g;
       ctx.fillRect(x0, 0, x1 - x0, h);
       ctx.globalAlpha = 1;
     }
+    for (let i = 0; i < 70; i++) {
+      const left = i % 2 === 0;
+      const x = left ? rnd() * w * 0.1 : w - rnd() * w * 0.1;
+      const y = rnd() * h;
+      const r = 3 + rnd() * 7;
+      ctx.fillStyle = [color('xr-bike-forest-moss'), color('xr-bike-forest-floor')][i % 4 < 2 ? 0 : 1];
+      ctx.globalAlpha = 0.8;
+      wrapDraw(w, h, x, y, r, (px, py) => { ctx.beginPath(); ctx.ellipse(px, py, r, r * 1.5, 0, 0, TAU); ctx.fill(); }, false);
+    }
+    ctx.globalAlpha = 1;
   },
   snow(ctx, w, h, rnd) {
-    ctx.fillStyle = color('xr-bike-snow');
+    ctx.fillStyle = color('xr-bike-snow-ground');
     ctx.fillRect(0, 0, w, h);
     blobs(ctx, w, h, rnd, 50, 10, 34, [color('xr-bike-snow-shade')], 0.3, false, 1.5);
     // darker, trodden edges and a compacted track with tire prints in the middle
@@ -562,17 +629,212 @@ const VERGE_PAINT = {
 };
 const ROUGH = { asphalt: [0.88, 0.95], gravel: [0.95, 0.95], mud: [0.55, 0.92], snow: [0.62, 0.72] };
 
+/** A grey value for the roughness mask (0 shiny .. 1 rough). */
+const grey = (k) => { const v = Math.round(clamp(k, 0, 1) * 255); return `rgb(${v},${v},${v})`; };
+
+/**
+ * More detail on top of the trail painting, plus the shiny parts in a roughness mask (gl):
+ * asphalt patches, drains, debris; gravel ruts and loose stones; forest mud roots, puddles and
+ * splashes; ice patches on the snow.
+ */
+const TRAIL_DETAIL = {
+  asphalt(ctx, gl, w, h, rnd) {
+    for (let i = 0; i < 3; i++) {
+      const x = w * (0.15 + rnd() * 0.5);
+      const y = rnd() * h;
+      const pw = w * (0.12 + rnd() * 0.2);
+      const ph = h * (0.06 + rnd() * 0.08);
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = color('xr-bike-asphalt-dark');
+      ctx.fillRect(x, y, pw, ph);
+      ctx.globalAlpha = 0.6;
+      ctx.strokeStyle = color('xr-bike-asphalt-grain');
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(x, y, pw, ph);
+      gl.fillStyle = grey(0.7);
+      gl.fillRect(x, y, pw, ph);
+    }
+    ctx.globalAlpha = 1;
+    // drains at the curb
+    for (const x0 of [w * 0.038, w * (1 - 0.038 - 0.05)]) {
+      for (const y0 of [h * 0.22, h * 0.72]) {
+        ctx.fillStyle = color('xr-bike-manhole');
+        ctx.fillRect(x0, y0, w * 0.05, h * 0.05);
+        ctx.fillStyle = color('xr-bike-hole');
+        for (let k = 0; k < 5; k++) ctx.fillRect(x0 + w * 0.006, y0 + h * 0.006 + k * h * 0.0085, w * 0.038, h * 0.004);
+        gl.fillStyle = grey(0.35);
+        gl.fillRect(x0, y0, w * 0.05, h * 0.05);
+      }
+    }
+    blobs(ctx, w, h, rnd, 40, 1.2, 2.4, [color('xr-bike-pebble'), color('xr-bike-gravel-stone')], 0.9, false);
+    blobs(ctx, w, h, rnd, 12, 2, 3.5, [color('xr-bike-autumn'), color('xr-bike-autumn-2')], 0.85, false, 0.5);
+  },
+  gravel(ctx, gl, w, h, rnd) {
+    for (const u of [0.34, 0.66]) {
+      ctx.strokeStyle = color('xr-bike-gravel-stone');
+      ctx.lineWidth = w * 0.03;
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+      for (let y = 0; y <= h; y += 8) ctx.lineTo(w * u + Math.sin((y / h) * TAU * 3) * 3, y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    for (let i = 0; i < 140; i++) {
+      const x = w * (0.08 + rnd() * 0.84);
+      const y = rnd() * h;
+      const r = 2.5 + rnd() * 2.5;
+      ctx.fillStyle = color('xr-bike-earth-dark');
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath(); ctx.ellipse(x + 1.2, y + 1.6, r, r * 0.8, 0, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = [color('xr-bike-gravel-stone'), color('xr-bike-pebble'), color('xr-bike-stone')][i % 3];
+      ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.8, rnd() * 3, 0, TAU); ctx.fill();
+    }
+    strokes(ctx, w, h, rnd, 240, 9, 2, [color('xr-bike-grass'), color('xr-bike-grass-tuft')], 0.95, true);
+    ctx.fillStyle = color('xr-bike-gravel');
+  },
+  mud(ctx, gl, w, h, rnd) {
+    // roots crossing the trail
+    for (let i = 0; i < 4; i++) {
+      const y0 = rnd() * h;
+      ctx.strokeStyle = color('xr-bike-root');
+      ctx.lineWidth = 4 + rnd() * 3;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += 16) ctx.lineTo(x, y0 + Math.sin(x * 0.05 + i) * 8 + (x / w) * 20);
+      ctx.stroke();
+      ctx.strokeStyle = color('xr-bike-wood');
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+    // glossy puddles
+    for (let i = 0; i < 8; i++) {
+      const x = w * (0.2 + rnd() * 0.6);
+      const y = rnd() * h;
+      const r = 8 + rnd() * 14;
+      ctx.fillStyle = color('xr-bike-mud-water');
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath(); ctx.ellipse(x, y, r, r * 1.6, 0, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = color('xr-bike-mud-wet');
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      gl.fillStyle = grey(0.08);
+      gl.beginPath(); gl.ellipse(x, y, r, r * 1.6, 0, 0, TAU); gl.fill();
+    }
+    ctx.globalAlpha = 1;
+    // splashes
+    for (let i = 0; i < 20; i++) {
+      const x = rnd() * w;
+      const y = rnd() * h;
+      ctx.fillStyle = color('xr-bike-mud-dark');
+      ctx.globalAlpha = 0.6;
+      ctx.beginPath(); ctx.arc(x, y, 2.5 + rnd() * 3, 0, TAU); ctx.fill();
+      for (let k = 0; k < 5; k++) { ctx.beginPath(); ctx.arc(x + (rnd() - 0.5) * 16, y + (rnd() - 0.5) * 16, 0.8 + rnd() * 1.4, 0, TAU); ctx.fill(); }
+    }
+    ctx.globalAlpha = 1;
+    blobs(ctx, w, h, rnd, 70, 2.5, 5, [color('xr-bike-autumn'), color('xr-bike-autumn-2')], 0.85, false, 0.45);
+  },
+  snow(ctx, gl, w, h, rnd) {
+    for (let i = 0; i < 6; i++) {
+      const x = w * (0.22 + rnd() * 0.56);
+      const y = rnd() * h;
+      const r = 12 + rnd() * 16;
+      ctx.fillStyle = color('xr-bike-ice');
+      ctx.globalAlpha = 0.75;
+      ctx.beginPath(); ctx.ellipse(x, y, r, r * 1.8, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = color('xr-bike-ice-crack');
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x - r * 0.5, y - r); ctx.lineTo(x + r * 0.3, y + r * 0.6); ctx.stroke();
+      gl.fillStyle = grey(0.05);
+      gl.beginPath(); gl.ellipse(x, y, r, r * 1.8, 0, 0, TAU); gl.fill();
+    }
+    ctx.globalAlpha = 1;
+  },
+};
+const NORMAL_K = { asphalt: 1.4, gravel: 3.2, mud: 2.2, snow: 1.3 };
+
+/** A normal map from the luminance of a painting (Sobel), tiling along v. */
+function normalMap(src, strength) {
+  const W = src.width;
+  const H = src.height;
+  const d = src.getContext('2d').getImageData(0, 0, W, H).data;
+  const lum = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) lum[i] = (d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11) / 255;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext('2d');
+  const out = ctx.createImageData(W, H);
+  const at = (x, y) => lum[((y + H) % H) * W + clamp(x, 0, W - 1)];
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const dx = (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1) - at(x - 1, y - 1) - 2 * at(x - 1, y) - at(x - 1, y + 1)) * strength;
+      const dy = (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1) - at(x - 1, y - 1) - 2 * at(x, y - 1) - at(x + 1, y - 1)) * strength;
+      const n = new THREE.Vector3(-dx, dy, 1).normalize();
+      const k = (y * W + x) * 4;
+      out.data[k] = (n.x * 0.5 + 0.5) * 255;
+      out.data[k + 1] = (n.y * 0.5 + 0.5) * 255;
+      out.data[k + 2] = (n.z * 0.5 + 0.5) * 255;
+      out.data[k + 3] = 255;
+    }
+  }
+  ctx.putImageData(out, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+/** The trail's painting with its detail, a roughness mask and a normal map. */
+function trailTextures(kind, rnd, rough) {
+  const W = 256;
+  const H = 512;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext('2d');
+  const g = document.createElement('canvas');
+  g.width = W;
+  g.height = H;
+  const gl = g.getContext('2d');
+  gl.fillStyle = grey(rough);
+  gl.fillRect(0, 0, W, H);
+  TRAIL_PAINT[kind](ctx, W, H, rnd);
+  TRAIL_DETAIL[kind](ctx, gl, W, H, rnd);
+  // The edges (grass, forest floor, trodden snow) are matte: no sky sheen along the shoulders.
+  for (const [x0, x1] of [[0, W * 0.11], [W * 0.89, W]]) {
+    const g2 = gl.createLinearGradient(x0, 0, x1, 0);
+    g2.addColorStop(x0 === 0 ? 0 : 1, grey(0.95));
+    g2.addColorStop(x0 === 0 ? 0.6 : 0.4, grey(0.95));
+    g2.addColorStop(x0 === 0 ? 1 : 0, grey(rough));
+    gl.fillStyle = g2;
+    gl.fillRect(x0, 0, x1 - x0, H);
+  }
+  const map = new THREE.CanvasTexture(c);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapT = THREE.RepeatWrapping;
+  map.anisotropy = 8;
+  const roughnessMap = new THREE.CanvasTexture(g);
+  roughnessMap.wrapT = THREE.RepeatWrapping;
+  return { map, roughnessMap, normalMap: normalMap(c, NORMAL_K[kind]) };
+}
+
 // ---------------------------------------------------------------- terrain meshes
 
 const CHUNK = 16; // terrain chunk length
 const TRAIL_COLS = [-2.05, -1.75, -1.3, -0.85, -0.42, 0, 0.42, 0.85, 1.3, 1.75, 2.05];
-const VERGE_COLS = [-18, -13, -9.5, -7, -5.5, -4.5, -3.7, -3.1, -2.6, -2.1, -1.2, 0, 1.2, 2.1, 2.6, 3.1, 3.7, 4.5, 5.5, 7, 9.5, 13, 18];
+const VERGE_COLS = [-18, -13, -9.5, -7, -5.5, -4.5, -3.7, -3.1, -2.8, -2.55, -2.3, -2.1, -1.2, 0, 1.2, 2.1, 2.3, 2.55, 2.8, 3.1, 3.7, 4.5, 5.5, 7, 9.5, 13, 18];
 
-function vergeHeight(v, s, kind) {
+/** Height of the ground beside the trail (relative to the trail's height). */
+export function vergeHeight(v, s, kind) {
   const a = Math.abs(v);
   const bump = smooth(2.25, 3.6, a) * Math.max(0, 0.12 + 0.12 * Math.sin(s * 0.37 + v * 1.3) + 0.08 * Math.sin(s * 0.11 - v * 0.7 + 1));
   const far = smooth(7, 17, a) * (1.8 + 0.9 * Math.sin(s * 0.05 + Math.sign(v) * 2));
-  return bump * (kind === 'snow' ? 1.4 : 1) + far;
+  // Snow: banks pushed up along both edges of the trail.
+  const bank = kind === 'snow' ? Math.max(0, 1 - Math.abs(a - 2.55) / 0.55) ** 1.5 * (0.32 + 0.08 * Math.sin(s * 0.7 + v)) : 0;
+  return bump * (kind === 'snow' ? 1.4 : 1) + far + bank;
 }
 
 function ribbon(course, s0, s1, cols, yFn, uvFn, step = 0.5) {
@@ -622,16 +884,16 @@ export function makeTerrain(course, clip) {
   for (const sec of course.sections) {
     const s0 = sec.i === 0 ? -10 : sec.b0;
     const s1 = sec.i === 3 ? course.length + 8 : sec.b1;
-    const trailTex = canvasTexture(256, 512, (ctx, w, h) => TRAIL_PAINT[sec.kind](ctx, w, h, rnd), false);
-    const vergeTex = canvasTexture(256, 256, (ctx, w, h) => VERGE_PAINT[sec.kind](ctx, w, h, rnd));
     const [rt, rv] = ROUGH[sec.kind];
-    const trailMat = new THREE.MeshStandardMaterial({ map: trailTex, roughness: rt, metalness: 0, clippingPlanes: clip });
+    const tt = trailTextures(sec.kind, rnd, rt);
+    const vergeTex = canvasTexture(256, 256, (ctx, w, h) => VERGE_PAINT[sec.kind](ctx, w, h, rnd));
+    const trailMat = new THREE.MeshStandardMaterial({ map: tt.map, roughnessMap: tt.roughnessMap, normalMap: tt.normalMap, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 1, metalness: 0, clippingPlanes: clip });
     const vergeMat = new THREE.MeshStandardMaterial({ map: vergeTex, roughness: rv, metalness: 0, clippingPlanes: clip });
     // In chunks, so only the pieces near the bike are drawn.
     for (let a = s0; a < s1 - 0.01; a += CHUNK) {
       const b = Math.min(s1, a + CHUNK);
-      const trail = new THREE.Mesh(ribbon(course, a, b, TRAIL_COLS, (v) => 0.02 - 0.012 * (v / 2) ** 2, (v, s) => [(v + 2.05) / 4.1, s / 8]), trailMat);
-      const verge = new THREE.Mesh(ribbon(course, a, b, VERGE_COLS, (v, s) => vergeHeight(v, s, sec.kind), (v, s) => [v / 5, s / 5], 1), vergeMat);
+      const trail = new THREE.Mesh(ribbon(course, a, b, TRAIL_COLS, (v, s) => course.h(s) + 0.02 - 0.012 * (v / 2) ** 2, (v, s) => [(v + 2.05) / 4.1, s / 8]), trailMat);
+      const verge = new THREE.Mesh(ribbon(course, a, b, VERGE_COLS, (v, s) => course.h(s) + vergeHeight(v, s, sec.kind), (v, s) => [v / 5, s / 5], 0.5), vergeMat);
       for (const m of [trail, verge]) {
         m.receiveShadow = true;
         m.userData.noFit = true;
@@ -639,7 +901,7 @@ export function makeTerrain(course, clip) {
       }
       chunks.push({ a, b, meshes: [trail, verge] });
     }
-    disposables.push(trailTex, vergeTex);
+    disposables.push(tt.map, tt.roughnessMap, tt.normalMap, vergeTex);
   }
   group.userData.dispose = () => disposables.forEach((t) => t.dispose());
   /** Shows only the chunks that reach into [s0, s1]. */
@@ -654,13 +916,23 @@ export function makeTerrain(course, clip) {
  * ones in the window around the bike are filled in. update(s0, s1, animate?).
  */
 export class Scatter {
-  constructor(parent, parts, entries, course, { shadow = true, lift = 0 } = {}) {
+  /** ground: 'trail' (on the trail, tilted with its slope if tilt), 'verge' (beside it), 'air'. */
+  constructor(parent, parts, entries, course, { shadow = true, lift = 0, ground = 'trail', tilt = false } = {}) {
     this.entries = entries;
+    const up = new THREE.Vector3(0, 1, 0);
     this.matrices = entries.map((e) => {
       const p = course.point(e.s, e.v);
+      const kind = course.sectionAt(e.s).kind;
+      const base = course.h(e.s) + (ground === 'verge' ? Math.max(0, vergeHeight(e.v, e.s, kind) - 0.04) : 0);
       const m = new THREE.Matrix4();
-      m.compose(new THREE.Vector3(p.x, (e.y ?? 0) + lift, p.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), e.rot ?? 0), new THREE.Vector3().setScalar(e.scale ?? 1));
-      e.pos = new THREE.Vector3(p.x, (e.y ?? 0) + lift, p.z);
+      const q = new THREE.Quaternion().setFromAxisAngle(up, e.rot ?? 0);
+      if (tilt) {
+        // Lie on the slope: pitch about the trail's sideways axis, then the object's own turn.
+        const trail = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.atan(course.dh(e.s)), course.yaw(e.s), 0, 'YXZ'));
+        q.copy(trail.multiply(new THREE.Quaternion().setFromAxisAngle(up, (e.rot ?? 0) - course.yaw(e.s))));
+      }
+      e.pos = new THREE.Vector3(p.x, base + (e.y ?? 0) + lift, p.z);
+      m.compose(e.pos, q, new THREE.Vector3().setScalar(e.scale ?? 1));
       return m;
     });
     this.meshes = parts.map((pt) => {
@@ -775,6 +1047,7 @@ export function makeBase(w, z0, z1, depth) {
     g.add(r);
   }
   g.userData.scroll = (s, unitsPerTex) => { earth.offset.x = (s / unitsPerTex) % 1; };
+  g.userData.earth = earth;
   g.userData.dispose = () => { earth.dispose(); side.dispose(); dark.dispose(); rimMat.dispose(); };
   return g;
 }
@@ -836,7 +1109,7 @@ export function makeScanFx(course) {
     grid(b0, b1) {
       if (grid) { grid.removeFromParent(); grid.geometry.dispose(); }
       const cols = [-2.5, -1.875, -1.25, -0.625, 0, 0.625, 1.25, 1.875, 2.5];
-      const geo = ribbon(course, b0, b1, cols, () => 0.05, (v, s) => [(v + 2.5) / 5, s - b0], 0.5);
+      const geo = ribbon(course, b0, b1, cols, (v, s) => course.h(s) + 0.05, (v, s) => [(v + 2.5) / 5, s - b0], 0.5);
       const n = geo.attributes.position.count;
       const aS = new Float32Array(n);
       for (let i = 0; i < n; i++) aS[i] = b0 + Math.floor(i / cols.length) * 0.5;
@@ -858,11 +1131,12 @@ export function makeScanFx(course) {
       for (let i = 0; i < N; i++) {
         const v = -2.5 + (5 * i) / (N - 1);
         course.point(sLine, v, p);
-        bpos.set([p.x, 0.06, p.z], (i + 1) * 3);
+        const hy = course.h(sLine);
+        bpos.set([p.x, hy + 0.06, p.z], (i + 1) * 3);
         bcol.set([cBright.r, cBright.g, cBright.b, 0.08 * alpha], (i + 1) * 4);
         const q = course.point(sLine - 0.12, v, new THREE.Vector3());
-        lpos.set([p.x, 0.07, p.z], i * 6);
-        lpos.set([q.x, 0.07, q.z], i * 6 + 3);
+        lpos.set([p.x, hy + 0.07, p.z], i * 6);
+        lpos.set([q.x, hy + 0.07, q.z], i * 6 + 3);
       }
       beamGeo.attributes.position.needsUpdate = true;
       beamGeo.attributes.color.needsUpdate = true;
@@ -893,7 +1167,7 @@ export function makeGuideDots(n = 9) {
     for (let i = 0; i < n; i++) {
       const si = s + 1.6 + i * 0.75 - ((time * 1.5) % 0.75);
       course.point(si, course.guideAt(si), p);
-      p.y = 0.05 + (course.arcAt?.(si) ?? 0);
+      p.y = course.h(si) + 0.05 + (course.arcAt?.(si) ?? 0);
       const k = Math.min(1, (i + 1) / 3) * (1 - i / n) * alpha;
       sc.setScalar(0.4 + 0.6 * k + 0.001);
       m.compose(p, q, sc);
@@ -907,12 +1181,12 @@ export function makeGuideDots(n = 9) {
 }
 
 /** Snowflakes falling over the snow section near the bike (course units). update(dt, s, on). */
-export function makeSnow(course, count = 260) {
+export function makeSnow(course, count = 260, clip = null) {
   const pos = new Float32Array(count * 3);
   const seed = new Float32Array(count * 3); // s, v, phase
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const mat = new THREE.PointsMaterial({ color: hex('xr-snow-flake'), map: radialTexture(), size: 0.012, transparent: true, depthWrite: false, opacity: 0 });
+  const mat = new THREE.PointsMaterial({ color: hex('xr-snow-flake'), map: radialTexture(), size: 0.012, transparent: true, depthWrite: false, opacity: 0, clippingPlanes: clip });
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
   points.userData.noFit = true;
@@ -935,7 +1209,7 @@ export function makeSnow(course, count = 260) {
       if (ys[i] < 0) ys[i] += 6;
       course.point(seed[i * 3], seed[i * 3 + 1] + Math.sin(ys[i] * 1.3 + seed[i * 3 + 2]) * 0.25, p);
       pos[i * 3] = p.x;
-      pos[i * 3 + 1] = ys[i];
+      pos[i * 3 + 1] = ys[i] + course.h(seed[i * 3]);
       pos[i * 3 + 2] = p.z;
     }
     init = true;
@@ -961,7 +1235,7 @@ export function makeMist(count = 9) {
     g.children.forEach((sp, i) => {
       const s = b0 + 1 + (i / count) * 12 + Math.random();
       const p = course.point(s, -2.2 + Math.random() * 4.4);
-      sp.position.set(p.x, 0.7 + Math.random() * 0.5, p.z);
+      sp.position.set(p.x, course.h(s) + 0.7 + Math.random() * 0.5, p.z);
       sp.scale.setScalar(3 + Math.random() * 2);
       sp.material.color.setHex(hex(token));
     });
@@ -976,7 +1250,7 @@ export function makeMist(count = 9) {
 }
 
 /** Small sparks in course units (hits, stars, confetti), driven by update(dt). emit(pos, token, n). */
-export function makeSparks(max = 160) {
+export function makeSparks(max = 260) {
   const geo = new THREE.IcosahedronGeometry(0.07, 0);
   const mat = new THREE.MeshBasicMaterial({ toneMapped: false });
   const mesh = new THREE.InstancedMesh(geo, mat, max);
@@ -988,12 +1262,15 @@ export function makeSparks(max = 160) {
   const q = new THREE.Quaternion();
   const sc = new THREE.Vector3();
   const c = new THREE.Color();
-  mesh.userData.emit = (pos, token, n = 14, speed = 2.2, gravity = 4) => {
+  /** bias: added to every particle's velocity (e.g. spray thrown back from a wheel). */
+  mesh.userData.emit = (pos, token, n = 14, speed = 2.2, gravity = 4, bias = null, size = 1) => {
     c.setHex(hex(token));
     for (let i = 0; i < n; i++) {
       if (parts.length >= max) parts.shift();
       const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.9 + 0.2, Math.random() - 0.5).normalize();
-      parts.push({ p: pos.clone(), v: dir.multiplyScalar(speed * (0.5 + Math.random() * 0.7)), life: 0, max: 0.5 + Math.random() * 0.45, g: gravity, color: c.clone(), size: 0.7 + Math.random() * 0.6 });
+      const v = dir.multiplyScalar(speed * (0.5 + Math.random() * 0.7));
+      if (bias) v.add(bias);
+      parts.push({ p: pos.clone(), v, life: 0, max: 0.5 + Math.random() * 0.45, g: gravity, color: c.clone(), size: (0.7 + Math.random() * 0.6) * size });
     }
   };
   mesh.userData.update = (dt) => {
@@ -1016,4 +1293,45 @@ export function makeSparks(max = 160) {
   };
   mesh.userData.clear = () => { parts.length = 0; mesh.count = 0; };
   return mesh;
+}
+
+/**
+ * The diorama's cut edges in the headset: earth curtains from the terrain's edge (which rises and
+ * falls with the hills) down to the base. update(points) with { x, z, top } per edge sample.
+ */
+export function makeCurtains(earth) {
+  const C = 24;
+  const g = new THREE.Group();
+  g.userData.noFit = true;
+  const mat = new THREE.MeshStandardMaterial({ map: earth, roughness: 0.95, side: THREE.DoubleSide });
+  const strips = [0, 1, 2, 3].map(() => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((C + 1) * 2 * 3), 3));
+    const uv = new Float32Array((C + 1) * 2 * 2);
+    for (let i = 0; i <= C; i++) uv.set([i / C * 2, 0, i / C * 2, 1], i * 4);
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    const idx = [];
+    for (let i = 0; i < C; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    geo.setIndex(idx);
+    const m = new THREE.Mesh(geo, mat);
+    m.frustumCulled = false;
+    m.userData.noFit = true;
+    g.add(m);
+    return m;
+  });
+  g.userData.C = C;
+  /** edges: four arrays of C + 1 samples { x, z, top } (stage space); bottom: the base's top. */
+  g.userData.update = (edges, bottom) => {
+    edges.forEach((pts, k) => {
+      const pos = strips[k].geometry.attributes.position;
+      pts.forEach((q, i) => {
+        pos.setXYZ(i * 2, q.x, q.top, q.z);
+        pos.setXYZ(i * 2 + 1, q.x, bottom, q.z);
+      });
+      pos.needsUpdate = true;
+      strips[k].geometry.computeVertexNormals();
+    });
+  };
+  g.userData.dispose = () => mat.dispose();
+  return g;
 }
