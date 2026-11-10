@@ -1267,7 +1267,8 @@ export class BikeScene extends BaseScene {
     this.pop(this.tireCard);
     this.rider?.mood('focus', 2);
     sfx.appear();
-    this.toast(t('bikePitTitle'), t('bikePitHint'), 'xr-bike-pit-glow', 2);
+    // The pit console's header says what to do (no second hint panel).
+    if (this.toastPanel) { this.toastPanel.removeFromParent(); this.toastPanel.dispose(); this.toastPanel = null; }
   }
 
   pitPump() {
