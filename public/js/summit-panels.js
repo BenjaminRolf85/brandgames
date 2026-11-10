@@ -97,9 +97,10 @@ export function makeBubble() {
     const tail = p.m(0.05);
     const top = state.tail === 'up' ? tail : 0;
     const right = state.tail === 'right' ? tail : 0;
+    const left = state.tail === 'left' ? tail : 0;
     // Bubble with a tail towards the summit (up) or the customer (right).
     ctx.beginPath();
-    roundRect(ctx, p.m(0.006), top + p.m(0.006), W - right - p.m(0.012), H - top - p.m(0.012), p.m(0.05));
+    roundRect(ctx, left + p.m(0.006), top + p.m(0.006), W - right - left - p.m(0.012), H - top - p.m(0.012), p.m(0.05));
     ctx.fillStyle = color('xr-summit-bubble');
     ctx.fill();
     ctx.lineWidth = p.m(0.005);
@@ -110,6 +111,10 @@ export function makeBubble() {
       ctx.moveTo(W * 0.62, top + p.m(0.008));
       ctx.lineTo(W * 0.7, 0);
       ctx.lineTo(W * 0.7 + p.m(0.07), top + p.m(0.008));
+    } else if (state.tail === 'left') {
+      ctx.moveTo(left + p.m(0.008), H * 0.32);
+      ctx.lineTo(0, H * 0.42);
+      ctx.lineTo(left + p.m(0.008), H * 0.32 + p.m(0.07));
     } else {
       ctx.moveTo(W - right - p.m(0.008), H * 0.35);
       ctx.lineTo(W, H * 0.3);
@@ -120,21 +125,23 @@ export function makeBubble() {
     ctx.fill();
     const c = state.customer;
     if (!c) return;
-    const x0 = p.m(pad);
+    const x0 = left + p.m(pad);
     let y = top + p.m(pad * 0.8);
     const r = p.m(0.036);
-    drawAvatar(ctx, x0 + r, y + r, r, c);
+    // Next to the 3D portrait the little avatar is not needed.
+    const ax = state.tail === 'left' ? 0 : r * 2 + p.m(0.02);
+    if (ax) drawAvatar(ctx, x0 + r, y + r, r, c);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = color('xr-summit-bubble-text');
     ctx.font = font('black', px(p, num('xr-text-sm')));
-    ctx.fillText(L(c.name), x0 + r * 2 + p.m(0.02), y + r * 0.55, W - right - x0 - r * 2 - p.m(0.07));
+    ctx.fillText(L(c.name), x0 + ax, y + r * 0.55, W - right - x0 - ax - p.m(0.05));
     ctx.fillStyle = color('xr-summit-bubble-muted');
     ctx.font = font('regular', px(p, num('xr-text-min')));
-    ctx.fillText(`${L(c.role)} · ${c.market}`, x0 + r * 2 + p.m(0.02), y + r * 1.5, W - right - x0 - r * 2 - p.m(0.07));
+    ctx.fillText(`${L(c.role)} · ${c.market}`, x0 + ax, y + r * 1.5, W - right - x0 - ax - p.m(0.05));
     y += r * 2 + p.m(0.02);
     ctx.font = font('bold', p.m(quoteSize));
-    const lines = richLines(ctx, state.text, W - right - x0 * 2);
+    const lines = richLines(ctx, state.text, W - right - left - p.m(pad) * 2);
     const hits = state.reveal >= 1 ? state.hits : state.hits.filter((h, i) => i / Math.max(1, state.hits.length) < state.reveal);
     drawRich(ctx, lines, hits, x0, y, p.m(quoteSize * 1.25), color('xr-summit-bubble-text'));
   };
@@ -143,8 +150,8 @@ export function makeBubble() {
     show(customer, text, hits, tail = 'up') {
       Object.assign(state, { customer, text, hits, tail, reveal: 0 });
       // Next to the customer (tail to the right) the bubble is narrower.
-      const body = tail === 'right' ? BUBBLE_W * 0.82 : BUBBLE_W;
-      const w = body + (tail === 'right' ? TAIL : 0);
+      const body = tail === 'right' ? BUBBLE_W * 0.82 : tail === 'left' ? BUBBLE_W * 0.86 : BUBBLE_W;
+      const w = body + (tail === 'up' ? 0 : TAIL);
       const h = measure(text, body) + (tail === 'up' ? TAIL : 0);
       if (!panel || Math.abs(panel.h - h) > 0.001 || Math.abs(panel.w - w) > 0.001) {
         panel?.dispose();

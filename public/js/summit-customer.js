@@ -16,26 +16,28 @@ const damp = (cur, want, rate, dt) => cur + (want - cur) * (1 - Math.exp(-rate *
 // Target rotations [x, y, z] of upper arms and forearms (R is the figure's right hand, at -x).
 const POSES = {
   rest: { armR: [0.04, 0, -0.1], foreR: [-0.25, 0, 0], armL: [0.04, 0, 0.1], foreL: [-0.25, 0, 0] },
-  clasp: { armR: [-0.25, 0, 0.12], foreR: [-0.9, -0.35, 0.55], armL: [-0.25, 0, -0.12], foreL: [-0.9, 0.35, -0.55] },
-  cross: { armR: [-0.42, 0, 0.16], foreR: [0, -0.6, 1.4], armL: [-0.36, 0, -0.16], foreL: [-0.16, 0.6, -1.42] },
-  open: { armR: [-0.3, 0, -0.25], foreR: [-1.0, 0, -0.3], armL: [-0.3, 0, 0.25], foreL: [-1.0, 0, 0.3] },
+  clasp: { armR: [-0.3, 0, 0.12], foreR: [-1.0, -0.35, 0.55], armL: [-0.3, 0, -0.12], foreL: [-1.0, 0.35, -0.55] },
+  low: { armR: [-0.06, 0, 0.1], foreR: [-0.5, -0.3, 0.62], armL: [-0.06, 0, -0.1], foreL: [-0.5, 0.3, -0.62] },
+  cross: { armR: [-0.72, 0, 0.2], foreR: [0.25, -0.62, 1.48], armL: [-0.66, 0, -0.2], foreL: [0.1, 0.62, -1.5] },
+  open: { armR: [-0.32, 0, -0.1], foreR: [-1.15, 0, -0.12], armL: [-0.32, 0, 0.1], foreL: [-1.15, 0, 0.12] },
   gesture: { armR: [-0.35, 0, -0.15], foreR: [-1.25, 0, -0.25] },
   wave: { armR: [0.1, 0, -2.45], foreR: [0, 0, -0.45] },
   shake: { armR: [-1.0, 0, 0.22], foreR: [-0.35, 0, 0] },
   cheer: { armR: [0.1, 0, -2.2], foreR: [0, 0, -0.6], armL: [0.1, 0, 2.2], foreL: [0, 0, 0.6] },
 };
 
-// Body language per mood: pose, mouth (null: from the trust), brows [left dy, left turn, right
-// dy, right turn], eyelids (1 open), head tilt and lean, a nod.
+// Body language per mood: pose, mouth (null: from the trust), brows [left raise, left frown,
+// right raise, right frown] (a frown pulls the inner end down), eyelids (1 open), head tilt and
+// lean, a nod.
 const MOODS = {
   neutral: { pose: 'rest', mouth: null, brows: [0, 0, 0, 0], lids: 1, tilt: 0, lean: 0 },
-  interested: { pose: 'clasp', mouth: 'Smile', brows: [0.005, 0, 0.005, 0], lids: 1, tilt: 0.07, lean: 0.06, nod: true },
-  reserved: { pose: 'clasp', mouth: 'Neutral', brows: [0, 0.08, 0, -0.08], lids: 0.9, tilt: 0, lean: -0.02 },
-  skeptical: { pose: 'cross', mouth: 'Skeptic', brows: [0.008, -0.12, -0.003, -0.25], lids: 0.72, tilt: 0.17, lean: -0.04 },
-  ready: { pose: 'open', mouth: 'Open', brows: [0.007, 0, 0.007, 0], lids: 0.86, tilt: -0.05, lean: 0.07, nod: true },
+  interested: { pose: 'clasp', mouth: 'Smile', brows: [0.005, -0.06, 0.005, -0.06], lids: 1, tilt: 0.07, lean: 0.06, nod: true },
+  reserved: { pose: 'low', mouth: 'Neutral', brows: [0, 0.06, 0, 0.06], lids: 0.9, tilt: 0, lean: -0.02 },
+  skeptical: { pose: 'cross', mouth: 'Skeptic', brows: [0.009, -0.12, -0.003, 0.28], lids: 0.72, tilt: 0.17, lean: -0.04 },
+  ready: { pose: 'open', mouth: 'Open', brows: [0.007, -0.1, 0.007, -0.1], lids: 0.86, tilt: -0.05, lean: 0.07, nod: true },
 };
 
-/** Token colors per customer key: an avatar style for the 2D portrait in the panels. */
+/** Per customer: women or men (shared head and arms) and the style of the flat portrait. */
 const STYLE = {
   albers: { hair: 'bun', glasses: true, f: true },
   demir: { hair: 'short', beard: true },
@@ -52,7 +54,7 @@ function materials(look) {
   const trim = c(look.suit).multiplyScalar(0.78);
   const line = c(look.skin).multiplyScalar(0.8);
   return {
-    CustSuit: m(c(look.suit), 0.72, { sheen: 0 }),
+    CustSuit: m(c(look.suit), 0.72),
     CustTrim: m(trim, 0.7),
     CustShirt: m(c(look.shirt), 0.6),
     CustSkin: m(c(look.skin), 0.5),
@@ -231,12 +233,12 @@ export class CustomerFigure {
     this.lidOpen = this.blink > 0 ? 0 : damp(this.lidOpen, lidWant, 14, dt);
     for (const l of this.lids) l.rotation.x = LID_OPEN * this.lidOpen;
     // Brows.
-    const b = this.happyT > 0 && !this.frownT ? [0.006, 0, 0.006, 0] : this.frownT > 0 ? [-0.003, 0.3, -0.003, -0.3] : mood.brows;
+    const b = this.happyT > 0 && !this.frownT ? [0.006, -0.08, 0.006, -0.08] : this.frownT > 0 ? [-0.002, 0.3, -0.002, 0.3] : mood.brows;
     this.brows.forEach((br, i) => {
       const base = this.browBase[i];
       const dy = b[i * 2] + (this.talkT > 0 ? Math.max(0, Math.sin(t * 6)) * 0.002 : 0);
       br.position.y = damp(br.position.y, base.y + dy, 10, dt);
-      br.rotation.z = damp(br.rotation.z, b[i * 2 + 1] * (i === 0 ? 1 : -1) * -1, 10, dt);
+      br.rotation.z = damp(br.rotation.z, b[i * 2 + 1] * (i === 0 ? 1 : -1), 10, dt);
     });
     // Mouth.
     const mouth = this.mouthFor();

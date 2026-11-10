@@ -495,9 +495,11 @@ export class ClimberEcho {
     const onWall = pose !== 'stand' && pose !== 'cheer';
     // Facing: the wall when climbing (turned a bit, so you see Echo's face), you when standing.
     this.lookBack = Math.max(0, this.lookBack - dt * 0.7);
-    const wantYaw = onWall ? Math.PI - 0.62 - this.lookBack * 0.95 + this.reach * 0.15 : 0.25;
+    // Handshake at the summit: turned towards the customer (on its right).
+    const wantYaw = onWall ? Math.PI - 0.62 - this.lookBack * 0.95 + this.reach * 0.15 : this.shakeT > 0 ? 0.95 : 0.25;
     this.yaw += (wantYaw - this.yaw) * Math.min(1, dt * 6);
     this.flap = Math.max(0, this.flap - dt * 1.2);
+    this.shakeT = Math.max(0, (this.shakeT ?? 0) - dt);
     this.swing *= Math.exp(-dt * 1.6);
     const hang = onWall ? HANG : -0.065; // standing: the grip point is the feet
     this.group.position.set(this.grip.x + Math.sin(t * 3.1) * this.swing * 0.04, this.grip.y - hang, this.grip.z + (onWall ? 0.075 : 0));
@@ -526,6 +528,7 @@ export class ClimberEcho {
       aL = 1.18 + Math.max(0, -this.reach) * 0.15 + Math.sin(t * 1.7) * 0.03;
       aR = 1.18 + Math.max(0, this.reach) * 0.15 - Math.sin(t * 1.7) * 0.03;
     }
+    if (this.shakeT > 0 && !onWall) aR = 0.6 + Math.sin(t * 14) * 0.18;
     aL += this.flap * Math.sin(t * 30) * 0.3 + tremble * Math.sin(t * 41) * 0.08;
     aR += this.flap * Math.sin(t * 28) * 0.3 + tremble * Math.sin(t * 43) * 0.08;
     for (const w of this.wings ?? []) {

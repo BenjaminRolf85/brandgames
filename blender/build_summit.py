@@ -807,8 +807,8 @@ def hair_long():
         # Soft waves from the middle parting over the temples.
         p.append(blob('wave', (sx * 0.075, y0 + 0.1, 0.09), 0.064, HAIR, s=(1.45, 0.36, 0.72), segs=16, rings=10, rot=Matrix.Rotation(sx * 0.35, 3, 'Y')))
         # Strands framing the face down to the shoulders.
-        strand = [(sx * 0.158, y0 + 0.03, 0.03), (sx * 0.175, y0 - 0.05, 0.01), (sx * 0.17, y0 - 0.14, -0.01), (sx * 0.155, y0 - 0.22, -0.025), (sx * 0.145, y0 - 0.27, -0.035)]
-        p.append(tube('strand', strand, [0.028, 0.033, 0.032, 0.027, 0.018], HAIR, sides=10))
+        strand = [(sx * 0.15, y0 + 0.08, -0.01), (sx * 0.172, y0 + 0.01, 0.012), (sx * 0.176, y0 - 0.06, 0.008), (sx * 0.17, y0 - 0.14, -0.01), (sx * 0.155, y0 - 0.22, -0.025), (sx * 0.145, y0 - 0.27, -0.035)]
+        p.append(tube('strand', strand, [0.012, 0.028, 0.033, 0.032, 0.027, 0.018], HAIR, sides=10))
     p.append(blob('back', (0, y0 - 0.12, -0.085), 0.16, HAIR, s=(1.05, 1.4, 0.5), segs=16, rings=10))
     # A few strand lines for texture.
     for k in range(5):
@@ -821,7 +821,7 @@ def hair_short_m():
     """Selim: short dark hair with a little lift at the front."""
     x0, y0, z0 = HC
     return [cut_shell('cap', HC, HR * 1.045, (1.0, 1.0, 0.97), shell_keep_face(0.095, 0.0, -0.09), HAIR, segs=24, rings=14, thick=0.012),
-            blob('lift', (0.01, y0 + 0.14, 0.085), 0.08, HAIR, s=(1.4, 0.42, 0.72), segs=18, rings=10, rot=Matrix.Rotation(0.12, 3, 'Y'))] + streaks(0.183, 6)
+            blob('lift', (0.01, y0 + 0.14, 0.085), 0.08, HAIR, s=(1.4, 0.42, 0.72), segs=18, rings=10, rot=Matrix.Rotation(0.12, 3, 'Y'))]
 
 
 def hair_curly():
@@ -847,22 +847,7 @@ def hair_quiff():
     return [cut_shell('cap', HC, HR * 1.04, (1.0, 1.0, 0.97), shell_keep_face(0.095, 0.01, -0.09), HAIR, segs=24, rings=14, thick=0.011),
             blob('quiff', (0.02, y0 + 0.15, 0.08), 0.07, HAIR, s=(1.35, 0.55, 0.8), segs=20, rings=12, rot=Matrix.Rotation(-0.5, 3, 'X') @ Matrix.Rotation(0.2, 3, 'Y')),
             blob('quiff2', (-0.03, y0 + 0.155, 0.03), 0.06, HAIR, s=(1.3, 0.45, 1.0), segs=16, rings=10),
-            blob('part', (-0.075, y0 + 0.12, 0.06), 0.045, HAIR, s=(1.0, 0.5, 1.0), segs=14, rings=8)] + streaks(0.182, 6, 0.2)
-
-
-def streaks(r, n, lean=0.0):
-    """Comb lines over a short haircut (front to back over the crown), so it reads as hair."""
-    x0, y0, z0 = HC
-    p = []
-    for k in range(n):
-        a = -0.75 + 1.5 * k / (n - 1)
-        pts = []
-        for j in range(5):
-            b = 0.25 + 1.1 * j / 4  # from the front over the top towards the back
-            d = Vector((math.sin(a) * 0.8 + lean * (1 - j / 4), math.sin(b + 0.3), math.cos(b + 0.3))).normalized()
-            pts.append((x0 + d.x * r, y0 + d.y * r, z0 + d.z * r))
-        p.append(tube('streak', pts, 0.0055, HAIR, sides=6))
-    return p
+            blob('part', (-0.075, y0 + 0.12, 0.06), 0.045, HAIR, s=(1.0, 0.5, 1.0), segs=14, rings=8)]
 
 
 def beard_full():

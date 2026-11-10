@@ -26,11 +26,12 @@ import '../summit-text.js';
 import { CUSTOMERS, STAGES } from '../summit-talks.js';
 import { readLine, readType, isUnsure } from '../summit-ai.js';
 import {
-  loadSummitModels, makeMountain, Hold, makeDecorHolds, makeShards, Rope, ClimberEcho, makeCustomer, makeSummitDecor,
+  loadSummitModels, makeMountain, Hold, makeDecorHolds, makeShards, Rope, ClimberEcho, makeSummitDecor,
   makeSky, makePeaks, makeClouds, surfaceZ, cutUniform, TOP, PLATEAU_Y, BOLTS,
 } from '../summit-visuals.js';
 import { holder, makeBubble, makeLabel, makeFeedback, makeCoach, makeStatus } from '../summit-panels.js';
 import { phoneTalk } from '../summit-phone.js';
+import { CustomerFigure } from '../summit-customer.js';
 
 const WALL_Z = -num('xr-summit-wall-z');
 const LS = num('xr-summit-label-scale');
@@ -41,8 +42,10 @@ const ROWS = [0.21, 0.45, 0.69, 0.93, 1.04]; // wall-local height of the reply h
 const FOCUS = [0.21, 0.45, 0.69, 1.03, 1.2];
 const XS = [-0.27, 0, 0.27]; // where the three reply holds sit
 const START = new THREE.Vector3(0.02, 0.022, 0.06); // Echo's feet on the start ledge
-const SUMMIT_SPOT = new THREE.Vector3(-0.03, PLATEAU_Y, 0.05); // Echo on the summit
+const SUMMIT_SPOT = new THREE.Vector3(-0.01, PLATEAU_Y, 0.05); // Echo on the summit
 const CUSTOMER_SPOT = new THREE.Vector3(0.16, PLATEAU_Y - 0.004, 0.03);
+const CUSTOMER_SIZE = 0.44; // height of the customer at the summit (m)
+const PORTRAIT_R = 0.11; // the close-up portrait next to the speech bubble (m)
 const VIEW_TOP = TOP - 0.1; // focus while meeting the customer at the summit
 const STAND_TO_HANG = new THREE.Vector3(0, 0.15, -0.075); // grip point standing (feet) -> hanging (wings)
 // Points: per stage up to 200 (solid at the first try, with a speed bonus), at the summit 200
@@ -97,6 +100,7 @@ export class SummitScene extends BaseScene {
     this.group.add(this.hudGroup);
     this.buildLights();
     this.buildBackdrop();
+    this.buildPortrait();
     this.ready = loadSummitModels().then((M) => { if (!this.disposed) this.buildMountain(M); }).catch((e) => {
       // Without the models the game still runs (simple stand-ins).
       console.warn('Summit models not loaded', e);
@@ -135,6 +139,30 @@ export class SummitScene extends BaseScene {
     fill.position.set(-1.4, eye + 0.4, 0.4);
     fill.target.position.set(0, eye - 0.2, WALL_Z);
     this.group.add(sun, sun.target, fill, fill.target);
+  }
+
+  /** A round window with the customer's close-up (head and chest), next to the speech bubble. */
+  buildPortrait() {
+    this.portraitCut = { value: -100 };
+    const fr = (this.portraitFrame = new THREE.Group());
+    fr.visible = false;
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(64, 76, 4, 64, 64, 64);
+    g.addColorStop(0, color('xr-summit-sky-glow'));
+    g.addColorStop(0.45, color('xr-summit-sky-low'));
+    g.addColorStop(1, color('xr-summit-sky-mid'));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(PORTRAIT_R, 48), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
+    const ring = new THREE.Mesh(new THREE.RingGeometry(PORTRAIT_R, PORTRAIT_R + 0.007, 48), new THREE.MeshBasicMaterial({ color: hex('xr-accent'), toneMapped: false }));
+    ring.position.z = 0.001;
+    this.portraitSlot = new THREE.Group();
+    fr.add(disc, ring, this.portraitSlot);
+    this.group.add(fr);
   }
 
   buildBackdrop() {
@@ -334,17 +362,40 @@ export class SummitScene extends BaseScene {
   setCustomer(c) {
     if (this.figure) {
       const old = this.figure;
-      this.anim(0.4, (k) => old.scale.setScalar(Math.max(0.001, 1 - k)), () => { old.removeFromParent(); old.userData.dispose?.(); });
+      this.anim(0.4, (k) => old.group.scale.setScalar(Math.max(0.001, 1 - k)), () => old.dispose());
     }
+    this.portrait?.dispose();
     this.figure = null;
+    this.portrait = null;
     if (!this.M) return;
-    const f = makeCustomer(this.M.cust, c.look);
-    f.position.copy(CUSTOMER_SPOT);
-    f.rotation.y = -0.25;
-    f.scale.setScalar(0.001);
-    this.mountain.add(f);
+    // The customer at the summit, and the same person as a close-up next to the speech bubble.
+    // A little smaller in the headset, where the summit is close above you.
+    const f = new CustomerFigure(this.M.cust, c, { size: this.engine.isXR ? 0.37 : CUSTOMER_SIZE });
+    f.group.position.copy(CUSTOMER_SPOT);
+    f.group.rotation.y = -0.25;
+    f.group.scale.setScalar(0.001);
+    this.mountain.add(f.group);
     this.figure = f;
-    this.anim(0.5, (k) => f.scale.setScalar(Math.max(0.001, k)), null, 0.3);
+    this.anim(0.5, (k) => f.group.scale.setScalar(Math.max(0.001, k)), null, 0.3);
+    this.portrait = new CustomerFigure(this.M.cust, c, { size: 0.36, cut: this.portraitCut });
+    this.portrait.group.position.set(0, -0.835 * 0.36 + 0.022, 0.014);
+    this.portraitSlot.add(this.portrait.group);
+  }
+
+  /** Both figures of the customer do the same (summit and portrait). */
+  both(fn) {
+    if (this.figure) fn(this.figure);
+    if (this.portrait) fn(this.portrait);
+  }
+
+  /** The close-up portrait: beside the bubble (headset, desktop), at the top of the wall (phones). */
+  placePortrait(show) {
+    const fr = this.portraitFrame;
+    if (!fr) return;
+    fr.visible = show && !!this.portrait;
+    if (!fr.visible) return;
+    if (this.engine.touchUI) fr.position.set(0.27, this.eye + 0.075, -0.6);
+    else fr.position.set(this.bubbleHolder.position.x - (this.bubble.panel.w * this.bubbleHolder.scale.x) / 2 - PORTRAIT_R - 0.012, this.bubbleHolder.position.y + 0.01, -0.585);
   }
 
   /** The next customer waits at the summit: a short meeting, then Echo climbs from the bottom. */
@@ -356,10 +407,11 @@ export class SummitScene extends BaseScene {
     Object.assign(this, { trust: TRUST.start, stamina: 100, stepIndex: 0, typeVotes: { A: 0, Rel: 0, D: 0 }, climbPoints: 0, aiType: null, fell: false });
     this.mode = 'meet';
     this.clearCard();
+    this.placePortrait(false);
     this.clearRoute();
     this.focusTo = VIEW_TOP;
     this.setCustomer(c);
-    this.after(0.6, () => this.figure?.userData.wave(2.2));
+    this.after(0.6, () => this.both((f) => { f.setMood('neutral'); f.setTrust(this.trust); f.wave(2.2); }));
     sfx.appear();
     // Echo goes back down to the start (a quick abseil if it stood on the summit).
     if (this.climber && this.climber.grip.distanceTo(START) > 0.05) this.abseil();
@@ -427,20 +479,29 @@ export class SummitScene extends BaseScene {
     const shown = r.hits.filter((h) => h.weight >= 0.5); // the strong signal words are shown
     this.reading = { mood: r.mood, type, hits: shown, unsure: isUnsure(r.mood), words: dedupe(shown) };
     this.aiType = type[0];
-    // The bubble: top middle, or to the left of the customer once the summit is in view.
-    const tail = this.stepIndex >= 3 ? 'right' : 'up';
+    // The bubble: beside the customer's close-up (or at the top without it), and once the summit
+    // is in view to the left of the customer up there.
+    const near = this.stepIndex >= 3;
+    const tail = near ? 'right' : this.portrait ? 'left' : 'up';
     const panel = this.bubble.show(c, text, shown, tail);
     if (panel.parent !== this.bubbleHolder) { this.bubbleHolder.clear(); this.bubbleHolder.add(panel); }
-    const bs = tail === 'up' ? 0.5 : 0.42;
+    const bs = tail === 'right' ? 0.42 : 0.5;
     this.bubbleHolder.scale.setScalar(bs);
     if (tail === 'up') this.bubbleHolder.position.set(0, this.eye + 0.08 + (panel.h * bs) / 2, -0.6);
-    else {
+    else if (tail === 'left') {
+      const bw = panel.w * bs;
+      const total = PORTRAIT_R * 2 + 0.012 + bw;
+      this.bubbleHolder.position.set(-total / 2 + PORTRAIT_R * 2 + 0.012 + bw / 2, this.eye + 0.1 + Math.max((panel.h * bs) / 2, PORTRAIT_R), -0.6);
+    } else {
       // Next to the customer's head, in front of the summit (it covers the cross).
       const head = Math.min(this.eye + 0.24, this.HOLD_Y - FOCUS[this.stepIndex] + PLATEAU_Y + 0.27);
       this.bubbleHolder.position.set(0.1 - (panel.w * bs) / 2, head - (panel.h * bs) * 0.2, WALL_Z + 0.2);
     }
     this.bubbleHolder.visible = true;
     this.popIn(panel);
+    this.placePortrait(!near);
+    // The customer says it, and shows the mood with the body (the AI only reads the words).
+    this.both((f) => { f.setMood(step.mood); f.setTrust(this.trust); f.say(2.4); });
     sfx.tick();
     music.intensity = this.stepIndex >= 3 ? 2 : 1;
     this.coach.userData.set({ phase: 'reading', verdict: null, reveal: 0 });
@@ -511,7 +572,7 @@ export class SummitScene extends BaseScene {
     }
     this.showFeedback(opt, i, kind);
     this.talk?.lock(true);
-    this.figure?.userData.react(kind);
+    this.both((f) => { f.react(kind); f.setTrust(this.trust); });
     if (kind === 'bad') this.crumble(opt);
     else this.climbTo(opt, kind);
   }
@@ -618,7 +679,7 @@ export class SummitScene extends BaseScene {
         if (opt.label) { const l = opt.label; opt.label = null; l.removeFromParent(); l.userData.panel.dispose(); }
         opt.hold.setState('route');
         const last = this.stepIndex >= this.customer.steps.length;
-        this.coach.userData.set(last ? { phase: 'shown', reveal: 1, mood: null, words: [], verdict: null } : { phase: 'idle', verdict: null });
+        this.coach.userData.set(last ? { phase: 'shown', reveal: 1, mood: null, words: [], verdict: null, unsure: false } : { phase: 'idle', verdict: null });
         if (this.stepIndex >= this.customer.steps.length) this.reachSummit();
         else this.beginStep();
       });
@@ -643,6 +704,7 @@ export class SummitScene extends BaseScene {
     const cl = this.climber;
     this.mode = 'summit';
     this.bubbleHolder.visible = false;
+    this.placePortrait(false);
     this.focusTo = VIEW_TOP;
     const from = cl.grip.clone();
     cl.pose = 'climb';
@@ -655,7 +717,9 @@ export class SummitScene extends BaseScene {
       cl.pose = 'cheer';
       cl.happy(4);
       this.decor?.userData.raise(true);
-      this.figure?.userData.handshake(2.6);
+      cl.shakeT = 2.4;
+      this.both((f) => { f.setMood('ready'); f.handshake(2.6); });
+      this.after(2.7, () => this.both((f) => f.cheer(2.2)));
       sfx.finish();
       this.after(0.3, () => sfx.powerup());
       this.burst(this.mountain.localToWorld(SUMMIT_SPOT.clone().add(new THREE.Vector3(0, 0.15, 0))), 'xr-summit-gold', 36);
@@ -676,6 +740,7 @@ export class SummitScene extends BaseScene {
     this.mode = 'fall';
     this.fell = true;
     this.bubbleHolder.visible = false;
+    this.placePortrait(false);
     for (const o of this.options) {
       if (o.gone) continue;
       o.gone = true;
@@ -686,6 +751,7 @@ export class SummitScene extends BaseScene {
     const low = from.clone().add(new THREE.Vector3(0, -0.3, 0.05));
     cl.pose = 'fall';
     cl.sad();
+    this.both((f) => { f.setMood('skeptical'); f.react('bad'); });
     sfx.crash();
     this.anim(0.5, (k) => cl.grip.lerpVectors(from, low, k * k), () => { cl.swing = 1.5; });
     this.trustSum += this.trust;
@@ -757,6 +823,7 @@ export class SummitScene extends BaseScene {
     this.mode = 'over';
     this.clearCard();
     this.hudGroup.visible = false;
+    this.placePortrait(false);
     this.talk?.show(false);
     for (const o of this.hudBits ?? []) o.visible = false;
     this.app.echo?.suppress(false);
@@ -847,11 +914,15 @@ export class SummitScene extends BaseScene {
     }
     this.bubble?.setReveal(this.mode === 'talk' ? 0 : 1);
     if (this.climber) {
-      const look = this.figure ? this.figure.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.2, 0)) : null;
+      const look = this.figure ? this.figure.headWorld() : null;
       this.climber.update(dt, { look: this.mode === 'choose' || this.mode === 'talk' ? look : null, tremble: this.mode === 'choose' ? clamp((30 - this.stamina) / 30, 0, 1) : 0 });
       this.updateRope();
     }
-    this.figure?.userData.tick(dt);
+    this.figure?.tick(dt);
+    if (this.portrait && this.portraitFrame?.visible) {
+      this.portrait.tick(dt);
+      this.portraitCut.value = this.portraitFrame.localToWorld(new THREE.Vector3(0, -PORTRAIT_R + 0.004, 0)).y;
+    }
     this.decor?.userData.tick(dt, this.time);
     for (const o of [...this.options, ...this.route]) if (!o.hold.disposed) o.hold.tick(dt, this.time);
     this.shards = this.shards.filter((s) => s.userData.tick(dt));
@@ -946,7 +1017,7 @@ export class SummitScene extends BaseScene {
     const late = (this.stepIndex ?? 0) >= 3 && this.mode !== 'fall';
     const box = top ? { x0: -0.42, x1: 0.48, y0: eye - 0.16, y1: eye + 0.46, z: -0.62 }
       : late ? { x0: -0.45, x1: 0.45, y0: eye - 0.5, y1: eye + 0.47, z: -0.62 }
-        : { x0: -0.42, x1: 0.42, y0: eye - 0.5, y1: eye + 0.0, z: -0.62 };
+        : { x0: -0.42, x1: 0.42, y0: eye - 0.5, y1: eye + (this.portraitFrame?.visible ? 0.2 : 0.0), z: -0.62 };
     this.frame(cam, dt, box, ins);
     return true;
   }
@@ -969,7 +1040,8 @@ export class SummitScene extends BaseScene {
     this.climber?.dispose();
     this.rope?.dispose();
     for (const o of [...this.options, ...this.route]) o.hold.dispose();
-    this.figure?.userData.dispose?.();
+    this.figure?.dispose();
+    this.portrait?.dispose();
     super.dispose();
   }
 }
