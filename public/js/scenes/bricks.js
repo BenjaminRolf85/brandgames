@@ -967,7 +967,8 @@ export class BricksScene extends BaseScene {
       if (!wobbly.length) this.toast(t('bricksSettled'), 'xr-success', 1.6);
     }
     if (this.mode === 'loan') {
-      this.score += PTS.hand + (clean ? PTS.clean : 0);
+      if (!b.auto) this.score += PTS.hand + (clean ? PTS.clean : 0);
+      this.lastHand = this.time;
       this.handDone?.();
     } else {
       // Points for new savings only (parts set again after a setback count no more).
@@ -1346,6 +1347,7 @@ export class BricksScene extends BaseScene {
   async handStep(kind, msg) {
     const list = this.plan.remaining((p) => p.kind === kind);
     if (!list.length) return;
+    this.lastHand = this.time;
     this.toast(msg, 'xr-bricks-ghost', 3);
     this.tween(0.4, (k) => { this.ghost.fade = 0.4 + 0.6 * k; });
     let sent = 0;
@@ -1367,6 +1369,7 @@ export class BricksScene extends BaseScene {
     const list = this.plan.remaining((p) => p.kind === 'truss');
     this.toast(t('bricksTrusses'), 'xr-bricks-ghost', 3);
     this.tween(0.4, (k) => { this.ghost.fade = 0.4 + 0.6 * k; });
+    this.lastHand = this.time;
     const c = this.crane;
     const aim = c.aimAt(HOOK_AT.x, HOOK_AT.z);
     await this.craneMove(aim.yaw, aim.reach, c.dropTo(HOOK_AT.y + RIDGE + 0.04), 0.9);
@@ -1591,6 +1594,18 @@ export class BricksScene extends BaseScene {
     if (playing || this.mode === 'loan') {
       if (!this.card) this.monthT += dt;
       if (this.monthT >= MONTH) { this.monthT -= MONTH; this.endMonth(); }
+    }
+    // Loan phase: if a lintel or truss waits too long, the helpers set it (no points).
+    if (this.mode === 'loan' && this.lastHand !== undefined && this.time - this.lastHand > 12 && !this.grabs.size) {
+      const it = this.items.find((b) => (b.state === 'pallet' || b.state === 'hook' || b.state === 'selected') && (b.kind === 'lintel' || b.kind === 'truss'));
+      const g = it && this.targetsFor(it).find((q) => q.state === 'solid');
+      if (g) {
+        this.lastHand = this.time;
+        it.auto = true;
+        it.state = 'held';
+        this.placeItem(it, g);
+        this.toast(t('bricksHelpers'), 'xr-panel-muted', 1.6);
+      }
     }
     if (playing) {
       if (this.queue.length && this.time >= this.nextQueue && this.spots.includes(null)) {
