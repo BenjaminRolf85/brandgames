@@ -15,16 +15,18 @@
 #     SummitHarness    Echo's climbing harness, built in Echo's own model space like the goggles
 #                      (unit E = body width, see build_echo.py), with an empty HarnessTieIn
 #   summit-customer.glb
-#     SummitCustomer   the customer, a toy-like figure (height 1, origin between the feet, front
-#                      +z): CustBody, CustHead (pivot at the neck, with face parts and the hair
-#                      variants CustHairBun/Short/Curly/Long, CustBeard, CustGlasses), CustArmL/R
-#                      (pivot at the shoulder), CustTie, CustScarf, CustApron (toggled by the app)
+#     Cust_albers, Cust_demir, Cust_ferri, Cust_wagner, Cust_petrov, Cust_olsen
+#                      the six customers (stylized, height 1, origin between the feet, front +z),
+#                      each with a body, a head with eyelids, brows and five mouths, and two-part
+#                      arms with hands (see the customer section below)
 # Materials are named for the design tokens the app tints them with (SummitRock, SummitRockAlt,
 # SummitSnow, SummitMetal, SummitHold, SummitHoldBolt, SummitSling, SummitPole, SummitGold,
 # SummitFlagCloth, SummitWood, SummitPeakRock, SummitPeakSnow, SummitHarnessWeb, SummitHarnessMetal,
 # SummitHarnessBag, Cust*). Ambient occlusion is baked into the vertex colors.
 # Usage: blender -b -P build_summit.py -- <summit.glb> <summit.blend> [<preview dir>]
 #        (summit-customer.glb is written next to summit.glb)
+#        blender -b -P build_summit.py -- --coin <out.png> [<size> <samples>]   the menu coin picture
+#        blender -b -P build_summit.py -- --faces <dir>   close-ups of the six customers (front, 3/4)
 import os, sys, math, random
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bpy, bmesh
@@ -34,7 +36,8 @@ from bhelpers import init, P, material, link, tbox, tcyl, ttorus, merge, bake_ao
 ARGS = sys.argv[sys.argv.index('--') + 1:]
 # Coin picture for the menu: blender -b -P build_summit.py -- --coin <out.png> [<size> <samples>]
 COIN = ARGS[1] if ARGS and ARGS[0] == '--coin' else None
-if not COIN:
+FACES = ARGS[1] if ARGS and ARGS[0] == '--faces' else None
+if not COIN and not FACES:
     OUT_GLB, OUT_BLEND = ARGS[0], ARGS[1]
     OUT_CUST = os.path.join(os.path.dirname(OUT_GLB), 'summit-customer.glb')
     PREVIEW = ARGS[2] if len(ARGS) > 2 else None
@@ -563,7 +566,539 @@ def cut_shell(name, c, r, s, keep, mat, segs=32, rings=20, thick=0.012):
     return smooth(link(name, bm, mat))
 
 
-#@@CUSTOMERS@@
+def interp(prof, y):
+    """Radius of a (radius, y) lathe profile at height y."""
+    for (r0, y0), (r1, y1) in zip(prof, prof[1:]):
+        if y0 <= y <= y1 and y1 > y0:
+            return r0 + (r1 - r0) * (y - y0) / (y1 - y0)
+    return 0.0
+
+
+def front_z(prof, sz, x, y):
+    r = interp(prof, y)
+    return sz * math.sqrt(max(0.0, r * r - x * x))
+
+
+def plate(name, outline, zf, mat, off=0.004, thick=0.006, center=None):
+    """A thin plate on a body surface: outline [(x, y)] (three.js), zf(x, y) the surface depth."""
+    bm = bmesh.new()
+    n = len(outline)
+    cx = center[0] if center else sum(p[0] for p in outline) / n
+    cy = center[1] if center else sum(p[1] for p in outline) / n
+    fr = [bm.verts.new(P(x, y, zf(x, y) + off)) for x, y in outline]
+    bk = [bm.verts.new(P(x, y, zf(x, y) + off - thick)) for x, y in outline]
+    cf = bm.verts.new(P(cx, cy, zf(cx, cy) + off))
+    cb = bm.verts.new(P(cx, cy, zf(cx, cy) + off - thick))
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((cf, fr[i], fr[j]))
+        bm.faces.new((cb, bk[j], bk[i]))
+        bm.faces.new((fr[i], bk[i], bk[j], fr[j]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return smooth(link(name, bm, mat))
+
+
+def strip(name, inner, widths, normal2d, zf, mat, off=0.006, thick=0.005):
+    """A band along a line on the body (lapels): inner [(x, y)], widths per point, outward normal(i)."""
+    bm = bmesh.new()
+    rows = []
+    for i, ((x, y), w) in enumerate(zip(inner, widths)):
+        nx, ny = normal2d(i)
+        ox, oy = x + nx * w, y + ny * w
+        rows.append([bm.verts.new(P(x, y, zf(x, y) + off)), bm.verts.new(P(ox, oy, zf(ox, oy) + off)),
+                     bm.verts.new(P(ox, oy, zf(ox, oy) + off - thick)), bm.verts.new(P(x, y, zf(x, y) + off - thick))])
+    for a, b in zip(rows, rows[1:]):
+        for k in range(4):
+            bm.faces.new((a[k], a[(k + 1) % 4], b[(k + 1) % 4], b[k]))
+    bm.faces.new(list(reversed(rows[0])))
+    bm.faces.new(rows[-1])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return smooth(link(name, bm, mat))
+
+
+def curve_tube(name, f, n, r, mat, sides=8):
+    """A tube along f(u), u in -1..1 (n points); r a number or a function of u."""
+    pts = [f(-1 + 2 * i / (n - 1)) for i in range(n)]
+    radii = [r(-1 + 2 * i / (n - 1)) if callable(r) else r for i in range(n)]
+    return tube(name, pts, radii, mat, sides=sides)
+
+
+def fan(name, outline, z, mat, thick=0.004, curve=0.0):
+    """A flat shape in front of the face (open mouth, teeth, tongue): outline [(x, y)] at depth z."""
+    zf = lambda x, y: z - curve * x * x
+    return plate(name, outline, zf, mat, off=0.0, thick=thick)
+
+
+def ellipse(cx, cy, rx, ry, n=20, a0=0.0, a1=2 * math.pi):
+    return [(cx + rx * math.cos(a0 + (a1 - a0) * i / n), cy + ry * math.sin(a0 + (a1 - a0) * i / n)) for i in range(n + (0 if a1 - a0 >= 2 * math.pi - 1e-6 else 1))]
+
+
+def set_parent(ob, parent):
+    """Parents ob to parent, keeping the world position (parents sit at their own origin)."""
+    bpy.context.view_layer.update()
+    ob.parent = parent
+    ob.matrix_parent_inverse = parent.matrix_world.inverted()
+    return ob
+
+
+def node(name, parts, origin, parent=None):
+    bpy.context.view_layer.update()
+    ob = merge(parts, name)
+    pivot(ob, origin)
+    if parent:
+        set_parent(ob, parent)
+    return ob
+
+
+# Shared proportions (three.js units, height about 1).
+HC = (0.0, 0.835, -0.005)  # head center
+EYE_Z = 0.118              # eye centers (the eyes bulge a little out of the face)
+HR = 0.17                  # head radius
+NECK = (0.0, 0.668, 0.0)
+EYE_Y = 0.842
+EYE_X = 0.062
+MOUTH_Y = 0.754
+F_TORSO = [(0.0, 0.33), (0.118, 0.335), (0.126, 0.37), (0.118, 0.41), (0.1, 0.46), (0.104, 0.5), (0.118, 0.55), (0.12, 0.585),
+           (0.112, 0.615), (0.088, 0.64), (0.05, 0.658), (0.0, 0.662)]
+M_TORSO = [(0.0, 0.33), (0.122, 0.335), (0.13, 0.38), (0.128, 0.44), (0.13, 0.5), (0.138, 0.56), (0.136, 0.6), (0.112, 0.64),
+           (0.055, 0.66), (0.0, 0.665)]
+TSZ = 0.74  # torsos are flatter front to back
+
+
+def build_head(key, spec):
+    """Head parts (merged into <key>_Head) and its moving nodes."""
+    fem = spec['f']
+    x0, y0, z0 = HC
+    hp = [head_mesh(fem),
+          blob('nose', (0, 0.803, 0.154 if fem else 0.156), 0.021 if fem else 0.024, SKIN, s=(0.95, 0.85, 0.95), segs=12, rings=8)]
+    for sx in (-1, 1):
+        ex = sx * EYE_X
+        hp.append(blob('ear', (sx * 0.167, 0.818, -0.01), 0.036, SKIN, s=(0.5, 1.0, 0.75), segs=12, rings=8))
+        hp.append(blob('earIn', (sx * 0.172, 0.818, 0.0), 0.018, LINE, s=(0.4, 0.9, 0.6), segs=8, rings=5))
+        # Big eyes: white, colored iris, pupil and two highlights.
+        hp.append(blob('sclera', (ex, EYE_Y, EYE_Z), 0.04, WHITE, s=(0.92, 1.06, 1.0), segs=14, rings=10))
+        hp.append(blob('iris', (ex - sx * 0.002, EYE_Y - 0.002, EYE_Z + 0.036), 0.0225, IRIS, s=(0.95, 1.05, 0.3), segs=12, rings=6))
+        hp.append(blob('pupil', (ex - sx * 0.002, EYE_Y - 0.002, EYE_Z + 0.0398), 0.0125, EYE, s=(0.95, 1.05, 0.28), segs=10, rings=6))
+        hp.append(blob('shine', (ex + 0.009, EYE_Y + 0.011, EYE_Z + 0.0405), 0.0062, SHINE, s=(1, 1, 0.4), segs=8, rings=6))
+        hp.append(blob('shine2', (ex - 0.007, EYE_Y - 0.01, EYE_Z + 0.04), 0.0036, SHINE, s=(1, 1, 0.4), segs=6, rings=4))
+        hp.append(blob('cheek', (sx * 0.1, 0.784, 0.111), 0.032, CHEEK, s=(1.0, 0.62, 0.3), segs=10, rings=6))
+        if spec.get('earrings'):
+            hp.append(blob('earring', (sx * 0.17, 0.776, 0.006), 0.0105, GOLD, segs=8, rings=6))
+    head = node(f'{key}_Head', hp, NECK)
+    # Eyelids: a skin shell over the front of each eye with the lash line on its rim, pivot at
+    # the eye center. As built they are closed; the app turns them up about x to open them
+    # (about -2.45 rad open, -1.7 half closed).
+    for sx, tag in ((1, 'L'), (-1, 'R')):
+        ex = sx * EYE_X
+        lp = [cut_shell('lid', (ex, EYE_Y, EYE_Z), 0.0448, (1.0, 1.0, 1.0), lambda x, y, z: z > 0.0, SKIN, segs=16, rings=10, thick=0.002)]
+        rim = lambda u, ex=ex: (ex + 0.0452 * math.cos(math.pi * (1.5 + 0.42 * u)), EYE_Y + 0.0452 * math.sin(math.pi * (1.5 + 0.42 * u)), EYE_Z + 0.001)
+        lp.append(curve_tube('lash', rim, 9, lambda u: (0.0036 if fem else 0.0026) * (1 - 0.45 * abs(u)), EYE, sides=6))
+        if fem:
+            # A little flick at the outer corner.
+            a = math.pi * (1.5 + 0.42 * sx)
+            c0 = (ex + 0.0452 * math.cos(a), EYE_Y + 0.0452 * math.sin(a), EYE_Z + 0.001)
+            lp.append(tube('flick', [c0, (c0[0] + sx * 0.012, c0[1] - 0.004, c0[2] - 0.004)], [0.0034, 0.0012], EYE, sides=6))
+        lid = node(f'{key}_Lid{tag}', lp, (ex, EYE_Y, EYE_Z))
+        set_parent(lid, head)
+        # Brows: a curved stroke above each eye (pivot at its middle).
+        bw = 0.0065 if fem else 0.0095
+        brow = curve_tube(f'{key}_Brow{tag}', lambda u, ex=ex, sx=sx: (ex + u * 0.034, EYE_Y + 0.064 + 0.009 * (1 - u * u) - sx * u * 0.003, 0.136 - 0.012 * u * u),
+                          9, lambda u: bw * (1 - 0.45 * abs(u)) if not fem else bw * (1 - 0.5 * (u * sx + 1) / 2), HAIR, sides=6)
+        pivot(brow, (ex, EYE_Y + 0.068, 0.136))
+        set_parent(brow, head)
+    # Mouths (one is shown at a time), all around the mouth center.
+    mz = 0.147
+    lipm = LIPS if fem else MOUTH
+    mouths = {
+        'Neutral': [curve_tube('m', lambda u: (u * 0.027, MOUTH_Y + 0.003 * u * u, mz - 0.0022 * u * u), 9, lambda u: (0.0055 if fem else 0.0042) * (1 - 0.35 * u * u), lipm)],
+        'Smile': [curve_tube('m', lambda u: (u * 0.038, MOUTH_Y + 0.016 * u * u - 0.004, mz - 0.0046 * u * u), 11, lambda u: (0.006 if fem else 0.0048) * (1 - 0.4 * u * u), lipm)],
+        'Skeptic': [curve_tube('m', lambda u: (u * 0.028, MOUTH_Y - 0.003 + 0.006 * u + 0.003 * u * u, mz - 0.0024 * u * u), 9, lambda u: (0.0052 if fem else 0.0045) * (1 - 0.3 * u * u), lipm)],
+        'Talk': [fan('m', ellipse(0, MOUTH_Y - 0.004, 0.016, 0.014), mz + 0.001, MOUTH, curve=3.0),
+                 fan('t', ellipse(0, MOUTH_Y - 0.011, 0.01, 0.0055), mz + 0.0025, TONGUE, curve=3.0)],
+        'Open': [fan('m', ellipse(0, MOUTH_Y + 0.006, 0.034, 0.029, n=18, a0=math.pi, a1=2 * math.pi), mz + 0.001, MOUTH, curve=3.0),
+                 fan('teeth', [(-0.028, MOUTH_Y + 0.006), (-0.024, MOUTH_Y - 0.003), (0.024, MOUTH_Y - 0.003), (0.028, MOUTH_Y + 0.006)], mz + 0.0025, WHITE, curve=3.0),
+                 fan('t', ellipse(0, MOUTH_Y - 0.014, 0.017, 0.0085, n=14), mz + 0.0025, TONGUE, curve=3.0)],
+    }
+    if fem:
+        mouths['Open'].append(curve_tube('lip', lambda u: (u * 0.035, MOUTH_Y + 0.007 - 0.002 * u * u, mz + 0.002 - 0.0045 * u * u), 9, 0.0032, LIPS))
+    for name, parts in mouths.items():
+        m = node(f'{key}_Mouth{name}', parts, (0, MOUTH_Y, mz))
+        set_parent(m, head)
+    return head
+
+
+def head_mesh(fem):
+    """One smooth head: a sphere with fuller cheeks and a soft, rounded chin (no seams)."""
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=30, v_segments=20, radius=HR)
+    for v in bm.verts:
+        x, y, z = v.co.x, v.co.z, -v.co.y  # three.js axes, relative to the center
+        t = y / HR
+        cheek = math.exp(-((t + 0.38) / 0.32) ** 2)  # widest at the cheeks
+        x *= 1 + (0.07 if fem else 0.09) * cheek
+        if t < 0:
+            y *= 1 + 0.06 * (-t)  # a little longer towards the chin
+            if z > 0:
+                z *= 1 + 0.08 * cheek
+        z *= 0.94
+        v.co = Vector(P(HC[0] + x, HC[1] + y, HC[2] + z))
+    return smooth(link('skull', bm, SKIN))
+
+
+def front_skull(x, y, fem=False):
+    """Depth of the face surface at x, y (the shape of head_mesh)."""
+    dy = y - HC[1]
+    t = dy / HR
+    cheek = math.exp(-((t + 0.38) / 0.32) ** 2)
+    xs = x / (1 + (0.07 if fem else 0.09) * cheek)
+    ys = dy / (1 + 0.06 * (-t)) if t < 0 else dy
+    r2 = HR * HR - xs * xs - ys * ys
+    zz = math.sqrt(max(0.0, r2)) * (1 + 0.08 * cheek if t < 0 else 1)
+    return HC[2] + 0.94 * zz
+
+
+def shell_keep_face(hairline=0.075, side=0.0, nape=-0.1, face_w=0.12):
+    """Keep-function for a hair cap: top, sides down to `side`, back down to `nape`, no face."""
+    def keep(x, y, z):
+        if z > 0.07 and y < hairline and abs(x) < face_w + 0.03:
+            return False
+        if y > side:
+            return True
+        return z < -0.04 and y > nape
+    return keep
+
+
+def hair_bun():
+    """Katrin: hair pulled back to a high bun (visible from the front), a side parting."""
+    x0, y0, z0 = HC
+    p = [cut_shell('cap', HC, HR * 1.06, (1.0, 1.0, 0.97), shell_keep_face(0.085, -0.02, -0.11), HAIR, segs=24, rings=14, thick=0.014),
+         # The parting at the left: a big swoop over the forehead to the right, a small one to the left.
+         blob('swoop', (0.035, y0 + 0.118, 0.095), 0.088, HAIR, s=(1.45, 0.42, 0.72), segs=20, rings=12, rot=Matrix.Rotation(0.22, 3, 'Y')),
+         blob('swoopL', (-0.09, y0 + 0.108, 0.07), 0.058, HAIR, s=(1.0, 0.5, 0.9), segs=16, rings=10, rot=Matrix.Rotation(-0.35, 3, 'Y')),
+         # Pulled back above the ears.
+         blob('sideL', (-0.152, y0 + 0.02, -0.035), 0.05, HAIR, s=(0.62, 0.95, 1.5), segs=14, rings=10),
+         blob('sideR', (0.152, y0 + 0.02, -0.035), 0.05, HAIR, s=(0.62, 0.95, 1.5), segs=14, rings=10),
+         # The bun on top, a little to the back, with coils and a band.
+         blob('bun', (0, y0 + 0.205, -0.055), 0.075, HAIR, s=(1.0, 0.92, 1.0), segs=16, rings=10),
+         ttorus('coil1', (0, y0 + 0.2, -0.055), 0.066, 0.012, HAIR, axis='y', segs=22, tsegs=6),
+         ttorus('coil2', (0, y0 + 0.235, -0.055), 0.046, 0.011, HAIR, axis='y', segs=18, tsegs=6),
+         ttorus('band', (0, y0 + 0.155, -0.05), 0.052, 0.009, ACC, axis='y', segs=18, tsegs=6)]
+    return p
+
+
+def hair_bob():
+    """Jana: a blond chin-length bob with side-swept bangs."""
+    x0, y0, z0 = HC
+    keep = lambda x, y, z: (y > -0.13) and not (z > 0.06 and y < 0.07 and abs(x) < 0.13)
+    p = [cut_shell('bob', (x0, y0 - 0.005, z0 - 0.008), HR * 1.12, (1.07, 1.02, 1.0), keep, HAIR, segs=24, rings=14, thick=0.024),
+         blob('bangs', (0.03, y0 + 0.105, 0.112), 0.09, HAIR, s=(1.55, 0.42, 0.6), segs=22, rings=12, rot=Matrix.Rotation(0.32, 3, 'Y')),
+         blob('bangsL', (-0.1, y0 + 0.08, 0.1), 0.055, HAIR, s=(0.9, 0.7, 0.7), segs=14, rings=10)]
+    # The ends curl in a little: a soft rim along the bottom, round the back.
+    rim = lambda u: (math.sin(u * 2.35) * 0.178, y0 - 0.14 + 0.012 * math.cos(u * 2.35), z0 - 0.008 - math.cos(u * 2.35) * 0.16 * 0.98)
+    p.append(curve_tube('rim', rim, 21, 0.022, HAIR, sides=8))
+    return p
+
+
+def hair_long():
+    """Ingrid: long silver hair with a middle parting, falling over the shoulders."""
+    x0, y0, z0 = HC
+    p = [cut_shell('cap', HC, HR * 1.07, (1.03, 1.0, 0.98), shell_keep_face(0.08, -0.05, -0.2, 0.115), HAIR, segs=24, rings=14, thick=0.014)]
+    for sx in (-1, 1):
+        # Soft waves from the middle parting over the temples.
+        p.append(blob('wave', (sx * 0.075, y0 + 0.1, 0.09), 0.064, HAIR, s=(1.45, 0.36, 0.72), segs=16, rings=10, rot=Matrix.Rotation(sx * 0.35, 3, 'Y')))
+        # Strands framing the face down to the shoulders.
+        strand = [(sx * 0.158, y0 + 0.03, 0.03), (sx * 0.175, y0 - 0.05, 0.01), (sx * 0.17, y0 - 0.14, -0.01), (sx * 0.155, y0 - 0.22, -0.025), (sx * 0.145, y0 - 0.27, -0.035)]
+        p.append(tube('strand', strand, [0.028, 0.033, 0.032, 0.027, 0.018], HAIR, sides=10))
+    p.append(blob('back', (0, y0 - 0.12, -0.085), 0.16, HAIR, s=(1.05, 1.4, 0.5), segs=16, rings=10))
+    # A few strand lines for texture.
+    for k in range(5):
+        x = -0.08 + k * 0.04
+        p.append(tube('streak', [(x, y0 + 0.16, 0.03 - abs(x) * 0.2), (x * 1.4, y0 + 0.06, -0.15), (x * 1.3, y0 - 0.1, -0.165)], 0.006, HAIR, sides=6))
+    return p
+
+
+def hair_short_m():
+    """Selim: short dark hair with a little lift at the front."""
+    x0, y0, z0 = HC
+    return [cut_shell('cap', HC, HR * 1.045, (1.0, 1.0, 0.97), shell_keep_face(0.095, 0.0, -0.09), HAIR, segs=24, rings=14, thick=0.012),
+            blob('lift', (0.01, y0 + 0.14, 0.085), 0.08, HAIR, s=(1.4, 0.42, 0.72), segs=18, rings=10, rot=Matrix.Rotation(0.12, 3, 'Y'))] + streaks(0.183, 6)
+
+
+def hair_curly():
+    """Marco: thick black curls."""
+    x0, y0, z0 = HC
+    p = [cut_shell('cap', HC, HR * 1.04, (1.0, 1.0, 0.97), shell_keep_face(0.1, 0.0, -0.1), HAIR, segs=24, rings=14, thick=0.012)]
+    rng = random.Random(3)
+    for i in range(38):
+        a = rng.uniform(0, 2 * math.pi)
+        e = rng.uniform(0.05, 1.4)
+        d = Vector((math.cos(a) * math.cos(e), math.sin(e), math.sin(a) * math.cos(e)))
+        if d.z > 0.4 and d.y < 0.55:
+            continue
+        if d.y < 0.12 and d.z > -0.2:
+            continue
+        p.append(blob('curl', (x0 + d.x * HR * 1.07, y0 + d.y * HR * 1.08, z0 + d.z * HR * 1.03), 0.03 + rng.random() * 0.012, HAIR, segs=8, rings=5))
+    return p
+
+
+def hair_quiff():
+    """Sven: short red sides and a swept-up quiff."""
+    x0, y0, z0 = HC
+    return [cut_shell('cap', HC, HR * 1.04, (1.0, 1.0, 0.97), shell_keep_face(0.095, 0.01, -0.09), HAIR, segs=24, rings=14, thick=0.011),
+            blob('quiff', (0.02, y0 + 0.15, 0.08), 0.07, HAIR, s=(1.35, 0.55, 0.8), segs=20, rings=12, rot=Matrix.Rotation(-0.5, 3, 'X') @ Matrix.Rotation(0.2, 3, 'Y')),
+            blob('quiff2', (-0.03, y0 + 0.155, 0.03), 0.06, HAIR, s=(1.3, 0.45, 1.0), segs=16, rings=10),
+            blob('part', (-0.075, y0 + 0.12, 0.06), 0.045, HAIR, s=(1.0, 0.5, 1.0), segs=14, rings=8)] + streaks(0.182, 6, 0.2)
+
+
+def streaks(r, n, lean=0.0):
+    """Comb lines over a short haircut (front to back over the crown), so it reads as hair."""
+    x0, y0, z0 = HC
+    p = []
+    for k in range(n):
+        a = -0.75 + 1.5 * k / (n - 1)
+        pts = []
+        for j in range(5):
+            b = 0.25 + 1.1 * j / 4  # from the front over the top towards the back
+            d = Vector((math.sin(a) * 0.8 + lean * (1 - j / 4), math.sin(b + 0.3), math.cos(b + 0.3))).normalized()
+            pts.append((x0 + d.x * r, y0 + d.y * r, z0 + d.z * r))
+        p.append(tube('streak', pts, 0.0055, HAIR, sides=6))
+    return p
+
+
+def beard_full():
+    """Selim: a full, short beard with a moustache (the mouth stays free)."""
+    keep = lambda x, y, z: (y < -0.03 and z > -0.06) and not (abs(x) < 0.045 and -0.062 < y < -0.024 and z > 0.08)
+    return [cut_shell('beard', (0, 0.792, 0.008), 0.162, (1.1, 1.0, 0.97), keep, HAIR, segs=24, rings=14, thick=0.016),
+            blob('stache', (0, MOUTH_Y + 0.016, 0.158), 0.03, HAIR, s=(1.75, 0.48, 0.6), segs=16, rings=10)]
+
+
+def moustache():
+    """Marco: a curled moustache."""
+    p = []
+    for sx in (-1, 1):
+        p.append(blob('stache', (sx * 0.022, MOUTH_Y + 0.017, 0.16), 0.022, HAIR, s=(1.5, 0.55, 0.6), segs=14, rings=8, rot=Matrix.Rotation(sx * 0.35, 3, 'Y')))
+        p.append(tube('curl', [(sx * 0.045, MOUTH_Y + 0.012, 0.152), (sx * 0.056, MOUTH_Y + 0.02, 0.145), (sx * 0.052, MOUTH_Y + 0.027, 0.142)], [0.008, 0.006, 0.003], HAIR, sides=6))
+    return p
+
+
+def glasses():
+    p = []
+    for sx in (-1, 1):
+        ring = lambda u, sx=sx: (sx * EYE_X + 0.05 * math.cos(math.pi * u), EYE_Y + 0.041 * math.sin(math.pi * u), 0.172 - 0.004 * math.cos(math.pi * u) * sx)
+        p.append(curve_tube('rim', ring, 29, 0.0042, GLASS, sides=5))
+        p.append(tube('temple', [(sx * 0.115, EYE_Y + 0.004, 0.155), (sx * 0.162, EYE_Y + 0.006, 0.07), (sx * 0.172, EYE_Y - 0.01, 0.0)], 0.0035, GLASS, sides=6))
+    p.append(tube('bridge', [(-0.012, EYE_Y + 0.006, 0.171), (0, EYE_Y + 0.012, 0.174), (0.012, EYE_Y + 0.006, 0.171)], 0.0035, GLASS, sides=6))
+    return p
+
+
+def build_hair(key, spec):
+    """Hair and what makes the face this customer's (glasses, beard, freckles, laughter lines):
+    <key>_Hair, pivot at the neck like the shared head, so the app puts it on the head."""
+    fem = spec['f']
+    hp = spec['hair']()
+    for extra in spec.get('head_extras', []):
+        hp += extra()
+    if spec.get('lines'):
+        # Laughter lines at the outer eye corners (the older customer).
+        for sx in (-1, 1):
+            for k in range(2):
+                hp.append(tube('crow', [(sx * 0.112, EYE_Y + 0.006 - k * 0.016, 0.124), (sx * 0.13, EYE_Y + 0.012 - k * 0.026, 0.11)], 0.0022, LINE, sides=5))
+    if spec.get('freckles'):
+        rng = random.Random(5)
+        for i in range(14):
+            sx = -1 if i % 2 else 1
+            x = sx * rng.uniform(0.04, 0.11)
+            y = rng.uniform(0.79, 0.81)
+            hp.append(blob('freckle', (x, y, front_skull(x, y, fem) - 0.0005), 0.0045, LINE, s=(1, 1, 0.5), segs=6, rings=4))
+    return node(f'{key}_Hair', hp, NECK)
+
+
+def build_body(key, spec):
+    """Torso with clothes, legs and shoes (merged into <key>_Body)."""
+    fem = spec['f']
+    prof = F_TORSO if fem else M_TORSO
+    BUST = (0.0, 0.552, 0.055, 0.068 * 1.35, 0.068 * 0.72, 0.068 * 0.62)
+
+    def zf(x, y):
+        z = front_z(prof, TSZ, x, y)
+        if fem:
+            cx, cy, cz, rx, ry, rz = BUST
+            k = 1 - ((x - cx) / rx) ** 2 - ((y - cy) / ry) ** 2
+            if k > 0:
+                z = max(z, cz + rz * math.sqrt(k))
+        return z
+    top = spec['top']
+    torso_mat = SUIT
+    bp = [lathe('torso', prof, torso_mat, segs=24, sz=TSZ),
+          tcyl('neck', (0, NECK[1] + 0.012, 0), 0.04, 0.05, SKIN, segs=16)]
+    sh_x = 0.112 if fem else 0.128
+    for sx in (-1, 1):
+        bp.append(blob('shoulder', (sx * sh_x, 0.61, -0.004), 0.039 if fem else 0.046, torso_mat, s=(1.0, 0.85, 0.95), segs=12, rings=8))
+    if fem:
+        bp.append(blob('bust', (0, 0.552, 0.055), 0.068, torso_mat, s=(1.35, 0.72, 0.62), segs=16, rings=10))
+    # Front: a V-neck showing the shirt or blouse, lapels, collar, buttons, pockets.
+    vtop = 0.656
+    vbot = {'blazer': 0.5 if fem else 0.505, 'cardigan': 0.49, 'sweater': 0.6, 'chef': 0.63}[top]
+    vw = 0.046 if top != 'sweater' else 0.038
+    shirt_v = [(-vw, vtop)] + [(-vw * (1 - t), vtop - (vtop - vbot) * t) for t in [i / 6 for i in range(1, 7)]] + [(vw * t, vbot + (vtop - vbot) * t) for t in [i / 6 for i in range(1, 7)]]
+    if top in ('blazer', 'cardigan', 'sweater'):
+        bp.append(plate('shirtV', shirt_v, zf, SHIRT, off=0.002, thick=0.004))
+    if top == 'blazer':
+        for sx in (-1, 1):
+            line = [(sx * vw * (1 - t), vtop - (vtop - vbot) * t) for t in [i / 7 for i in range(8)]]
+            widths = [0.034, 0.036, 0.03, 0.03, 0.026, 0.02, 0.012, 0.0]
+            bp.append(strip('lapel', line, widths, lambda i, sx=sx: (sx * 0.95, 0.28), zf, TRIM, off=0.007, thick=0.006))
+            # Shirt or blouse collar points.
+            if fem:
+                bp.append(plate('collar', ellipse(sx * 0.028, 0.648, 0.026, 0.014, n=12), zf, SHIRT, off=0.009, thick=0.004))
+            else:
+                bp.append(plate('collar', [(sx * 0.008, 0.664), (sx * 0.044, 0.66), (sx * 0.02, 0.632)], zf, SHIRT, off=0.009, thick=0.004))
+            bp.append(plate('pocket', [(sx * 0.05, 0.405), (sx * 0.105, 0.405), (sx * 0.105, 0.393), (sx * 0.05, 0.393)], zf, TRIM, off=0.004, thick=0.005))
+        for i, y in enumerate((0.475, 0.432)):
+            bp.append(blob('button', (0.012, y, zf(0.012, y) + 0.004), 0.009, EYE if not fem else GOLD, s=(1, 1, 0.5), segs=10, rings=6))
+        if spec.get('tie'):
+            bp.append(blob('knot', (0, 0.642, zf(0, 0.642) + 0.012), 0.014, ACC, s=(1.1, 0.9, 0.7), segs=12, rings=8))
+            bp.append(plate('tie', [(-0.006, 0.632), (0.006, 0.632), (0.016, 0.54), (0, 0.515), (-0.016, 0.54)], zf, ACC, off=0.009, thick=0.005))
+    elif top == 'cardigan':
+        for i, y in enumerate((0.47, 0.43, 0.39)):
+            bp.append(blob('button', (0.0, y, zf(0.0, y) + 0.004), 0.008, GOLD, s=(1, 1, 0.5), segs=10, rings=6))
+        for sx in (-1, 1):
+            line = [(sx * vw * (1 - t), vtop - (vtop - vbot) * t) for t in [i / 7 for i in range(8)]]
+            bp.append(strip('placket', line, [0.012] * 8, lambda i, sx=sx: (sx * 0.95, 0.25), zf, TRIM, off=0.005, thick=0.005))
+        bp.append(ttorus('hem', (0, 0.345, 0), 0.119, 0.01, TRIM, axis='y', segs=36, tsegs=6))
+        bp[-1].scale = (1.0, TSZ, 1.0)
+    elif top == 'sweater':
+        bp.append(ttorus('rib', (0, 0.652, 0.0), 0.062, 0.011, TRIM, axis='y', segs=30, tsegs=8))
+        bp[-1].scale = (1.0, 0.85, 1.0)
+        for sx in (-1, 1):
+            bp.append(plate('collar', [(sx * 0.008, 0.664), (sx * 0.048, 0.656), (sx * 0.02, 0.628)], zf, SHIRT, off=0.012, thick=0.004))
+            for k in range(3):
+                x = sx * (0.035 + k * 0.022)
+                bp.append(tube('cable', [(x, 0.36, zf(x, 0.36) + 0.002), (x, 0.47, zf(x, 0.47) + 0.002), (x, 0.58, zf(x, 0.58) + 0.002)], 0.0045, TRIM, sides=6))
+        bp.append(ttorus('hem', (0, 0.348, 0), 0.124, 0.012, TRIM, axis='y', segs=36, tsegs=6))
+        bp[-1].scale = (1.0, TSZ, 1.0)
+    elif top == 'chef':
+        # White double-breasted jacket: standing collar, a front flap with two rows of buttons.
+        bp.append(ttorus('stand', (0, 0.672, 0.0), 0.046, 0.011, torso_mat, axis='y', segs=30, tsegs=8))
+        bp.append(plate('flap', [(-0.02, 0.64), (0.07, 0.62), (0.085, 0.36), (-0.02, 0.36)], zf, torso_mat, off=0.004, thick=0.006))
+        for r_ in range(3):
+            for sx in (-1, 1):
+                x = 0.03 + sx * 0.032
+                y = 0.56 - r_ * 0.07
+                bp.append(blob('button', (x, y, zf(x, y) + 0.01), 0.009, TRIM, s=(1, 1, 0.5), segs=10, rings=6))
+        bp.append(blob('knot', (0.0, 0.646, zf(0.0, 0.646) + 0.012), 0.019, ACC, s=(1.25, 1.0, 0.7), segs=12, rings=8))
+        bp.append(plate('kerchief', [(-0.018, 0.64), (0.018, 0.64), (0.008, 0.6), (-0.008, 0.6)], zf, ACC, off=0.008, thick=0.004))
+    if spec.get('scarf'):
+        bp.append(ttorus('scarf', (0, 0.655, 0.0), 0.072, 0.028, ACC, axis='y', segs=30, tsegs=10))
+        bp.append(plate('tail1', [(0.01, 0.64), (0.05, 0.64), (0.058, 0.47), (0.016, 0.47)], zf, ACC, off=0.026, thick=0.012))
+        bp.append(plate('tail2', [(0.035, 0.63), (0.075, 0.625), (0.085, 0.49), (0.045, 0.495)], zf, ACC, off=0.016, thick=0.012))
+        for k in range(4):
+            bp.append(tube('fringe', [(0.02 + k * 0.011, 0.47, zf(0.02, 0.47) + 0.026), (0.022 + k * 0.011, 0.452, zf(0.02, 0.45) + 0.026)], 0.003, ACC, sides=5))
+    if spec.get('apron'):
+        apr = lambda x, y: front_z([(0.0, 0.1), (0.13, 0.12), (0.13, 0.42), (0.0, 0.43)], 0.9, x, y) + 0.01
+        bp.append(plate('apron', [(-0.115, 0.43), (0.115, 0.43), (0.12, 0.13), (-0.12, 0.13)], apr, ACC, off=0.004, thick=0.006))
+        bp.append(ttorus('apronBand', (0, 0.43, 0.0), 0.12, 0.009, ACC, axis='y', segs=34, tsegs=6))
+        bp[-1].scale = (1.0, 0.9, 1.0)
+        bp.append(plate('apronPocket', [(-0.05, 0.33), (0.05, 0.33), (0.05, 0.27), (-0.05, 0.27)], apr, ACC, off=0.011, thick=0.004))
+    # Lower body.
+    bottom = spec['bottom']
+    if bottom == 'trousers':
+        bp.append(blob('seat', (0, 0.335, -0.005), 0.11, PANTS, s=(1.15, 0.5, 0.82), segs=16, rings=10))
+        for sx in (-1, 1):
+            bp.append(tube('leg', [(sx * 0.062, 0.345, 0), (sx * 0.063, 0.27, 0.003), (sx * 0.064, 0.2, 0.009), (sx * 0.065, 0.12, 0.004), (sx * 0.066, 0.065, 0.0), (sx * 0.066, 0.05, 0.0)],
+                           [0.058, 0.055, 0.05, 0.047, 0.046, 0.048], PANTS, sides=14))
+            bp.append(blob('shoe', (sx * 0.066, 0.03, 0.03), 0.05, SHOE, s=(0.9, 0.55, 1.55), segs=14, rings=8))
+            bp.append(tcyl('sole', (sx * 0.066, 0.006, 0.028), 0.046, 0.012, TRIM if spec.get('dark_sole') else SHOE, segs=12))
+            bp[-1].scale = (0.9, 1.6, 1.0)
+    else:
+        long = bottom == 'long'
+        prof_s = ([(0.0, 0.35), (0.12, 0.35), (0.134, 0.28), (0.148, 0.16), (0.155, 0.09), (0.0, 0.09)] if long
+                  else [(0.0, 0.35), (0.12, 0.35), (0.127, 0.3), (0.12, 0.23), (0.108, 0.175), (0.0, 0.175)])
+        bp.append(lathe('skirt', prof_s, PANTS, segs=28, sz=0.8))
+        knee = 0.09 if long else 0.19
+        for sx in (-1, 1):
+            pts = [(sx * 0.047, knee, 0.0), (sx * 0.046, knee - 0.04, -0.004), (sx * 0.045, 0.1, -0.002), (sx * 0.044, 0.065, 0.0), (sx * 0.044, 0.04, 0.003)]
+            rad = [0.033, 0.034, 0.026, 0.021, 0.022]
+            if long:
+                pts, rad = pts[2:], rad[2:]
+            bp.append(tube('leg', pts, rad, SKIN, sides=10))
+            bp.append(blob('shoe', (sx * 0.046, 0.026, 0.024), 0.038, SHOE, s=(0.85, 0.6, 1.5), segs=12, rings=8))
+            bp.append(tbox('heel', (sx * 0.046, 0.012, -0.024), (0.016, 0.024, 0.014), SHOE, bev=0.003))
+    for extra in spec.get('body_extras', []):
+        bp += extra(zf)
+    bpy.context.view_layer.update()
+    return merge(bp, f'{key}_Body')
+
+
+def build_arm(key, spec, sx, tag, root):
+    """Upper arm (pivot at the shoulder) and forearm with the hand (pivot at the elbow)."""
+    fem = spec['f']
+    top = spec['top']
+    sleeve = SUIT
+    cuff = SHIRT if top in ('blazer', 'sweater') else (TRIM if top == 'cardigan' else SUIT)
+    k = 0.92 if fem else 1.0
+    S = (sx * (0.112 if fem else 0.128), 0.615, -0.004)
+    E = (sx * (0.142 if fem else 0.158), 0.49, 0.0)
+    W = (sx * (0.152 if fem else 0.168), 0.378, 0.03)
+    upper = [tube('upper', [S, ((S[0] + E[0]) / 2 + sx * 0.004, (S[1] + E[1]) / 2, -0.003), E], [0.043 * k, 0.04 * k, 0.037 * k], sleeve, sides=12)]
+    up = node(f'{key}_Arm{tag}', upper, S)
+    d = Vector(W) - Vector(E)
+    d.normalize()
+    cw = Vector(W) - d * 0.012
+    fore = [blob('elbow', E, 0.037 * k, sleeve, segs=10, rings=7),
+            tube('fore', [E, ((E[0] + W[0]) / 2, (E[1] + W[1]) / 2, (E[2] + W[2]) / 2), tuple(cw)], [0.037 * k, 0.034 * k, 0.031 * k], sleeve, sides=12),
+            tube('cuff', [tuple(cw - d * 0.006), tuple(cw + d * 0.012)], [0.033 * k, 0.032 * k], cuff, sides=12)]
+    # Hand: palm (facing the leg), four fingers and a thumb pointing forwards.
+    H = Vector(W) + Vector((0, -0.036, 0.004))
+    hs = 0.92 if fem else 1.0
+    fore.append(blob('palm', tuple(H), 0.029 * hs, SKIN, s=(0.62, 1.0, 0.95), segs=12, rings=8))
+    for i, dz in enumerate((-0.015, -0.005, 0.005, 0.015)):
+        L = (0.032, 0.036, 0.035, 0.029)[i] * hs
+        a = Vector((H.x, H.y - 0.018 * hs, H.z + dz * hs))
+        b = Vector((H.x - sx * 0.004, H.y - 0.018 * hs - L * 0.6, H.z + dz * hs * 1.1 + 0.002))
+        c = Vector((H.x - sx * 0.011, H.y - 0.018 * hs - L, H.z + dz * hs * 1.15 + 0.006))
+        fore.append(tube('finger', [tuple(a), tuple(b), tuple(c)], [0.0072 * hs, 0.0068 * hs, 0.006 * hs], SKIN, sides=6))
+        fore.append(blob('tip', tuple(c), 0.006 * hs, SKIN, segs=6, rings=4))
+    tA = Vector((H.x - sx * 0.006, H.y + 0.006, H.z + 0.018 * hs))
+    tB = Vector((H.x - sx * 0.012, H.y - 0.016, H.z + 0.032 * hs))
+    fore.append(tube('thumb', [tuple(tA), tuple((tA + tB) / 2), tuple(tB)], [0.0095 * hs, 0.0085 * hs, 0.0075 * hs], SKIN, sides=6))
+    fore.append(blob('thumbTip', tuple(tB), 0.0075 * hs, SKIN, segs=6, rings=4))
+    fo = node(f'{key}_Fore{tag}', fore, E)
+    set_parent(fo, up)
+    set_parent(up, root)
+    return up
+
+
+CHARACTERS = {
+    'albers': dict(f=True, top='blazer', bottom='skirt', hair=hair_bun, head_extras=[glasses], earrings=True),
+    'demir': dict(f=False, top='sweater', bottom='trousers', hair=hair_short_m, head_extras=[beard_full]),
+    'ferri': dict(f=False, top='chef', bottom='trousers', hair=hair_curly, head_extras=[moustache], apron=True),
+    'wagner': dict(f=True, top='cardigan', bottom='long', hair=hair_long, scarf=True, earrings=True, lines=True),
+    'petrov': dict(f=True, top='blazer', bottom='skirt', hair=hair_bob, earrings=True),
+    'olsen': dict(f=False, top='blazer', bottom='trousers', hair=hair_quiff, tie=True, freckles=True),
+}
+
+# Shared by all women (Base_f) and all men (Base_m): the head with the face, eyelids, brows,
+# mouths and the arms. Every customer (Cust_<key>) adds the body with the clothes and the hair.
+customers = []
+cust_meshes = []
+for g, fem in (('f', True), ('m', False)):
+    root = bpy.data.objects.new(f'Base_{g}', None)
+    bpy.context.scene.collection.objects.link(root)
+    spec = dict(f=fem, top='blazer', earrings=fem)
+    head = build_head(g, spec)
+    set_parent(head, root)
+    for sx, tag in ((-1, 'R'), (1, 'L')):
+        build_arm(g, spec, sx, tag, root)
+    customers.append(root)
+for i, (key, spec) in enumerate(CHARACTERS.items()):
+    root = bpy.data.objects.new(f'Cust_{key}', None)
+    bpy.context.scene.collection.objects.link(root)
+    set_parent(build_body(key, spec), root)
+    set_parent(build_hair(key, spec), root)
+    customers.append(root)
+for r in customers:
+    cust_meshes += [o for o in r.children_recursive if o.type == 'MESH']
 
 # ---------- coin picture (no export) ----------
 
@@ -641,12 +1176,12 @@ def render_coin(out, size, samples):
     cm.links.new(gt.outputs[0], mix.inputs[0])
     cm.links.new(mix.outputs[2], bsdf.inputs['Base Color'])
     # The customer on the summit (bun and glasses), waving.
-    for o in (hair_short, hair_curly, hair_long, beard, tie_ob, scarf, apron):
-        o.hide_render = True
+    customer = pose_customer('albers', 'Smile')
     customer.location = P(0.17, PLATEAU_TOP, 0.04)
-    customer.scale = (0.36, 0.36, 0.36)
+    customer.scale = (0.42, 0.42, 0.42)
     customer.rotation_euler = (0, 0, 0.35)
-    arms[1].rotation_euler = (0, -2.4, 0)
+    bpy.data.objects['f_ArmL'].rotation_euler = (0, -2.3, 0)
+    bpy.data.objects['f_ForeL'].rotation_euler = (0, -0.5, 0)
     # Summit cross with fairy lights, the flag raised.
     cross.location = P(-0.22, PLATEAU_TOP - 0.01, -0.04)
     cross.scale = (0.9, 0.9, 0.9)
@@ -832,17 +1367,111 @@ def render_coin(out, size, samples):
     bpy.ops.render.render(write_still=True)
 
 
+# Token colors of the customers (css/game-summit.css) for the coin and the close-ups.
+LOOKS = {
+    'albers': dict(suit='#26386a', shirt='#f4f5f8', pants='#26386a', hair='#6b4027', skin='#f2c7a8', accent='#2fa59a', iris='#4f8a5b', lips='#c45a6a', shoe='#2a201c'),
+    'demir': dict(suit='#d9a23a', shirt='#a9cdf0', pants='#3d5a85', hair='#2c2220', skin='#c98f6b', accent='#2fa59a', iris='#6b4a2b', lips='#8a2f3a', shoe='#5a3a26'),
+    'ferri': dict(suit='#f4f5f8', shirt='#f4f5f8', pants='#1f2436', hair='#2c2220', skin='#c98f6b', accent='#9a2747', iris='#6b4a2b', lips='#8a2f3a', shoe='#2a201c'),
+    'wagner': dict(suit='#d77a8f', shirt='#f4f5f8', pants='#4b2d52', hair='#d7d9e2', skin='#f2c7a8', accent='#2fa59a', iris='#4a78b5', lips='#c45a6a', shoe='#2a201c'),
+    'petrov': dict(suit='#1f2436', shirt='#f4f5f8', pants='#1f2436', hair='#e3c27c', skin='#f2c7a8', accent='#9a2747', iris='#4a78b5', lips='#b8323f', shoe='#9a2747'),
+    'olsen': dict(suit='#4a5670', shirt='#a9cdf0', pants='#4a5670', hair='#b4542e', skin='#f6d3bd', accent='#9a2747', iris='#4f8a5b', lips='#8a2f3a', shoe='#5a3a26'),
+}
+
+
+def shade(hexs, k):
+    h = hexs.lstrip('#')
+    return '#' + ''.join(f'{min(255, int(int(h[i:i + 2], 16) * k)):02x}' for i in (0, 2, 4))
+
+
+def pose_customer(key, mouth='Smile'):
+    """Shows one customer (colors, open eyes, one mouth); hides the others. Returns its root."""
+    L = LOOKS[key]
+    for m, c in ((SUIT, L['suit']), (TRIM, shade(L['suit'], 0.78)), (SHIRT, L['shirt']), (PANTS, L['pants']), (HAIR, L['hair']), (SKIN, L['skin']),
+                 (ACC, L['accent']), (IRIS, L['iris']), (LIPS, L['lips']), (SHOE, L['shoe']), (LINE, shade(L['skin'], 0.78)), (CHEEK, '#f08a8a'),
+                 (MOUTH, '#7a2430'), (TONGUE, '#e8858a'), (WHITE, '#fbfbfd'), (EYE, '#14121c'), (GLASS, '#1d2033'), (GOLD, '#ffc65c')):
+        set_color(m, c)
+    set_color(SHINE, '#ffffff', 0.2, emit=2.0)
+    set_color(GOLD, '#ffc65c', 0.25, metal=1.0)
+    g = 'f' if CHARACTERS[key]['f'] else 'm'
+    roots = [bpy.data.objects[f'Cust_{key}'], bpy.data.objects[f'Base_{g}']]
+    for r in customers:
+        for o in [r, *r.children_recursive]:
+            o.hide_render = r not in roots
+    for r in roots:
+        for o in r.children_recursive:
+            if '_Lid' in o.name:
+                o.rotation_euler = (-2.45, 0, 0)
+            if '_Mouth' in o.name:
+                o.hide_render = not o.name.endswith(mouth)
+    show = bpy.data.objects.get(f'Show_{key}')
+    if not show:
+        show = bpy.data.objects.new(f'Show_{key}', None)
+        bpy.context.scene.collection.objects.link(show)
+        for r in roots:
+            set_parent(r, show)
+    return show
+
+
+def render_faces(out):
+    """Close-ups of every customer, front and three quarters, for a critical look."""
+    os.makedirs(out, exist_ok=True)
+    sc = bpy.context.scene
+    for o in list(sc.objects):
+        if o.type == 'MESH' and not any(o in r.children_recursive for r in customers):
+            o.hide_render = True
+    w = bpy.data.worlds.new('studio')
+    sc.world = w
+    w.use_nodes = True
+    w.node_tree.nodes['Background'].inputs['Color'].default_value = (*lin('#33367e'), 1)
+    w.node_tree.nodes['Background'].inputs['Strength'].default_value = 0.8
+    key_l = bpy.data.objects.new('key', bpy.data.lights.new('key', 'AREA'))
+    key_l.data.energy = 40
+    key_l.data.size = 1.5
+    key_l.location = P(0.8, 1.6, 1.6)
+    key_l.rotation_euler = (P(0, 0.7, 0) - key_l.location).to_track_quat('-Z', 'Y').to_euler()
+    sc.collection.objects.link(key_l)
+    fill = bpy.data.objects.new('fill', bpy.data.lights.new('fill', 'AREA'))
+    fill.data.energy = 15
+    fill.data.size = 2
+    fill.location = P(-1.2, 1.0, 1.0)
+    fill.rotation_euler = (P(0, 0.7, 0) - fill.location).to_track_quat('-Z', 'Y').to_euler()
+    sc.collection.objects.link(fill)
+    cam = bpy.data.objects.new('cam', bpy.data.cameras.new('cam'))
+    cam.data.lens = 50
+    sc.collection.objects.link(cam)
+    sc.camera = cam
+    sc.render.engine = 'CYCLES'
+    sc.cycles.device = 'CPU'
+    sc.cycles.samples = 24
+    sc.cycles.use_denoising = True
+    sc.render.resolution_x = 520
+    sc.render.resolution_y = 640
+    sc.view_settings.view_transform = 'AgX'
+    for key in LOOKS:
+        pose_customer(key, 'Smile')
+        for tag, pos, tgt in (('front', (0.0, 0.62, 2.0), (0, 0.55, 0)), ('three', (1.3, 0.75, 1.5), (0, 0.56, 0)), ('face', (0.35, 0.86, 0.8), (0, 0.83, 0))):
+            cam.location = P(*pos)
+            cam.rotation_euler = (P(*tgt) - cam.location).to_track_quat('-Z', 'Y').to_euler()
+            sc.render.filepath = f'{out}/cust-{key}-{tag}.png'
+            bpy.ops.render.render(write_still=True)
+
+
 PLATEAU_TOP = TOP + 0.045
 BOLTS_C = [(0.14 if k % 2 == 0 else -0.14, k * STEP + 0.13) for k in range(SECTIONS)]
+if FACES:
+    render_faces(FACES)
+    sys.exit(0)
 if COIN:
     render_coin(COIN, int(ARGS[2]) if len(ARGS) > 2 else 512, int(ARGS[3]) if len(ARGS) > 3 else 64)
     sys.exit(0)
 
 # ---------- ambient occlusion, export ----------
 
+# Ambient occlusion on the big parts; lids, brows and mouths stay unshaded.
+CUST_AO = [o for o in cust_meshes if o.name.split('_')[-1] in ('Body', 'Head', 'Hair', 'ArmL', 'ArmR', 'ForeL', 'ForeR')]
 ASSETS = [(wall, 0.06), (peak, 0.06), *[(h, 0.02) for h in hold_obs], (quickdraw, 0.02), (flag, 0.05), (cross, 0.04),
-          *[(p, 0.2) for p in peaks], (harness, 0.05), *[(m, 0.04) for m in cust_meshes]]
-bake_ao(ASSETS, {'SummitGold', 'CustEyeLight'}, distance=0.12, samples=32)
+          *[(p, 0.2) for p in peaks], (harness, 0.05), *[(m, 0.05) for m in CUST_AO]]
+bake_ao(ASSETS, {'SummitGold', 'CustShine', 'CustGold'}, distance=0.12, samples=32)
 print('wall faces', len(wall.data.polygons))
 
 bpy.context.preferences.filepaths.save_version = 0
@@ -860,7 +1489,7 @@ def export_sel(path, roots):
 
 
 export_sel(OUT_GLB, [wall, peak, *hold_obs, quickdraw, flag, cross, *peaks, harness])
-export_sel(OUT_CUST, [customer])
+export_sel(OUT_CUST, customers)
 bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND, compress=True)
 
 if PREVIEW:
@@ -880,8 +1509,9 @@ if PREVIEW:
     # Show the hold shapes and the customer next to the wall.
     for i, h in enumerate(hold_obs):
         h.location = P(-0.3 + i * 0.2, 0.3, 0.05)
-    customer.location = P(0.15, TOP + 0.03, 0.0)
-    customer.scale = (0.24, 0.24, 0.24)
+    for r in customers:
+        r.location = P(0.15, TOP + 0.03, 0.0)
+        r.scale = (0.42, 0.42, 0.42)
     flag.location = P(0.33, TOP + 0.03, -0.12)
     cross.location = P(-0.2, TOP + 0.03, -0.1)
     for tag, pos, tgt in (('wall', (0.4, 0.2, 3.6), (0, 0.0, 0)), ('top', (0.5, 1.5, 1.2), (0, TOP + 0.1, 0))):

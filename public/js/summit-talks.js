@@ -5,7 +5,7 @@
 //   interested, reserved, skeptical, ready (a buying signal).
 // note: what a person reads in the line where word counting goes wrong (irony, hesitation,
 // problem words that are not meant against you).
-// look: the customer figure (hair variant, extras, token colors).
+// look: the token colors of the customer's figure (summit-customer.js, built in Blender).
 // Pure data, no imports (also used by the test scripts).
 
 export const STAGES = [
@@ -25,7 +25,7 @@ export const CUSTOMERS = [
     name: { de: 'Dr. Katrin Albers', en: 'Dr Katrin Albers' },
     role: { de: 'Leiterin Finanzen, Maschinenbau', en: 'Head of Finance, engineering firm' },
     topic: { de: 'sucht eine Software für die Finanzplanung', en: 'is looking for financial planning software' },
-    look: { hair: 'Bun', glasses: true, suit: 'xr-summit-cloth-navy', shirt: 'xr-summit-cloth-white', pants: 'xr-summit-cloth-ink', hair_c: 'xr-summit-hair-brown', skin: 'xr-summit-skin-1', accent: 'xr-summit-cloth-teal' },
+    look: { suit: 'xr-summit-cloth-navy', shirt: 'xr-summit-cloth-white', pants: 'xr-summit-cloth-navy', hair_c: 'xr-summit-hair-brown', skin: 'xr-summit-skin-1', accent: 'xr-summit-cloth-teal', iris: 'xr-summit-iris-green', lips: 'xr-summit-lips-rose', shoe: 'xr-summit-shoe' },
     steps: [
       {
         say: { de: 'Guten Tag. Ich habe 30 Minuten. Bitte keine Werbefolien – ich brauche Zahlen und Fakten.', en: 'Good afternoon. I have 30 minutes. No sales slides, please – I need numbers and facts.' },
@@ -80,7 +80,7 @@ export const CUSTOMERS = [
     name: { de: 'Selim Demir', en: 'Selim Demir' },
     role: { de: 'Hausbesitzer, Ingenieur', en: 'Home owner, engineer' },
     topic: { de: 'will eine Wärmepumpe für sein Haus', en: 'wants a heat pump for his house' },
-    look: { hair: 'Short', beard: true, suit: 'xr-summit-cloth-mustard', shirt: 'xr-summit-cloth-sky', pants: 'xr-summit-cloth-denim', hair_c: 'xr-summit-hair-black', skin: 'xr-summit-skin-2', accent: 'xr-summit-cloth-teal' },
+    look: { suit: 'xr-summit-cloth-mustard', shirt: 'xr-summit-cloth-sky', pants: 'xr-summit-cloth-denim', hair_c: 'xr-summit-hair-black', skin: 'xr-summit-skin-2', accent: 'xr-summit-cloth-teal', iris: 'xr-summit-iris-brown', lips: 'xr-summit-mouth', shoe: 'xr-summit-shoe-brown' },
     steps: [
       {
         say: { de: 'Ich habe mich gründlich informiert. Drei Angebote liegen schon vor mir.', en: "I've done my research. I already have three quotes in front of me." },
@@ -135,7 +135,7 @@ export const CUSTOMERS = [
     name: { de: 'Marco Ferri', en: 'Marco Ferri' },
     role: { de: 'Inhaber eines Familienrestaurants', en: 'Owner of a family restaurant' },
     topic: { de: 'braucht ein System für Reservierungen', en: 'needs a booking system' },
-    look: { hair: 'Curly', apron: true, suit: 'xr-summit-cloth-white', shirt: 'xr-summit-cloth-white', pants: 'xr-summit-cloth-ink', hair_c: 'xr-summit-hair-black', skin: 'xr-summit-skin-2', accent: 'xr-summit-cloth-wine' },
+    look: { suit: 'xr-summit-cloth-white', shirt: 'xr-summit-cloth-white', pants: 'xr-summit-cloth-ink', hair_c: 'xr-summit-hair-black', skin: 'xr-summit-skin-2', accent: 'xr-summit-cloth-wine', iris: 'xr-summit-iris-brown', lips: 'xr-summit-mouth', shoe: 'xr-summit-shoe' },
     steps: [
       {
         say: { de: 'Kommen Sie rein! Einen Kaffee? Mein Team und ich sind seit 25 Jahren hier im Viertel.', en: 'Come in! A coffee? My team and I have been here in the neighbourhood for 25 years.' },
@@ -192,7 +192,7 @@ export const CUSTOMERS = [
     name: { de: 'Ingrid Wagner', en: 'Ingrid Wagner' },
     role: { de: 'Großmutter, plant mit Ehemann Paul', en: 'Grandmother, planning with her husband Paul' },
     topic: { de: 'plant eine neue Küche', en: 'is planning a new kitchen' },
-    look: { hair: 'Long', scarf: true, suit: 'xr-summit-cloth-rose', shirt: 'xr-summit-cloth-white', pants: 'xr-summit-cloth-plum', hair_c: 'xr-summit-hair-silver', skin: 'xr-summit-skin-1', accent: 'xr-summit-cloth-teal' },
+    look: { suit: 'xr-summit-cloth-rose', shirt: 'xr-summit-cloth-white', pants: 'xr-summit-cloth-plum', hair_c: 'xr-summit-hair-silver', skin: 'xr-summit-skin-1', accent: 'xr-summit-cloth-teal', iris: 'xr-summit-iris-blue', lips: 'xr-summit-lips-rose', shoe: 'xr-summit-shoe' },
     steps: [
       {
         say: { de: 'Schön, dass Sie da sind! Unsere Nachbarn haben Sie empfohlen.', en: "How nice that you're here! Our neighbours recommended you." },
@@ -248,7 +248,7 @@ export const CUSTOMERS = [
     name: { de: 'Jana Petrov', en: 'Jana Petrov' },
     role: { de: 'Geschäftsführerin einer Spedition', en: 'Managing director of a haulage firm' },
     topic: { de: 'will weniger Leerfahrten', en: 'wants fewer empty truck runs' },
-    look: { hair: 'Short', suit: 'xr-summit-cloth-ink', shirt: 'xr-summit-cloth-white', pants: 'xr-summit-cloth-ink', hair_c: 'xr-summit-hair-blond', skin: 'xr-summit-skin-1', accent: 'xr-summit-cloth-wine' },
+    look: { suit: 'xr-summit-cloth-ink', shirt: 'xr-summit-cloth-white', pants: 'xr-summit-cloth-ink', hair_c: 'xr-summit-hair-blond', skin: 'xr-summit-skin-1', accent: 'xr-summit-cloth-wine', iris: 'xr-summit-iris-blue', lips: 'xr-summit-lips-red', shoe: 'xr-summit-shoe-red' },
     steps: [
       {
         say: { de: 'Ich habe zehn Minuten. Was haben Sie für mich?', en: 'I have ten minutes. What have you got for me?' },
@@ -303,7 +303,7 @@ export const CUSTOMERS = [
     name: { de: 'Sven Olsen', en: 'Sven Olsen' },
     role: { de: 'Pendler, Vertriebsleiter', en: 'Commuter, sales manager' },
     topic: { de: 'will ein Elektroauto leasen', en: 'wants to lease an electric car' },
-    look: { hair: 'Short', tie: true, suit: 'xr-summit-cloth-slate', shirt: 'xr-summit-cloth-sky', pants: 'xr-summit-cloth-ink', hair_c: 'xr-summit-hair-red', skin: 'xr-summit-skin-1', accent: 'xr-summit-cloth-wine' },
+    look: { suit: 'xr-summit-cloth-slate', shirt: 'xr-summit-cloth-sky', pants: 'xr-summit-cloth-slate', hair_c: 'xr-summit-hair-red', skin: 'xr-summit-skin-3', accent: 'xr-summit-cloth-wine', iris: 'xr-summit-iris-green', lips: 'xr-summit-mouth', shoe: 'xr-summit-shoe-brown' },
     steps: [
       {
         say: { de: 'Hi. Ich will heute noch ein E-Auto leasen. Was geht?', en: 'Hi. I want to lease an electric car today. What can you do?' },

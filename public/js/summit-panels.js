@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { Panel, roundRect, measureBlocks, wrap } from './ui3d.js';
 import { color, num, font } from './tokens.js';
 import { t, L } from './i18n.js';
-import { drawAvatar } from './summit-visuals.js';
+import { drawAvatar } from './summit-customer.js';
 import { STAGES, MOODS, TYPES } from './summit-talks.js';
 
 const OPTION_TOKENS = ['xr-summit-hold-1', 'xr-summit-hold-2', 'xr-summit-hold-3'];
@@ -123,7 +123,7 @@ export function makeBubble() {
     const x0 = p.m(pad);
     let y = top + p.m(pad * 0.8);
     const r = p.m(0.036);
-    drawAvatar(ctx, x0 + r, y + r, r, c.look);
+    drawAvatar(ctx, x0 + r, y + r, r, c);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = color('xr-summit-bubble-text');
@@ -372,7 +372,7 @@ function drawStatus(ctx, c, s) {
   const cust = s.customer;
   const r = c.m(0.055);
   if (cust) {
-    drawAvatar(ctx, pad + r, y + r, r, cust.look);
+    drawAvatar(ctx, pad + r, y + r, r, cust);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     const x = pad + r * 2 + c.m(0.02);

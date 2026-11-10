@@ -57,9 +57,16 @@
   /* the customers */
   --xr-summit-skin-1:         #f2c7a8;
   --xr-summit-skin-2:         #c98f6b;
+  --xr-summit-skin-3:         #f6d3bd;
+  --xr-summit-iris-green:     #4f8a5b;
+  --xr-summit-iris-brown:     #6b4a2b;
+  --xr-summit-iris-blue:      #4a78b5;
+  --xr-summit-lips-rose:      #c45a6a;
+  --xr-summit-lips-red:       #b8323f;
+  --xr-summit-tongue:         #e8858a;
   --xr-summit-hair-brown:     #6b4027;
   --xr-summit-hair-black:     #2c2220;
-  --xr-summit-hair-silver:    #d7d9e2;
+  --xr-summit-hair-silver:    #c6c9d6;
   --xr-summit-hair-blond:     #e3c27c;
   --xr-summit-hair-red:       #b4542e;
   --xr-summit-cloth-navy:     #26386a;
@@ -79,6 +86,8 @@
   --xr-summit-cheek:          #f08a8a;
   --xr-summit-glasses:        var(--p-ink-900);
   --xr-summit-shoe:           #2a201c;
+  --xr-summit-shoe-brown:     #5a3a26;
+  --xr-summit-shoe-red:       #9a2747;
 
   /* the talk and the AI coach */
   --xr-summit-bubble:         rgb(250 250 255 / 0.97);
