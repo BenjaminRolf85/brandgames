@@ -127,6 +127,27 @@
   color: var(--xr-panel-text);
 }
 .summit-talk[hidden] { display: none; }
+.summit-talk__meters {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--xr-panel-border);
+  border-radius: var(--radius-sm);
+  background: var(--xr-panel-bg);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-bold);
+}
+.summit-meter { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--space-1); }
+.summit-meter__name { color: var(--xr-panel-muted); }
+.summit-meter__bar { height: 0.5rem; border-radius: var(--radius-pill); background: var(--xr-summit-bar-bg); overflow: hidden; }
+.summit-meter__fill { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--xr-summit-meter, var(--xr-accent)); transition: width 0.3s; }
+.summit-meter--trust { --xr-summit-meter: var(--xr-summit-trust); }
+.summit-meter--stamina { --xr-summit-meter: var(--xr-summit-stamina); }
+.summit-meter--stamina.is-low { --xr-summit-meter: var(--xr-summit-stamina-low); }
+.summit-meter__val { min-width: 2.6em; text-align: right; }
 .summit-talk__coach {
   pointer-events: auto;
   display: flex;
@@ -244,5 +265,6 @@
   }
   .summit-answer { padding-top: var(--space-1); padding-bottom: var(--space-1); }
   .summit-talk { gap: var(--space-1); }
+  .summit-talk__meters { display: none; } /* the status bar at the top has room for trust and strength */
   .summit-talk__quote { padding: var(--space-1) var(--space-2); }
 }

@@ -1,10 +1,10 @@
 /* Design tokens of the game 'dock' (colors and sizes of its 3D world and UI). Read by tokens.js like tokens.css. */
 :root {
   /* The protein surface, one soft pearly tint per pocket (level) */
-  --xr-dock-protein-1:     #98a6ff;          /* periwinkle */
-  --xr-dock-protein-2:     #79d6c8;          /* sea glass */
-  --xr-dock-protein-3:     #c4a0ff;          /* lilac */
-  --xr-dock-protein-4:     #ffb894;          /* peach */
+  --xr-dock-protein-1:     #8796ff;          /* periwinkle */
+  --xr-dock-protein-2:     #5ecdbc;          /* sea glass */
+  --xr-dock-protein-3:     #b78bff;          /* lilac */
+  --xr-dock-protein-4:     #ffa57c;          /* peach */
   --xr-dock-protein-sheen: #d9d2ff;          /* soft velvet sheen on the surface */
   --xr-dock-protein-rim:   var(--p-cyan-400); /* fresnel rim glow and the build-in scan edge */
   --xr-dock-pocket-shade:  #251c66;          /* crevices and the floor of the pocket */

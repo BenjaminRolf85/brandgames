@@ -81,6 +81,9 @@ export class DockScene extends BaseScene {
     this.tol = THREE.MathUtils.degToRad(this.isXR ? TOL.xr : this.touch ? TOL.touch : TOL.desk);
     this.buildLab();
     this.setupInput();
+    // The round is drawn now, so the first protein can be built in the background during the intro.
+    this.round = makeRound(LEVELS);
+    this.builds = [];
     this.onUpdate((dt) => this.update(dt));
     const hint = t(this.isXR ? 'dockIntroXR' : this.touch ? 'dockIntroTouch' : 'dockIntroScreen');
     this.intro(t('dockName'), `${t('dockIntro')} ${hint}`, () => this.start());
@@ -383,7 +386,6 @@ export class DockScene extends BaseScene {
     this.clearLayer();
     this.startMusic(0, 'dock');
     this.app.echo?.suppress(true);
-    this.round = makeRound(LEVELS);
     Object.assign(this, { score: 0, playT: 0, li: -1, solved: 0, tests: 0, tipsTested: 0, tipsHit: 0, levelLog: [] });
     this.refreshHud ??= this.hud(() => this.hudText());
     this.layoutKey = null;
@@ -424,9 +426,10 @@ export class DockScene extends BaseScene {
     this.mode = 'screen';
     this.layoutKey = null;
     this.layout();
-    this.protein = new Protein(L);
-    const geo = this.protein.geometry(L.tint, quality.lite ? 34 : 46);
-    this.protMesh = new THREE.Mesh(geo, this.protMat);
+    const built = this.takeBuild(i);
+    this.builds[i] = null;
+    this.protein = built.protein;
+    this.protMesh = new THREE.Mesh(built.geo, this.protMat);
     this.prot.add(this.protMesh);
     // The pocket frame and its spot markers.
     const F = (this.F = new THREE.Object3D());
@@ -479,6 +482,40 @@ export class DockScene extends BaseScene {
     sfx.scan();
     this.toast(t('dockLevelTitle', { n: i + 1, name: t(L.key) }), 'xr-dock-ai');
     this.refreshHud?.();
+  }
+
+  // ---------- building proteins in the background ----------
+
+  startBuild(i) {
+    const L = this.round[i];
+    const protein = new Protein(L);
+    return { protein, it: protein.buildSteps(L.tint, quality.lite ? 34 : 46), geo: null };
+  }
+
+  /** Advances the build of the current and the next pocket for at most ms milliseconds. */
+  pumpBuilds(ms) {
+    if (!this.round) return;
+    const t0 = performance.now();
+    const from = Math.max(0, this.li ?? 0);
+    for (let i = from; i <= from + 1 && i < this.round.length; i++) {
+      if (i === this.li && this.protMesh) continue;
+      const b = (this.builds[i] ??= this.startBuild(i));
+      while (b && !b.geo && performance.now() - t0 < ms) {
+        const r = b.it.next();
+        if (r.done) b.geo = r.value;
+      }
+      if (performance.now() - t0 >= ms) return;
+    }
+  }
+
+  /** The finished build of pocket i (whatever is left is done now). */
+  takeBuild(i) {
+    const b = (this.builds[i] ??= this.startBuild(i));
+    while (!b.geo) {
+      const r = b.it.next();
+      if (r.done) b.geo = r.value;
+    }
+    return b;
   }
 
   runScreening() {
@@ -809,6 +846,7 @@ export class DockScene extends BaseScene {
       const topY = this.bench.getWorldPosition(_v).y - 0.04;
       this.column.scale.y = Math.max(0.05, topY - e.floorY);
     }
+    if (this.mode !== 'over' && this.mode !== 'lab') this.pumpBuilds(this.isXR ? 3 : 6);
     if (this.mode === 'screen') this.updateScreen(dt);
     if (this.mode === 'play') {
       this.playT += dt;

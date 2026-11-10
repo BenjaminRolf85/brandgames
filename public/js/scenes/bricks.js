@@ -295,6 +295,9 @@ export class BricksScene extends BaseScene {
     return { pos, quat, hand: !!p.source?.hand };
   }
 
+  /** How close a hand (pinch point) or a controller (grip, a little behind its front) must be. */
+  grabRadius(a) { return num('xr-bricks-grab') * (a.hand ? 0.85 : 1.3); }
+
   grabbable(b) { return ['belt', 'hop', 'pallet', 'selected', 'return'].includes(b.state); }
 
   /** Headset button down: grab the brick next to the hand (or, with the grip, the one under the ray). */
@@ -302,9 +305,8 @@ export class BricksScene extends BaseScene {
     if (!this.engine.isXR || this.mode !== 'play' || this.grabs.has(p)) return;
     const a = this.anchor(p);
     if (!a) return;
-    const R = num('xr-bricks-grab');
     let best = null;
-    let bd = R;
+    let bd = this.grabRadius(a);
     for (const b of this.bricks) {
       if (!this.grabbable(b)) continue;
       const d = b.mesh.getWorldPosition(new THREE.Vector3()).distanceTo(a.pos);
@@ -381,7 +383,7 @@ export class BricksScene extends BaseScene {
       const W = window.innerWidth;
       const Hh = window.innerHeight;
       const moved = Math.hypot(((p.ndc.x - g.ndc0.x) * W) / 2, ((p.ndc.y - g.ndc0.y) * Hh) / 2);
-      if (moved < 12 && this.time - g.t0 < 0.45) { this.select(b); return; }
+      if (moved < 12 && this.time - g.t0 < 0.45) { b.state = 'pallet'; this.select(b); return; }
     }
     if (g.hover && this.canPlace(g.hover)) this.placeBrick(b, g.hover);
     else this.refuse(b, g.hint);
@@ -771,10 +773,16 @@ export class BricksScene extends BaseScene {
     } else {
       this.spent += 1;
       bsfx.spend();
-      if (tempt.bricks) {
-        const n = this.spendBricks(tempt.bricks);
+      const n = tempt.bricks ? this.spendBricks(tempt.bricks) : 0;
+      if (n > 0) {
         this.toast(t('bricksSpent', { n }), 'xr-danger', 2.4);
         this.setNote('spend');
+      } else if (tempt.bricks) {
+        // Nothing saved yet: the treat eats next month's deposit instead.
+        this.vacation += 1;
+        this.toast(t('bricksSpentMonths', { n: 1 }), 'xr-danger', 2.4);
+        this.monthPanel?.redraw();
+        this.setNote('vacation');
       } else {
         this.vacation += tempt.months;
         this.toast(t('bricksSpentMonths', { n: tempt.months }), 'xr-danger', 2.4);
@@ -921,7 +929,7 @@ export class BricksScene extends BaseScene {
     if (this.mode !== 'play') return;
     this.mode = 'finale';
     this.late = late;
-    this.doneMonth = this.month;
+    this.doneMonth = Math.min(this.month, MAX_MONTHS);
     this.closeCard();
     for (const p of [...this.grabs.keys()]) { if (p.line) p.line.visible = true; }
     this.grabs.clear();
@@ -985,7 +993,11 @@ export class BricksScene extends BaseScene {
     this.app.echo?.suppress(false);
     this.echoRelease = this.app.host?.hold(this.home, new THREE.Vector3(-0.08, TOP + RIDGE + 0.14, 0.03), { force: true }) ?? null;
     this.delay(2.4, () => { if (!this.disposed) this.app.echo?.celebrate(); });
-    await this.wait(6);
+    await this.wait(4.6);
+    // Echo flies off happily before the results come up.
+    this.echoRelease?.();
+    this.echoRelease = null;
+    await this.wait(1.8);
     this.finish();
   }
 
@@ -1319,7 +1331,7 @@ export class BricksScene extends BaseScene {
         const a = this.anchor(p);
         if (!a) continue;
         let near = null;
-        let bd = num('xr-bricks-grab');
+        let bd = this.grabRadius(a);
         for (const b of this.bricks) {
           if (!this.grabbable(b)) continue;
           const d = b.mesh.getWorldPosition(new THREE.Vector3()).distanceTo(a.pos);

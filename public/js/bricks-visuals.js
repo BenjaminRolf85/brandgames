@@ -705,7 +705,7 @@ export function drawChart(ctx, p, s) {
   y += sm * 0.23;
   // the note at the bottom (what the AI just learned)
   ctx.font = font('regular', sm);
-  const noteLines = s.note ? wrap(ctx, s.note, W - pad * 2).slice(0, 2) : [];
+  const noteLines = s.note ? wrap(ctx, s.note, W - pad * 2).slice(0, 3) : [];
   const noteH = noteLines.length * sm * 1.22;
   const axisH = sm * 1.3;
   // plot area

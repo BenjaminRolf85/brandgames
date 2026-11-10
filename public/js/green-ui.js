@@ -215,8 +215,9 @@ function bar(pen, { k = 0, lo = null, hi = null, mark = null, token = 'xr-accent
 /** Legend of the AI map: the color ramp, low/high and the hatching for "unsure". */
 function legend(pen, mode) {
   const { ctx, c } = pen;
+  const kk = pen.k ?? 1;
   const ramp = mode === 'need' ? 'need' : mode;
-  const H = c.m(0.014);
+  const H = c.m(0.014 * kk);
   const w = pen.w * 0.52;
   const g = ctx.createLinearGradient(pen.x, 0, pen.x + w, 0);
   g.addColorStop(0, color(`xr-green-heat-${ramp}-lo`));
@@ -242,8 +243,8 @@ function legend(pen, mode) {
     ctx.stroke();
   }
   ctx.restore();
-  const ty = pen.y + H + c.m(0.016);
-  ctx.font = font('bold', c.m(0.022));
+  const ty = pen.y + H + c.m(0.016 * kk);
+  ctx.font = font('bold', c.m(0.022 * kk));
   ctx.fillStyle = color('xr-panel-muted');
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
@@ -389,9 +390,9 @@ function drawMini(ctx, c, v) {
     pen.line(plotName(plot), { size: M, weight: 'bold', gap: 0.004 });
     const big = T.kind === 'energy' ? `${fmt(f.value)} GWh` : `+${fmtInt(f.value)}`;
     pen.line(big, { size: 0.066, weight: 'black', col: color(T.token), gap: 0.004 });
-    const r = T.kind === 'energy' ? `${fmt(f.lo)} – ${fmt(f.hi)}` : `+${fmtInt(f.lo)} – +${fmtInt(f.hi)}`;
-    pen.line(`80 %: ${r}`, { size: M, weight: 'bold', gap: 0.004 });
-    pen.line(t('greenConf', { n: fmtInt(f.conf * 100) }), { size: M, col: color('xr-panel-muted') });
+    if (T.kind === 'energy') pen.line(`80 %: ${fmt(f.lo)} – ${fmt(f.hi)}`, { size: M, weight: 'bold', gap: 0.004 });
+    else pen.line(t(`greenNeed_${f.need}`, { n: fmtInt(f.input) }), { size: M, weight: 'bold', gap: 0.004 });
+    pen.line(T.kind === 'energy' ? t('greenConf', { n: fmtInt(f.conf * 100) }) : t('greenNeedCap', { cap: f.cap }), { size: M, col: color('xr-panel-muted') });
   } else if (T && plot && plot.area !== T.area && !plot.built) {
     pen.para(t(`greenWrong_${T.area}`), { size: num('xr-text-sm'), weight: 'bold', col: color('xr-warning'), maxLines: 5 });
   } else if (T) {
@@ -399,8 +400,9 @@ function drawMini(ctx, c, v) {
     if (best) {
       pen.line(`Top: ${plotName(best.p)}`, { size: M, weight: 'bold', gap: 0.004 });
       pen.line(T.kind === 'energy' ? `${fmt(best.f.value)} GWh` : `+${fmtInt(best.f.value)}`, { size: 0.06, weight: 'black', col: color(T.token), gap: 0.004 });
-      pen.line(`80 %: ${T.kind === 'energy' ? `${fmt(best.f.lo)} – ${fmt(best.f.hi)}` : `+${fmtInt(best.f.lo)} – +${fmtInt(best.f.hi)}`}`, { size: M, gap: 0.004 });
-      pen.line(t('greenConf', { n: fmtInt(best.f.conf * 100) }), { size: M, col: color('xr-panel-muted') });
+      if (T.kind === 'energy') pen.line(`80 %: ${fmt(best.f.lo)} – ${fmt(best.f.hi)}`, { size: M, gap: 0.004 });
+      else pen.line(t(`greenNeed_${best.f.need}`, { n: fmtInt(best.f.input) }), { size: M, gap: 0.004 });
+      pen.line(T.kind === 'energy' ? t('greenConf', { n: fmtInt(best.f.conf * 100) }) : t('greenNeedCap', { cap: best.f.cap }), { size: M, col: color('xr-panel-muted') });
     } else pen.para(t('greenTaken'), { size: num('xr-text-sm'), col: color('xr-warning') });
   } else if (plot?.built) {
     pen.line(typeName(plot.built), { size: M, weight: 'bold', col: color(TYPES[plot.built].token) });
@@ -430,7 +432,7 @@ function drawPlan(pen, v) {
   } else pen.rule();
   if (!T) {
     if (plot?.built) builtInfo(pen, v);
-    else pen.para(v.touch ? t('greenIntroTouch') : t('greenAIHintPlot'), { size: num('xr-text-sm'), col: color('xr-panel-text'), maxLines: 4 });
+    else overview(pen, game);
     return;
   }
   if (plot && plot.built) { builtInfo(pen, v); return; }
@@ -450,28 +452,33 @@ function drawPlan(pen, v) {
     ctx.fillStyle = color('xr-panel-muted');
     ctx.fillText(unit, pen.x + bw + c.m(0.012), pen.y + c.m(0.058));
     pen.y += c.m(0.078);
-    // The 80 % range as a band, the forecast as the marker.
-    const top = Math.max(f.hi * 1.08, game.bestFor(type) * 1.1, 1);
-    bar(pen, { lo: f.lo / top, hi: f.hi / top, mark: f.value / top, token: T.token, h: 0.018, gap: 0.008 });
-    const r = T.kind === 'energy' ? [fmt(f.lo), `${fmt(f.hi)} GWh`] : [`+${fmtInt(f.lo)}`, `+${fmtInt(f.hi)}`];
-    pen.line(t('greenRange', { lo: r[0], hi: r[1] }), { size: num('xr-text-min'), weight: 'bold', gap: 0.002 });
     if (T.kind === 'energy') {
+      // The 80 % range as a band, the forecast as the marker.
+      const top = Math.max(f.hi * 1.08, game.bestFor(type) * 1.1, 1);
+      bar(pen, { lo: f.lo / top, hi: f.hi / top, mark: f.value / top, token: T.token, h: 0.018, gap: 0.008 });
+      pen.line(t('greenRange', { lo: fmt(f.lo), hi: `${fmt(f.hi)} GWh` }), { size: num('xr-text-min'), weight: 'bold', gap: 0.002 });
       const input = type === 'wind' ? t('greenWindIn', { v: fmt(f.input) }) : t('greenSunIn', { v: fmtInt(f.input) });
       pen.line(`${input} · ${t('greenConf', { n: fmtInt(f.conf * 100) })}`, { size: num('xr-text-min'), col: color('xr-panel-muted'), gap: 0.002 });
       pen.line(`${t('greenHouseholds', { n: fmtInt((f.value * 1000) / HOUSEHOLD_MWH) })} · ${t('greenCO2Year', { n: fmtInt(f.value * CO2_PER_GWH) })}`, { size: num('xr-text-min'), col: color('xr-panel-muted'), gap: 0.004 });
     } else {
-      pen.line(`${t(`greenNeed_${f.need}`, { n: fmtInt(f.input) })} · ${t('greenNeedCap', { cap: f.cap })}`, { size: num('xr-text-min'), col: color('xr-panel-muted'), gap: 0.002 });
-      pen.line(t('greenConf', { n: fmtInt(f.conf * 100) }), { size: num('xr-text-min'), col: color('xr-panel-muted'), gap: 0.004 });
+      // The predicted demand (80 % band) against the places the project offers (marker).
+      const top = Math.max(f.needHi, f.cap) * 1.12;
+      bar(pen, { lo: f.needLo / top, hi: f.needHi / top, mark: f.cap / top, token: T.token, h: 0.018, gap: 0.008 });
+      pen.line(`${t(`greenNeed_${f.need}`, { n: fmtInt(f.input) })} · ${t('greenNeedCap', { cap: f.cap })}`, { size: num('xr-text-min'), weight: 'bold', gap: 0.002 });
+      pen.line(`${t('greenRange', { lo: fmtInt(f.needLo), hi: fmtInt(f.needHi) })} · ${t('greenConf', { n: fmtInt(f.conf * 100) })}`, { size: num('xr-text-min'), col: color('xr-panel-muted'), gap: 0.004 });
     }
     if (game.budget < T.cost - 1e-9) pen.para(t('greenNoMoney'), { col: color('xr-danger'), weight: 'bold' });
   } else if (plot) {
     pen.para(t(`greenWrong_${T.area}`), { size: num('xr-text-sm'), col: color('xr-warning'), weight: 'bold', maxLines: 3 });
   } else {
     // The AI's top picks for this project, with their ranges.
-    const list = game.plots.filter((p) => !p.built && p.area === T.area).map((p) => ({ p, f: game.forecast(type, p.id) })).sort((a, b) => b.f.value - a.f.value).slice(0, pen.right ? 3 : 4);
+    // (Town plots: one row per district, they share its demand.)
+    const seen = new Set();
+    const list = game.plots.filter((p) => !p.built && p.area === T.area).map((p) => ({ p, f: game.forecast(type, p.id) })).sort((a, b) => b.f.value - a.f.value)
+      .filter(({ p }) => { const k = plotName(p); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, pen.right ? 3 : 4);
     const top = Math.max(1, ...list.map((x) => x.f.hi)) * 1.05;
     for (const { p, f } of list) {
-      const val = T.kind === 'energy' ? `${fmt(f.value)} GWh` : `+${fmtInt(f.value)}`;
+      const val = T.kind === 'energy' ? `${fmt(f.value)} GWh` : `+${fmtInt(f.value)} · ${fmtInt(f.input)}`;
       const { ctx, c } = pen;
       const kk = pen.k ?? 1;
       ctx.font = font('bold', c.m(num('xr-text-min') * kk));
@@ -483,7 +490,8 @@ function drawPlan(pen, v) {
       ctx.fillStyle = color(T.token);
       ctx.fillText(val, pen.x + pen.w, pen.y + c.m(0.013 * kk));
       pen.y += c.m(0.03 * kk);
-      bar(pen, { lo: f.lo / top, hi: f.hi / top, mark: f.value / top, token: T.token, h: 0.01, gap: 0.01 });
+      if (T.kind === 'energy') bar(pen, { lo: f.lo / top, hi: f.hi / top, mark: f.value / top, token: T.token, h: 0.01, gap: 0.01 });
+      else { const nt = Math.max(f.needHi, f.cap) * 1.12; bar(pen, { lo: f.needLo / nt, hi: f.needHi / nt, mark: f.cap / nt, token: T.token, h: 0.01, gap: 0.01 }); }
     }
     if (!list.length) pen.para(t('greenTaken'), { col: color('xr-warning') });
     else if (!pen.right) pen.para(v.touch ? t('greenAIHintTouch') : t('greenAIHintPlot'), { maxLines: 2 });
@@ -491,6 +499,32 @@ function drawPlan(pen, v) {
   if (v.map && !pen.right) {
     pen.y = Math.max(pen.y, pen.c.canvas.height - pen.c.m(0.03 + 0.055));
     legend(pen, v.map);
+  }
+}
+
+/** No project chosen: the AI's best place for every project type this year. */
+function overview(pen, game) {
+  const { ctx, c } = pen;
+  const kk = pen.k ?? 1;
+  pen.line(t('greenAITips'), { size: num('xr-text-min'), weight: 'bold', col: color('xr-panel-muted'), gap: 0.006 });
+  for (const type of Object.keys(TYPES)) {
+    const T = TYPES[type];
+    const best = game.plots.filter((p) => !p.built && p.area === T.area).map((p) => ({ p, f: game.forecast(type, p.id) })).sort((a, b) => b.f.value - a.f.value)[0];
+    const rowH = c.m(0.042 * kk);
+    if (pen.y + rowH > c.canvas.height - c.m(0.02)) break;
+    drawIcon(ctx, T.icon, pen.x + c.m(0.016 * kk), pen.y + rowH / 2, c.m(0.03 * kk), color(T.token));
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.font = font('bold', c.m(num('xr-text-min') * kk * 0.92));
+    ctx.fillStyle = color('xr-panel-text');
+    const name = best ? plotName(best.p) : '–';
+    ctx.fillText(name, pen.x + c.m(0.04 * kk), pen.y + rowH / 2, pen.w * 0.6);
+    if (best) {
+      ctx.textAlign = 'right';
+      ctx.fillStyle = color(T.token);
+      ctx.fillText(T.kind === 'energy' ? `${fmt(best.f.value)} ±${fmt((best.f.hi - best.f.lo) / 2)}` : `+${fmtInt(best.f.value)}`, pen.x + pen.w, pen.y + rowH / 2);
+    }
+    pen.y += rowH;
   }
 }
 
@@ -506,7 +540,7 @@ function builtInfo(pen, v) {
     pen.line(pct(d), { size: num('xr-text-md'), weight: 'black', col: color(d >= 0 ? 'xr-green-up' : 'xr-green-down') });
   } else if (TYPES[plot.built].kind === 'energy') {
     const f = game.forecast(plot.built, plot.id);
-    pen.line(`${fmt(f.value)} GWh · ${t('greenRange', { lo: fmt(f.lo), hi: fmt(f.hi) })}`, { size: num('xr-text-min') });
+    pen.para(`${fmt(f.value)} GWh · ${t('greenRange', { lo: fmt(f.lo), hi: fmt(f.hi) })}`, { col: color('xr-panel-text'), maxLines: 2 });
   }
 }
 

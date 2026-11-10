@@ -330,6 +330,10 @@ export class Protein {
     this.F = new THREE.Matrix4().makeBasis(x, y, z).setPosition(z.clone().multiplyScalar(surf - level.depth));
     this.Finv = this.F.clone().invert();
     this.slots = level.slots;
+    // Each atom's channel opens outwards along the line from the protein's center through the
+    // atom: the pocket stays a clean height field over the sphere (no overhangs, no cliffs).
+    const center = V(0, 0, 0).applyMatrix4(this.Finv);
+    this.axes = this.slots.map((sl) => sl.p.clone().sub(center).normalize());
     this._n = V(0, 0, 0);
     this._q = V(0, 0, 0);
   }
@@ -359,12 +363,14 @@ export class Protein {
   /** Distance (negative inside) to the pocket channel, for a point q in F space. */
   pocketSdf(q) {
     let d = Infinity;
-    for (const s of this.slots) {
+    for (let k = 0; k < this.slots.length; k++) {
+      const s = this.slots[k];
       const a = s.p;
-      const h = Math.min(CHANNEL, Math.max(0, q.z - a.z));
-      const dx = q.x - a.x;
-      const dy = q.y - a.y;
-      const dz = q.z - (a.z + h);
+      const u = this.axes[k];
+      const h = Math.min(CHANNEL, Math.max(0, (q.x - a.x) * u.x + (q.y - a.y) * u.y + (q.z - a.z) * u.z));
+      const dx = q.x - (a.x + u.x * h);
+      const dy = q.y - (a.y + u.y * h);
+      const dz = q.z - (a.z + u.z * h);
       const di = Math.sqrt(dx * dx + dy * dy + dz * dz) - (s.r + CARVE + SLOPE * h);
       d = d === Infinity ? di : smin(d, di, 0.3 * B);
     }
@@ -386,21 +392,98 @@ export class Protein {
   }
 
   /**
-   * The surface mesh: an icosphere (denser towards the pocket) pushed out along each direction
-   * to the surface. Vertex colors: the tint, darker in crevices and the pocket, and the contact
-   * spots as colored patches.
+   * Evens out the triangles in the pocket: the radial projection leaves long thin ones on its
+   * steep walls. Each round moves a vertex towards the middle of its neighbours and then back
+   * onto the surface along the gradient of the distance field. Yields between rounds.
    */
+  *relaxSteps(pos, index, depth, radii, rounds = 28) {
+    const nb = Array.from({ length: pos.count }, () => []);
+    for (let f = 0; f < index.length; f += 3) {
+      const a = index[f];
+      const b = index[f + 1];
+      const c = index[f + 2];
+      nb[a].push(b, c);
+      nb[b].push(a, c);
+      nb[c].push(a, b);
+    }
+    // The carved part and three rings around it.
+    const mark = new Uint8Array(pos.count);
+    for (let i = 0; i < pos.count; i++) if (depth[i] > 0.0008) mark[i] = 1;
+    for (let ring = 0; ring < 3; ring++) {
+      const prev = mark.slice();
+      for (let i = 0; i < pos.count; i++) if (prev[i]) for (const j of nb[i]) mark[j] = 1;
+    }
+    const near = [];
+    for (let i = 0; i < pos.count; i++) if (mark[i]) near.push(i);
+    yield;
+    const p = V(0, 0, 0);
+    const n = V(0, 0, 0);
+    const g = V(0, 0, 0);
+    const q = V(0, 0, 0);
+    const d0 = V(0, 0, 0);
+    // The blob's radius barely changes over these small moves: each vertex keeps its own.
+    let Ri = 0;
+    const sdfAt = (v) => smax(v.length() - Ri, -this.pocketSdf(q.copy(v).applyMatrix4(this.Finv)), 0.007);
+    const e = 0.0008;
+    const grad = (v, d) => g.set(sdfAt(n.copy(v).setX(v.x + e)) - d, sdfAt(n.copy(v).setY(v.y + e)) - d, sdfAt(n.copy(v).setZ(v.z + e)) - d).divideScalar(e);
+    const next = new Float32Array(near.length * 3);
+    for (let r = 0; r < rounds; r++) {
+      for (let k = 0; k < near.length; k++) {
+        const i = near[k];
+        const list = nb[i];
+        Ri = radii[i];
+        p.fromBufferAttribute(pos, i);
+        let x = 0;
+        let y = 0;
+        let z = 0;
+        for (const j of list) { x += pos.getX(j); y += pos.getY(j); z += pos.getZ(j); }
+        // Tangential smoothing: slide towards the middle of the neighbours along the surface.
+        d0.set(x, y, z).divideScalar(list.length).sub(p);
+        const sd = sdfAt(p);
+        grad(p, sd).normalize();
+        d0.addScaledVector(g, -d0.dot(g));
+        p.addScaledVector(d0, 0.6);
+        for (let it = 0; it < 2; it++) {
+          const d = sdfAt(p);
+          grad(p, d);
+          p.addScaledVector(g, -d / Math.max(1e-6, g.lengthSq()));
+        }
+        next[k * 3] = p.x;
+        next[k * 3 + 1] = p.y;
+        next[k * 3 + 2] = p.z;
+        if (k % 250 === 249) yield;
+      }
+      for (let k = 0; k < near.length; k++) pos.setXYZ(near[k], next[k * 3], next[k * 3 + 1], next[k * 3 + 2]);
+      yield;
+    }
+  }
+
+  /** The surface mesh in one go (see buildSteps). */
   geometry(tintToken, detail = 46) {
-    let geo = new THREE.IcosahedronGeometry(1, detail);
-    geo.deleteAttribute('normal');
-    geo.deleteAttribute('uv');
-    geo = mergeVertices(geo);
-    const pos = geo.attributes.position;
+    const it = this.buildSteps(tintToken, detail);
+    let r = it.next();
+    while (!r.done) r = it.next();
+    return r.value;
+  }
+
+  /**
+   * The surface mesh, built in small steps (a generator: the scene advances it a few
+   * milliseconds per frame, so the headset never stalls). An icosphere, denser towards the
+   * pocket, pushed out along each direction to the surface, relaxed in the pocket. Vertex
+   * colors: the tint, darker in crevices and the pocket, the contact spots as colored patches.
+   */
+  *buildSteps(tintToken, detail = 46) {
+    const unit = unitSphere(detail);
+    const geo = new THREE.BufferGeometry();
+    const pos = new THREE.BufferAttribute(unit.pos.slice(), 3);
+    geo.setAttribute('position', pos);
+    geo.setIndex(new THREE.BufferAttribute(unit.index, 1));
     const n = V(0, 0, 0);
     const p = V(0, 0, 0);
     const q = V(0, 0, 0);
     const axis = V(0, 0, 0);
     const depth = new Float32Array(pos.count);
+    const radii = new Float32Array(pos.count);
     for (let i = 0; i < pos.count; i++) {
       n.fromBufferAttribute(pos, i).normalize();
       // Warp the directions towards the pocket: finer triangles where the detail is.
@@ -411,6 +494,7 @@ export class Protein {
         n.copy(POCKET_DIR).applyAxisAngle(axis, th2);
       }
       const R = this.radius(n);
+      radii[i] = R;
       let t = R;
       // Near the pocket: march outwards from deep inside to the first surface crossing, then
       // bisect (along the ray the blob part is simply t - R).
@@ -418,8 +502,8 @@ export class Protein {
         const f = (tt) => smax(tt - R, -this.pocketSdf(q.copy(p.copy(n).multiplyScalar(tt)).applyMatrix4(this.Finv)), 0.007);
         let t0 = R - 0.16;
         let t1 = t0;
-        for (let k = 0; k < 60; k++) {
-          t1 = t0 + 0.004;
+        for (let k = 0; k < 120; k++) {
+          t1 = t0 + 0.002;
           if (f(t1) > 0) break;
           t0 = t1;
         }
@@ -432,8 +516,11 @@ export class Protein {
       }
       pos.setXYZ(i, n.x * t, n.y * t, n.z * t);
       depth[i] = Math.max(0, R - t);
+      if (i % 400 === 399) yield;
     }
+    yield* this.relaxSteps(pos, geo.index.array, depth, radii);
     geo.computeVertexNormals();
+    yield;
     // Crevices: how far a vertex sits below the average of its neighbours.
     const idx = geo.index.array;
     const sum = new Float32Array(pos.count * 3);
@@ -449,31 +536,48 @@ export class Protein {
         }
       }
     }
+    yield;
     const nrm = geo.attributes.normal;
     const base = new THREE.Color(hex(tintToken));
     const shade = new THREE.Color(hex('xr-dock-pocket-shade'));
-    const spotCols = Object.fromEntries(Object.entries(SPOTS).map(([k, s]) => [k, new THREE.Color(hex(s.token))]));
-    const spots = this.slots.filter((s) => s.spot).map((s) => ({ c: spotCols[s.spot], p: s.p.clone().applyMatrix4(this.F) }));
+    const spotCols = Object.fromEntries(Object.entries(SPOTS).map(([k, sp]) => [k, new THREE.Color(hex(sp.token))]));
+    const spots = this.slots.filter((sl) => sl.spot).map((sl) => ({ c: spotCols[sl.spot], p: sl.p.clone().applyMatrix4(this.F) }));
     const col = new Float32Array(pos.count * 3);
     const c = new THREE.Color();
     const v = V(0, 0, 0);
+    const avg = V(0, 0, 0);
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i);
       n.fromBufferAttribute(nrm, i);
-      const avg = V(sum[i * 3], sum[i * 3 + 1], sum[i * 3 + 2]).divideScalar(Math.max(1, cnt[i]));
+      avg.set(sum[i * 3], sum[i * 3 + 1], sum[i * 3 + 2]).divideScalar(Math.max(1, cnt[i]));
       const concave = THREE.MathUtils.clamp(avg.sub(v).dot(n) / 0.0016, 0, 1);
       const cav = THREE.MathUtils.clamp(depth[i] / 0.05, 0, 1);
       c.copy(base).lerp(shade, Math.min(0.75, 0.32 * concave + 0.6 * cav));
-      for (const s of spots) {
-        const w = 1 - THREE.MathUtils.smoothstep(v.distanceTo(s.p), 0.46 * B, 0.95 * B);
-        if (w > 0) c.lerp(s.c, w * 0.94);
+      for (const sp of spots) {
+        const w = 1 - THREE.MathUtils.smoothstep(v.distanceTo(sp.p), 0.46 * B, 0.95 * B);
+        if (w > 0) c.lerp(sp.c, w * 0.94);
       }
       col.set([c.r, c.g, c.b], i * 3);
+      if (i % 2500 === 2499) yield;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.computeBoundingSphere();
     return geo;
   }
+}
+
+/** A unit icosphere with shared vertices (cached per detail; arrays only, no GPU buffers). */
+const unitCache = new Map();
+function unitSphere(detail) {
+  if (!unitCache.has(detail)) {
+    let g = new THREE.IcosahedronGeometry(1, detail);
+    g.deleteAttribute('normal');
+    g.deleteAttribute('uv');
+    g = mergeVertices(g);
+    unitCache.set(detail, { pos: g.attributes.position.array, index: g.index.array });
+    g.dispose();
+  }
+  return unitCache.get(detail);
 }
 
 // ---------- fit ----------

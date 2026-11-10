@@ -58,7 +58,7 @@ export class GreenScene extends BaseScene {
     this.onUpdate((dt) => this.update(dt));
     loadGreen().then((gltf) => {
       if (this.disposed) return;
-      this.region = new Region(gltf, r);
+      this.region = new Region(gltf, r, { xr: this.engine.isXR });
       this.board.add(this.region.root);
       this.wirePlots();
       this.layout(true);
@@ -164,15 +164,15 @@ export class GreenScene extends BaseScene {
       this.dash.scale.setScalar(1.14);
       this.fc.position.set(-1.08, eye - 0.07, -1.4);
       this.dash.position.set(1.08, eye - 0.07, -1.4);
-      this.cards.position.set(0, eye - 0.86, -1.4);
+      this.cards.position.set(0, eye - 0.8, -1.4);
       this.cards.scale.setScalar(1.12);
       this.cards.rotation.set(0, 0, 0);
     } else if (portrait) {
-      this.fc.position.set(0, eye + 0.5, -1.4);
+      this.fc.position.set(0, eye + 0.46, -1.4);
     } else this.landFrame();
     this.toastAt = xr ? new THREE.Vector3(0, eye + 0.06, num('xr-green-table-z') - 0.2)
       : touch && portrait ? new THREE.Vector3(0, eye - 0.2, -1.2)
-        : touch ? this.toastAt : new THREE.Vector3(0, eye + 0.4, -1.3);
+        : touch ? this.toastAt : new THREE.Vector3(0, eye + 0.34, -1.3);
   }
 
   /**
@@ -433,6 +433,7 @@ export class GreenScene extends BaseScene {
       return;
     }
     this.sel = type;
+    this.pinPlot = null;
     sfx.click();
     this.refresh();
   }
@@ -591,7 +592,9 @@ export class GreenScene extends BaseScene {
       const a = this.actionState();
       this.pad.relabel(5, a.icon, this.mode === 'report' ? a.label : t('greenStartShort'));
       this.pad.disable(5, !!a.disabled);
-      this.padEls?.[5]?.classList.toggle('mtouch__btn--primary', this.mode === 'report' || (this.mode === 'plan' && !this.sel));
+      // "Go" stands out once nothing more fits into the budget (and to go on after the report).
+      const done = this.mode === 'plan' && !TYPE_KEYS.some((k) => this.canChoose(k));
+      this.padEls?.[5]?.classList.toggle('mtouch__btn--primary', this.mode === 'report' || done);
     }
   }
 

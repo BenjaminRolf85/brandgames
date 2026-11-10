@@ -29,7 +29,7 @@ import {
   loadSummitModels, makeMountain, Hold, makeDecorHolds, makeShards, Rope, ClimberEcho, makeCustomer, makeSummitDecor,
   makeSky, makePeaks, makeClouds, surfaceZ, cutUniform, TOP, PLATEAU_Y, BOLTS,
 } from '../summit-visuals.js';
-import { holder, makeBubble, makeLabel, makeFeedback, makeCoach, makeStatus, BUBBLE_W } from '../summit-panels.js';
+import { holder, makeBubble, makeLabel, makeFeedback, makeCoach, makeStatus } from '../summit-panels.js';
 import { phoneTalk } from '../summit-phone.js';
 
 const WALL_Z = -num('xr-summit-wall-z');
@@ -49,7 +49,7 @@ const STAND_TO_HANG = new THREE.Vector3(0, 0.15, -0.075); // grip point standing
 // plus 4 per % of trust, 200 more when every deal closes with at least 80 % trust: max 5000.
 const PTS = { solid: 140, speed: 60, solidRetry: 70, ok: 60, okRetry: 30, summit: 200, trust: 4, bonus: 200 };
 const TRUST = { start: 20, good: 16, ok: 6, bad: -10 };
-const STAMINA = { drain: 0.9, grace: 1.5, bad: -20, good: 8, ok: 3 };
+const STAMINA = { drain: 1.1, grace: 1.5, bad: -20, good: 8, ok: 3 };
 const clamp = THREE.MathUtils.clamp;
 const ease = (k) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
 const shuffle = (a) => { const r = [...a]; for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; };
@@ -304,7 +304,7 @@ export class SummitScene extends BaseScene {
       this.statusHolder.rotation.y = 0;
     }
     const s = xr ? 0.76 : 0.6;
-    const sb = xr ? 0.55 : 0.45;
+    const sb = xr ? 0.55 : 0.4;
     this.coachHolder.scale.setScalar(s);
     this.statusHolder.scale.setScalar(s);
     // Menu button below the status panel (the base HUD's text bar is not needed here).
@@ -349,6 +349,7 @@ export class SummitScene extends BaseScene {
 
   /** The next customer waits at the summit: a short meeting, then Echo climbs from the bottom. */
   nextCustomer() {
+    if (this.mode === 'over' || this.disposed) return;
     this.index += 1;
     if (this.index >= this.customers.length) { this.finish(); return; }
     const c = (this.customer = this.customers[this.index]);
@@ -376,11 +377,11 @@ export class SummitScene extends BaseScene {
     this.coach.userData.set({ phase: 'idle', mood: null, type: null, words: [], verdict: null });
     this.status.redraw();
     this.refreshHud?.();
-    this.after(2.8, () => {
+    this.after(2.4, () => {
       this.clearCard();
       this.focusTo = FOCUS[0];
       sfx.whoosh();
-      this.after(1.3, () => this.beginStep());
+      this.after(1.1, () => this.beginStep());
     });
   }
 
@@ -410,6 +411,7 @@ export class SummitScene extends BaseScene {
 
   /** A stage of the talk: the customer's line, the AI coach's reading and three reply holds. */
   beginStep() {
+    if (this.mode === 'over' || this.disposed) return;
     const c = this.customer;
     const step = c.steps[this.stepIndex];
     this.step = step;
@@ -451,7 +453,7 @@ export class SummitScene extends BaseScene {
     this.options = replies.map((reply, i) => this.spawnOption(reply, i + 1, xs[i], ROWS[this.stepIndex] + (Math.random() - 0.5) * 0.03, i));
     this.talk?.setAnswers(this.options.map((o) => ({ n: o.n, text: L(o.reply.text) })));
     this.talk?.lock(true);
-    this.after(0.75, () => {
+    this.after(0.65, () => {
       if (this.mode !== 'talk') return;
       this.coach.userData.set({ phase: 'shown', reveal: 0, mood: this.reading.mood, type: this.reading.type, words: this.reading.words, unsure: this.reading.unsure });
       this.revealT = 0;
@@ -612,7 +614,7 @@ export class SummitScene extends BaseScene {
       this.route.push(opt);
       this.stepIndex += 1;
       this.focusTo = this.stepIndex < FOCUS.length ? FOCUS[this.stepIndex] : VIEW_TOP;
-      this.after(good ? 1.1 : 1.5, () => {
+      this.after(good ? 0.9 : 1.3, () => {
         if (opt.label) { const l = opt.label; opt.label = null; l.removeFromParent(); l.userData.panel.dispose(); }
         opt.hold.setState('route');
         const last = this.stepIndex >= this.customer.steps.length;
@@ -858,6 +860,7 @@ export class SummitScene extends BaseScene {
       this.hudTick = Math.floor(this.time * 4);
       if (this.mode !== 'intro' && this.mode !== 'over') {
         this.refreshHud?.();
+        this.talk?.setMeters(this.trust ?? 0, this.stamina ?? 0);
         if (this.status && (this.mode === 'choose' || this.stamina < 30)) this.status.redraw();
       }
     }
@@ -942,7 +945,7 @@ export class SummitScene extends BaseScene {
     // The last two stages: the customer at the summit is in the picture too.
     const late = (this.stepIndex ?? 0) >= 3 && this.mode !== 'fall';
     const box = top ? { x0: -0.42, x1: 0.48, y0: eye - 0.16, y1: eye + 0.46, z: -0.62 }
-      : late ? { x0: -0.42, x1: 0.42, y0: eye - 0.52, y1: eye + 0.3, z: -0.62 }
+      : late ? { x0: -0.45, x1: 0.45, y0: eye - 0.5, y1: eye + 0.47, z: -0.62 }
         : { x0: -0.42, x1: 0.42, y0: eye - 0.5, y1: eye + 0.0, z: -0.62 };
     this.frame(cam, dt, box, ins);
     return true;

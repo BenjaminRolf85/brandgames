@@ -20,12 +20,11 @@ import { sfx } from '../sfx.js';
 import { music } from '../music.js';
 import { quality } from '../quality.js';
 import { EVENT } from '../event.js';
-import { CHRISTMAS } from '../christmas.js';
 import { makeEnvironment } from '../robot-visuals.js';
-import { TERRAINS, TIRES, PRESSURES, BEST, planScans, rate, sensorText } from '../bike-ai.js';
+import { TIRES, PRESSURES, BEST, planScans, rate, sensorText } from '../bike-ai.js';
 import {
   makeCourse, makeTerrain, Scatter, makeSky, makeBase, makeScanFx, makeGuideDots, makeSnow, makeMist, makeSparks,
-  HZ, ITEMS, S0, SEC_LEN, STOP_GAP, HALF, EDGE,
+  HZ, ITEMS, S0, STOP_GAP, HALF, EDGE,
 } from '../bike-world.js';
 import { loadBikeGLTF, loadWorldGLTF, modelKit, BikeRig, EchoRider, SwallowGuide, ScanDrone, makeArch, TIRE_NODES, TIRE_TOKENS } from '../bike-models.js';
 
@@ -238,9 +237,9 @@ export class BikeScene extends BaseScene {
     }
     const rimNode = B.clone('BikeWheel');
     if (rimNode) { this.previewRim = new THREE.Group(); this.previewRim.add(rimNode); this.tirePreview.add(this.previewRim); }
-    this.tirePreview.position.set(0, 0.06, 0.07);
-    this.tirePreview.rotation.y = 0.95;
-    this.tirePreview.scale.setScalar(0.42);
+    this.tirePreview.position.set(0.035, 0.055, 0.1);
+    this.tirePreview.rotation.set(0.4, 1.05, 0, 'YXZ');
+    this.tirePreview.scale.setScalar(0.47);
     this.tirePreview.traverse((o) => { o.userData.keepDepth = true; o.castShadow = false; });
     this.tireCard.add(this.tirePreview);
     this.ready = true;
@@ -309,10 +308,12 @@ export class BikeScene extends BaseScene {
       const k = this.choice.tire;
       c.surface({ stroke: color(TIRE_TOKENS[k]), stripe: false });
       const g = ctx.createRadialGradient(W / 2, H * 0.4, 0, W / 2, H * 0.4, W * 0.5);
-      g.addColorStop(0, color('xr-button-hover'));
+      g.addColorStop(0, color(TIRE_TOKENS[k]));
       g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.globalAlpha = 0.55;
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, W, H * 0.8);
+      ctx.globalAlpha = 1;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = color(TIRE_TOKENS[k]);
@@ -1511,7 +1512,7 @@ export class BikeScene extends BaseScene {
       this.sky.position.copy(this.group.worldToLocal(this.engine.camera.getWorldPosition(new THREE.Vector3())));
       const fogOn = this.mode !== 'intro' && this.mode !== 'over';
       if (fogOn) {
-        if (!this.fog) this.fog = new THREE.Fog(0xffffff, 1, 4);
+        if (!this.fog) this.fog = new THREE.Fog(this.skyLow.getHex(), 1, 4);
         this.fog.color.copy(this.skyLow);
         this.fog.near = 1.6;
         this.fog.far = (this.win.front - 3) * this.S;
@@ -1534,7 +1535,7 @@ export class BikeScene extends BaseScene {
     if (this.mode === 'scan') { pos = portrait ? [bx * 0.5, 0.78, 0.48] : [bx * 0.5, 0.52, 0.55]; look = portrait ? [0, 0, -0.5] : [0, 0, -0.95]; }
     else if (this.mode === 'choose') { pos = portrait ? [0.2, 0.32, 0.52] : [0.28, 0.24, 0.42]; look = [0, 0.03, -0.5]; fov = portrait ? 62 : 50; }
     else if (this.mode === 'finish') { const a = 0.5 + this.phaseT * 0.35; pos = [Math.sin(a) * 0.42 + bx, 0.2, Math.cos(a) * 0.42]; look = [bx, 0.08, 0]; }
-    else { pos = [bx, portrait ? 0.46 : 0.34, portrait ? 0.72 : 0.58]; look = [bx * 1.1, 0, portrait ? -0.62 : -0.82]; }
+    else { pos = [bx, portrait ? 0.5 : 0.4, portrait ? 0.72 : 0.6]; look = [bx * 1.1, 0, portrait ? -0.66 : -0.95]; }
     const wantPos = this.stage.localToWorld(new THREE.Vector3(...pos));
     const wantLook = this.stage.localToWorld(new THREE.Vector3(...look));
     if (!this.camInit) {

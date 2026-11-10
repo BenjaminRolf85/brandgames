@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { hex, num, color, font } from './tokens.js';
 import { loadGLTF } from './models.js';
 import { radialTexture } from './robot-visuals.js';
+import { mergeGeometries } from '../vendor/addons/utils/BufferGeometryUtils.js';
 import { CHRISTMAS, makeBulbs } from './christmas.js';
 import { quality } from './quality.js';
 import { PLOTS, TYPES, OUTLINE, DISTRICTS, windAt, sunAt, windConfAt, sunConfAt, inside, coastX } from './green-sim.js';
@@ -56,9 +57,9 @@ const MAT = {
   GreenWall2: { t: 'xr-green-wall-2', r: 0.8 },
   GreenWall3: { t: 'xr-green-wall-3', r: 0.8 },
   GreenWall4: { t: 'xr-green-wall-4', r: 0.8 },
-  GreenRoof1: { t: 'xr-green-roof-1', r: 0.7, snow: 1 },
-  GreenRoof2: { t: 'xr-green-roof-2', r: 0.7, snow: 1 },
-  GreenRoof3: { t: 'xr-green-roof-3', r: 0.6, snow: 1 },
+  GreenRoof1: { t: 'xr-green-roof-1', r: 0.7, snow: 1, patchy: 0.18 },
+  GreenRoof2: { t: 'xr-green-roof-2', r: 0.7, snow: 1, patchy: 0.18 },
+  GreenRoof3: { t: 'xr-green-roof-3', r: 0.6, snow: 1, patchy: 0.18 },
   GreenWindow: { t: 'xr-green-window', r: 0.2, window: true },
   GreenWood: { t: 'xr-green-wood', r: 0.8 },
   GreenPine: { t: 'xr-green-pine', r: 0.9, snow: 0.8, snowY: 0.06 },
@@ -78,7 +79,7 @@ const MAT = {
   GreenKita2: { t: 'xr-green-kita-2', r: 0.7 },
   GreenKita3: { t: 'xr-green-kita-3', r: 0.7 },
   GreenHomesWall: { t: 'xr-green-homes-wall', r: 0.8 },
-  GreenStall: { t: 'xr-green-stall', r: 0.7, snow: 0.8 },
+  GreenStall: { t: 'xr-green-stall', r: 0.7, snow: 0.8, patchy: 0.18 },
   GreenBoat: { t: 'xr-green-boat', r: 0.5 },
   GreenSail: { t: 'xr-green-sail', r: 0.9 },
   GreenLighthouse: { t: 'xr-green-lighthouse', r: 0.6 },
@@ -99,8 +100,8 @@ float gNoise(vec3 x) {
 `;
 
 /** Shader patches on a standard material: snow (k), meadow tint, solar glint, lit windows, water. */
-function patch(mat, U, { snow = 0, snowY = -1, tint = false, glint = false, window = false, water = false }) {
-  const key = `g${snow}|${snowY}|${tint}|${glint}|${window}|${water}`;
+function patch(mat, U, { snow = 0, snowY = -1, patchy = 0.55, tint = false, glint = false, window = false, water = false }) {
+  const key = `g${snow}|${snowY}|${patchy}|${tint}|${glint}|${window}|${water}`;
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader
@@ -126,7 +127,7 @@ function patch(mat, U, { snow = 0, snowY = -1, tint = false, glint = false, wind
     if (snow > 0) {
       color += `{ float gup = dot(normalize(vGN), uUp);
         float gn = gNoise(vGP * 140.0) * 0.6 + gNoise(vGP * 420.0) * 0.4;
-        gS = smoothstep(0.5, 0.78, gup + (gn - 0.5) * 0.55) * smoothstep(0.0, 0.15, uSnow) * clamp(uSnow * 1.25, 0.0, 1.0) * ${snow.toFixed(2)};
+        gS = smoothstep(0.5, 0.78, gup + (gn - 0.5) * ${patchy.toFixed(2)}) * smoothstep(0.0, 0.15, uSnow) * clamp(uSnow * 1.25, 0.0, 1.0) * ${snow.toFixed(2)};
         ${snowY >= 0 ? `gS *= smoothstep(${(snowY - 0.025).toFixed(3)} + (1.0 - uSnow) * 0.04, ${snowY.toFixed(3)} + (1.0 - uSnow) * 0.04, vGP.y + (gn - 0.5) * 0.02);` : ''}
         vec3 gsc = mix(uSnowShade, uSnowColor, clamp(gAo.r * 1.25 - 0.1, 0.0, 1.0));
         diffuseColor.rgb = mix(diffuseColor.rgb, gsc, gS); }\n`;
@@ -233,7 +234,8 @@ function personGeometry() {
 // ---------- the region ----------
 
 export class Region {
-  constructor(gltf, renderer) {
+  constructor(gltf, renderer, { xr = false } = {}) {
+    this.xr = xr;
     this.root = new THREE.Group();
     this.root.name = 'GreenRegion';
     this.cloudY = 0.27; // clouds float this high (lower in the browser's tilted view)
@@ -313,14 +315,14 @@ export class Region {
     if (this.mats[name]) return this.mats[name];
     const d = MAT[name];
     let m;
-    if (!d) m = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.8 });
+    if (!d) m = new THREE.MeshStandardMaterial({ color: hex('xr-green-wall-1'), vertexColors: true, roughness: 0.8 });
     else if (d.basic) m = new THREE.MeshBasicMaterial({ color: hex(d.t), toneMapped: false });
     else {
       m = new THREE.MeshStandardMaterial({ name, color: hex(d.t), roughness: d.r ?? 0.8, metalness: d.m ?? 0, vertexColors: !d.cloud, envMapIntensity: d.env ?? 0.35 });
       if (d.opacity) { m.transparent = true; m.opacity = d.opacity; }
       if (d.cloud) { m.transparent = true; m.opacity = 0.96; }
-      if (d.window) { m.emissive = new THREE.Color(0x000000); }
-      if (d.snow || d.tint || d.glint || d.window) patch(m, this.U, { snow: CHRISTMAS ? d.snow ?? 0 : 0, snowY: d.snowY ?? -1, tint: !!d.tint, glint: !!d.glint, window: !!d.window });
+      if (d.window) { m.emissive = new THREE.Color(); }
+      if (d.snow || d.tint || d.glint || d.window) patch(m, this.U, { snow: CHRISTMAS ? d.snow ?? 0 : 0, snowY: d.snowY ?? -1, patchy: d.patchy ?? 0.55, tint: !!d.tint, glint: !!d.glint, window: !!d.window });
     }
     m.name = name;
     this.mats[name] = m;
@@ -351,7 +353,7 @@ export class Region {
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       key.castShadow = true;
-      key.shadow.mapSize.set(2048, 2048);
+      key.shadow.mapSize.set(this.xr ? 1024 : 2048, this.xr ? 1024 : 2048);
       Object.assign(key.shadow.camera, { left: -0.66, right: 0.66, top: 0.6, bottom: -0.6, near: 0.3, far: 2.2 });
       key.shadow.camera.updateProjectionMatrix();
       key.shadow.bias = -0.0004;
@@ -499,18 +501,13 @@ export class Region {
     ringShape.holes.push(roundRect(size - 0.009, size - 0.009, 0.007));
     const frame = new THREE.Mesh(new THREE.ShapeGeometry(ringShape, 4).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: hex('xr-green-plot-edge'), transparent: true, opacity: 0.9, toneMapped: false }));
     frame.position.y = 0.0029;
-    // Corner stakes with little flags, like a real building site.
+    // Corner stakes with little flags, like a real building site (one mesh each).
     const stakeMat = new THREE.MeshStandardMaterial({ color: hex('xr-green-wood'), roughness: 0.8 });
     const flagMat = new THREE.MeshBasicMaterial({ color: hex('xr-green-plot-ok'), side: THREE.DoubleSide, toneMapped: false });
+    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => [(sx * size) / 2.15, (sz * size) / 2.15]);
     const stakes = new THREE.Group();
-    for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-      const s = new THREE.Mesh(new THREE.CylinderGeometry(0.0008, 0.0008, 0.012, 5), stakeMat);
-      s.position.set((sx * size) / 2.15, 0.006, (sz * size) / 2.15);
-      const f = new THREE.Mesh(new THREE.PlaneGeometry(0.005, 0.0035), flagMat);
-      f.position.set(0.0025, 0.0045, 0);
-      s.add(f);
-      stakes.add(s);
-    }
+    stakes.add(new THREE.Mesh(mergeGeometries(corners.map(([x, z]) => new THREE.CylinderGeometry(0.0008, 0.0008, 0.012, 5).translate(x, 0.006, z))), stakeMat));
+    stakes.add(new THREE.Mesh(mergeGeometries(corners.map(([x, z]) => new THREE.PlaneGeometry(0.005, 0.0035).translate(x + 0.0025, 0.0105, z))), flagMat));
     const glow = new THREE.Mesh(new THREE.PlaneGeometry(size * 1.7, size * 1.7).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-green-plot-ok'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
     glow.position.y = 0.003;
     glow.userData.noFit = true;
@@ -718,12 +715,14 @@ export class Region {
     gc.width = 128;
     gc.height = 8;
     const gx = gc.getContext('2d');
-    const grad = gx.createLinearGradient(0, 0, 128, 0);
-    grad.addColorStop(0, 'rgba(255,255,255,0)');
-    grad.addColorStop(0.7, 'rgba(255,255,255,0.9)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
-    gx.fillStyle = grad;
-    gx.fillRect(0, 2, 128, 4);
+    // A streak that fades in and out along its length (alpha mask, tinted by the material).
+    gx.fillStyle = color('xr-green-gust');
+    for (let x = 0; x < 128; x++) {
+      const u = x / 127;
+      gx.globalAlpha = 0.9 * (u < 0.7 ? u / 0.7 : (1 - u) / 0.3);
+      gx.fillRect(x, 2, 1, 4);
+    }
+    gx.globalAlpha = 1;
     const gtex = new THREE.CanvasTexture(gc);
     this.gustMat = new THREE.MeshBasicMaterial({ map: gtex, color: hex('xr-green-gust'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
     this.gusts = [];
@@ -763,7 +762,7 @@ export class Region {
   buildPeople() {
     const N = 90;
     const geo = personGeometry();
-    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7 });
+    const mat = new THREE.MeshStandardMaterial({ color: hex('xr-green-line'), roughness: 0.7 }); // tinted per person
     this.people = new THREE.InstancedMesh(geo, mat, N);
     this.people.castShadow = true;
     this.people.userData.noFit = true;

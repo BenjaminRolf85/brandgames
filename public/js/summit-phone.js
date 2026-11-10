@@ -12,9 +12,24 @@ export function phoneTalk({ onPick, onNext }) {
   el.dataset.insetLand = 'right';
   el.hidden = true;
   const coach = Object.assign(document.createElement('p'), { className: 'summit-talk__coach' });
+  // Trust and strength as two small meters.
+  const meters = Object.assign(document.createElement('div'), { className: 'summit-talk__meters' });
+  const meter = (cls, label) => {
+    const m = Object.assign(document.createElement('span'), { className: `summit-meter summit-meter--${cls}` });
+    const name = Object.assign(document.createElement('span'), { className: 'summit-meter__name', textContent: label });
+    const bar = Object.assign(document.createElement('span'), { className: 'summit-meter__bar' });
+    const fill = Object.assign(document.createElement('span'), { className: 'summit-meter__fill' });
+    const val = Object.assign(document.createElement('span'), { className: 'summit-meter__val' });
+    bar.append(fill);
+    m.append(name, bar, val);
+    meters.append(m);
+    return { m, fill, val };
+  };
+  const trustM = meter('trust', t('summitTrust'));
+  const staminaM = meter('stamina', t('summitStamina'));
   const quote = Object.assign(document.createElement('p'), { className: 'summit-talk__quote' });
   const answers = Object.assign(document.createElement('div'), { className: 'summit-talk__answers' });
-  el.append(coach, quote, answers);
+  el.append(meters, coach, quote, answers);
   stage()?.append(el);
   let buttons = [];
 
@@ -113,6 +128,15 @@ export function phoneTalk({ onPick, onNext }) {
     },
 
     clearAnswers() { buttons = []; answers.replaceChildren(); },
+
+    /** Trust and strength (0..100). */
+    setMeters(trust, stamina) {
+      for (const [m, v] of [[trustM, trust], [staminaM, stamina]]) {
+        const w = `${Math.round(v)}%`;
+        if (m.fill.style.width !== w) { m.fill.style.width = w; m.val.textContent = `${Math.round(v)} %`; }
+      }
+      staminaM.m.classList.toggle('is-low', stamina < 30);
+    },
     remove() { el.remove(); },
   };
 }

@@ -288,14 +288,15 @@ function drawCoach(ctx, c, s) {
       const v = e ? e.p : 0;
       const best = list && list[0].key === key;
       const scan = s.phase === 'reading' ? 0.15 + 0.12 * Math.sin(s.time * 9 + i * 1.3) : v * k;
-      bar(ctx, c, pad, y, bw, bh, scan, tokenOf(key), nameOf(key), s.phase === 'shown' ? `${Math.round(v * 100 * k)} %` : '', best && s.phase === 'shown');
+      bar(ctx, c, pad, y, bw, bh, scan, tokenOf(key), nameOf(key), s.phase === 'shown' && list ? `${Math.round(v * 100 * k)} %` : '', best && s.phase === 'shown');
       y += bh + gap;
     });
     y += c.m(0.012);
   };
   section(t('summitCoachMood'), s.mood, MOODS, moodToken, (key) => t(`summitMood_${key}`));
   section(t('summitCoachType'), s.type, TYPES, typeToken, (key) => t(`summitType_${key}`));
-  // Signal words as chips.
+  // Signal words as chips (not at the summit, where only the customer type is left).
+  if (s.phase === 'shown' && !s.mood) return;
   ctx.textAlign = 'left';
   ctx.font = font('bold', c.m(num('xr-text-min')));
   ctx.fillStyle = color('xr-panel-muted');
@@ -449,7 +450,7 @@ function drawStatus(ctx, c, s) {
     y += bh + c.m(0.025);
   };
   meter(t('summitTrust'), s.trust, 'xr-summit-trust');
-  meter(t('summitStamina'), s.stamina, s.stamina < 30 && Math.sin(s.time * 10) > 0 ? 'xr-summit-stamina-low' : s.stamina < 30 ? 'xr-summit-stamina-low' : 'xr-summit-stamina');
+  meter(t('summitStamina'), s.stamina, s.stamina < 30 ? 'xr-summit-stamina-low' : 'xr-summit-stamina');
   ctx.textAlign = 'left';
   ctx.font = font('bold', c.m(num('xr-text-min')));
   ctx.fillStyle = color('xr-panel-muted');

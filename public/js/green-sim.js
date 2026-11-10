@@ -270,7 +270,7 @@ export class GreenGame {
     const k = Math.min(1, need.value / T.cap);
     return {
       value: T.weight * k, lo: T.weight * Math.min(1, need.lo / T.cap), hi: T.weight * Math.min(1, need.hi / T.cap),
-      conf: need.conf, input: need.value, unit: 'qol', need: T.need, cap: T.cap,
+      conf: need.conf, input: need.value, needLo: need.lo, needHi: need.hi, unit: 'qol', need: T.need, cap: T.cap,
     };
   }
 
