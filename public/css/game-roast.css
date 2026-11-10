@@ -1,0 +1,122 @@
+/* Design tokens of the game 'roast' (colors and sizes of its 3D world and UI). Read by tokens.js like tokens.css. */
+/* Röstmeister / Roast Master: a festive delicatessen counter with a drum roaster (blender/build_roast.py). */
+:root {
+  /* the counter: dark walnut, a cream marble top, brass trims, a glass display case */
+  --xr-roast-wood:          #6b4128;
+  --xr-roast-wood-dark:     #3d2416;
+  --xr-roast-wood-light:    #a8724a;
+  --xr-roast-marble:        #efe5d3;
+  --xr-roast-brass:         #d6a74e;
+  --xr-roast-glass:         #d8eef2;
+  --xr-roast-plinth:        #24160e;
+  /* the drum roaster: burgundy enamel, cast iron, copper hopper, perforated steel tray */
+  --xr-roast-enamel:        #8c2433;
+  --xr-roast-iron:          #2b2723;
+  --xr-roast-copper:        #c97a46;
+  --xr-roast-steel:         #9da3a8;
+  --xr-roast-drum:          #191513;
+  --xr-roast-dial:          #f4ead6;
+  --xr-roast-needle:        #d23a2a;
+  --xr-roast-knob:          #c8202f;
+  --xr-roast-flame:         #ff8a3d;
+  --xr-roast-flame-hot:     #ffd27a;
+  --xr-roast-smoke:         #d9d2c6;
+  --xr-roast-smoke-dark:    #4d4642;
+  /* beans from green to burnt (the roast stages) */
+  --xr-roast-bean-green:    #93a96a;
+  --xr-roast-bean-yellow:   #d8c27a;
+  --xr-roast-bean-cinnamon: #b97a43;
+  --xr-roast-bean-medium:   #7b4a27;
+  --xr-roast-bean-dark:     #43271a;
+  --xr-roast-bean-burnt:    #17110e;
+  /* cups and coffee */
+  --xr-roast-porcelain:     #f7f2e9;
+  --xr-roast-gold:          #e3b45a;
+  --xr-roast-coffee:        #3a2014;
+  --xr-roast-crema:         #b27a4a;
+  --xr-roast-steam:         #ffffff;
+  /* jar tags (kraft paper) */
+  --xr-roast-tag:           #f1e2c4;
+  --xr-roast-tag-ink:       #3a2616;
+  --xr-roast-tag-muted:     #7a5a3e;
+  --xr-roast-tag-edge:      #b98d5a;
+  --xr-roast-tag-pick:      #2fcf8a;
+  /* the four flavors (bars, taste map, labels) */
+  --xr-roast-fruity:        #ff5d8f;
+  --xr-roast-nutty:         #e9b45e;
+  --xr-roast-choc:          #c98a62;
+  --xr-roast-spicy:         #ff8a3a;
+  /* the same flavors, darker, on the kraft paper tags */
+  --xr-roast-fruity-ink:    #c8264f;
+  --xr-roast-nutty-ink:     #b07418;
+  --xr-roast-choc-ink:      #6e3d22;
+  --xr-roast-spicy-ink:     #d4561c;
+  /* treats in the display case and the gift basket */
+  --xr-roast-choc-dark:     #3b2116;
+  --xr-roast-cookie:        #d7a15e;
+  --xr-roast-cake:          #c98b4a;
+  --xr-roast-sugar:         #fbf7f0;
+  --xr-roast-berry:         #9b1c3a;
+  --xr-roast-kraft:         #b98b5a;
+  --xr-roast-label:         #f4ead6;
+  --xr-roast-tin:           #2f6f73;
+  --xr-roast-box:           #b5252f;
+  --xr-roast-cloth:         #e8dcc6;
+  --xr-roast-wicker:        #c08d52;
+  --xr-roast-wicker-dark:   #8a5e30;
+  /* Christmas: garland, bows, baubles */
+  --xr-roast-fir:           #2e6a3f;
+  --xr-roast-fir-light:     #4f8f55;
+  --xr-roast-bow:           #c4202f;
+  --xr-roast-bauble:        #e3b45a;
+  /* guests (original figures): skin, hair, clothes per guest */
+  --xr-roast-skin-1:        #f2c6a5;
+  --xr-roast-skin-2:        #d9a07a;
+  --xr-roast-skin-3:        #a8704c;
+  --xr-roast-skin-4:        #7a4a32;
+  --xr-roast-cheek:         #f08a8a;
+  --xr-roast-eye:           #1c1512;
+  --xr-roast-white:         #fbfaf6;
+  --xr-roast-metal:         #c9ccd2;
+  --xr-roast-mouth:         #5a2a22;
+  --xr-roast-student-hair:  #7a3f1f;
+  --xr-roast-student-coat:  #2f8f88;
+  --xr-roast-student-pants: #33405e;
+  --xr-roast-student-acc:   #f0b63c;
+  --xr-roast-student-acc2:  #c8463c;
+  --xr-roast-grandma-hair:  #d8d6d2;
+  --xr-roast-grandma-coat:  #8a5a8c;
+  --xr-roast-grandma-pants: #5a4a6a;
+  --xr-roast-grandma-acc:   #e7d7b0;
+  --xr-roast-grandma-acc2:  #b0405a;
+  --xr-roast-biz-hair:      #2a221d;
+  --xr-roast-biz-coat:      #26304a;
+  --xr-roast-biz-pants:     #1d2438;
+  --xr-roast-biz-acc:       #b8323a;
+  --xr-roast-biz-acc2:      #6b4128;
+  --xr-roast-family-hair:   #1e1612;
+  --xr-roast-family-coat:   #c8643a;
+  --xr-roast-family-pants:  #3a3a46;
+  --xr-roast-family-acc:    #e9d8a6;
+  --xr-roast-family-acc2:   #3f7fbf;
+  --xr-roast-kid-coat:      #4f9be0;
+  --xr-roast-kid-acc:       #e0405a;
+  --xr-roast-chef-hair:     #b5562a;
+  --xr-roast-chef-coat:     #fbfaf6;
+  --xr-roast-chef-pants:    #2c2c34;
+  --xr-roast-chef-acc:      #d63a3a;
+  --xr-roast-chef-acc2:     #3a3a42;
+  /* ratings and the AI panel */
+  --xr-roast-star:          #ffc65c;
+  --xr-roast-star-empty:    #4a4f66;
+  --xr-roast-ai:            #5ad8ff;
+  --xr-roast-ai-soft:       rgb(90 216 255 / 0.18);
+  --xr-roast-map-bg:        rgb(7 10 20 / 0.55);
+  --xr-roast-map-grid:      rgb(169 180 208 / 0.22);
+  --xr-roast-bubble:        #fbf6ec;
+  --xr-roast-bubble-ink:    #2a1c12;
+  --xr-roast-bubble-muted:  #6e5a48;
+  --xr-roast-light:         #ffc98a;   /* warm shop light */
+  /* sizes */
+  --xr-roast-counter-drop:  0.6;       /* m, counter top below eye height */
+}

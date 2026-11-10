@@ -1,0 +1,149 @@
+/* Design tokens of the game 'bike' (colors and sizes of its 3D world and UI). Read by tokens.js like tokens.css. */
+:root {
+  /* ---- the bike and its rider (blender/build_bike.py, materials Bk*) ---- */
+  --xr-bike-frame:          #7c3aed;
+  --xr-bike-accent:         #22d3ee;
+  --xr-bike-metal:          #c9ced8;
+  --xr-bike-dark:           #1a1b21;
+  --xr-bike-saddle:         #221e2b;
+  --xr-bike-bottle:         #22d3ee;
+  --xr-bike-light:          #fff4d6;
+  --xr-bike-rim:            #2a2c36;
+  --xr-bike-rubber:         #1c1c21;
+  --xr-bike-stud:           #e8eef7;
+  --xr-bike-band:           #34f5c5;
+  --xr-bike-helmet:         #ffb02e;
+  --xr-bike-helmet-dark:    #1b1b22;
+  --xr-bike-pump:           #ff5470;
+  --xr-bike-pump-face:      #f5f5f5;
+
+  /* ---- the four tire profiles (sidewall stripe, UI tiles) ---- */
+  --xr-bike-tire-slick:     #38bdf8;
+  --xr-bike-tire-allround:  #2fcf8a;
+  --xr-bike-tire-knobby:    #ff8a3d;
+  --xr-bike-tire-spikes:    #c4b5fd;
+  --xr-bike-tread:          #2b2c33;   /* tread drawings on the UI tiles */
+  --xr-bike-tread-light:    #5b5d68;
+
+  /* ---- terrain textures ---- */
+  --xr-bike-asphalt:        #3b3e47;
+  --xr-bike-asphalt-grain:  #5f636e;
+  --xr-bike-asphalt-dark:   #2a2c33;
+  --xr-bike-asphalt-line:   #f2f2ee;
+  --xr-bike-curb:           #a3a8b2;
+  --xr-bike-gravel:         #c2b49a;
+  --xr-bike-gravel-stone:   #8f8371;
+  --xr-bike-gravel-light:   #e3d8c2;
+  --xr-bike-gravel-track:   #ab9d84;
+  --xr-bike-mud:            #5d4128;
+  --xr-bike-mud-dark:       #3b2716;
+  --xr-bike-mud-wet:        #75583a;
+  --xr-bike-snow:           #eef4fb;
+  --xr-bike-snow-shade:     #c3d4ea;
+  --xr-bike-snow-track:     #d5e0ee;
+  --xr-bike-grass:          #5f9e3a;
+  --xr-bike-grass-dark:     #3d7a2a;
+  --xr-bike-grass-light:    #8cc05a;
+  --xr-bike-grass-dry:      #b3ab5e;
+  --xr-bike-flower:         #fff1a8;
+  --xr-bike-forest-floor:   #3f4a25;
+  --xr-bike-forest-moss:    #557a2c;
+  --xr-bike-earth:          #5a3f2a;   /* the diorama's cut edge */
+  --xr-bike-earth-dark:     #36261a;
+  --xr-bike-earth-stone:    #7c6a58;
+  --xr-bike-diorama-rim:    #1e1b29;
+
+  /* ---- sky and fog in the browser view (per section) ---- */
+  --xr-bike-sky-1-top:      #3f8fe8;
+  --xr-bike-sky-1-low:      #cfe6ff;
+  --xr-bike-sky-2-top:      #5d93c9;
+  --xr-bike-sky-2-low:      #f1e1c0;
+  --xr-bike-sky-3-top:      #284d45;
+  --xr-bike-sky-3-low:      #a9c49a;
+  --xr-bike-sky-4-top:      #1b2752;
+  --xr-bike-sky-4-low:      #a9bfe6;
+  --xr-bike-fog-mist:       #d8dee8;   /* the scanner's fog */
+
+  /* ---- hazards, items, props ---- */
+  --xr-bike-glass:          #6fd39b;
+  --xr-bike-glass-brown:    #c07a3c;
+  --xr-bike-nail:           #cfd4dc;
+  --xr-bike-wood:           #a06e40;
+  --xr-bike-wood-dark:      #66462a;
+  --xr-bike-thorn:          #6f4b2b;
+  --xr-bike-thorn-leaf:     #417d2c;
+  --xr-bike-berry:          #4b1d5a;
+  --xr-bike-hole:           #141417;
+  --xr-bike-chunk:          #444852;
+  --xr-bike-water:          #3e6a8c;
+  --xr-bike-root:           #6e4628;
+  --xr-bike-ice:            #bfe8ff;
+  --xr-bike-ice-crack:      #ffffff;
+  --xr-bike-mud-water:      #7a5a38;
+  --xr-bike-gold:           #ffc43d;
+  --xr-bike-cartridge:      #dfe3ea;
+  --xr-bike-cartridge-band: #22d3ee;
+  --xr-bike-shield:         #34f5c5;
+  --xr-bike-shield-core:    #0f5a52;
+  --xr-bike-leaf:           #62a03c;
+  --xr-bike-leaf-dark:      #3f7a2a;
+  --xr-bike-needle:         #1f6b45;
+  --xr-bike-trunk:          #6e4a2f;
+  --xr-bike-stone:          #8f9198;
+  --xr-bike-grass-tuft:     #84b844;
+  --xr-bike-hay:            #e3c262;
+  --xr-bike-lamp-glow:      #ffe3a3;
+  --xr-bike-post:           #f2f2f2;
+  --xr-bike-post-dark:      #1f1f22;
+  --xr-bike-reflect:        #ff8a1e;
+  --xr-bike-sign-red:       #e0303a;
+  --xr-bike-sign-white:     #f6f6f6;
+  --xr-bike-lamp-post:      #3c4352;
+  --xr-bike-mush-red:       #e0302a;
+  --xr-bike-mush-white:     #f6f0e2;
+  --xr-bike-fern:           #4f9a3a;
+  --xr-bike-carrot:         #ff7a1a;
+  --xr-bike-coal:           #18181b;
+  --xr-bike-scarf:          #e0303a;
+  --xr-bike-manhole:        #2c2e35;
+  --xr-bike-pebble:         #a99f8e;
+  --xr-bike-autumn:         #e98a2b;
+  --xr-bike-autumn-2:       #b8461a;
+  --xr-bike-flag:           #22d3ee;
+
+  /* ---- the swallow (guide), the scanner drone, the finish arch ---- */
+  --xr-bike-swallow-back:   #1f2d70;
+  --xr-bike-swallow-belly:  #f7f0e3;
+  --xr-bike-swallow-face:   #cf5a2c;
+  --xr-bike-swallow-beak:   #1a1a1e;
+  --xr-bike-swallow-eye:    #0c0c12;
+  --xr-bike-swallow-shine:  #ffffff;
+  --xr-bike-guide:          #ffe08a;   /* the swallow's light dots on the best line */
+  --xr-bike-drone:          #eef1f6;
+  --xr-bike-drone-dark:     #1f2331;
+  --xr-bike-rotor:          #2b303d;
+  --xr-bike-scan:           #34f5e5;   /* scan beam, scan grid, lens */
+  --xr-bike-scan-warn:      #ffb02e;   /* the beam when the scanner is unsure */
+  --xr-bike-arch-a:         #e0303a;
+  --xr-bike-arch-b:         #f6f6f6;
+  --xr-bike-arch-banner:    #161829;
+  --xr-bike-arch-post:      #3c4352;
+  --xr-bike-garland:        #1f6b45;
+  --xr-bike-confetti-1:     #ffc43d;
+  --xr-bike-confetti-2:     #22d3ee;
+  --xr-bike-confetti-3:     #e0303a;
+  --xr-bike-confetti-4:     #2fcf8a;
+
+  /* ---- terrain names in the UI ---- */
+  --xr-bike-terrain-asphalt: #a9b4c6;
+  --xr-bike-terrain-gravel:  #e2cfa6;
+  --xr-bike-terrain-mud:     #d39a63;
+  --xr-bike-terrain-snow:    #cfe6ff;
+
+  /* ---- sizes ---- */
+  --xr-bike-scale:          0.12;      /* diorama scale (bike world meters -> room meters) */
+  --xr-bike-table-drop:     0.66;      /* m, diorama below eye height in the headset */
+  --xr-bike-table-z:        -0.66;     /* m, the bike's spot in front of the player */
+  --xr-bike-ui-px:          470;       /* screen px per panel meter (desktop) */
+  --xr-bike-ui-px-phone:    360;       /* screen px per panel meter (phones) */
+}

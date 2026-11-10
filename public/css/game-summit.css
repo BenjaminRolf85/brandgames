@@ -1,0 +1,242 @@
+/* Design tokens of the game 'summit' (colors and sizes of its 3D world and UI). Read by tokens.js like tokens.css. */
+:root {
+  /* sky, clouds and backdrop (preview and VR; AR keeps the real room) */
+  --xr-summit-sky-top:        #121640;
+  --xr-summit-sky-mid:        #33367e;
+  --xr-summit-sky-low:        #e79a9c;
+  --xr-summit-sky-glow:       #ffc98f;
+  --xr-summit-star:           var(--p-white);
+  --xr-summit-cloud:          #f1f2ff;
+  --xr-summit-cloud-shade:    #a9a9d8;
+  --xr-summit-sun:            #ffb27a;
+  --xr-summit-fill:           #8fa3ff;   /* cool fill light from the sky */
+  --xr-summit-env-top:        #b9c3ff;
+  --xr-summit-env-bottom:     #3a2f5c;
+
+  /* rock, snow and gear */
+  --xr-summit-rock:           #8d8aa8;
+  --xr-summit-rock-alt:       #73709a;
+  --xr-summit-snow:           var(--p-snow-50);
+  --xr-summit-peak-rock:      #5d5f8e;
+  --xr-summit-peak-snow:      #eef2ff;
+  --xr-summit-metal:          var(--p-chrome-200);
+  --xr-summit-sling:          var(--p-cyan-400);
+  --xr-summit-rope:           #ff6a3d;
+  --xr-summit-rope-fleck:     #ffe08a;
+  --xr-summit-chalk:          rgb(255 255 255 / 0.85);
+  --xr-summit-dust:           #d8d2c6;
+  --xr-summit-mask:           var(--p-white);   /* neutral base of tinted textures (rope weave, cloud puffs) */
+
+  /* holds: three options (1, 2, 3), their states, and the decor holds of the route */
+  --xr-summit-hold-1:         var(--p-cyan-400);
+  --xr-summit-hold-2:         var(--p-pink-400);
+  --xr-summit-hold-3:         var(--p-amber-400);
+  --xr-summit-hold-good:      var(--p-mint-500);
+  --xr-summit-hold-ok:        var(--p-amber-500);
+  --xr-summit-hold-bad:       var(--p-coral-500);
+  --xr-summit-hold-idle-1:    #7f8fd6;
+  --xr-summit-hold-idle-2:    #c07fbf;
+  --xr-summit-hold-idle-3:    #6fb3a6;
+  --xr-summit-hold-idle-4:    #d8a46a;
+  --xr-summit-hold-bolt:      var(--p-ink-900);
+  --xr-summit-grab:           var(--p-white);     /* ring when the hand is close enough to grab */
+
+  /* summit: flag, cross, fairy lights */
+  --xr-summit-flag:           var(--p-violet-500);
+  --xr-summit-flag-2:         var(--p-cyan-400);
+  --xr-summit-flag-icon:      var(--p-white);
+  --xr-summit-pole:           var(--p-chrome-200);
+  --xr-summit-gold:           var(--p-amber-400);
+  --xr-summit-wood:           #8a5a3b;
+
+  /* Echo's harness */
+  --xr-summit-harness:        var(--p-orange-400);
+  --xr-summit-harness-metal:  var(--p-chrome-200);
+  --xr-summit-chalkbag:       var(--p-violet-500);
+
+  /* the customers */
+  --xr-summit-skin-1:         #f2c7a8;
+  --xr-summit-skin-2:         #c98f6b;
+  --xr-summit-hair-brown:     #6b4027;
+  --xr-summit-hair-black:     #2c2220;
+  --xr-summit-hair-silver:    #d7d9e2;
+  --xr-summit-hair-blond:     #e3c27c;
+  --xr-summit-hair-red:       #b4542e;
+  --xr-summit-cloth-navy:     #26386a;
+  --xr-summit-cloth-white:    #f4f5f8;
+  --xr-summit-cloth-ink:      #1f2436;
+  --xr-summit-cloth-mustard:  #d9a23a;
+  --xr-summit-cloth-sky:      #a9cdf0;
+  --xr-summit-cloth-denim:    #3d5a85;
+  --xr-summit-cloth-wine:     #9a2747;
+  --xr-summit-cloth-rose:     #d77a8f;
+  --xr-summit-cloth-plum:     #4b2d52;
+  --xr-summit-cloth-slate:    #4a5670;
+  --xr-summit-cloth-teal:     #2fa59a;
+  --xr-summit-eye:            var(--p-ink-950);
+  --xr-summit-eye-light:      var(--p-white);
+  --xr-summit-mouth:          #8a2f3a;
+  --xr-summit-cheek:          #f08a8a;
+  --xr-summit-glasses:        var(--p-ink-900);
+  --xr-summit-shoe:           #2a201c;
+
+  /* the talk and the AI coach */
+  --xr-summit-bubble:         rgb(250 250 255 / 0.97);
+  --xr-summit-bubble-text:    var(--p-ink-900);
+  --xr-summit-bubble-muted:   var(--p-ink-600);
+  --xr-summit-bubble-edge:    #c9c6f2;
+  --xr-summit-mood-interested: var(--p-mint-500);
+  --xr-summit-mood-reserved:  #8a96b8;
+  --xr-summit-mood-skeptical: var(--p-coral-500);
+  --xr-summit-mood-ready:     var(--p-amber-500);
+  --xr-summit-type-analytical: var(--p-cyan-400);
+  --xr-summit-type-relational: var(--p-pink-400);
+  --xr-summit-type-decisive:  var(--p-violet-300);
+  --xr-summit-trust:          var(--p-mint-400);
+  --xr-summit-stamina:        var(--p-amber-400);
+  --xr-summit-stamina-low:    var(--p-coral-500);
+  --xr-summit-bar-bg:         rgb(255 255 255 / 0.12);
+  --xr-summit-stage-done:     var(--p-mint-400);
+  --xr-summit-stage-now:      var(--p-amber-400);
+  --xr-summit-stage-todo:     var(--p-ink-400);
+
+  /* sizes (meters): the play area in front of the player */
+  --xr-summit-wall-z:         0.66;   /* distance of the wall face (holds within arm's reach) */
+  --xr-summit-step:           0.24;   /* height of one section of the wall (one stage) */
+  --xr-summit-label-scale:    0.5;    /* reply plates next to the holds (readable at arm's length) */
+  --xr-summit-grab-radius:    0.12;   /* hand within this distance of a hold: grab */
+
+  /* phones: the answer panel (screen element) */
+  --xr-summit-talk-max:          30rem;
+  --xr-summit-num-size:          1.9rem;
+}
+
+/* ---------- phones: the talk with big answer buttons (screen element, js/summit-phone.js) ---------- */
+.summit-talk {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  display: grid;
+  gap: var(--space-2);
+  max-width: var(--xr-summit-talk-max);
+  margin: 0 auto;
+  padding: var(--space-2) max(var(--space-3), env(safe-area-inset-right)) max(var(--space-3), env(safe-area-inset-bottom)) max(var(--space-3), env(safe-area-inset-left));
+  pointer-events: none;
+  color: var(--xr-panel-text);
+}
+.summit-talk[hidden] { display: none; }
+.summit-talk__coach {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--xr-panel-border);
+  border-radius: var(--radius-sm);
+  background: var(--xr-panel-bg);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-bold);
+}
+.summit-talk__ai { color: var(--xr-accent); text-transform: uppercase; letter-spacing: 0.04em; }
+.summit-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.1em 0.5em;
+  border-radius: var(--radius-pill);
+  border: 1px solid currentColor;
+}
+.summit-chip--unsure { border-style: dashed; }
+.summit-chip--interested { color: var(--xr-summit-mood-interested); }
+.summit-chip--reserved { color: var(--xr-summit-mood-reserved); }
+.summit-chip--skeptical { color: var(--xr-summit-mood-skeptical); }
+.summit-chip--ready { color: var(--xr-summit-mood-ready); }
+.summit-chip--analytical { color: var(--xr-summit-type-analytical); }
+.summit-chip--relational { color: var(--xr-summit-type-relational); }
+.summit-chip--decisive { color: var(--xr-summit-type-decisive); }
+.summit-talk__verdict { color: var(--xr-panel-muted); font-weight: var(--font-weight-regular); }
+.summit-talk__quote {
+  pointer-events: auto;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--xr-summit-bubble-edge);
+  border-radius: var(--radius-md);
+  background: var(--xr-summit-bubble);
+  color: var(--xr-summit-bubble-text);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.3;
+}
+.summit-talk__who { display: block; color: var(--xr-summit-bubble-muted); font-size: var(--text-xs); }
+.summit-talk__quote mark {
+  background: none;
+  color: inherit;
+  text-decoration: underline 0.18em;
+  text-underline-offset: 0.18em;
+}
+.summit-talk__quote mark.is-interested { text-decoration-color: var(--xr-summit-mood-interested); }
+.summit-talk__quote mark.is-reserved { text-decoration-color: var(--xr-summit-mood-reserved); }
+.summit-talk__quote mark.is-skeptical { text-decoration-color: var(--xr-summit-mood-skeptical); }
+.summit-talk__quote mark.is-ready { text-decoration-color: var(--xr-summit-mood-ready); }
+.summit-talk__quote mark.is-analytical { text-decoration-color: var(--xr-summit-type-analytical); }
+.summit-talk__quote mark.is-relational { text-decoration-color: var(--xr-summit-type-relational); }
+.summit-talk__quote mark.is-decisive { text-decoration-color: var(--xr-summit-type-decisive); }
+.summit-talk__answers { display: grid; gap: var(--space-2); }
+.summit-answer {
+  pointer-events: auto;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  display: grid;
+  grid-template-columns: var(--xr-summit-num-size) 1fr;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2);
+  border: 2px solid var(--xr-panel-border);
+  border-radius: var(--radius-md);
+  background: var(--xr-button-bg);
+  color: var(--xr-button-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.25;
+  text-align: left;
+}
+.summit-answer:focus-visible { outline: 2px solid var(--xr-accent); outline-offset: 2px; }
+.summit-answer.is-down { transform: scale(0.98); background: var(--xr-button-hover); }
+.summit-answer:disabled { opacity: 0.45; }
+.summit-answer__num {
+  display: grid;
+  place-items: center;
+  width: var(--xr-summit-num-size);
+  height: var(--xr-summit-num-size);
+  border-radius: 50%;
+  background: var(--xr-summit-num, var(--xr-accent));
+  color: var(--xr-panel-bg);
+  font-weight: var(--font-weight-black);
+}
+.summit-answer--1 { --xr-summit-num: var(--xr-summit-hold-1); }
+.summit-answer--2 { --xr-summit-num: var(--xr-summit-hold-2); }
+.summit-answer--3 { --xr-summit-num: var(--xr-summit-hold-3); }
+.summit-answer.is-good { border-color: var(--xr-summit-hold-good); background: var(--xr-success-soft); }
+.summit-answer.is-ok { border-color: var(--xr-summit-hold-ok); }
+.summit-answer.is-bad { border-color: var(--xr-summit-hold-bad); background: var(--xr-danger-soft); text-decoration: line-through; }
+.summit-answer__tip { grid-column: 2; display: block; font-weight: var(--font-weight-regular); font-size: var(--text-xs); color: var(--xr-panel-muted); text-decoration: none; }
+/* Landscape: the talk sits on the right, the wall on the left. */
+@media (orientation: landscape) {
+  .summit-talk {
+    left: auto;
+    top: calc(max(var(--space-3), env(safe-area-inset-top)) + var(--tap-min) + var(--space-2));
+    width: min(48%, var(--xr-summit-talk-max));
+    max-width: none;
+    margin: 0;
+    align-content: end;
+    overflow: auto;
+  }
+  .summit-answer { padding-top: var(--space-1); padding-bottom: var(--space-1); }
+}

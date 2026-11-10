@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Bestenliste von Echomotion AR Experience für den großen Bildschirm. / Echomotion AR Experience leaderboard for the big screen.">
+  <meta name="theme-color" content="#0d1222">
+  <meta name="robots" content="noindex">
+  <title>Bestenliste | Echomotion AR Experience</title>
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/pages.css">
+  <script type="module" src="js/board-page.js"></script>
+</head>
+<body>
+  <div class="board-page">
+    <header class="board-head">
+      <div class="cert__brand">
+        <img class="cert__logo" src="assets/echomotion-logo.png" alt="Echomotion" width="64" height="64">
+        <div>
+          <h1 class="board-title" data-t="title"></h1>
+          <p class="board-mode" id="mode" aria-live="polite"></p>
+          <p class="board-note" id="note" hidden></p>
+        </div>
+      </div>
+      <div class="board-dots" id="dots" aria-hidden="true"></div>
+    </header>
+
+    <main class="board-main">
+      <ol class="board-list" id="list" aria-live="polite"></ol>
+      <aside class="board-side">
+        <section class="board-card">
+          <h2 class="board-card__title" data-t="playTitle"></h2>
+          <p class="board-card__text" data-t="playText"></p>
+          <div class="board-qr" id="qr"></div>
+          <p class="board-card__text"><strong id="app-url"></strong></p>
+        </section>
+        <section class="board-card" id="stats-card" hidden>
+          <h2 class="board-card__title" data-t="todayTitle"></h2>
+          <p class="board-stat" id="stat-rounds"></p>
+          <p class="board-card__text" id="stat-text"></p>
+        </section>
+        <section class="board-card" id="stats-table" hidden>
+          <h2 class="board-card__title" data-t="statsTitle"></h2>
+          <div id="stats-days"></div>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="board-foot">
+      <span><span data-t="presented"></span> <strong>Echomotion GmbH</strong> · www.echomotion.ai</span>
+      <span data-t="privacy"></span>
+    </footer>
+  </div>
+</body>
+</html>

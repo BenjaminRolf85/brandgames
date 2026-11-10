@@ -1,0 +1,111 @@
+/* Design tokens of the game 'green' (colors and sizes of its 3D world and UI). Read by tokens.js like tokens.css. */
+:root {
+  /* ----- the region diorama (Blender materials Green*, recolored at runtime) ----- */
+  --xr-green-grass:        #63ad4c;
+  --xr-green-grass-tint:   #86c45a;   /* lighter meadow patches (noise in the shader) */
+  --xr-green-hill:         #3f8f52;
+  --xr-green-rock:         #8d929c;
+  --xr-green-sand:         #ecdcae;
+  --xr-green-bank:         #8f7356;
+  --xr-green-seabed:       #5e8f86;
+  --xr-green-soil:         #8a5a3b;
+  --xr-green-soil-dark:    #5c3a24;
+  --xr-green-strata:       #7c7f88;
+  --xr-green-plinth:       #24180f;
+  --xr-green-trim:         #ffc65c;
+  --xr-green-water:        #2f9ccc;
+  --xr-green-water-deep:   #1d5f8f;
+  --xr-green-water-side:   #2a7fb0;
+  --xr-green-foam:         #e8fbff;
+  --xr-green-field-1:      #e9c66c;
+  --xr-green-field-2:      #84c24c;
+  --xr-green-field-3:      #a06a44;
+  --xr-green-road:         #4a4f5f;
+  --xr-green-plaza:        #ddd6c8;
+  --xr-green-stone:        #b0aca4;
+  --xr-green-wall-1:       #f6ecd6;
+  --xr-green-wall-2:       #f2c38f;
+  --xr-green-wall-3:       #cfdcec;
+  --xr-green-wall-4:       #ee9f8f;
+  --xr-green-roof-1:       #b8432f;
+  --xr-green-roof-2:       #6b4636;
+  --xr-green-roof-3:       #4e5a72;
+  --xr-green-window:       #1c2436;
+  --xr-green-window-lit:   #ffd27a;   /* windows on winter evenings */
+  --xr-green-wood:         #9a6340;
+  --xr-green-pine:         #23704a;
+  --xr-green-leaf:         #58a23e;
+  --xr-green-leaf-2:       #a6b83c;
+  --xr-green-trunk:        #5f3a26;
+  --xr-green-turbine:      #f3f6fa;
+  --xr-green-mark:         #ff2d3f;
+  --xr-green-concrete:     #a9a7a2;
+  --xr-green-solar-cell:   #17306e;
+  --xr-green-solar-frame:  #c9d2e3;
+  --xr-green-glint:        #fff6d8;
+  --xr-green-school-wall:  #f8efe0;
+  --xr-green-school-accent:#7c5cff;
+  --xr-green-court:        #c9583f;
+  --xr-green-line:         #ffffff;
+  --xr-green-kita-1:       #ff8a5c;
+  --xr-green-kita-2:       #5ab8f0;
+  --xr-green-kita-3:       #ffd65c;
+  --xr-green-homes-wall:   #fbf6ee;
+  --xr-green-cloud:        #f7faff;
+  --xr-green-storm-cloud:  #6f7a90;
+  --xr-green-lamp:         #ffe39a;
+  --xr-green-star:         #ffd27a;
+  --xr-green-stall:        #e2343f;
+  --xr-green-boat:         #f5f7fc;
+  --xr-green-sail:         #fff8ea;
+  --xr-green-lighthouse:   #e2343f;
+  --xr-green-person-1:     #e2343f;
+  --xr-green-person-2:     #3d8bff;
+  --xr-green-person-3:     #ffb02e;
+  --xr-green-person-4:     #2fcf8a;
+  --xr-green-person-5:     #9b85ff;
+  --xr-green-skin:         #f6c2a2;
+  --xr-green-rain:         #bfe6ff;
+  --xr-green-gust:         #f4fbff;
+  --xr-green-key-light:    #fff1d6;   /* the sun over the diorama */
+  --xr-green-storm-light:  #b9c6e0;
+  --xr-green-sun-orb:      #ffd27a;
+
+  /* ----- plots and the AI map ----- */
+  --xr-green-plot:         #f4ead8;
+  --xr-green-plot-edge:    #f5f7fc;
+  --xr-green-plot-ok:      #5ad8ff;
+  --xr-green-plot-hover:   #ffd27a;
+  --xr-green-plot-off:     #7d8bb0;
+  --xr-green-heat-wind-lo:  #26307a;
+  --xr-green-heat-wind-mid: #1fb5c8;
+  --xr-green-heat-wind-hi:  #e9fdff;
+  --xr-green-heat-sun-lo:   #3b1f66;
+  --xr-green-heat-sun-mid:  #ff7a3d;
+  --xr-green-heat-sun-hi:   #fff0a0;
+  --xr-green-heat-need-lo:  #2b2a6e;
+  --xr-green-heat-need-mid: #e05fc8;
+  --xr-green-heat-need-hi:  #ffe2f4;
+  --xr-green-heat-line:     #0d1222;
+
+  /* ----- project types and results ----- */
+  --xr-green-wind:         #5ad8ff;
+  --xr-green-sun:          #ffb02e;
+  --xr-green-home:         #ff7b8e;
+  --xr-green-school:       #9b85ff;
+  --xr-green-kita:         #e57ad9;
+  --xr-green-energy:       #2fcf8a;
+  --xr-green-social:       #ff8fa3;
+  --xr-green-co2:          #8fe36f;
+  --xr-green-qol:          #ff8fa3;
+  --xr-green-up:           #2fcf8a;   /* better than forecast */
+  --xr-green-down:         #ff7b8e;   /* worse than forecast */
+
+  /* ----- sizes (meters, radians) ----- */
+  --xr-green-table-drop:   0.6;      /* headset: diorama top below eye height (table) */
+  --xr-green-table-z:      -0.86;    /* headset: diorama center in front of the player */
+  --xr-green-tilt:         0.92;     /* browser: the diorama tilts towards the camera */
+  --xr-green-panel-w:      0.56;
+  --xr-green-card:         0.148;
+  --xr-green-tag:          0.072;    /* value tags over the plots */
+}

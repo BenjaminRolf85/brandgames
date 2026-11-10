@@ -1,0 +1,67 @@
+/* Design tokens of the game 'dock' (colors and sizes of its 3D world and UI). Read by tokens.js like tokens.css. */
+:root {
+  /* The protein surface, one soft pearly tint per pocket (level) */
+  --xr-dock-protein-1:     #98a6ff;          /* periwinkle */
+  --xr-dock-protein-2:     #79d6c8;          /* sea glass */
+  --xr-dock-protein-3:     #c4a0ff;          /* lilac */
+  --xr-dock-protein-4:     #ffb894;          /* peach */
+  --xr-dock-protein-sheen: #d9d2ff;          /* soft velvet sheen on the surface */
+  --xr-dock-protein-rim:   var(--p-cyan-400); /* fresnel rim glow and the build-in scan edge */
+  --xr-dock-pocket-shade:  #251c66;          /* crevices and the floor of the pocket */
+
+  /* Contact spots in the pocket (electrostatic surface colors): opposites attract */
+  --xr-dock-spot-neg:      #ff4a5f;          /* negative charge: wants a nitrogen (blue) */
+  --xr-dock-spot-pos:      #3f7bff;          /* positive charge: wants an oxygen (red) */
+  --xr-dock-spot-hydro:    #ffc23d;          /* water-shy: wants carbon, sulfur or chlorine */
+
+  /* Atoms by element (ball-and-stick, close to the classic chemistry colors) */
+  --xr-dock-atom-c:        #7d889f;
+  --xr-dock-atom-n:        #3d6bff;
+  --xr-dock-atom-o:        #ff3b3b;
+  --xr-dock-atom-s:        #ffd43f;
+  --xr-dock-atom-cl:       #38db76;
+  --xr-dock-bond:          #d5dcea;
+
+  /* Feedback while docking */
+  --xr-dock-good:          var(--p-mint-400);  /* atoms on a good contact, high fit */
+  --xr-dock-bad:           var(--p-red-500);   /* clashes and repelling contacts */
+  --xr-dock-mid:           var(--p-amber-400); /* a fit on its way */
+  --xr-dock-ghost:         var(--p-cyan-400);  /* the AI's suggested pose */
+
+  /* The AI, your docking and the lab in the ranking */
+  --xr-dock-ai:            var(--p-violet-400);
+  --xr-dock-ai-track:      rgb(155 133 255 / 0.18);
+  --xr-dock-you:           var(--p-amber-400);
+  --xr-dock-lab:           var(--p-cyan-400);
+  --xr-dock-row-hi:        rgb(155 133 255 / 0.16);
+  --xr-dock-lib-1:         var(--p-violet-300); /* the screened library streaming past */
+  --xr-dock-lib-2:         var(--p-cyan-400);
+  --xr-dock-lib-out:       var(--p-ink-400);
+
+  /* The lab bench and its devices (Blender materials Dock*, recolored at runtime) */
+  --xr-dock-bench:         #e9edf6;          /* white lab surface */
+  --xr-dock-bench-inlay:   #c9d3e6;
+  --xr-dock-trim:          #1c2438;          /* dark edges and bases */
+  --xr-dock-metal:         var(--p-chrome-400);
+  --xr-dock-glow:          var(--p-cyan-400);  /* light strips */
+  --xr-dock-glow-2:        var(--p-violet-400);
+  --xr-dock-screen:        var(--p-ink-900);
+  --xr-dock-glass:         #d9ecff;
+  --xr-dock-plate:         #f4f7fc;          /* the microplate */
+  --xr-dock-liquid-1:      #39d2c0;
+  --xr-dock-liquid-2:      #9b85ff;
+  --xr-dock-liquid-3:      #ffb02e;
+  --xr-dock-well:          #2a3352;          /* empty well */
+  --xr-dock-well-lit:      var(--p-mint-400);  /* well that shows binding */
+  --xr-dock-well-off:      var(--p-coral-500); /* well that shows none */
+  --xr-dock-shadow:        #05070f;          /* soft contact shadows on the bench */
+  --xr-dock-env-top:       #2b2f5e;          /* reflection dome */
+  --xr-dock-env-bottom:    #0b0e1c;
+  --xr-dock-key-light:     #fff6ec;          /* warm key light */
+  --xr-dock-rim-light:     var(--p-violet-400);
+
+  /* Sizes (meters) */
+  --xr-dock-bond-length:   0.042;
+  --xr-dock-atom-radius:   0.0148;
+  --xr-dock-protein-radius: 0.19;
+}

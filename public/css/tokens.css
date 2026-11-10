@@ -1,0 +1,881 @@
+/*
+ * KI-Wissen AR — Design Tokens
+ * Single source of truth for every UI surface: the HTML landing page AND the
+ * 3D/XR panels (read at runtime by js/tokens.js). Never hard-code values elsewhere.
+ *
+ * Layers:
+ *   1. Primitive tokens  (--p-*)   raw values, never used directly by components
+ *   2. Semantic tokens   (--color-*, --space-*, ...)  used by HTML components
+ *   3. XR tokens         (--xr-*)  used by the canvas-rendered 3D panels
+ */
+
+:root {
+  /* ---------- 1. Primitives ---------- */
+  --p-ink-950: #070a14;
+  --p-ink-900: #0d1222;
+  --p-ink-850: #121a2e;
+  --p-ink-800: #18223a;
+  --p-ink-700: #243150;
+  --p-ink-600: #36456b;
+  --p-ink-400: #7d8bb0;
+  --p-ink-300: #a9b4d0;
+  --p-ink-200: #cfd6e8;
+  --p-ink-100: #e8ecf6;
+  --p-ink-50:  #f5f7fc;
+  --p-white:   #ffffff;
+  --p-snow-50:  #f4f8ff;   /* winter (snow.js) */
+  --p-snow-200: #c9d7ee;
+  --p-frost-900: #15244d;
+  --p-frost-500: #6f9fcc;
+  --p-frost-300: #dbe4f5;
+  --p-frost-rose-300: #c9a9d9;
+  --p-frost-peach-200: #ffd0b3;
+  --p-frost-rose-100: #f2e0ea;
+  --p-ginger-500: #b8743a;  /* quiz tree decorations */
+  --p-straw-300: #e8c872;
+  --p-olive-600: #7a6a3a;
+  --p-grumpy-500: #4caf3e;  /* the robots' green hats */
+  --p-grumpy-100: #e6f4cf;
+  --p-rock-600: #7c7f88;
+  --p-santa-skin-300: #f6c2a2;
+
+  --p-violet-300: #b7a6ff;
+  --p-violet-400: #9b85ff;
+  --p-violet-500: #7c5cff;
+  --p-violet-600: #6442f0;
+  --p-violet-700: #4f30cc;
+  --p-mint-400: #5fe3a8;
+  --p-mint-500: #2fcf8a;
+  --p-mint-700: #158a5a;
+
+  --p-coral-300: #ffa3b0;
+  --p-coral-400: #ff7b8e;
+  --p-coral-500: #ff5470;
+  --p-red-500:   #ff2d3f;
+  --p-blue-400:  #3d8bff;
+  --p-skin-300:  #c98f6b;
+  --p-skin-500:  #9a6347;
+  --p-iris-600:  #5a3b22;
+  --p-hair-900:  #2a1c14;
+  --p-cloth-900: #1c2233;
+  --p-rose-600:  #a8555c;
+  --p-chrome-200: #c9d2e3;
+  --p-chrome-400: #8e99ad;
+  --p-gunmetal-600: #4a5161;
+  --p-coral-700: #c22a45;
+
+  --p-amber-400: #ffc65c;
+  --p-amber-500: #ffb02e;
+  --p-amber-700: #a86a00;
+
+  --p-cyan-400: #5ad8ff;
+  /* Echo, the Echomotion mascot (mascot guide) */
+  --p-echo-mascot-violet: #7c3aed;
+  --p-echo-mascot-cyan:   #06b6d4;
+  --p-echo-mascot-light:  #a78bfa;
+  --p-echo-mascot-deep:   #1e1b4b;
+  --p-echo-mascot-cheek:  #f472b6;
+  --p-echo-mascot-bone:   #8b5cf6;
+  --p-echo-mascot-iris:   #3b2f8f;
+  --p-aqua-400: #1ff4e4;
+  --p-code-200: #c8ffd9;
+  --p-code-400: #36ff7c;
+
+  --p-sand-100: #f4ead8;
+  --p-sand-300: #e2cfae;
+  --p-brown-500: #8a5a3b;
+  --p-brown-700: #5c3a24;
+  --p-green-600: #3f9d4a;
+  --p-green-800: #24602c;
+  --p-straw-500: #b89a4a;
+  /* magic forest (Echo Parkour level 1) */
+  --p-leaf-300: #8fe36f;
+  --p-leaf-500: #46c25a;
+  --p-leaf-700: #23864a;
+  --p-teal-500: #1fb5a3;
+  --p-pink-400: #e57ad9;
+  --p-orange-400: #ff9a4a;
+  --p-earth-500: #9a6340;
+  --p-earth-700: #5f3a26;
+  --p-rock-400: #8f97b5;
+  --p-stone-700: #3a3a63;
+  --p-dusk-900: #1f1d5c;
+  --p-dusk-500: #2f8fb8;
+  --p-lavender-300: #c9b8ff;
+  --p-firefly-200: #f4f7a1;
+  /* city at dawn (Echo Parkour level 2) */
+  --p-peach-400: #ffb38a;
+  --p-sky-400: #6cc3ff;
+  --p-lilac-400: #b49cff;
+  --p-sun-300: #ffd27a;
+  --p-rose-400: #ff8fa3;
+  --p-dawn-800: #2b2a6e;
+  --p-dawn-500: #ff9f7a;
+  --p-asphalt-800: #2a2d3e;
+  --p-concrete-200: #d9d6cf;
+  --p-concrete-400: #a9a7a2;
+  --p-steel-500: #ff8a3d;
+  --p-lime-400: #c8ff3d;
+
+  /* Echomotion brand (from the official logo) */
+  --p-echo-ink: #111116;
+  --p-echo-violet: #6d3ae8;
+  --p-echo-cyan: #0ea5d9;
+  --p-echo-text: #e6edf7;
+  --p-cyan-500: #22c3f5;
+
+  /* ---------- 2. Semantic (light) ---------- */
+  --color-bg:            var(--p-ink-50);
+  --color-surface:       var(--p-white);
+  --color-surface-alt:   var(--p-ink-100);
+  --color-border:        var(--p-ink-200);
+  --color-text:          var(--p-ink-900);
+  --color-text-muted:    var(--p-ink-600);
+  --color-primary:       var(--p-violet-600);
+  --color-primary-hover: var(--p-violet-700);
+  --color-on-primary:    var(--p-white);
+  --color-success:       var(--p-mint-700);
+  --color-danger:        var(--p-coral-700);
+  --color-warning:       var(--p-amber-700);
+  --color-accent:        var(--p-cyan-500);
+  --color-focus:         var(--p-violet-500);
+  --color-sponsor:       var(--p-amber-700);
+  --color-sponsor-soft:  rgb(255 176 46 / 0.12);
+  --color-on-sponsor:    var(--p-ink-950);
+
+  /* Certificate (always light paper so it prints and screenshots well) and QR codes */
+  --color-cert-paper:    var(--p-white);
+  --color-cert-ink:      var(--p-ink-950);
+  --color-cert-muted:    var(--p-ink-600);
+  --color-cert-line:     var(--p-ink-200);
+  --color-cert-accent:   var(--p-violet-600);
+  --color-cert-gold:     var(--p-amber-700);
+  --color-cert-gold-soft: rgb(255 176 46 / 0.16);
+  --color-qr-dark:       var(--p-ink-950);
+  --color-qr-light:      var(--p-white);
+
+  /* Typography */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 700;
+  --font-weight-black: 800;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: clamp(2rem, 6vw, 3.25rem);
+  --leading-tight: 1.15;
+  --leading-normal: 1.55;
+
+  /* Spacing (4px grid) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+  --gutter: 1rem;
+
+  /* Radius */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.875rem;
+  --radius-lg: 1.25rem;
+  --size-icon-tile: 3rem;      /* game icon badge on the landing page */
+  --size-icon: 1.75rem;
+  --radius-pill: 999px;
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgb(7 10 20 / 0.08);
+  --shadow-md: 0 8px 24px rgb(7 10 20 / 0.10);
+
+  /* Motion */
+  --motion-fast: 120ms;
+  --motion-base: 220ms;
+  --motion-slow: 420ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Layout */
+  --content-max: 68rem;
+  --tap-min: 44px;
+
+  /* ---------- 3. XR tokens (3D panels, always dark for passthrough contrast) ---------- */
+  --xr-panel-bg:        rgb(13 18 34 / 0.88);
+  --xr-panel-border:    rgb(155 133 255 / 0.55);
+  --xr-panel-text:      var(--p-ink-50);
+  --xr-panel-muted:     var(--p-ink-300);
+  --xr-button-bg:       var(--p-ink-800);
+  --xr-button-hover:    var(--p-ink-700);
+  --xr-button-text:     var(--p-ink-50);
+  --xr-primary:         var(--p-violet-500);
+  --xr-primary-hover:   var(--p-violet-400);
+  --xr-on-primary:      var(--p-white);
+  --xr-success:         var(--p-mint-500);
+  --xr-success-soft:    rgb(47 207 138 / 0.22);
+  --xr-danger:          var(--p-coral-500);
+  --xr-danger-soft:     rgb(255 84 112 / 0.22);
+  --xr-warning:         var(--p-amber-500);
+  --xr-accent:          var(--p-cyan-400);
+  --xr-pointer:         var(--p-violet-300);
+  --xr-node:            var(--p-violet-400);
+  --xr-bg-preview:      var(--p-ink-950);
+  --xr-floor-grid:      var(--p-ink-700);
+  --xr-reticle:         var(--p-mint-400);
+
+  /* Echo Parkour (jump and run): holo stage, zones, coins, glitches */
+  --xr-parkour-block:      var(--p-ink-850);
+  --xr-parkour-zone1:      var(--p-cyan-400);
+  --xr-parkour-zone2:      var(--p-violet-400);
+  --xr-parkour-zone3:      var(--p-amber-400);
+  --xr-parkour-coin:       var(--p-amber-400);
+  --xr-parkour-glitch:     var(--p-coral-500);
+  --xr-parkour-bug:        var(--p-ink-950);
+  --xr-parkour-back:       var(--p-ink-950);
+  --xr-parkour-grid:       var(--p-violet-400);
+  --xr-parkour-frame:      var(--p-cyan-400);
+  --xr-parkour-check:      var(--p-ink-400);
+  --xr-parkour-check-on:   var(--p-mint-400);
+  --xr-parkour-finish:     var(--p-amber-400);
+  --xr-parkour-metal-light: var(--p-ink-600);
+  --xr-parkour-panel:      var(--p-ink-700);
+  --xr-parkour-recess:     var(--p-ink-950);
+  --xr-parkour-wing:       var(--p-cyan-400);
+  --xr-parkour-tower:      var(--p-ink-900);
+  --xr-parkour-window:     var(--p-violet-400);
+  --xr-parkour-dust:       var(--p-cyan-400);
+
+  /* Echo Parkour level 1: magic forest of floating grass islands (blender/build_forest.py) */
+  --xr-forest-grass:       var(--p-leaf-500);    /* grass tops */
+  --xr-forest-grass-light: var(--p-leaf-300);    /* tufts, sunlit tips */
+  --xr-forest-grass-dark:  var(--p-leaf-700);    /* stems, shaded grass */
+  --xr-forest-earth:       var(--p-earth-500);   /* island bodies */
+  --xr-forest-earth-dark:  var(--p-earth-700);   /* roots, deep earth */
+  --xr-forest-rock:        var(--p-rock-400);    /* stones, island undersides */
+  --xr-forest-stone:       var(--p-stone-700);   /* stage base */
+  --xr-forest-wood:        var(--p-earth-700);   /* trunks, posts */
+  --xr-forest-cloth:       var(--p-violet-500);  /* checkpoint banner */
+  --xr-forest-leaf-1:      var(--p-leaf-500);    /* tree canopies, taking turns */
+  --xr-forest-leaf-2:      var(--p-teal-500);
+  --xr-forest-leaf-3:      var(--p-pink-400);
+  --xr-forest-leaf-4:      var(--p-leaf-700);
+  --xr-forest-blossom:     var(--p-orange-400);  /* lights in the backdrop trees */
+  --xr-forest-cloud:       var(--p-lavender-300);
+  --xr-forest-sky-top:     var(--p-dusk-900);
+  --xr-forest-sky-bottom:  var(--p-dusk-500);
+  --xr-forest-star:        var(--p-white);
+  --xr-forest-firefly:     var(--p-firefly-200);
+  --xr-forest-bone:        var(--p-sand-100);    /* fossil, mushroom stems and dots */
+  --xr-forest-mushroom:    var(--p-coral-500);
+  --xr-forest-worm:        var(--p-coral-300);
+  --xr-forest-ufo:         var(--p-chrome-200);
+  --xr-forest-ufo-light:   var(--p-aqua-400);
+  --xr-forest-alien:       var(--p-leaf-300);
+  --xr-forest-glass:       var(--p-cyan-400);
+  --xr-forest-gold:        var(--p-amber-400);
+  --xr-forest-gold-glow:   var(--p-amber-500);
+  --xr-forest-eagle:       var(--p-earth-500);   /* eagles patrolling the upper air */
+  --xr-forest-eagle-dark:  var(--p-earth-700);
+  --xr-forest-beak:        var(--p-amber-400);
+  --xr-forest-thorn:       var(--p-coral-700);   /* thorny vines under some branches */
+  --xr-forest-rain:        var(--p-ink-200);     /* storm in the last third */
+  --xr-forest-storm-sky:   var(--p-ink-400);     /* sky tint at full storm (multiplies the sky) */
+  --xr-forest-storm-cloud: var(--p-ink-600);
+  --xr-forest-lightning:   var(--p-white);
+  --xr-forest-city-light:  var(--p-amber-400);   /* windows of the city at the goal */
+
+  /* Echo Parkour level 2: city rooftops at dawn (blender/build_city.py) */
+  --xr-city-wall-1:        var(--p-peach-400);   /* building colors, one per building */
+  --xr-city-wall-2:        var(--p-sky-400);
+  --xr-city-wall-3:        var(--p-mint-400);
+  --xr-city-wall-4:        var(--p-lilac-400);
+  --xr-city-wall-5:        var(--p-sand-300);
+  --xr-city-roof:          var(--p-concrete-400);
+  --xr-city-parapet:       var(--p-concrete-200);
+  --xr-city-frame:         var(--p-white);
+  --xr-city-window-warm:   var(--p-sun-300);     /* lit windows */
+  --xr-city-window-cool:   var(--p-cyan-400);
+  --xr-city-window-dim:    var(--p-ink-600);
+  --xr-city-metal:         var(--p-ink-300);     /* AC units, pipes, lamp posts */
+  --xr-city-steel:         var(--p-steel-500);   /* girders */
+  --xr-city-stripe:        var(--p-amber-400);   /* hazard stripes */
+  --xr-city-dark:          var(--p-ink-800);
+  --xr-city-asphalt:       var(--p-asphalt-800);
+  --xr-city-lane:          var(--p-amber-400);
+  --xr-city-awning:        var(--p-rose-400);
+  --xr-city-plant:         var(--p-leaf-500);
+  --xr-city-pot:           var(--p-earth-500);
+  --xr-city-sky-top:       var(--p-dawn-800);    /* dawn: deep blue to warm peach */
+  --xr-city-sky-mid:       var(--p-rose-400);
+  --xr-city-sky-bottom:    var(--p-dawn-500);
+  --xr-city-sun:           var(--p-sun-300);
+  --xr-city-star:          var(--p-white);
+  --xr-city-night-top:     var(--p-ink-950);     /* the city at night (second half of level 2) */
+  --xr-city-night-bottom:  var(--p-violet-700);
+  --xr-city-moon:          var(--p-ink-100);
+  --xr-city-night-tint:    var(--p-ink-400);     /* multiplies walls, roofs and clouds at night */
+  --xr-city-night-rim:     var(--p-violet-400);  /* neon rim light at night */
+  --xr-city-tower-glass:   var(--p-ink-600);     /* downtown in the last quarter: dark glass towers */
+  --xr-city-tower-light:   var(--p-violet-400);  /* their neon windows (like the original skyline) */
+  --xr-city-wire:          var(--p-cyan-400);    /* live power lines on the roofs */
+  --xr-city-hazard:        var(--p-coral-500);   /* rooftop obstacles in warning red-orange */
+  --xr-city-hazard-glow:   var(--p-red-500);     /* their warning lights and the pulsing halo */
+  --xr-city-heli:          var(--p-amber-400);   /* helicopters of the upper air */
+  --xr-city-heli-glass:    var(--p-sky-400);
+  --xr-city-heli-light:    var(--p-sun-300);     /* searchlight cone */
+  --xr-city-raven:         var(--p-stone-700);   /* ravens of the upper air */
+  --xr-city-beak:          var(--p-orange-400);
+  --xr-city-raven-halo:    var(--p-violet-400);  /* keeps the dark ravens visible at night */
+  --xr-city-cloud:         var(--p-coral-300);
+  --xr-city-cat:           var(--p-orange-400);
+  --xr-city-pigeon:        var(--p-ink-300);
+  --xr-city-blimp:         var(--p-ink-100);
+
+  /* Echo Parkour level 2: the office (warm materials, Echomotion accents, time of day) */
+  --xr-office-wall:        var(--p-sand-100);
+  --xr-office-wall-dark:   var(--p-sand-300);
+  --xr-office-white:       var(--p-ink-50);
+  --xr-office-wood:        var(--p-brown-500);
+  --xr-office-metal:       var(--p-chrome-400);
+  --xr-office-dark:        var(--p-gunmetal-600);
+  --xr-office-fabric:      var(--p-violet-700);
+  --xr-office-carpet:      var(--p-ink-700);
+  --xr-office-carpet-alt:  var(--p-ink-600);
+  --xr-office-floor-base:  var(--p-ink-900);
+  --xr-office-screen:      var(--p-cyan-400);
+  --xr-office-light:       var(--p-sand-100);
+  --xr-office-glass:       var(--p-cyan-400);
+  --xr-office-plant:       var(--p-green-600);
+  --xr-office-plant-dark:  var(--p-green-800);
+  --xr-office-book-1:      var(--p-violet-500);
+  --xr-office-book-2:      var(--p-coral-400);
+  --xr-office-book-3:      var(--p-amber-400);
+  --xr-office-book-4:      var(--p-cyan-500);
+  --xr-office-spark:       var(--p-coral-500);
+  --xr-office-sign:        var(--p-violet-400);
+  --xr-office-sky-morning-top:    var(--p-blue-400);
+  --xr-office-sky-morning-bottom: var(--p-amber-400);
+  --xr-office-sky-noon-top:       var(--p-blue-400);
+  --xr-office-sky-noon-bottom:    var(--p-cyan-400);
+  --xr-office-sky-evening-top:    var(--p-violet-700);
+  --xr-office-sky-evening-bottom: var(--p-coral-400);
+  --xr-office-sky-night-top:      var(--p-ink-950);
+  --xr-office-sky-night-bottom:   var(--p-ink-700);
+  /* the AI workshop at the goal of the office level */
+  --xr-office-skin:        var(--p-skin-300);
+  --xr-office-hair:        var(--p-hair-900);
+  --xr-office-shirt-1:     var(--p-violet-400);
+  --xr-office-shirt-2:     var(--p-cyan-400);
+  --xr-office-shirt-3:     var(--p-coral-400);
+  --xr-office-shirt-4:     var(--p-mint-400);
+
+  /* Game coins in the menu (card art in assets/cards, token placeholder until an image exists) */
+  --xr-coin-ring-start: var(--xr-accent);     /* frame gradient, top left */
+  --xr-coin-ring-end:   var(--xr-primary);    /* frame gradient, bottom right */
+  --xr-coin-glow:       var(--xr-accent);     /* halo on hover */
+  --xr-coin-face-glow:  var(--p-violet-500);  /* placeholder face, center */
+  --xr-coin-face:       var(--p-ink-950);     /* placeholder face, edge */
+  --xr-coin-icon:       var(--p-white);
+  --xr-coin-spark:      rgb(255 255 255 / 0.55);
+
+  /* AI licence (badges) and QR codes (always black on white so every phone can scan them) */
+  --xr-badge:           var(--xr-warning);
+  --xr-badge-soft:      rgb(255 176 46 / 0.16);
+  --xr-badge-locked:    var(--p-ink-400);
+  --xr-qr-dark:         var(--p-ink-950);
+  --xr-qr-light:        var(--p-white);
+
+  /* Robot game (reinforcement learning) */
+  --xr-robot-body:        var(--p-ink-50);
+  --xr-robot-trim:        var(--p-ink-600);
+  --xr-robot-eye:         var(--p-cyan-400);
+  --xr-robot-happy:       var(--p-mint-400);
+  --xr-robot-sad:         var(--p-coral-400);
+  --xr-robot-coin:        var(--p-amber-400);
+  --xr-robot-tile:        var(--p-ink-800);
+  --xr-robot-hot:         var(--p-mint-400);
+  --xr-robot-cold:        var(--p-coral-500);
+  --xr-robot-arrow:       var(--p-ink-50);
+  --xr-robot-face:        var(--p-ink-950);
+  --xr-robot-blush:       var(--p-coral-300);
+  --xr-robot-accent:      var(--xr-primary);
+  --xr-robot-platform:    var(--p-ink-900);
+  --xr-robot-block:       var(--p-ink-700);
+  --xr-robot-env-top:     var(--p-white);
+  --xr-robot-env-bottom:  var(--p-ink-600);
+  --xr-robot-plan:        var(--xr-warning);   /* arrows the player places */
+  --xr-robot-plan-off:    var(--p-ink-400);    /* arrows not on Bit's current route */
+  --xr-robot-plan-edge:   var(--p-ink-950);    /* dark outline under the arrows */
+
+  /* Bank data landscape (walkable architecture) */
+  --xr-arch-src:          var(--p-cyan-400);
+  --xr-arch-int:          var(--p-violet-300);
+  --xr-arch-plat:         var(--p-blue-400);
+  --xr-arch-ana:          var(--p-mint-400);
+  --xr-arch-reg:          var(--p-amber-400);
+  --xr-arch-gov:          var(--p-coral-400);
+  --xr-arch-ext:          var(--p-ink-300);
+  --xr-arch-body:         var(--p-ink-700);
+  --xr-arch-paper:        var(--p-ink-100);
+  --xr-arch-packet:       var(--p-white);
+  --xr-arch-label-bg:     rgb(13 18 34 / 0.86);
+  --xr-arch-flow-rt:      var(--p-cyan-400);
+  --xr-arch-flow-batch:   var(--p-violet-400);
+  --xr-arch-flow-rep:     var(--p-amber-400);
+  --xr-arch-flow-meta:    var(--p-mint-400);
+  --xr-arch-flow-sec:     var(--p-coral-400);
+  --xr-arch-floor:        var(--p-ink-900);
+  --xr-arch-grid:         var(--p-violet-500);
+  --xr-arch-found:        var(--p-mint-400);
+
+  /* Datenflug: Echo flies through a data vortex (like the game coin) */
+  --xr-flight-space:       var(--p-dusk-900);    /* deep violet of the data space */
+  --xr-flight-good:        var(--p-cyan-400);    /* good data crystals */
+  --xr-flight-good-2:      var(--p-code-400);    /* second good color: neon green */
+  --xr-flight-bad:         var(--p-red-500);     /* bad data blocks: glowing edges and the X */
+  --xr-flight-bad-body:    var(--p-ink-950);
+  --xr-flight-bad-hot:     var(--p-coral-300);   /* glitch slices */
+  --xr-flight-label-good:  rgb(13 18 34 / 0.82);
+  --xr-flight-label-bad:   rgb(60 8 18 / 0.86);
+  --xr-flight-vortex-a:    var(--p-cyan-400);
+  --xr-flight-vortex-b:    var(--p-violet-500);
+  --xr-flight-vortex-c:    var(--p-pink-400);
+  --xr-flight-vortex-core: var(--p-white);
+  --xr-flight-streak-1:    var(--p-cyan-400);
+  --xr-flight-streak-2:    var(--p-violet-300);
+  --xr-flight-streak-3:    var(--p-lime-400);
+  --xr-flight-streak-4:    var(--p-pink-400);
+  --xr-flight-binary:      var(--p-code-400);    /* binary streams at the sides */
+  --xr-flight-binary-2:    var(--p-cyan-400);
+  --xr-flight-binary-head: var(--p-code-200);
+  --xr-flight-holo:        var(--p-cyan-400);    /* floating holo windows */
+  --xr-flight-holo-accent: var(--p-pink-400);
+  --xr-flight-holo-text:   var(--p-violet-300);
+  --xr-flight-gem-1:       var(--p-violet-300);  /* decor crystals */
+  --xr-flight-gem-2:       var(--p-pink-400);
+  --xr-flight-spark-1:     var(--p-sun-300);
+  --xr-flight-spark-2:     var(--p-lime-400);
+  --xr-flight-spark-3:     var(--p-cyan-400);
+  --xr-flight-trace-1:     var(--p-code-400);    /* circuit floor */
+  --xr-flight-trace-2:     var(--p-cyan-400);
+  --xr-flight-trace-3:     var(--p-sun-300);
+  --xr-flight-trace-4:     var(--p-pink-400);
+  --xr-flight-db-glass:    var(--p-lavender-300); /* the database that fills up */
+  --xr-flight-db-fill:     var(--p-cyan-400);
+  --xr-flight-db-ring:     var(--p-violet-400);
+  --xr-flight-trail:       var(--p-cyan-400);    /* Echo's swirl trail */
+  --xr-flight-coin:        var(--xr-parkour-coin); /* Echomotion gold coins */
+  --xr-flight-attack:      var(--p-coral-500);   /* the hackers' attacks */
+  --xr-flight-hacker-hoodie: var(--p-stone-700);  /* the hacker */
+  --xr-flight-hacker-shadow: var(--p-ink-950);
+  --xr-flight-hacker-glove:  var(--p-ink-900);
+  --xr-flight-hacker-string: var(--p-chrome-200);
+  --xr-flight-hacker-laptop: var(--p-chrome-400);
+  --xr-flight-hacker-glow:   var(--p-red-500);    /* eyes, grin, broken padlock */
+  --xr-flight-hacker-screen: var(--p-coral-300);
+  /* Data Flight worlds (each recolors the vortex, the space and the streaks) */
+  --xr-flight-w2-a:        var(--p-sky-400);     /* 2 data center: cool blue and white */
+  --xr-flight-w2-b:        var(--p-iris-600);
+  --xr-flight-w2-c:        var(--p-frost-300);
+  --xr-flight-w2-space:    var(--p-frost-900);
+  --xr-flight-w3-a:        var(--p-pink-400);    /* 3 data storm: magenta and amber */
+  --xr-flight-w3-b:        var(--p-violet-600);
+  --xr-flight-w3-c:        var(--p-amber-400);
+  --xr-flight-w3-space:    var(--p-dawn-800);
+  --xr-flight-w4-a:        var(--p-orange-400);  /* 4 firewall tunnel: orange and red */
+  --xr-flight-w4-b:        var(--p-coral-700);
+  --xr-flight-w4-c:        var(--p-sun-300);
+  --xr-flight-w4-space:    var(--p-ink-950);
+  --xr-flight-rack:        var(--p-gunmetal-600); /* server racks in the data center */
+  --xr-flight-rack-led:    var(--p-sky-400);
+  --xr-flight-rack-led-2:  var(--p-mint-400);
+  --xr-flight-storm-flash: var(--p-lavender-300); /* lightning in the data storm */
+  --xr-flight-firewall:    var(--p-orange-400);  /* hexagon rings of the firewall tunnel */
+  --xr-flight-gate:        var(--p-mint-400);    /* data gates to fly through */
+  --xr-flight-gate-done:   var(--p-sun-300);
+  --xr-flight-shield:      var(--p-sky-400);     /* power-ups: shield, magnet, slow motion */
+  --xr-flight-magnet:      var(--p-lime-400);
+  --xr-flight-slow:        var(--p-lilac-400);
+  --xr-flight-boss-hull:   var(--p-ink-850);     /* the hacker mothership */
+  --xr-flight-boss-metal:  var(--p-gunmetal-600);
+  --xr-flight-boss-rim:    var(--p-red-500);
+  --xr-flight-boss-core:   var(--p-coral-300);
+  --xr-flight-pulse:       var(--p-cyan-400);    /* Echo's antivirus pulses */
+  --xr-echo-goggle-frame:  var(--p-chrome-400);  /* Echo's VR goggles */
+  --xr-echo-goggle-strap:  var(--p-violet-700);
+  --xr-echo-goggle-lens:   var(--p-cyan-400);
+  --xr-echo-goggle-glow:   var(--p-aqua-400);
+
+  /* AI arena (fighting game) */
+  --xr-fight-player:      var(--p-blue-400);
+  --xr-fight-volt:        var(--p-amber-400);
+  --xr-fight-granit:      var(--p-violet-400);
+  --xr-fight-omega:       var(--p-red-500);
+  --xr-fight-dark:        var(--p-ink-950);
+  --xr-fight-rim:         var(--p-violet-500);
+  --xr-fight-block:       var(--p-cyan-400);
+  --xr-fight-energy:      var(--p-amber-400);
+  --xr-fight-energy-dim:  var(--p-amber-700);
+  --xr-fight-hp:          var(--p-mint-400);
+  --xr-fight-hp-low:      var(--p-coral-500);
+  --xr-fight-hud:         rgb(7 10 20 / 0.82);
+  /* Fighter models */
+  --xr-fight-skin:        var(--p-skin-300);
+  --xr-fight-skin-shade:  var(--p-skin-500);
+  --xr-fight-hair:        var(--p-hair-900);
+  --xr-fight-suit:        var(--p-ink-850);     /* business suit (human fighter) */
+  --xr-fight-leather:     var(--p-ink-950);     /* dress shoes */
+  --xr-fight-wrap:        var(--p-ink-50);
+  --xr-fight-glove-trim:  var(--p-ink-50);     /* white strap of the boxing gloves */
+
+  /* Christmas decoration (SEASON in config.js) */
+  --xr-xmas-hat:          var(--p-red-500);     /* Echo's Santa hat */
+  --xr-xmas-hat-sheen:    var(--p-coral-300);
+  --xr-xmas-fur:          var(--p-ink-50);
+  --xr-xmas-needle:       var(--p-leaf-700);    /* the Christmas tree */
+  --xr-xmas-needle-tip:   var(--p-leaf-500);
+  --xr-xmas-trunk:        var(--p-earth-700);
+  --xr-xmas-tub:          var(--p-earth-500);
+  --xr-xmas-gold:         var(--p-amber-400);
+  --xr-xmas-red:          var(--p-red-500);
+  --xr-xmas-blue:         var(--p-blue-400);
+  --xr-xmas-green:        var(--p-mint-500);
+  --xr-xmas-ribbon:       var(--p-ink-50);
+  --xr-xmas-star:         var(--p-sun-300);
+  --xr-xmas-light-1:      var(--p-red-500);     /* fairy lights, in turn */
+  --xr-xmas-light-2:      var(--p-sun-300);
+  --xr-xmas-light-3:      var(--p-leaf-300);
+  --xr-xmas-light-4:      var(--p-cyan-400);
+  --xr-xmas-light-5:      var(--p-pink-400);
+  --xr-xmas-wire:         var(--p-ink-900);
+  /* AI Quiz tree (xmas-quiz-tree.js): decorations that come with the correct answers */
+  --xr-xmas-bauble-1:     var(--p-violet-500);  /* baubles with the Echomotion logo, in turn */
+  --xr-xmas-bauble-2:     var(--p-cyan-400);
+  --xr-xmas-bauble-3:     var(--p-red-500);
+  --xr-xmas-bauble-4:     var(--p-amber-400);
+  --xr-xmas-candy:        var(--p-red-500);     /* candy cane stripes */
+  --xr-xmas-candy-white:  var(--p-ink-50);
+  --xr-xmas-ginger:       var(--p-ginger-500);  /* gingerbread men */
+  --xr-xmas-icing:        var(--p-ink-50);
+  --xr-xmas-straw:        var(--p-straw-300);   /* straw stars */
+  --xr-xmas-needle-dry:   var(--p-olive-600);   /* a dry tree, fallen needles (mistakes) */
+  /* AI Arena (xmas-fighters.js): Santa against the robots in grumpy green hats */
+  --xr-xmas-santa-suit:   var(--p-red-500);
+  --xr-xmas-santa-beard:  var(--p-ink-50);
+  --xr-xmas-santa-belt:   var(--p-ink-900);
+  --xr-xmas-santa-nose:   var(--p-coral-500);   /* round comic nose */
+  --xr-xmas-santa-skin:   var(--p-santa-skin-300);
+  --xr-xmas-santa-cheek:  var(--p-coral-400);
+  --xr-xmas-grumpy-hat:   var(--p-grumpy-500);
+  --xr-xmas-grumpy-fur:   var(--p-grumpy-100);
+  --xr-fight-rock:        var(--p-rock-600);    /* GRANIT's boulder (special move) */
+
+  /* Winter (snow.js, SEASON in config.js): snow in the Echo Parkour and the AI Arena */
+  --xr-snow:              var(--p-snow-50);     /* snow cover on floors, roofs and islands */
+  --xr-snow-shade:        var(--p-snow-200);    /* thin snow and the shady side of drifts */
+  --xr-snow-flake:        var(--p-white);       /* falling flakes */
+  --xr-forest-sky-top-winter:    var(--p-frost-900);  /* winter night over the forest */
+  --xr-forest-sky-bottom-winter: var(--p-frost-500);
+  --xr-forest-cloud-winter:      var(--p-frost-300);  /* snow clouds */
+  --xr-city-sky-top-winter:      var(--p-dawn-800);   /* winter dawn over the city */
+  --xr-city-sky-mid-winter:      var(--p-frost-rose-300);
+  --xr-city-sky-bottom-winter:   var(--p-frost-peach-200);
+  --xr-city-cloud-winter:        var(--p-frost-rose-100);
+
+  /* AI Quiz (like the game coin): answer bubbles, robot buddy, question marks */
+  --xr-quiz-a:            var(--p-leaf-300);    /* answer letters A to D */
+  --xr-quiz-b:            var(--p-cyan-400);
+  --xr-quiz-c:            var(--p-amber-400);
+  --xr-quiz-d:            var(--p-pink-400);
+  --xr-quiz-badge-text:   var(--p-ink-950);     /* the letter on its badge */
+  --xr-quiz-mark:         var(--p-sun-300);     /* floating question marks */
+  --xr-bot-shell:         var(--p-ink-50);      /* the robot buddy */
+  --xr-bot-joint:         var(--p-chrome-400);
+  --xr-bot-dark:          var(--p-ink-900);
+  --xr-bot-visor:         var(--p-ink-950);
+  --xr-bot-glow:          var(--p-cyan-400);
+  --xr-bot-eye:           var(--p-cyan-400);
+  --xr-fight-iris:        var(--p-iris-600);
+  --xr-fight-lip:         var(--p-rose-600);
+  --xr-fight-chrome:      var(--p-chrome-200);
+  --xr-fight-chrome-dark: var(--p-chrome-400);
+  --xr-fight-gunmetal:    var(--p-gunmetal-600);
+  --xr-fight-joint:       var(--p-ink-800);
+  --xr-fight-holo:        var(--p-cyan-400);   /* hologram tint and table lights */
+  --xr-fight-table:       var(--p-gunmetal-600); /* holo game table */
+  --xr-fight-table-rim:   var(--p-chrome-400);
+  --xr-fight-board-a:     var(--p-ink-900);    /* board segments */
+  --xr-fight-board-b:     var(--p-ink-700);
+  --xr-fight-cable:       var(--p-ink-900);
+
+  /* Echo mascot (3D, flies around the player) */
+  --xr-echo-violet:       var(--p-echo-mascot-violet); /* gradient start, top left */
+  --xr-echo-cyan:         var(--p-echo-mascot-cyan);   /* gradient end, echo rings */
+  --xr-echo-light:        var(--p-echo-mascot-light);  /* wings, inner ears */
+  --xr-echo-white:        var(--p-white);              /* eyes, highlights, belly patch (45 %) */
+  --xr-echo-deep:         var(--p-echo-mascot-deep);   /* pupils, nose, mouth (never black) */
+  --xr-echo-cheek:        var(--p-echo-mascot-cheek);  /* cheeks (35 %) */
+  --xr-echo-bone:         var(--p-echo-mascot-bone);   /* wing arm and finger bones */
+  --xr-echo-iris:         var(--p-echo-mascot-iris);   /* ring around the pupil */
+
+  /* AI Pong */
+  --xr-pong-table:        var(--p-ink-900);
+  --xr-pong-rail:         var(--p-aqua-400);    /* light lines of the grid world */
+  --xr-pong-circuit:      var(--p-code-400);    /* grid of the scanned room floor */
+  --xr-pong-rain:         var(--p-code-400);    /* digital rain around the arena */
+  --xr-pong-rain-head:    var(--p-code-200);    /* leading glyph of each rain column */
+  --xr-pong-frame:        var(--p-ink-950);     /* metal frame of the arena */
+  --xr-pong-frame-light:  var(--p-gunmetal-600);
+  --xr-pong-plate:        var(--p-ink-950);
+  --xr-pong-chrome:       var(--p-chrome-200);  /* ball cages and bands */
+  --xr-pong-armor:        var(--p-ink-850);     /* damper ball shell */
+  --xr-pong-rubber:       var(--p-amber-500);   /* bouncy ball */
+  --xr-pong-player:       var(--p-cyan-400);    /* you and your shots: cyan (like the menu coin) */
+  --xr-pong-ai:           var(--p-red-500);     /* the AI and its shots: red */
+  --xr-pong-ball:         var(--p-lime-400);    /* neon green ball like the menu coin */
+  --xr-pong-pad-bg:       rgb(7 10 20 / 0.72);  /* phones: the control field (touch-ui.js) */
+  --xr-pong-pad-line:     rgb(90 216 255 / 0.28);
+  --xr-pong-handle:       var(--p-earth-500);   /* table-tennis paddle handles */
+  --xr-pong-grid:         var(--p-cyan-400);    /* neon grid floor */
+  --xr-pong-skyline:      var(--p-dawn-800);    /* data city behind the AI */
+  --xr-pong-window-a:     var(--p-cyan-400);
+  --xr-pong-window-b:     var(--p-violet-400);
+  --xr-pong-predict:      var(--xr-warning);
+  --xr-pong-obstacle:     var(--p-mint-400);    /* obstacles that deflect the ball */
+  --xr-pong-pu-turbo:     var(--p-amber-500);   /* power-up: turbo */
+  --xr-pong-pu-multi:     var(--p-violet-400);  /* power-up: second ball */
+  --xr-pong-pu-morph:     var(--p-coral-400);   /* power-up: ball type change */
+  --xr-pong-pu-giant:     var(--p-mint-400);    /* power-up: XXL paddle */
+  --xr-pong-pu-label:     var(--p-ink-950);     /* label backdrop of power-ups */
+  --xr-pong-storm:        var(--p-code-200);    /* data storm streaks */
+  --xr-pong-ice:          var(--p-ink-50);      /* ice ball frost */
+  --xr-pong-bouncy:       var(--p-amber-400);   /* bouncy ball sparks */
+  --xr-pong-damper:       var(--p-ink-600);     /* damper ball */
+  --xr-pong-heat:         var(--p-amber-400);     /* ball and trail at top speed */
+  --xr-pong-opp-gpt:      var(--xr-pong-ai);
+  --xr-pong-opp-claude:   var(--xr-pong-ai);
+  --xr-pong-opp-gemini:   var(--xr-pong-ai);
+
+  /* Knowledge house (3D gimmick) */
+  --xr-house-grass:       var(--p-green-600);
+  --xr-house-grass-dry:   var(--p-straw-500);
+  --xr-house-soil:        var(--p-brown-700);
+  --xr-house-concrete:    var(--p-ink-300);
+  --xr-house-wall:        var(--p-sand-100);
+  --xr-house-attic:       var(--p-sand-300);
+  --xr-house-roof:        var(--p-violet-600);
+  --xr-house-roof-dark:   var(--p-violet-700);
+  --xr-house-mud:         var(--p-brown-500);
+  --xr-house-flower-1:    var(--p-coral-400);
+  --xr-house-flower-2:    var(--p-amber-400);
+  --xr-house-flower-3:    var(--p-violet-300);
+  --xr-house-wood:        var(--p-brown-500);
+  --xr-house-glass:       var(--p-cyan-400);
+  --xr-house-frame:       var(--p-white);
+  --xr-house-light:       var(--p-amber-400);
+  --xr-house-brick:       var(--p-coral-700);
+  --xr-house-solar:       var(--p-ink-800);
+  --xr-house-leaf:        var(--p-green-600);
+  --xr-house-leaf-dark:   var(--p-green-800);
+  --xr-house-stone:       var(--p-ink-400);
+  --xr-house-smoke:       var(--p-ink-100);
+  --xr-house-flag:        var(--p-echo-ink);
+  --xr-house-flag-stripe: var(--p-echo-violet);
+  --xr-house-flag-accent: var(--p-echo-cyan);
+  --xr-house-flag-text:   var(--p-echo-text);
+
+  /* XR metrics (unitless: meters or pixels-per-meter) */
+  --xr-px-per-meter: 1100;
+  --xr-radius: 0.028;           /* m */
+  --xr-border-width: 0.004;     /* m */
+  --xr-padding: 0.04;           /* m */
+  /* Type scale in meters at --xr-distance. Text never renders below --xr-text-min:
+     panels grow to fit their content instead of shrinking it. */
+  --xr-text-title: 0.076;
+  --xr-text-question: 0.062;
+  --xr-text-lg: 0.054;
+  --xr-text-md: 0.044;
+  --xr-text-sm: 0.035;
+  --xr-text-min: 0.033;
+  --xr-eye-height: 1.5;         /* m, content center height in root space */
+  --xr-distance: 1.4;           /* m, default panel distance */
+  --xr-ray-length: 4;           /* m */
+  --xr-hover-scale: 1.04;
+  --xr-pop-duration: 0.35;      /* s */
+  --xr-answer-time: 9;          /* s, Fact or Myth */
+}
+
+/* ---------- Dark theme (landing page) ---------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg:            var(--p-ink-950);
+    --color-surface:       var(--p-ink-900);
+    --color-surface-alt:   var(--p-ink-850);
+    --color-border:        var(--p-ink-700);
+    --color-text:          var(--p-ink-50);
+    --color-text-muted:    var(--p-ink-300);
+    --color-primary:       var(--p-violet-500);
+    --color-primary-hover: var(--p-violet-400);
+    --color-success:       var(--p-mint-400);
+    --color-danger:        var(--p-coral-400);
+    --color-warning:       var(--p-amber-400);
+    --color-accent:        var(--p-cyan-400);
+    --color-sponsor:       var(--p-amber-400);
+    --shadow-md: 0 8px 24px rgb(0 0 0 / 0.35);
+  }
+}
+:root[data-theme="dark"] {
+  --color-bg:            var(--p-ink-950);
+  --color-surface:       var(--p-ink-900);
+  --color-surface-alt:   var(--p-ink-850);
+  --color-border:        var(--p-ink-700);
+  --color-text:          var(--p-ink-50);
+  --color-text-muted:    var(--p-ink-300);
+  --color-primary:       var(--p-violet-500);
+  --color-primary-hover: var(--p-violet-400);
+  --color-success:       var(--p-mint-400);
+  --color-danger:        var(--p-coral-400);
+  --color-warning:       var(--p-amber-400);
+  --color-accent:        var(--p-cyan-400);
+  --color-sponsor:       var(--p-amber-400);
+  --shadow-md: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+
+@media (min-width: 720px) {
+  :root { --gutter: 2rem; }
+}
+
+/* =====================================================================
+ * Skin "sunny" (Sonne): the dark background of "night" stays, while panels,
+ * cards and buttons take on a bright yellow / white / red look inspired by a
+ * classic German brand style. Toggled via <html data-skin="sunny">.
+ * Placed last so it wins over the dark-mode rules.
+ * ===================================================================== */
+:root {
+  --p-sun-yellow: #fff02d;
+  --p-sun-yellow-dark: #e3d31c;
+  --p-sun-yellow-soft: #fffac8;
+  --p-sun-red: #e6002d;
+  --p-sun-red-dark: #b70030;
+  --p-sun-red-deep: #8f0026;
+  --p-sun-ink: #1d1d1b;
+  --p-sun-ink-800: #2c2c2a;
+  --p-sun-ink-700: #3d3d3a;
+  --p-sun-slate: #425866;
+  --p-sun-gray-200: #d0d5d9;
+  --p-sun-gray-50: #f0f3f6;
+  --p-sun-blue: #0a438a;
+  --p-sun-orange: #b8480a;
+  --p-sun-green-bright: #2e9e4f;
+  --p-sun-green: #1f7a3a;
+
+  /* Christmas edition of the landing page (xmas-page.js): a winter night over the welcome area */
+  --color-xmas-hero-top: var(--p-frost-900);
+  --color-xmas-hero-bottom: var(--p-ink-950);
+  --color-xmas-text: var(--p-ink-50);
+  --color-xmas-muted: var(--p-snow-200);
+  --color-xmas-eyebrow: var(--p-cyan-400);
+  --color-xmas-sign: var(--p-sun-300);
+  --color-xmas-snow: var(--p-white);
+  --color-xmas-wire: var(--p-leaf-700);
+  --color-xmas-light-1: var(--p-red-500);
+  --color-xmas-light-2: var(--p-sun-300);
+  --color-xmas-light-3: var(--p-leaf-300);
+  --color-xmas-light-4: var(--p-cyan-400);
+  --color-xmas-light-5: var(--p-pink-400);
+
+  /* Defaults (night) for tokens that only differ in the sunny skin */
+  --color-hero-bg: transparent;
+  --color-topbar-bg: color-mix(in srgb, var(--color-bg) 85%, transparent);
+  --color-eyebrow: var(--color-primary);
+  --color-byline: var(--color-sponsor);
+  --color-surface-text: var(--color-text);
+  --color-surface-muted: var(--color-text-muted);
+  --color-sponsor-on-surface: var(--color-sponsor);
+  --color-control-bg: var(--color-surface-alt);
+  --color-danger-on-bg: var(--color-danger);
+  --xr-glow: var(--xr-accent);
+  --xr-panel-stripe: transparent;
+  --color-surface-stripe: transparent;
+  --color-secondary-bg: var(--color-surface);
+  --xr-bg-muted: var(--xr-panel-muted);   /* text drawn directly on the room/background */
+  --xr-bg-highlight: var(--xr-warning);
+}
+
+:root[data-skin="sunny"] {
+  --font-sans: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-weight-medium: 700;
+  --font-weight-bold: 800;
+  --font-weight-black: 900;
+
+  /* Page: dark background, light text */
+  --color-bg:            var(--p-sun-ink);
+  --color-text:          var(--p-white);
+  --color-text-muted:    var(--p-sun-gray-200);
+  --color-border:        var(--p-sun-yellow-dark);
+  --color-control-bg:    var(--p-sun-ink-800);
+  --color-eyebrow:       var(--p-sun-yellow);
+  --color-byline:        var(--p-sun-yellow);
+  --color-focus:         var(--p-sun-yellow);
+  --color-success:       var(--p-sun-green-bright);
+  --color-danger-on-bg:  var(--p-coral-500);
+
+  /* Surfaces (cards, panels): yellow with black text */
+  --color-surface:       var(--p-white);
+  --color-surface-alt:   var(--p-sun-yellow-soft);
+  --color-surface-stripe: var(--p-sun-yellow);
+  --color-secondary-bg:  var(--p-sun-yellow);
+  --color-surface-text:  #000000;
+  --color-surface-muted: var(--p-sun-slate);
+  --color-accent:        var(--p-sun-red-dark);
+  --color-danger:        var(--p-sun-red-dark);
+  --color-warning:       var(--p-sun-orange);
+
+  --color-primary:       var(--p-sun-red);
+  --color-primary-hover: var(--p-sun-red-dark);
+  --color-on-primary:    var(--p-white);
+  --color-sponsor:       var(--p-sun-yellow);
+  --color-sponsor-soft:  var(--p-sun-yellow-soft);
+  --color-sponsor-on-surface: var(--p-sun-orange);
+  --color-on-sponsor:    var(--p-white);
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.5rem;
+
+  /* XR: dark room/preview, yellow panels, white buttons, red primary */
+  --xr-panel-bg:        rgb(255 255 255 / 0.97);
+  --xr-panel-border:    var(--p-sun-yellow);
+  --xr-panel-stripe:    var(--p-sun-yellow);
+  --xr-panel-text:      var(--p-sun-ink);
+  --xr-panel-muted:     var(--p-sun-slate);
+  --xr-button-bg:       var(--p-sun-gray-50);
+  --xr-button-hover:    var(--p-sun-yellow);
+  --xr-button-text:     var(--p-sun-ink);
+  --xr-primary:         var(--p-sun-red);
+  --xr-primary-hover:   var(--p-sun-red-dark);
+  --xr-on-primary:      var(--p-white);
+  --xr-success:         var(--p-sun-green);
+  --xr-success-soft:    rgb(31 122 58 / 0.14);
+  --xr-danger:          var(--p-sun-red-deep);
+  --xr-danger-soft:     rgb(143 0 38 / 0.14);
+  --xr-warning:         var(--p-sun-orange);
+  --xr-accent:          var(--p-sun-blue);
+  --xr-glow:            var(--p-sun-yellow);
+  --xr-bg-muted:        var(--p-sun-gray-200);
+  --xr-bg-highlight:    var(--p-sun-yellow);
+  --xr-pointer:         var(--p-sun-red);
+  --xr-node:            var(--p-sun-red);
+  --xr-bg-preview:      var(--p-sun-ink);
+  --xr-floor-grid:      var(--p-sun-ink-700);
+  --xr-reticle:         var(--p-sun-yellow);
+  --xr-radius:          0.016;
+  --xr-house-roof:      var(--p-sun-red);
+  --xr-house-roof-dark: var(--p-sun-red-dark);
+  --xr-house-wall:      var(--p-white);
+  --xr-house-attic:     var(--p-sun-gray-50);
+}

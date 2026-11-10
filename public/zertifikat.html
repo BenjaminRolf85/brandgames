@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="KI-Führerschein von Echomotion AR Experience by Echomotion. / AI licence from Echomotion AR Experience by Echomotion.">
+  <meta name="theme-color" content="#0d1222">
+  <meta name="robots" content="noindex">
+  <title>KI-Führerschein | by Echomotion</title>
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/pages.css">
+  <script type="module" src="js/cert-page.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar__inner">
+      <a class="brand" href="./">
+        <img class="brand__mark" src="assets/echomotion-logo.png" alt="" width="28" height="28">
+        <span class="brand__text">
+          <span data-t="appTitle">Echomotion AR Experience</span>
+          <span class="brand__by">by Echomotion</span>
+        </span>
+      </a>
+      <div class="topbar__controls">
+        <div class="segmented" role="group" aria-label="Sprache / Language">
+          <button type="button" class="segmented__item" data-lang="de" aria-pressed="true">DE</button>
+          <button type="button" class="segmented__item" data-lang="en" aria-pressed="false">EN</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container cert-page">
+    <form class="cert-form" id="form" novalidate>
+      <div class="form-row">
+        <label class="field">
+          <span class="field__label" data-t="codeLabel"></span>
+          <input class="field__input field__input--code" id="code" name="code" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="9" placeholder="ABC 123">
+        </label>
+        <button type="submit" class="btn btn--primary" data-t="show"></button>
+      </div>
+      <p class="field__error" id="code-error" role="alert" hidden data-t="codeError"></p>
+      <label class="field">
+        <span class="field__label" data-t="nameLabel"></span>
+        <input class="field__input" id="name" name="name" autocomplete="name" maxlength="40">
+      </label>
+    </form>
+
+    <article class="cert" id="cert" hidden aria-labelledby="cert-title">
+      <div class="cert__head">
+        <div class="cert__brand">
+          <img class="cert__logo" src="assets/echomotion-logo.png" alt="Echomotion" width="64" height="64">
+          <span>Echomotion<small>AI Trainings &amp; More</small></span>
+        </div>
+        <p class="cert__eyebrow" data-t="eyebrow"></p>
+      </div>
+      <div>
+        <h1 class="cert__title" id="cert-title" data-t="title"></h1>
+        <p class="cert__for" data-t="awardedTo"></p>
+        <p class="cert__name" id="cert-name"></p>
+      </div>
+      <p class="cert__summary" id="cert-summary"></p>
+      <ul class="badges" id="badges"></ul>
+      <div class="cert__foot">
+        <span><span data-t="date"></span>: <strong id="cert-date"></strong></span>
+        <span><span data-t="presented"></span> <strong>Echomotion GmbH</strong> · www.echomotion.ai</span>
+      </div>
+    </article>
+
+    <div class="cert-actions" id="actions" hidden>
+      <button type="button" class="btn btn--primary" id="print" data-t="print"></button>
+      <button type="button" class="btn btn--secondary" id="share" data-t="share" hidden></button>
+      <a class="btn btn--secondary" href="./" data-t="toApp"></a>
+    </div>
+    <p class="cert-note" data-t="privacy"></p>
+
+    <section class="sponsor no-print" aria-labelledby="cta-title">
+      <p class="sponsor__brand"><img class="sponsor__logo" src="assets/echomotion-logo.png" alt="" width="40" height="40"> Echomotion <span class="sponsor__tag">AI Trainings &amp; More</span></p>
+      <h2 class="sponsor__title" id="cta-title" data-t="ctaTitle"></h2>
+      <p class="sponsor__text" data-t="ctaText"></p>
+      <a class="btn btn--sponsor sponsor__cta" href="https://www.echomotion.ai" target="_blank" rel="noopener" data-t="ctaButton"></a>
+    </section>
+  </main>
+</body>
+</html>

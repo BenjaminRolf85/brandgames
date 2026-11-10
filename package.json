@@ -1,0 +1,15 @@
+{
+  "name": "ki-wissen-ar",
+  "private": true,
+  "type": "module",
+  "description": "KI-Wissen AR by Echomotion: WebXR AI quiz for Meta Quest 3",
+  "dependencies": {
+    "@netlify/blobs": "^11.1.7"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10"
+  },
+  "scripts": {
+    "build": "node scripts/minify.mjs public"
+  }
+}
