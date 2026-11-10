@@ -19,7 +19,7 @@ import { music } from '../music.js';
 import { quality } from '../quality.js';
 import { EVENT } from '../event.js';
 import { CHRISTMAS, makeBulbs } from '../christmas.js';
-import { makeEnvironment, radialTexture } from '../robot-visuals.js';
+import { makeEnvironment } from '../robot-visuals.js';
 import '../dock-text.js';
 import { makeRound, Protein, evaluateFit, PASS } from '../dock-chem.js';
 import {

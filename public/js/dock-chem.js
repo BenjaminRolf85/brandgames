@@ -193,8 +193,6 @@ const LEVELS = [
   },
 ];
 
-export const LEVEL_KEYS = LEVELS.map((l) => l.key);
-
 /** A molecule: atoms (el, p in its own frame, spot, core), bonds and aromatic rings. */
 function finishMolecule(atoms, rings, c0) {
   const local = atoms.map((a) => ({ ...a, p: a.p.clone().sub(c0) }));
@@ -339,13 +337,12 @@ export class Protein {
   }
 
   /** Radius of the blob (without the pocket) in unit direction n. */
-  radius(n, smoothOnly = false) {
+  radius(n) {
     const e = this.ell;
     const base = this.R0 / Math.sqrt((n.x / e.x) ** 2 + (n.y / e.y) ** 2 + (n.z / e.z) ** 2);
     let s = 0;
     for (let i = 0; i < this.bumps.length; i++) {
       const b = this.bumps[i];
-      if (smoothOnly && i >= 5) break;
       const c = n.x * b.d.x + n.y * b.d.y + n.z * b.d.z;
       if (c < 1 - b.w * 6) continue;
       s += b.a * Math.exp((c - 1) / b.w);
@@ -582,9 +579,6 @@ function unitSphere(detail) {
 
 // ---------- fit ----------
 
-const _q = V(0, 0, 0);
-const _m = new THREE.Matrix4();
-
 /**
  * How well a molecule sits in the pocket. rel: molecule frame -> F space. Returns shape (atoms on
  * the binder's places and the places filled), contacts (good minus bad contact spots), clashes and
@@ -648,10 +642,3 @@ export function evaluateFit(protein, mol, rel, out = {}) {
   out.fit = THREE.MathUtils.clamp(0.5 * out.shape + 0.5 * out.contacts - 0.3 * clash, 0, 1);
   return out;
 }
-
-/** The relative pose (molecule frame in F) from two matrices in the same space. */
-export function relPose(Fmat, Mmat, out = new THREE.Matrix4()) {
-  return out.copy(Fmat).invert().multiply(Mmat);
-}
-
-export { _m as tmpMatrix, _q as tmpVec };
