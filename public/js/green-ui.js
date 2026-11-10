@@ -633,17 +633,18 @@ function drawReport(pen, v) {
   if (rows.length) rows.push([t('greenRepTotal'), r.energy, r.forecastEnergy, 'xr-green-energy']);
   const top = Math.max(1, ...rows.map((x) => Math.max(x[1], x[2]))) * 1.1;
   const { ctx, c } = pen;
+  const kk = pen.k ?? 1;
   for (const [label, a, f, token] of rows) {
     const d = a / f - 1;
-    ctx.font = font('bold', c.m(num('xr-text-min')));
+    ctx.font = font('bold', c.m(num('xr-text-min') * kk));
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     ctx.fillStyle = color(token);
-    ctx.fillText(label, pen.x, pen.y + c.m(0.012));
+    ctx.fillText(label, pen.x, pen.y + c.m(0.013 * kk));
     ctx.textAlign = 'right';
     ctx.fillStyle = color(d >= 0 ? 'xr-green-up' : 'xr-green-down');
-    ctx.fillText(`${fmt(a)} GWh  ${pct(d)}`, pen.x + pen.w, pen.y + c.m(0.012));
-    pen.y += c.m(0.027);
+    ctx.fillText(`${fmt(a)} GWh  ${pct(d)}`, pen.x + pen.w, pen.y + c.m(0.013 * kk));
+    pen.y += c.m(0.031 * kk);
     bar(pen, { k: a / top, mark: f / top, token, h: 0.012, gap: 0.01 });
   }
   if (!rows.length) pen.para(t('greenRepNone'), { maxLines: 2 });

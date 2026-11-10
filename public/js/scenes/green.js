@@ -199,9 +199,9 @@ export class GreenScene extends BaseScene {
       this.alert.scale.setScalar(1);
       this.toastSlot = { pos: this.alert.position.clone(), scale: 1, w: 0.72, shared: true };
     } else if (!touch) {
-      this.alert.position.set(0, eye + 0.36, -1.25);
-      this.alert.scale.setScalar(1.15);
-      this.toastSlot = { pos: this.alert.position.clone(), scale: 1.15, w: 0.72, shared: true };
+      this.alert.position.set(0, eye + 0.315, -1.25);
+      this.alert.scale.setScalar(1.12);
+      this.toastSlot = { pos: this.alert.position.clone(), scale: 1.12, w: 0.72, shared: true };
     } else if (portrait) {
       this.alert.position.set(0, eye + 0.46, -1.3);
       this.alert.scale.setScalar(1.04 / 0.72);
