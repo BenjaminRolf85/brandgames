@@ -28,7 +28,7 @@ import { makeSnowfall, setSnowAmount } from '../snow.js';
 import { EVENTS, EVENT_INHERIT, EVENT_PARENTS, STYLES } from '../bricks-text.js';
 import { Plan, L, H, D, GAP, TOP, FOUND, HOUSE_Z, RIDGE, EAVE, OX, OZ, ZH, ANNEX_COURSES, BASE_TARGET } from '../bricks-plan.js';
 import { Forecaster } from '../bricks-ai.js';
-import { loadBricks, plainPlot, BrickField, GhostPlan, Crane, Puffs, bsfx, drawMonthDisplay, makeFamily } from '../bricks-visuals.js';
+import { loadBricks, plainPlot, BrickField, GhostPlan, Crane, Puffs, bsfx, drawMonthDisplay, makeFamily, warnSprite } from '../bricks-visuals.js';
 import { eventPanel, drawChart, drawSign } from '../bricks-panels.js';
 
 const MONTH = 4.5; // seconds per month
@@ -928,10 +928,11 @@ export class BricksScene extends BaseScene {
       return;
     }
     const gold = b.kind === 'gold';
-    const wobbly = this.plan.place(ps, { gold, by: 'hand', wobbly: true, skew: b.skew ?? null });
+    // Savings are what you set while saving; lintels and trusses in the loan phase are the loan's.
+    const wobbly = this.plan.place(ps, { gold, by: this.mode === 'loan' ? 'loan' : 'hand', wobbly: true, skew: b.skew ?? null });
     for (const p of ps) {
       this.field.set(p, true, gold);
-      if (wobbly.includes(p)) this.field.setTilt(p, { wobble: 1, lean: 0.05 * (Math.random() < 0.5 ? -1 : 1) });
+      if (wobbly.includes(p)) { this.field.setTilt(p, { wobble: 1, lean: 0.05 * (Math.random() < 0.5 ? -1 : 1) }); this.warn(p, true); }
       else if (b.skew) this.field.setTilt(p, b.skew);
     }
     if (ps[0].kind === 'frame' && ps[0].frame === 'door') this.doorPivot.visible = true;
@@ -962,6 +963,7 @@ export class BricksScene extends BaseScene {
       for (const p of settled) {
         const info = this.plan.filled.get(p.id);
         this.field.setTilt(p, info.skew ?? null);
+        this.warn(p, false);
       }
       this.delay(0.15, () => bsfx.settle());
       if (!wobbly.length) this.toast(t('bricksSettled'), 'xr-success', 1.6);
@@ -984,7 +986,9 @@ export class BricksScene extends BaseScene {
       if (Math.floor(this.maxSaved / INTEREST_EVERY) > this.interestPaid) {
         this.interestPaid += 1;
         this.queue.push('gold');
-        this.toast(t('bricksInterest'), 'xr-bricks-gold', 2.2);
+        // A statics warning just shown keeps its moment; the interest news follows.
+        if (wobbly.length || b.skew) this.delay(2.3, () => { if (this.building()) this.toast(t('bricksInterest'), 'xr-bricks-gold', 2.2); });
+        else this.toast(t('bricksInterest'), 'xr-bricks-gold', 2.2);
         sfx.coin();
         this.setNote('bonus');
       }
@@ -1340,7 +1344,20 @@ export class BricksScene extends BaseScene {
   }
 
   settleAll() {
-    for (const p of this.plan.settle()) this.field.setTilt(p, this.plan.filled.get(p.id).skew ?? null);
+    for (const p of this.plan.settle()) { this.field.setTilt(p, this.plan.filled.get(p.id).skew ?? null); this.warn(p, false); }
+  }
+
+  /** A warning sign over a wobbling part (until it settles). */
+  warn(p, on) {
+    this.warnings ??= new Map();
+    const old = this.warnings.get(p.id);
+    if (old) { old.removeFromParent(); old.material.dispose(); this.warnings.delete(p.id); }
+    if (!on) return;
+    const sp = warnSprite();
+    sp.position.set(p.x, p.y + 0.045, p.z);
+    sp.userData.base = sp.position.y;
+    this.home.add(sp);
+    this.warnings.set(p.id, sp);
   }
 
   /** Parts that must be set by hand in the loan phase come quickly down the belt. */
@@ -1519,6 +1536,7 @@ export class BricksScene extends BaseScene {
 
   async finale() {
     this.mode = 'finale';
+    this.refreshHud?.();
     this.parkCrane();
     await this.wait(0.3);
     bsfx.lights();
@@ -1635,6 +1653,7 @@ export class BricksScene extends BaseScene {
         this.puffs.smoke(CHIMNEY.clone().add(HOUSE));
       }
       this.nb?.family.tick(dt, this.time);
+      if (this.warnings) for (const sp of this.warnings.values()) { sp.position.y = sp.userData.base + Math.abs(Math.sin(this.time * 5)) * 0.008; }
       this.nb?.field.update(dt, this.time);
       // Snow in the open house while it snows and the roof is not on.
       if (this.wet && !this.roofOn) this.indoorSnow.material.opacity = Math.min(0.9, this.indoorSnow.material.opacity + dt * 0.05);

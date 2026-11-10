@@ -130,7 +130,7 @@ export function drawChart(ctx, p, s) {
   drawPicto(ctx, 'snow', W - pad - tw - sm * 0.75, pad + (md - sm) * 0.5 + sm * 0.5, sm * 1.1, ctx.fillStyle, 2);
   let y = pad + md * 1.4;
   // Duel: you and the neighbors, with each forecast month.
-  const fmtM = (who) => (who.done ? t('bricksChartReached', { m: who.doneMonth }) : who.pred && Number.isFinite(who.pred.median) && s.month > 2 ? t('bricksChartIn', { m: Math.ceil(who.pred.median) }) : '…');
+  const fmtM = (who) => (who.done ? t('bricksChartReached', { m: who.doneMonth }) : who.pred && Number.isFinite(who.pred.median) && s.month > 2 ? t('bricksChartIn', { m: who.pred.median > 60 ? '60+' : Math.ceil(who.pred.median) }) : '…');
   const rows = [[t('bricksYou'), s.you, 'xr-bricks-chart-saved'], [s.them.name, s.them, 'xr-bricks-neighbor']];
   ctx.font = font('bold', sm);
   const lw = Math.max(...rows.map(([n]) => ctx.measureText(n).width)) + sm * 0.5;
@@ -154,7 +154,7 @@ export function drawChart(ctx, p, s) {
   if (s.you.done) sub = s.verdict ?? '';
   else if (pr && s.month > 2) sub = Number.isFinite(pr.hi) ? t(s.narrow ? 'bricksChartRangeShort' : 'bricksChartRange', { lo: Math.ceil(pr.lo), hi: Math.ceil(pr.hi) }) : t('bricksChartOpen', { lo: Math.ceil(pr.lo) });
   else sub = t('bricksChartWait');
-  for (const ln of wrap(ctx, sub, W - pad * 2).slice(0, s.narrow ? 1 : 2)) { ctx.fillText(ln, pad, y); y += sm * 1.2; }
+  for (const ln of wrap(ctx, sub, W - pad * 2).slice(0, s.narrow && !s.you.done ? 1 : 2)) { ctx.fillText(ln, pad, y); y += sm * 1.2; }
   y += sm * 0.2;
   // Note at the bottom.
   ctx.font = font('regular', sm);

@@ -785,7 +785,7 @@ export function dashPanel(w, h, view) {
  * The AI's warning while the year runs. view() -> { ev, secs, lead, reacted, outcome, act, hint,
  * battery }: countdown ring around the event's icon, the confidence, the reaction or the outcome.
  */
-export function alertPanel(w, h, view) {
+export function alertPanel(w, h, view, kind = 'bar') {
   return new Panel(w, h, (ctx, c) => {
     const v = view();
     if (!v?.ev) return;
@@ -793,7 +793,8 @@ export function alertPanel(w, h, view) {
     const L = LIVE[ev.type];
     const done = !!v.outcome;
     const tok = done ? (v.outcome.good ? 'xr-green-up' : 'xr-green-down') : v.reacted ? 'xr-green-up' : 'xr-warning';
-    c.surface({ stroke: color(tok), strokeWidth: num('xr-border-width') * 2 });
+    c.surface({ fill: color('xr-green-alert-bg'), stroke: color(tok), strokeWidth: num('xr-border-width') * 2 });
+    if (kind === 'card') { drawAlertCard(ctx, c, v, tok); return; }
     const H = c.canvas.height;
     const R = H * 0.36;
     const cx = c.m(0.03) + R;
@@ -844,11 +845,45 @@ export function alertPanel(w, h, view) {
   });
 }
 
-/** A short message in a framed panel. */
+/** The warning as a small card (phones held sideways: in the corner instead of the AI panel). */
+function drawAlertCard(ctx, c, v, tok) {
+  const { ev } = v;
+  const L = LIVE[ev.type];
+  const pen = new Pen(ctx, c, 0.024);
+  const R = c.m(0.045);
+  const cx = pen.x + R;
+  const cy = pen.y + R;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.fillStyle = color('xr-button-bg');
+  ctx.fill();
+  if (!v.outcome) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, v.secs / v.lead));
+    ctx.lineWidth = c.m(0.007);
+    ctx.strokeStyle = color(tok);
+    ctx.stroke();
+  }
+  drawIcon(ctx, L.icon, cx, cy, R * 1.15, color(L.token));
+  ctx.font = font('black', c.m(num('xr-text-md') * 1.3));
+  ctx.fillStyle = color(v.outcome ? tok : 'xr-warning');
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(v.outcome ? t(`greenLive_${ev.type}`) : `${Math.max(0, Math.ceil(v.secs))} s`, cx + R + c.m(0.02), cy, pen.w - 2 * R - c.m(0.02));
+  pen.y += 2 * R + c.m(0.012);
+  const M = num('xr-text-sm') * 1.15;
+  if (v.outcome) { pen.para(v.outcome.text, { size: M, weight: 'black', col: color(tok), maxLines: 5 }); return; }
+  pen.line(t('greenLive_' + ev.type), { size: M, weight: 'black', col: color('xr-warning'), gap: 0.004 });
+  pen.line(t('greenWarnConf', { n: fmtInt(ev.conf * 100) }), { size: M, weight: 'bold', col: color('xr-accent'), gap: 0.006 });
+  if (v.reacted) pen.para(t(`greenActDone_${ev.type}`), { size: M, weight: 'black', col: color('xr-green-up'), maxLines: 2 });
+  else pen.para(`${v.act}?`, { size: M, weight: 'bold', col: color('xr-panel-text'), maxLines: 2 });
+}
+
+/** A short message in a framed panel (opaque, so nothing shines through). */
 export function toast(text, sub, token, w = 0.62) {
   const blocks = [{ text, size: 'xr-text-md', weight: 'black', color: color(token), gap: sub ? 0.008 : 0 }];
   if (sub) blocks.push({ text: sub, size: 'xr-text-sm', color: color('xr-panel-text') });
-  const p = textPanel(w, 0.08, blocks, { surface: { stroke: color(token) } });
+  const p = textPanel(w, 0.08, blocks, { surface: { fill: color('xr-green-alert-bg'), stroke: color(token) } });
   p.userData.noFit = true;
   return p;
 }

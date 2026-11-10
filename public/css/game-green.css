@@ -74,6 +74,7 @@
   --xr-green-smoke:        #a9a7a2;   /* a damaged turbine */
   --xr-green-dark:         #9b85ff;   /* dark lull (warning color) */
   --xr-green-flood:        #3d8bff;   /* flood (warning color) */
+  --xr-green-alert-bg:     #0d1222;   /* warnings and messages: fully opaque */
   --xr-green-bubble:       #fff8ea;   /* citizens' speech bubbles */
   --xr-green-bubble-text:  #24180f;
 

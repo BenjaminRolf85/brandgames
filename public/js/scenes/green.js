@@ -150,12 +150,26 @@ export class GreenScene extends BaseScene {
       this.fc = forecastPanel(size[0], size[1], () => this.fcView(touch), shape);
       this.ui.add(this.fc);
     }
+    // The warning: a bar (headset, desktop, phone upright) or a small card (phone sideways).
+    const ashape = touch && !portrait ? 'card' : 'bar';
+    if (this.alertShape !== ashape) {
+      this.alertShape = ashape;
+      const was = this.alertPanel;
+      this.alertPanel = ashape === 'card' ? alertPanel(0.46, 0.5, () => this.alertView(), 'card') : alertPanel(0.72, 0.22, () => this.alertView());
+      this.alertPanel.renderOrder = 31;
+      this.alertPanel.material.depthTest = false;
+      this.alert.add(this.alertPanel);
+      if (was) { was.removeFromParent(); was.dispose(); }
+    }
     this.fc.rotation.set(0, 0, 0);
     this.fc.scale.setScalar(1);
     this.dash.scale.setScalar(1);
     this.cards.scale.setScalar(this.engine.isXR ? 0.86 : 1);
     this.dash.visible = !touch;
     this.cards.visible = !touch;
+    // Phones: the 3D card row and the dashboard are not rendered at all (thumb buttons and the
+    // status bar take their place).
+    if (touch) { this.cards.removeFromParent(); this.dash.removeFromParent(); } else if (!this.cards.parent) this.ui.add(this.cards, this.dash);
     this.spacer.visible = false;
     if (xr) {
       placeOnArc(this.fc, -0.66, eye - 0.17, 1.0);
@@ -177,14 +191,23 @@ export class GreenScene extends BaseScene {
     } else if (portrait) {
       this.fc.position.set(0, eye + 0.46, -1.4);
     } else this.landFrame();
-    this.toastAt = xr ? new THREE.Vector3(0, eye + 0.06, num('xr-green-table-z') - 0.2)
-      : touch && portrait ? new THREE.Vector3(0, eye - 0.2, -1.2)
-        : touch ? this.toastAt : new THREE.Vector3(0, eye + 0.34, -1.3);
-    // The live warning: above the diorama (over the AI panel on a phone held upright).
+    // One slot above the diorama for the warning and the messages (a message waits while a
+    // warning is up). Phones held upright: that slot is the AI panel's place (it steps aside).
     this.alert.rotation.set(0, 0, 0);
-    if (xr) { this.alert.position.set(0, eye + 0.02, num('xr-green-table-z') - 0.12); this.alert.scale.setScalar(1); }
-    else if (!touch) { this.alert.position.set(0, eye + 0.36, -1.25); this.alert.scale.setScalar(1.15); }
-    else if (portrait) { this.alert.position.set(0, eye + 0.46, -1.3); this.alert.scale.setScalar(1.48); }
+    if (xr) {
+      this.alert.position.set(0, eye + 0.04, num('xr-green-table-z') - 0.16);
+      this.alert.scale.setScalar(1);
+      this.toastSlot = { pos: this.alert.position.clone(), scale: 1, w: 0.72, shared: true };
+    } else if (!touch) {
+      this.alert.position.set(0, eye + 0.36, -1.25);
+      this.alert.scale.setScalar(1.15);
+      this.toastSlot = { pos: this.alert.position.clone(), scale: 1.15, w: 0.72, shared: true };
+    } else if (portrait) {
+      this.alert.position.set(0, eye + 0.46, -1.3);
+      this.alert.scale.setScalar(1.04 / 0.72);
+      this.toastSlot = { pos: this.alert.position.clone(), scale: 1, w: 1.04, shared: true };
+    }
+    this.placeToast();
   }
 
   /**
@@ -226,11 +249,15 @@ export class GreenScene extends BaseScene {
     const ps = Math.max(0.3, Math.min(cw / s / 0.46, ch / s / 0.5));
     this.fc.scale.setScalar(ps);
     this.fc.position.set(mx(8) + 0.23 * ps, my(6) - 0.25 * ps, z);
-    this.toastAt = new THREE.Vector3(this.board.position.x, my(40) - 0.04, -1.25);
-    // The live warning at the top, over the diorama.
-    const as = Math.min(1.25, (x1 - x0) / s / 0.72);
-    this.alert.scale.setScalar(as);
-    this.alert.position.set(this.board.position.x, my(6) - 0.1 * as, -1.25);
+    // The warning takes the AI panel's corner (as a card of the same size); messages go to the
+    // free corner on the right, above the right thumb buttons: never over the map.
+    this.alert.scale.setScalar(ps);
+    this.alert.position.set(this.fc.position.x, this.fc.position.y, -1.3);
+    const rw = sw - R.left - 12;
+    const rh = R.top - ins.top - 14;
+    const ts = Math.max(0.3, Math.min(rw / s / 0.46, rh / s / 0.36));
+    this.toastSlot = { pos: new THREE.Vector3(mx(R.left + 6) + 0.23 * ts, my(6), -1.3), scale: ts, w: 0.46, shared: false, top: true, maxH: rh / s };
+    this.placeToast();
   }
 
   buildUI() {
@@ -261,11 +288,7 @@ export class GreenScene extends BaseScene {
     this.ui.add(cards);
     // The AI's live warnings while the year runs.
     // (In a holder: the holder is placed and scaled per screen, the panel pops in inside it.)
-    this.alertPanel = alertPanel(0.72, 0.22, () => this.alertView());
-    this.alertPanel.renderOrder = 31;
-    this.alertPanel.material.depthTest = false;
-    this.alert = new THREE.Group();
-    this.alert.add(this.alertPanel);
+    this.alert = new THREE.Group(); // the warning panel itself is made per screen (placePanels)
     this.alert.visible = false;
     this.ui.add(this.alert);
     // Phones in landscape: keeps the lower corners (thumb buttons) free in the camera's framing.
@@ -441,6 +464,7 @@ export class GreenScene extends BaseScene {
   startAlert(ev) {
     this.alertEv = ev;
     ev.started = true;
+    if (this.toastSlot?.shared) this.dropToast();
     sfx.announce();
     this.region.showMarker(ev.type);
     this.alert.visible = true;
@@ -494,6 +518,9 @@ export class GreenScene extends BaseScene {
     this.alertEv = null;
     if (this.alert) this.alert.visible = false;
     this.region?.showMarker(null);
+    // Messages that waited for the warning.
+    const next = (this.toastQueue ?? []).shift();
+    if (next && this.mode !== 'over') this.toast(...next);
   }
 
   // ---------- citizens' wishes ----------
@@ -538,7 +565,9 @@ export class GreenScene extends BaseScene {
     this.region?.setTags(null);
     this.region?.clearSky();
     this.region?.setWishes(null);
+    this.toastQueue = [];
     this.hideAlert();
+    this.dropToast();
     Object.assign(this.vis, { cloud: 0, rain: 0, snowfall: 0, storm: 0, night: 0, throttle: false, blackout: false });
     this.ui.visible = false;
     this.pad?.show(false);
@@ -771,22 +800,62 @@ export class GreenScene extends BaseScene {
     }
   }
 
-  /** A short message over the diorama. */
+  /**
+   * A short message in the message slot (above the diorama; on phones the AI panel's place or a
+   * free corner). While a warning holds the same slot, the message waits.
+   */
   toast(text, sub, token, secs = 2.4) {
-    this.toastPanel?.removeFromParent();
-    const w = this.engine.touchUI && this.portrait ? 0.95 : 0.72;
+    const slot = this.toastSlot;
+    if (slot?.shared && this.alert?.visible) {
+      this.toastQueue = [...(this.toastQueue ?? []).slice(-1), [text, sub, token, secs]];
+      return;
+    }
+    this.dropToast();
+    const w = slot?.w ?? 0.72;
     const p = toast(text, sub, token, w);
-    const at = this.toastAt ?? new THREE.Vector3(0, this.eye + 0.36, -1.3);
-    p.position.copy(at);
     p.renderOrder = 30;
     p.material.depthTest = false;
-    this.add(p);
+    // In a holder: the holder is placed and scaled for the slot, the panel pops in inside it.
+    const holder = new THREE.Group();
+    holder.add(p);
+    this.add(holder);
     this.popIn(p);
-    this.toastPanel = p;
+    this.toastPanel = holder;
+    this.placeToast();
     this.delay(secs, () => {
-      if (this.toastPanel !== p) return;
-      this.tween(0.35, (k) => { p.material.opacity = 1 - k; }, { onDone: () => { if (this.toastPanel === p) { p.removeFromParent(); p.dispose(); this.toastPanel = null; } } });
+      if (this.toastPanel !== holder) return;
+      this.tween(0.35, (k) => { p.material.opacity = 1 - k; }, { onDone: () => { if (this.toastPanel === holder) this.dropToast(); } });
     });
+  }
+
+  placeToast() {
+    const h = this.toastPanel;
+    const slot = this.toastSlot;
+    if (!h || !slot) return;
+    const ph = h.children[0].h;
+    // Corner slots hang from their top edge and never grow into the thumb buttons below.
+    const k = slot.maxH ? Math.min(slot.scale, slot.maxH / ph) : slot.scale;
+    h.position.copy(slot.pos);
+    h.scale.setScalar(k);
+    if (slot.top) { h.position.x += 0.23 * (k - slot.scale); h.position.y -= (ph * k) / 2; }
+  }
+
+  dropToast() {
+    const h = this.toastPanel;
+    if (!h) return;
+    this.toastPanel = null;
+    h.removeFromParent();
+    h.children[0]?.dispose();
+  }
+
+  /**
+   * Phones: the AI panel steps aside for the warning (and, held upright, for a message). Only its
+   * look goes: it still counts for the camera's framing, so the view does not jump.
+   */
+  syncSlots() {
+    if (!this.fc) return;
+    const show = !this.engine.touchUI || (!this.alert?.visible && !(this.portrait && this.toastPanel));
+    if (this.fc.material.visible !== show) this.fc.material.visible = show;
   }
 
   // ---------- the year on the diorama ----------
@@ -889,6 +958,7 @@ export class GreenScene extends BaseScene {
       this.vis.cutout = false;
     } else if (this.mode === 'sim') this.updateSim(dt);
     R.update(dt, this.vis);
+    this.syncSlots();
     this.pad?.show(this.mode === 'plan' || this.mode === 'report' || this.mode === 'sim');
     this.updatePointers();
   }

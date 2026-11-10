@@ -203,7 +203,7 @@ export class BrickField {
     const tl = this.tilts.get(p.id);
     if (tl) {
       // Lean across the wall (and a little twist when skewed); wobbling pieces rock.
-      const lean = tl.lean + tl.wobble * 0.07 * Math.sin(time * 11 + tl.phase);
+      const lean = tl.lean + tl.wobble * 0.12 * Math.sin(time * 11 + tl.phase);
       _q.multiply(_q2.setFromAxisAngle(UP, tl.yaw)).multiply(_q2.setFromAxisAngle(AX, lean));
     }
     _s.setScalar(scale);
@@ -732,6 +732,39 @@ export function drawMonthDisplay(ctx, p, { month, vacation, flash }) {
   ctx.fillText(vacation ? '–' : String(month), x0 + s + (W - x0 - s) / 2, Hh * 0.54);
 }
 
+
+// ---------- statics warning ----------
+
+let warnTex = null;
+/** A warning sign (amber triangle with an exclamation mark) for wobbling parts. */
+export function warnSprite() {
+  if (!warnTex) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 96;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = color('xr-bricks-ghost-warn');
+    ctx.strokeStyle = color('xr-bricks-dark');
+    ctx.lineWidth = 6;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(48, 8);
+    ctx.lineTo(90, 84);
+    ctx.lineTo(6, 84);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = color('xr-bricks-dark');
+    ctx.fillRect(43, 32, 10, 30);
+    ctx.fillRect(43, 68, 10, 9);
+    warnTex = new THREE.CanvasTexture(c);
+    warnTex.colorSpace = THREE.SRGBColorSpace;
+  }
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: warnTex, transparent: true, depthTest: false, toneMapped: false }));
+  sp.scale.setScalar(0.035);
+  sp.renderOrder = 6;
+  sp.userData.noFit = true;
+  return sp;
+}
 
 // ---------- the neighbor family ----------
 
