@@ -69,6 +69,8 @@ function step(p, x, y, z) {
 /** A branch of three atoms (a carbon with two more) from p in direction dir, splayed in the plane. */
 function branch(p, dir, el = 'C', spread = 58) {
   const d = dir.clone().normalize();
+  d.z -= 0.32; // a little down into the protein: it bumps into the wall
+  d.normalize();
   const a = p.clone().addScaledVector(d, B);
   const side = (s) => d.clone().applyAxisAngle(V(0, 0, 1), s * spread * DEG).add(V(0, 0, 0.18 * s)).normalize();
   return [{ el: 'C', p: a }, { el, p: a.clone().addScaledVector(side(1), B) }, { el: 'C', p: a.clone().addScaledVector(side(-1), B) }];
@@ -128,7 +130,7 @@ const LEVELS = [
         atoms, rings: [[0, 1, 2, 3, 4, 5]],
         mismatch: { swap: 9, to: 'O' },
         small: { remove: [8, 9] },
-        bulky: { add: branch(r[0], V(0.2, 1, 0)) },
+        bulky: { add: branch(r[4], r[4].clone().sub(c).setZ(0)) },
         decoy: { add: plume(r[4], V(0.4, -0.1, 0.92)) },
       };
     },
@@ -346,10 +348,10 @@ export class Protein {
     }
     let r = base * (1 + s);
     const c = n.x * POCKET_DIR.x + n.y * POCKET_DIR.y + n.z * POCKET_DIR.z;
-    if (this.capK !== undefined && c > 0.7) {
+    if (this.capK !== undefined && c > 0.58) {
       const k = this.capK;
       const cap = -k * c + Math.sqrt(Math.max(0, k * k * c * c - k * k + CAP_R * CAP_R));
-      r += THREE.MathUtils.smoothstep(c, 0.72, 0.9) * Math.max(0, cap - r);
+      r += THREE.MathUtils.smoothstep(c, 0.6, 0.82) * Math.max(0, cap - r);
     }
     return r;
   }

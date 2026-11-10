@@ -108,7 +108,7 @@ export class GreenScene extends BaseScene {
       board.scale.setScalar(1);
     }
     // The diorama counts for the browser camera's framing except behind the results.
-    board.traverse((o) => { if (o === this.region?.root) o.userData.noFit = over; });
+    if (this.region) this.region.root.userData.noFit = over;
     this.placePanels();
   }
 
@@ -190,7 +190,7 @@ export class GreenScene extends BaseScene {
     // Phones: big thumb buttons (projects left and right, the action bottom right).
     const groups = { wind: 'left', solar: 'left', homes: 'left', school: 'right', kita: 'right' };
     this.pad = this.touchButtons([
-      ...TYPE_KEYS.map((k) => ({ icon: TYPES[k].icon, label: `${t(`greenShort_${k}`)} ${TYPES[k].cost}`, onPress: () => this.choose(k), group: groups[k] })),
+      ...TYPE_KEYS.map((k) => ({ icon: TYPES[k].icon, label: `${t(`greenShort_${k}`)} ${t('greenCostShort', { n: TYPES[k].cost })}`, onPress: () => this.choose(k), group: groups[k] })),
       { icon: 'greenGo', label: t('greenStartShort'), onPress: () => this.action(), group: 'right' },
     ], { grid: true });
     if (this.pad) this.padEls = [...document.querySelectorAll('#stage .mtouch--grid .mtouch__btn')].slice(-6);
