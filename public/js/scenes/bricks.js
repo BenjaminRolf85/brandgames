@@ -101,6 +101,7 @@ export class BricksScene extends BaseScene {
     this.chartHolder = this.holder();
     this.toastHolder = this.holder();
     this.cardHolder = this.holder();
+    this.placeXR();
 
     this.ready = loadBricks().then((M) => { if (!this.disposed) this.build(M); });
     this.setupInput();
@@ -875,6 +876,7 @@ export class BricksScene extends BaseScene {
     this.toastPanel?.dispose();
     const p = textPanel(0.62, 0.08, [{ text, size: 'xr-text-md', weight: 'black', color: color(token) }], { surface: { stroke: color(token), stripe: false } });
     p.userData.noFit = true;
+    if (this.engine.isXR) this.placeXR();
     this.toastHolder.add(p);
     this.popIn(p);
     this.toastPanel = p;
@@ -1431,8 +1433,9 @@ export class BricksScene extends BaseScene {
 
   /** Headset placement of the screen elements (the chart is placed when it is made). */
   placeXR() {
-    this.toastHolder.position.set(0, this.eye + 0.1, -0.95);
-    this.cardHolder.position.set(0, this.eye - 0.02, -0.8);
+    // Messages just above the house (above the card while one is open); the card above the plot.
+    this.toastHolder.position.set(0, this.eye + (this.cardGroup ? 0.24 : -0.2), -0.8);
+    this.cardHolder.position.set(0, this.eye - 0.03, -0.85);
   }
 
   dispose() {
