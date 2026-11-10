@@ -173,13 +173,13 @@ def build_set():
     parts['DockTubeLiquid'] = merge(liq, 'DockTubeLiquid')
 
     # Beaker with a stirring rod.
-    parts['DockBeaker'] = lathe('DockBeaker', (-0.53, 0, -0.62), [(0.036, 0.0), (0.04, 0.003), (0.04, 0.088), (0.043, 0.092)], GLASS, segs=40, cap_bottom=True)
-    parts['DockBeakerLiquid'] = lathe('DockBeakerLiquid', (-0.53, 0, -0.62), [(0.034, 0.002), (0.0375, 0.006), (0.0375, 0.046)], LIQ[1], segs=36, cap_bottom=True, cap_top=True)
-    rod = tcyl('DockRod', (-0.515, 0.07, -0.615), 0.003, 0.15, GLASS, segs=12, rot=Matrix.Rotation(math.radians(-14), 3, 'Y'))
+    parts['DockBeaker'] = lathe('DockBeaker', (-0.5, 0, -0.88), [(0.036, 0.0), (0.04, 0.003), (0.04, 0.088), (0.043, 0.092)], GLASS, segs=40, cap_bottom=True)
+    parts['DockBeakerLiquid'] = lathe('DockBeakerLiquid', (-0.5, 0, -0.88), [(0.034, 0.002), (0.0375, 0.006), (0.0375, 0.046)], LIQ[1], segs=36, cap_bottom=True, cap_top=True)
+    rod = tcyl('DockRod', (-0.485, 0.07, -0.875), 0.003, 0.15, GLASS, segs=12, rot=Matrix.Rotation(math.radians(-14), 3, 'Y'))
     parts['DockRod'] = rod
 
     # Erlenmeyer flask (a little fir at Christmas: green liquid, a star on top).
-    fx, fz = -0.47, -0.86
+    fx, fz = -0.5, -0.58
     r0, r1, h = 0.056, 0.016, 0.14
     parts['DockFlask'] = lathe('DockFlask', (fx, 0, fz), [(r0 - 0.008, 0.0), (r0, 0.006), (r1, h), (r1, h + 0.04), (r1 + 0.004, h + 0.044)], GLASS, segs=48, cap_bottom=True)
     lh = 0.1
@@ -226,7 +226,7 @@ def coin(scene_json, out_png):
         p.use_smooth = True
     ca = me.color_attributes.new('Col', 'FLOAT_COLOR', 'POINT')
     for i, d in enumerate(ca.data):
-        d.color = (*srgb(pr['col'][i * 3:i * 3 + 3]), 1)
+        d.color = (*pr['col'][i * 3:i * 3 + 3], 1)  # already linear (from the game)
     ob = bpy.data.objects.new('Protein', me)
     sc.collection.objects.link(ob)
     pm = bpy.data.materials.new('ProteinMat')

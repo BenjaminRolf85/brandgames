@@ -463,6 +463,7 @@ const ROUGH = { asphalt: [0.88, 0.95], gravel: [0.95, 0.95], mud: [0.55, 0.92], 
 
 // ---------------------------------------------------------------- terrain meshes
 
+const CHUNK = 16; // terrain chunk length
 const TRAIL_COLS = [-2.05, -1.75, -1.3, -0.85, -0.42, 0, 0.42, 0.85, 1.3, 1.75, 2.05];
 const VERGE_COLS = [-18, -13, -9.5, -7, -5.5, -4.5, -3.7, -3.1, -2.6, -2.1, -1.2, 0, 1.2, 2.1, 2.6, 3.1, 3.7, 4.5, 5.5, 7, 9.5, 13, 18];
 
@@ -516,6 +517,7 @@ export function makeTerrain(course, clip) {
   group.userData.noFit = true;
   const rnd = seeded(77);
   const disposables = [];
+  const chunks = [];
   for (const sec of course.sections) {
     const s0 = sec.i === 0 ? -10 : sec.b0;
     const s1 = sec.i === 3 ? course.length + 8 : sec.b1;
@@ -524,16 +526,23 @@ export function makeTerrain(course, clip) {
     const [rt, rv] = ROUGH[sec.kind];
     const trailMat = new THREE.MeshStandardMaterial({ map: trailTex, roughness: rt, metalness: 0, clippingPlanes: clip });
     const vergeMat = new THREE.MeshStandardMaterial({ map: vergeTex, roughness: rv, metalness: 0, clippingPlanes: clip });
-    const trail = new THREE.Mesh(ribbon(course, s0, s1, TRAIL_COLS, (v) => 0.02 - 0.012 * (v / 2) ** 2, (v, s) => [(v + 2.05) / 4.1, s / 8]), trailMat);
-    const verge = new THREE.Mesh(ribbon(course, s0, s1, VERGE_COLS, (v, s) => vergeHeight(v, s, sec.kind), (v, s) => [v / 5, s / 5], 1), vergeMat);
-    for (const m of [trail, verge]) {
-      m.receiveShadow = true;
-      m.userData.noFit = true;
-      group.add(m);
+    // In chunks, so only the pieces near the bike are drawn.
+    for (let a = s0; a < s1 - 0.01; a += CHUNK) {
+      const b = Math.min(s1, a + CHUNK);
+      const trail = new THREE.Mesh(ribbon(course, a, b, TRAIL_COLS, (v) => 0.02 - 0.012 * (v / 2) ** 2, (v, s) => [(v + 2.05) / 4.1, s / 8]), trailMat);
+      const verge = new THREE.Mesh(ribbon(course, a, b, VERGE_COLS, (v, s) => vergeHeight(v, s, sec.kind), (v, s) => [v / 5, s / 5], 1), vergeMat);
+      for (const m of [trail, verge]) {
+        m.receiveShadow = true;
+        m.userData.noFit = true;
+        group.add(m);
+      }
+      chunks.push({ a, b, meshes: [trail, verge] });
     }
     disposables.push(trailTex, vergeTex);
   }
   group.userData.dispose = () => disposables.forEach((t) => t.dispose());
+  /** Shows only the chunks that reach into [s0, s1]. */
+  group.userData.cull = (s0, s1) => { for (const c of chunks) { const on = c.b >= s0 && c.a <= s1; for (const m of c.meshes) m.visible = on; } };
   return group;
 }
 

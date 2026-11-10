@@ -1252,13 +1252,9 @@ def build_models(out_bike, out_world, out_blend):
     glow = {'BkLightGlow', 'BkBandGlow', 'BkShieldGlow', 'BkLampGlow', 'BkReflectGlow', 'BkLensGlow'}
     dens = {'BikeFrame': 0.05, 'BikeFork': 0.05, 'BikeWheel': 0.08, 'BikeCranks': 0.05, 'TireSlick': 0.06, 'TireAllround': 0.06,
             'TireKnobby': 0.06, 'TireSpikes': 0.06, 'EchoHelmet': 0.1, 'PumpBody': 0.08, 'PumpHandle': 0.1}
-    if os.environ.get('NOBAKE'):
-        bake_ao = lambda assets, *a, **k: None  # quick previews while modeling
-    else:
-        from bhelpers import bake_ao
-    bake_ao([(o, dens.get(o.name, 0.12)) for o in bike], glow, distance=0.12, samples=24)
-    wdens = {'Arch': 0.4, 'PrTree': 0.25, 'PrPine': 0.25, 'PrPineSnow': 0.25, 'PrLamp': 0.3, 'PrHay': 0.2, 'PrFence': 0.25, 'PrSnowman': 0.15, 'PrBush': 0.15}
-    bake_ao([(o, wdens.get(o.name, 0.1)) for o in world], glow, distance=0.4, samples=20)
+    dens.update({'Arch': 0.4, 'ArchGarland': 0.3, 'PrTree': 0.25, 'PrPine': 0.25, 'PrPineSnow': 0.25, 'PrLamp': 0.3, 'PrHay': 0.2, 'PrFence': 0.25, 'PrSnowman': 0.15, 'PrBush': 0.15})
+    if not os.environ.get('NOBAKE'):  # NOBAKE=1: quick previews while modeling
+        bake_ao([(o, dens.get(o.name, 0.1)) for o in bike + world], glow, distance=0.2, samples=20)
     for o in bike + world:
         print('faces', o.name, len(o.data.polygons))
     export_sel(bike, out_bike)

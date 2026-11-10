@@ -149,7 +149,7 @@ addStrings({
 
 addLines({
   intro_pinball: {
-    de: 'Ein Flipper für deine Kampagne! Meine Kollegin, die KI-Planerin, lernt mit jedem Treffer dazu. Folgst du ihrem Tipp oder probierst du lieber selbst?',
+    de: 'Ein Flipper für deine Kampagne! Der KI-Planer lernt mit jedem Treffer dazu. Folgst du seinem Tipp oder probierst du lieber selbst aus?',
     en: 'A pinball machine for your campaign! The AI planner learns with every hit. Will you follow its tip or try things out yourself?',
   },
 });

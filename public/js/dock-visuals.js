@@ -129,7 +129,7 @@ export class MoleculeView {
     // Glow shells: black is invisible (additive); colored for contacts and clashes.
     this.glow = new THREE.InstancedMesh(kit.sphereLo, ghost ? kit.ghostMat : kit.glowMat, n);
     mol.atoms.forEach((a, i) => {
-      this.glow.setMatrixAt(i, _m.compose(a.p, _q.identity(), _s.setScalar(ELEMENTS[a.el].r * (ghost ? 1.05 : 1.6))));
+      this.glow.setMatrixAt(i, _m.compose(a.p, _q.identity(), _s.setScalar(ELEMENTS[a.el].r * (ghost ? 1.05 : 1.4))));
       this.glow.setColorAt(i, ghost ? col('xr-dock-ghost') : _c.setRGB(0, 0, 0));
     });
     this.glow.renderOrder = 2;
@@ -172,8 +172,8 @@ export class MoleculeView {
  */
 export function proteinMaterial() {
   const mat = new THREE.MeshPhysicalMaterial({
-    color: 0xffffff, vertexColors: true, roughness: 0.46, metalness: 0, clearcoat: 0.35, clearcoatRoughness: 0.35,
-    sheen: 0.35, sheenRoughness: 0.5, sheenColor: col('xr-dock-protein-sheen'),
+    color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0, clearcoat: 0.3, clearcoatRoughness: 0.4,
+    sheen: 0.25, sheenRoughness: 0.55, sheenColor: col('xr-dock-protein-sheen'), envMapIntensity: 0.55,
   });
   const u = { uRim: { value: col('xr-dock-protein-rim') }, uRimK: { value: 0.35 }, uReveal: { value: 1 }, uEdge: { value: 0 } };
   mat.userData.u = u;
@@ -381,7 +381,10 @@ export function loadBench() {
         else if (m.name === 'DockGlass') out = new THREE.MeshPhysicalMaterial({ name: m.name, color: hex('xr-dock-glass'), roughness: 0.06, metalness: 0, transparent: true, opacity: 0.32, clearcoat: 1, depthWrite: false });
         else if (MAT_TOKENS[m.name]) {
           out = new THREE.MeshStandardMaterial({ name: m.name, color: hex(MAT_TOKENS[m.name]), roughness: m.roughness ?? 0.5, metalness: m.metalness ?? 0, vertexColors: vc });
-          if (m.name.startsWith('DockLiquid')) Object.assign(out, { emissive: hex(MAT_TOKENS[m.name]), emissiveIntensity: 0.35, transparent: true, opacity: 0.88 });
+          if (m.name.startsWith('DockLiquid') || m.name === 'DockNeedle') {
+            out.emissive.setHex(hex(MAT_TOKENS[m.name]));
+            Object.assign(out, { emissiveIntensity: 0.3, roughness: 0.15, transparent: true, opacity: 0.9 });
+          }
           if (m.name === 'DockScreen') Object.assign(out, { roughness: 0.15, metalness: 0.4 });
         }
         mats.set(m.name, out);
@@ -549,7 +552,7 @@ export function drawAIPanel(ctx, c, st) {
 
 /** Fit meter: a ring gauge with the percent, bars for shape and contacts, and a status line. */
 export function fitPanelSize(compact) {
-  return compact ? { w: 0.74, h: 0.13 } : { w: 0.54, h: 0.25 };
+  return compact ? { w: 0.74, h: 0.13 } : { w: 0.6, h: 0.25 };
 }
 
 export function drawFitPanel(ctx, c, st) {

@@ -88,13 +88,15 @@ export class BricksScene extends BaseScene {
 
     this.world = new THREE.Group();
     this.world.userData.noFit = true;
+    // On screens the plot would stand in front of the intro panel: it appears with the start.
+    this.world.visible = this.engine.isXR;
     this.group.add(this.world);
     this.plotRoot = new THREE.Group();
     this.plotRoot.position.set(0, this.eye - PLOT_DROP, PLOT_Z);
     this.world.add(this.plotRoot);
-    this.house = new THREE.Group();
-    this.house.position.copy(HOUSE);
-    this.plotRoot.add(this.house);
+    this.home = new THREE.Group();
+    this.home.position.copy(HOUSE);
+    this.plotRoot.add(this.home);
     this.puffs = new Puffs(this.plotRoot);
     this.addLights();
     // Screen elements in the 3D view (chart, toasts, card): holders the layout moves around.
@@ -145,8 +147,8 @@ export class BricksScene extends BaseScene {
     const plot = M.make('Plot') ?? plainPlot(M.mats);
     plot.traverse((o) => { if (o.isMesh) { o.receiveShadow = true; o.castShadow = true; } });
     this.plotRoot.add(plot);
-    this.field = new BrickField(this.house, this.plan, M);
-    this.ghost = new GhostPlan(this.house, this.plan);
+    this.field = new BrickField(this.home, this.plan, M);
+    this.ghost = new GhostPlan(this.home, this.plan);
     // Window and door frames sit in the openings from the start; their glass lights up at the end.
     this.glass = M.mats.Glass.clone();
     this.glass.emissive = new THREE.Color(hex('xr-bricks-window-light'));
@@ -158,17 +160,17 @@ export class BricksScene extends BaseScene {
       useGlass(o);
       o.position.set(f.x, f.y, f.z);
       o.rotation.y = f.face;
-      this.house.add(o);
+      this.home.add(o);
     }
     this.doorPivot = new THREE.Group();
     this.doorPivot.position.set(-L / 2 + 0.0065, 2.5 * H - 0.003, ZH + 0.004);
     const door = M.make('Door');
     useGlass(door);
     if (door) this.doorPivot.add(door);
-    this.house.add(this.doorPivot);
+    this.home.add(this.doorPivot);
     this.interior = new THREE.Mesh(new THREE.PlaneGeometry(0.07, 0.14), new THREE.MeshBasicMaterial({ color: hex('xr-bricks-interior'), transparent: true, opacity: 0, depthWrite: false, toneMapped: false }));
     this.interior.position.set(0, 2.5 * H, ZH - 0.03);
-    this.house.add(this.interior);
+    this.home.add(this.interior);
     this.roofTemplate = M.make('Roof');
     useGlass(this.roofTemplate);
     // Delivery: the savings machine, the belt and the pallet, at the right.
@@ -194,7 +196,9 @@ export class BricksScene extends BaseScene {
     pad.userData.onRelease = (p) => { if (p.kind === 'mouse') this.endGrab(p); };
     this.plotRoot.add(pad);
     this.pad = pad;
+    // The crane only comes for the loan phase (it rises behind the house at the allotment).
     this.crane = new Crane(M, this.plotRoot, CRANE_AT);
+    this.crane.root.visible = false;
     // Christmas: fairy lights on the little fir in the garden, and on the eaves at the end.
     if (CHRISTMAS) {
       const pts = [];
@@ -210,7 +214,7 @@ export class BricksScene extends BaseScene {
       const EY = TOP - (EAVE * RIDGE) / OZ;
       this.eaveLights = makeLightString({ x0: -RX, x1: RX, y: EY - 0.014, z: OZ + EAVE + 0.008, sag: 0.022, swags: 3, bulbs: 24 });
       this.eaveLights.visible = false;
-      this.house.add(this.eaveLights);
+      this.home.add(this.eaveLights);
     }
     // Winter: snow falls in the room and lands on the plot.
     if (WINTER) {
@@ -503,6 +507,7 @@ export class BricksScene extends BaseScene {
 
   begin() {
     this.mode = 'play';
+    this.world.visible = true;
     this.startMusic(0);
     music.intensity = 0;
     this.refreshHud ??= this.hud(() => this.hudText());
@@ -853,8 +858,16 @@ export class BricksScene extends BaseScene {
       note: t(this.noteKey ?? 'bricksNote_prior'),
       done,
       doneMonth: this.doneMonth,
-      early: done && this.early ? { hit: this.doneMonth >= Math.ceil(this.early.lo) && this.doneMonth <= Math.ceil(this.early.hi) } : null,
+      early: done && this.early ? this.earlyVerdict() : null,
     };
+  }
+
+  /** How the allotment month compares with the forecast after four months. */
+  earlyVerdict() {
+    const lo = Math.ceil(this.early.lo);
+    const hi = Number.isFinite(this.early.hi) ? Math.ceil(this.early.hi) : 99;
+    const key = this.doneMonth < lo ? 'bricksChartFast' : this.doneMonth > hi ? 'bricksChartSlow' : 'bricksChartHit';
+    return { key, lo, hi: hi === 99 ? '?' : hi };
   }
 
   makeChart() {
@@ -943,6 +956,7 @@ export class BricksScene extends BaseScene {
     await this.wait(gaps.length ? 0.4 + gaps.length * 0.03 : 0.1);
     this.toast(t('bricksLoan'), 'xr-bricks-crane', 3);
     this.tween(0.6, (k) => { this.ghost.fade = 1 - 0.6 * k; });
+    await this.raiseCrane();
     const rem = this.plan.remainingByWall();
     for (const wi of [2, 3, 1, 0]) {
       if (this.disposed) return;
@@ -961,12 +975,12 @@ export class BricksScene extends BaseScene {
     bsfx.door();
     this.tween(1.1, (k) => { this.doorPivot.rotation.y = 1.15 * k; this.interior.material.opacity = 0.85 * k; }, { ease });
     this.smoking = true;
-    this.tween(3, (k) => { this.snowBoost = 0.5 * k; });
+    this.tween(3, (k) => { this.snowBoost = 0.2 * k; });
     this.toast(t('bricksHome'), 'xr-success', 4);
     this.burst(this.plotRoot.localToWorld(HOUSE.clone().add(new THREE.Vector3(0, TOP + RIDGE, 0))), 'xr-warning', 36);
     sfx.finish();
     this.app.echo?.suppress(false);
-    this.echoRelease = this.app.host?.hold(this.house, new THREE.Vector3(-0.08, TOP + RIDGE + 0.14, 0.03), { force: true }) ?? null;
+    this.echoRelease = this.app.host?.hold(this.home, new THREE.Vector3(-0.08, TOP + RIDGE + 0.14, 0.03), { force: true }) ?? null;
     this.delay(2.4, () => { if (!this.disposed) this.app.echo?.celebrate(); });
     await this.wait(6);
     this.finish();
@@ -1007,14 +1021,14 @@ export class BricksScene extends BaseScene {
     const ends = [new THREE.Vector3(-0.2, -0.01, 0), new THREE.Vector3(0.2, -0.01, 0)];
     await this.craneCarry(load, attach, ends);
     // The roof stays on the house (with the chimney smoking later).
-    this.house.add(roof);
+    this.home.add(roof);
     load.removeFromParent();
   }
 
   /** The crane swings over, lowers the load onto its place (attach point, house space) and lets go. */
   async craneCarry(load, attach, ends) {
     const c = this.crane;
-    this.house.add(load);
+    this.home.add(load);
     this.carry = { load, attach, ends };
     this.updateCarry();
     const tgt = attach.clone().add(HOUSE);
@@ -1055,6 +1069,18 @@ export class BricksScene extends BaseScene {
     this.crane.setSlings(pts);
   }
 
+  /** The crane telescopes up behind the house. */
+  raiseCrane() {
+    const r = this.crane.root;
+    r.visible = true;
+    r.scale.set(1, 0.02, 1);
+    bsfx.motor();
+    this.delay(0.5, () => bsfx.motor());
+    this.puffs.puff(CRANE_AT.clone().add(new THREE.Vector3(0, 0.02, 0)), { n: 10, spread: 0.07, size: 0.03 });
+    return new Promise((res) => this.tween(1.1, (k) => r.scale.set(1, Math.max(0.02, k), 1), { ease, onDone: res }));
+  }
+
+  /** Back to rest, then down and away. */
   parkCrane() {
     const c = this.crane;
     const y0 = c.yaw;
@@ -1063,7 +1089,10 @@ export class BricksScene extends BaseScene {
     let dy = 2.3 - y0;
     dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     bsfx.motor();
-    this.tween(1.4, (k) => { c.yaw = y0 + dy * k; c.reach = r0 + (0.16 - r0) * k; c.drop = d0 + (0.06 - d0) * k; }, { ease });
+    this.tween(1.2, (k) => { c.yaw = y0 + dy * k; c.reach = r0 + (0.16 - r0) * k; c.drop = d0 + (0.06 - d0) * k; }, {
+      ease,
+      onDone: () => this.tween(1.0, (k) => c.root.scale.set(1, Math.max(0.02, 1 - k), 1), { ease, onDone: () => { c.root.visible = false; } }),
+    });
   }
 
   finish() {
@@ -1311,9 +1340,11 @@ export class BricksScene extends BaseScene {
     let top = touch ? ins.top : 0;
     let hud = null;
     if (!touch) {
-      const rowW = Math.min(W - 2 * m, 820);
+      // The app's close button sits at the top right of the page: the row stays left of it.
+      const free = W - 2 * m - 150;
+      const rowW = clamp(free, 300, 760);
       const ppm = rowW / 1.27;
-      hud = { ppm, x0: (W - rowW) / 2, y: m };
+      hud = { ppm, x0: m + Math.max(0, (free - rowW) / 2), y: m };
       top = m + 0.15 * ppm + 6;
     }
     const cw = num('xr-bricks-chart-w');
@@ -1376,13 +1407,13 @@ export class BricksScene extends BaseScene {
     const R = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
     const Ri = R.clone().invert();
     // Content box (plot space): the plot with the house; with the crane in the finale.
-    const box = [[-0.5, 0.62], [-0.06, finale ? 0.72 : 0.3], [-0.4, 0.4]];
+    const box = [[-0.5, 0.62], [-0.04, finale ? 0.72 : 0.26], [-0.4, 0.4]];
     const C = new THREE.Vector3((box[0][0] + box[0][1]) / 2, 0.06, 0);
     this.plotRoot.updateMatrixWorld(true);
     const Cw = this.plotRoot.localToWorld(C.clone());
     const tan = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
-    const tx = (tan * lay.plot.w) / lay.Hh / 1.04;
-    const ty = (tan * lay.plot.h) / lay.Hh / 1.04;
+    const tx = (tan * lay.plot.w) / lay.Hh / 1.01;
+    const ty = (tan * lay.plot.h) / lay.Hh / 1.01;
     let need = 0.3;
     const q = new THREE.Vector3();
     for (let i = 0; i < 8; i++) {

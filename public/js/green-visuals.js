@@ -23,6 +23,7 @@ export const GREEN_URL = 'assets/models/green.glb';
 export const loadGreen = () => loadGLTF(GREEN_URL);
 
 const PAD = { land: 0.08, town: 0.062 };
+const TURBINE_SCALE = 1.25;
 const TOWN_Y = 0.004;
 // Town streets (mirror of STREETS in blender/build_green.py) for the walking townsfolk.
 const STREETS = [
@@ -33,8 +34,8 @@ const STREETS = [
 // Material name (Blender) -> token and surface. snow: how much snow it takes in winter.
 const MAT = {
   GreenGrass: { t: 'xr-green-grass', r: 0.95, tint: true },
-  GreenHill: { t: 'xr-green-hill', r: 0.95, snow: 1 },
-  GreenRock: { t: 'xr-green-rock', r: 0.9, snow: 0.7 },
+  GreenHill: { t: 'xr-green-hill', r: 0.95, snow: 1, snowY: 0.07 },
+  GreenRock: { t: 'xr-green-rock', r: 0.9, snow: 0.8, snowY: 0.06 },
   GreenSand: { t: 'xr-green-sand', r: 0.95 },
   GreenBank: { t: 'xr-green-bank', r: 0.95 },
   GreenSeabed: { t: 'xr-green-seabed', r: 0.95 },
@@ -42,7 +43,7 @@ const MAT = {
   GreenSoilDark: { t: 'xr-green-soil-dark', r: 0.95 },
   GreenStrata: { t: 'xr-green-strata', r: 0.95 },
   GreenPlinth: { t: 'xr-green-plinth', r: 0.38, m: 0.15 },
-  GreenTrim: { t: 'xr-green-trim', r: 0.28, m: 1 },
+  GreenTrim: { t: 'xr-green-trim', r: 0.28, m: 1, env: 1 },
   GreenWaterSide: { t: 'xr-green-water-side', r: 0.08, opacity: 0.78 },
   GreenField1: { t: 'xr-green-field-1', r: 0.95 },
   GreenField2: { t: 'xr-green-field-2', r: 0.95 },
@@ -60,15 +61,15 @@ const MAT = {
   GreenRoof3: { t: 'xr-green-roof-3', r: 0.6, snow: 1 },
   GreenWindow: { t: 'xr-green-window', r: 0.2, window: true },
   GreenWood: { t: 'xr-green-wood', r: 0.8 },
-  GreenPine: { t: 'xr-green-pine', r: 0.9, snow: 0.85 },
-  GreenLeaf: { t: 'xr-green-leaf', r: 0.9, snow: 0.45 },
-  GreenLeaf2: { t: 'xr-green-leaf-2', r: 0.9, snow: 0.45 },
+  GreenPine: { t: 'xr-green-pine', r: 0.9, snow: 0.8, snowY: 0.06 },
+  GreenLeaf: { t: 'xr-green-leaf', r: 0.9 },
+  GreenLeaf2: { t: 'xr-green-leaf-2', r: 0.9 },
   GreenTrunk: { t: 'xr-green-trunk', r: 0.9 },
-  GreenTurbine: { t: 'xr-green-turbine', r: 0.35, m: 0.05 },
+  GreenTurbine: { t: 'xr-green-turbine', r: 0.35, m: 0.05, env: 0.7 },
   GreenMark: { t: 'xr-green-mark', r: 0.4 },
   GreenConcrete: { t: 'xr-green-concrete', r: 0.9 },
-  GreenSolarCell: { t: 'xr-green-solar-cell', r: 0.16, m: 0.55, glint: true },
-  GreenSolarFrame: { t: 'xr-green-solar-frame', r: 0.3, m: 0.8 },
+  GreenSolarCell: { t: 'xr-green-solar-cell', r: 0.16, m: 0.55, glint: true, env: 1 },
+  GreenSolarFrame: { t: 'xr-green-solar-frame', r: 0.3, m: 0.8, env: 0.8 },
   GreenSchoolWall: { t: 'xr-green-school-wall', r: 0.8 },
   GreenSchoolAccent: { t: 'xr-green-school-accent', r: 0.6 },
   GreenCourt: { t: 'xr-green-court', r: 0.9 },
@@ -98,8 +99,8 @@ float gNoise(vec3 x) {
 `;
 
 /** Shader patches on a standard material: snow (k), meadow tint, solar glint, lit windows, water. */
-function patch(mat, U, { snow = 0, tint = false, glint = false, window = false, water = false }) {
-  const key = `g${snow}|${tint}|${glint}|${window}|${water}`;
+function patch(mat, U, { snow = 0, snowY = -1, tint = false, glint = false, window = false, water = false }) {
+  const key = `g${snow}|${snowY}|${tint}|${glint}|${window}|${water}`;
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader
@@ -126,6 +127,7 @@ function patch(mat, U, { snow = 0, tint = false, glint = false, window = false, 
       color += `{ float gup = dot(normalize(vGN), uUp);
         float gn = gNoise(vGP * 140.0) * 0.6 + gNoise(vGP * 420.0) * 0.4;
         gS = smoothstep(0.5, 0.78, gup + (gn - 0.5) * 0.55) * smoothstep(0.0, 0.15, uSnow) * clamp(uSnow * 1.25, 0.0, 1.0) * ${snow.toFixed(2)};
+        ${snowY >= 0 ? `gS *= smoothstep(${(snowY - 0.025).toFixed(3)} + (1.0 - uSnow) * 0.04, ${snowY.toFixed(3)} + (1.0 - uSnow) * 0.04, vGP.y + (gn - 0.5) * 0.02);` : ''}
         vec3 gsc = mix(uSnowShade, uSnowColor, clamp(gAo.r * 1.25 - 0.1, 0.0, 1.0));
         diffuseColor.rgb = mix(diffuseColor.rgb, gsc, gS); }\n`;
     }
@@ -234,6 +236,8 @@ export class Region {
   constructor(gltf, renderer) {
     this.root = new THREE.Group();
     this.root.name = 'GreenRegion';
+    this.cloudY = 0.27; // clouds float this high (lower in the browser's tilted view)
+    this.showSun = true;
     this.time = 0;
     this.lite = quality.lite;
     this.U = {
@@ -311,11 +315,11 @@ export class Region {
     if (!d) m = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.8 });
     else if (d.basic) m = new THREE.MeshBasicMaterial({ color: hex(d.t), toneMapped: false });
     else {
-      m = new THREE.MeshStandardMaterial({ name, color: hex(d.t), roughness: d.r ?? 0.8, metalness: d.m ?? 0, vertexColors: !d.cloud });
+      m = new THREE.MeshStandardMaterial({ name, color: hex(d.t), roughness: d.r ?? 0.8, metalness: d.m ?? 0, vertexColors: !d.cloud, envMapIntensity: d.env ?? 0.35 });
       if (d.opacity) { m.transparent = true; m.opacity = d.opacity; }
       if (d.cloud) { m.transparent = true; m.opacity = 0.96; }
       if (d.window) { m.emissive = new THREE.Color(0x000000); }
-      if (d.snow || d.tint || d.glint || d.window) patch(m, this.U, { snow: CHRISTMAS ? d.snow ?? 0 : 0, tint: !!d.tint, glint: !!d.glint, window: !!d.window });
+      if (d.snow || d.tint || d.glint || d.window) patch(m, this.U, { snow: CHRISTMAS ? d.snow ?? 0 : 0, snowY: d.snowY ?? -1, tint: !!d.tint, glint: !!d.glint, window: !!d.window });
     }
     m.name = name;
     this.mats[name] = m;
@@ -335,7 +339,7 @@ export class Region {
   // ---------- light ----------
 
   buildLights(renderer) {
-    const key = new THREE.DirectionalLight(hex('xr-green-key-light'), 1.5);
+    const key = new THREE.DirectionalLight(hex('xr-green-key-light'), 1.25);
     key.position.set(-0.45, 0.95, 0.6);
     key.target.position.set(0, 0, 0);
     this.root.add(key, key.target);
@@ -352,7 +356,7 @@ export class Region {
       key.shadow.bias = -0.0004;
       key.shadow.normalBias = 0.004;
     }
-    const fill = new THREE.HemisphereLight(hex('xr-green-key-light'), hex('xr-green-soil-dark'), 0.35);
+    const fill = new THREE.HemisphereLight(hex('xr-green-key-light'), hex('xr-green-soil-dark'), 0.25);
     this.root.add(fill);
   }
 
@@ -400,11 +404,11 @@ export class Region {
           float lv = v * 7.0;
           float w = fwidth(lv);
           float line = 1.0 - smoothstep(0.0, w * 1.4, abs(fract(lv) - 0.5) * 2.0 - (1.0 - w * 2.5));
-          col = mix(col, uLine, line * 0.35);
+          col = mix(col, uLine, line * 0.45);
           // Hatching where the AI is unsure: diagonal stripes that let the terrain through.
           float unsure = smoothstep(0.85, 0.45, conf);
           float stripe = step(0.5, fract((vP.x + vP.z) * 70.0 + uTime * 0.15));
-          float a = uOpacity * mask * (0.72 - 0.45 * unsure * stripe);
+          float a = uOpacity * mask * (0.86 - 0.36 * unsure * stripe);
           gl_FragColor = vec4(col, a);
           #include <colorspace_fragment>
         }`,
@@ -485,11 +489,11 @@ export class Region {
     g.position.copy(pos);
     this.root.add(g);
     const plate = new THREE.Mesh(new THREE.ExtrudeGeometry(roundRect(size - 0.006, size - 0.006, 0.008), { depth: 0.0018, bevelEnabled: true, bevelThickness: 0.0006, bevelSize: 0.0008, bevelSegments: 1, curveSegments: 4 }).rotateX(-Math.PI / 2),
-      new THREE.MeshStandardMaterial({ color: hex('xr-green-plot'), roughness: 0.85 }));
+      new THREE.MeshStandardMaterial({ color: hex('xr-green-plot'), roughness: 0.9, transparent: true, opacity: 0.82, envMapIntensity: 0.3 }));
     plate.receiveShadow = true;
     // A frame that lights up in the state's color.
     const ringShape = roundRect(size - 0.004, size - 0.004, 0.009);
-    ringShape.holes.push(roundRect(size - 0.012, size - 0.012, 0.006));
+    ringShape.holes.push(roundRect(size - 0.009, size - 0.009, 0.007));
     const frame = new THREE.Mesh(new THREE.ShapeGeometry(ringShape, 4).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: hex('xr-green-plot-edge'), transparent: true, opacity: 0.9, toneMapped: false }));
     frame.position.y = 0.0029;
     // Corner stakes with little flags, like a real building site.
@@ -582,7 +586,11 @@ export class Region {
     body.position.set(0, 0, 0);
     body.rotation.set(0, 0, 0);
     body.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    g.add(body);
+    // Turbines a little larger than true to scale, so they read well from afar.
+    const inner = new THREE.Group();
+    if (type === 'wind') inner.scale.setScalar(TURBINE_SCALE);
+    inner.add(body);
+    g.add(inner);
     let h = 0.04;
     if (type === 'wind') {
       // Turned towards the prevailing wind from the south-west (the rotor faces the player).
@@ -591,10 +599,10 @@ export class Region {
       rotor.position.copy(this.hubPos);
       rotor.rotation.set(0, 0, Math.random() * 6);
       rotor.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-      g.add(rotor);
+      inner.add(rotor);
       g.userData.rotor = rotor;
       g.userData.spin = 0;
-      h = this.hubPos.y + 0.045;
+      h = (this.hubPos.y + 0.045) * TURBINE_SCALE;
     } else if (type === 'solar') h = 0.012;
     else if (type === 'school') h = 0.03;
     else if (type === 'kita') h = 0.026;
@@ -648,6 +656,7 @@ export class Region {
         r.traverse((o) => { if (o.isMesh) o.material = mat; });
         r.position.copy(this.hubPos);
         g.add(r);
+        g.scale.setScalar(TURBINE_SCALE);
       }
     }
     g.userData.type = type;
@@ -691,7 +700,7 @@ export class Region {
       c.userData.noFit = true;
       const s = 0.8 + Math.random() * 0.7;
       c.userData.base = s;
-      c.userData.y = 0.26 + Math.random() * 0.1;
+      c.userData.y = Math.random();
       c.userData.z = -0.3 + (i / 5) * 0.6 + (Math.random() - 0.5) * 0.08;
       c.userData.speed = 0.6 + Math.random() * 0.5;
       c.userData.k = 0;
@@ -843,7 +852,7 @@ export class Region {
     if (lamp) {
       const beam = new THREE.Group();
       beam.position.copy(lamp.position);
-      const bm = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.28, 16, 1, true).rotateZ(Math.PI / 2).translate(-0.14, 0, 0), new THREE.MeshBasicMaterial({ color: hex('xr-green-lamp'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+      const bm = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.16, 16, 1, true).rotateZ(Math.PI / 2).translate(-0.08, 0, 0), new THREE.MeshBasicMaterial({ color: hex('xr-green-lamp'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
       bm.userData.noFit = true;
       beam.add(bm);
       beam.userData.noFit = true;
@@ -878,7 +887,7 @@ export class Region {
     this.root.updateMatrixWorld();
     this.U.uUp.value.set(0, 1, 0).transformDirection(this.root.matrixWorld);
     // Light: the sun's strength and a cooler, dimmer light in storms and at night.
-    const bright = 0.35 + 1.25 * Math.min(1.2, vis.sun) * (1 - 0.45 * vis.cloud) * (1 - 0.6 * vis.night);
+    const bright = 0.3 + 1.05 * Math.min(1.2, vis.sun) * (1 - 0.45 * vis.cloud) * (1 - 0.6 * vis.night);
     this.key.intensity += (bright - this.key.intensity) * Math.min(1, dt * 3);
     this.key.color.copy(this.keyColor).lerp(this.stormColor, Math.min(1, vis.storm * 0.8 + vis.night * 0.6));
     // The sun crosses the sky with the months (higher in summer); hidden behind storms.
@@ -886,6 +895,7 @@ export class Region {
     const sx = -0.42 + 0.84 * mk;
     const sy = 0.3 + 0.18 * Math.sin(mk * Math.PI);
     this.sun.position.set(sx, sy, -0.3);
+    this.sun.visible = this.showSun;
     const sunVis = Math.max(0, Math.min(1, vis.sun * 0.9 - vis.storm * 0.6 - vis.night * 0.8));
     this.sun.scale.setScalar(0.4 + 0.6 * sunVis + 0.05 * Math.sin(T * 2));
     this.sunHalo.material.opacity = 0.25 + 0.55 * sunVis;
@@ -899,7 +909,7 @@ export class Region {
       const edge = Math.min(1, (0.62 - Math.abs(c.position.x)) / 0.12);
       const s = Math.max(0.001, c.userData.base * c.userData.k * edge);
       c.scale.set(s, s, s);
-      c.position.y = c.userData.y - vis.storm * 0.06 + Math.sin(T * 0.4 + i) * 0.005;
+      c.position.y = this.cloudY + c.userData.y * 0.08 - vis.storm * 0.04 + Math.sin(T * 0.4 + i) * 0.005;
       c.position.z = c.userData.z;
     });
     const cm = this.mats.GreenCloud;
@@ -986,7 +996,7 @@ export class Region {
     this.bulbs?.userData.tick(T);
     if (this.beam) {
       this.beam.rotation.y = T * 1.6;
-      this.beamMat.opacity += (Math.min(0.5, vis.night * 0.6 + vis.storm * 0.4) - this.beamMat.opacity) * Math.min(1, dt * 2);
+      this.beamMat.opacity += (Math.min(0.32, vis.night * 0.4 + vis.storm * 0.3) - this.beamMat.opacity) * Math.min(1, dt * 2);
     }
     if (this.boat) {
       const a = T * 0.05;

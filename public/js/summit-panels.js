@@ -82,12 +82,13 @@ export function makeBubble() {
   const pad = 0.045;
   const quoteSize = num('xr-text-md');
   const state = { customer: null, text: '', hits: [], tail: 'up', reveal: 1 };
-  const measure = (text) => {
+  const TAIL = 0.05;
+  const measure = (text, w) => {
     const ctx = document.createElement('canvas').getContext('2d');
     const ppm = num('xr-px-per-meter');
     ctx.font = font('bold', quoteSize * ppm);
-    const lines = richLines(ctx, text, (BUBBLE_W - pad * 2) * ppm);
-    return 0.09 + lines.length * quoteSize * 1.25 + pad * 2 + 0.05;
+    const lines = richLines(ctx, text, (w - pad * 2) * ppm);
+    return 0.09 + lines.length * quoteSize * 1.25 + pad * 2 + 0.03;
   };
   let panel = null;
   const draw = (ctx, p) => {
@@ -141,10 +142,14 @@ export function makeBubble() {
     /** Shows a line; returns the new panel (height fits the text). */
     show(customer, text, hits, tail = 'up') {
       Object.assign(state, { customer, text, hits, tail, reveal: 0 });
-      const h = measure(text);
-      if (!panel || Math.abs(panel.h - h) > 0.001) {
+      // Next to the customer (tail to the right) the bubble is narrower.
+      const body = tail === 'right' ? BUBBLE_W * 0.82 : BUBBLE_W;
+      const w = body + (tail === 'right' ? TAIL : 0);
+      const h = measure(text, body) + (tail === 'up' ? TAIL : 0);
+      if (!panel || Math.abs(panel.h - h) > 0.001 || Math.abs(panel.w - w) > 0.001) {
         panel?.dispose();
-        panel = new Panel(BUBBLE_W + (tail === 'right' ? 0.05 : 0), h, draw);
+        panel = new Panel(w, h, draw);
+        panel.renderOrder = 12;
       } else panel.redraw();
       return panel;
     },

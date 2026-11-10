@@ -265,25 +265,39 @@ export class GhostPlan {
     this.lineFine = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(lines.fine), lineMat(0.2));
     this.group.add(this.lineMain, this.lineFine);
     const box = new THREE.BoxGeometry(1, 1, 1);
-    this.boxes = new THREE.InstancedMesh(box, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), plan.pieces.length);
-    this.boxes.frustumCulled = false;
-    this.boxes.renderOrder = 3;
-    this.group.add(this.boxes);
-    const c = new THREE.Color();
-    plan.pieces.forEach((p, i) => this.boxes.setColorAt(i, c.setRGB(0, 0, 0)));
+    const ghostMat = (opacity) => new THREE.MeshBasicMaterial({ color: hex('xr-bricks-ghost'), transparent: true, opacity, depthWrite: false, toneMapped: false });
+    // Places a brick can go now (bright, pulsing) and the rest of the next courses (faint).
+    this.avail = new THREE.InstancedMesh(box, ghostMat(0.55), plan.pieces.length);
+    this.rest = new THREE.InstancedMesh(box, ghostMat(0.16), plan.pieces.length);
+    this.rest.material.color.setHex(hex('xr-bricks-ghost-dim')).lerp(new THREE.Color(hex('xr-bricks-ghost')), 0.5);
+    for (const m of [this.avail, this.rest]) {
+      m.frustumCulled = false;
+      m.renderOrder = 3;
+      this.group.add(m);
+    }
+    this.edges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: hex('xr-bricks-ghost-hot'), transparent: true, opacity: 0.8, depthWrite: false, toneMapped: false }));
+    this.edges.frustumCulled = false;
+    this.edges.renderOrder = 4;
+    this.group.add(this.edges);
     this.cBright = new THREE.Color(hex('xr-bricks-ghost'));
-    this.cDim = new THREE.Color(hex('xr-bricks-ghost-dim'));
     this.cHot = new THREE.Color(hex('xr-bricks-ghost-hot'));
     this.cReject = new THREE.Color(hex('xr-bricks-reject'));
+    this.availKey = '';
     // The highlight: a glowing brick with a bright edge.
     const hb = new THREE.BoxGeometry(L - GAP + 0.004, H - GAP + 0.004, D - GAP + 0.004);
-    this.hiMat = new THREE.MeshBasicMaterial({ color: this.cHot, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    this.hiMat = new THREE.MeshBasicMaterial({ color: this.cHot, transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false });
     this.hi = new THREE.Mesh(hb, this.hiMat);
     this.hiEdge = new THREE.LineSegments(new THREE.EdgesGeometry(hb), new THREE.LineBasicMaterial({ color: this.cHot, transparent: true, depthWrite: false, toneMapped: false }));
     this.hi.add(this.hiEdge);
     this.hi.visible = false;
     this.hi.renderOrder = 4;
     this.group.add(this.hi);
+    // A refused place flashes red for a moment.
+    this.noMat = new THREE.MeshBasicMaterial({ color: this.cReject, transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+    this.no = new THREE.Mesh(hb, this.noMat);
+    this.no.visible = false;
+    this.no.renderOrder = 4;
+    this.group.add(this.no);
     this.flash = null; // { p, t } red flash of a refused place
     this.dirty = true;
     this.fade = 1;
@@ -296,30 +310,47 @@ export class GhostPlan {
 
   update(dt, time, { available, hover, strong = false }) {
     const plan = this.plan;
-    const avail = new Set(available.map((p) => p.id));
-    let top = -1;
-    for (const id of plan.filled.keys()) top = Math.max(top, plan.pieces[id].course);
-    const c = new THREE.Color();
-    const pulse = 0.55 + 0.3 * Math.sin(time * 4.2);
-    plan.pieces.forEach((p, i) => {
-      const show = !plan.isFilled(p.id) && p.course <= top + 1;
-      if (this.dirty) {
+    const key = available.map((p) => p.id).join(',');
+    if (this.dirty || key !== this.availKey) {
+      this.availKey = key;
+      const avail = new Set(available.map((p) => p.id));
+      let top = -1;
+      for (const id of plan.filled.keys()) top = Math.max(top, plan.pieces[id].course);
+      plan.pieces.forEach((p, i) => {
+        const show = !plan.isFilled(p.id) && p.course <= top + 1;
+        let m = ZERO;
         if (show) {
           _q.setFromAxisAngle(UP, p.kind === 'post' ? 0 : p.yaw);
           _s.set(p.kind === 'post' ? D - GAP : p.len - GAP, H - GAP, D - GAP);
-          this.boxes.setMatrixAt(i, _m.compose(_p.set(p.x, p.y, p.z), _q, _s));
-        } else this.boxes.setMatrixAt(i, ZERO);
+          m = _m.compose(_p.set(p.x, p.y, p.z), _q, _s);
+        }
+        this.avail.setMatrixAt(i, show && avail.has(p.id) ? m : ZERO);
+        this.rest.setMatrixAt(i, show && !avail.has(p.id) ? m : ZERO);
+      });
+      this.avail.instanceMatrix.needsUpdate = true;
+      this.rest.instanceMatrix.needsUpdate = true;
+      this.dirty = false;
+      // Bright outlines around the places a brick can go now.
+      const pts = [];
+      const c = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
+      const E = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+      for (const p of available) {
+        const hx = (p.len - GAP) / 2 + 0.001;
+        const hy = (H - GAP) / 2 + 0.001;
+        const hz = (D - GAP) / 2 + 0.001;
+        const cs = Math.cos(p.yaw);
+        const sn = Math.sin(p.yaw);
+        const v = c.map(([x, y, z]) => new THREE.Vector3(p.x + x * hx * cs + z * hz * sn, p.y + y * hy, p.z - x * hx * sn + z * hz * cs));
+        for (const [a, b] of E) pts.push(v[a], v[b]);
       }
-      if (!show) return;
-      if (avail.has(p.id)) c.copy(this.cBright).multiplyScalar((strong ? 0.85 : 0.5) * (pulse + 0.15 * Math.sin(time * 3 + i)));
-      else c.copy(this.cDim).multiplyScalar(p.kind === 'full' ? 1 : 0.6);
-      if (this.flash?.p === p) c.lerp(this.cReject, Math.max(0, 1 - this.flash.t / 0.8));
-      this.boxes.setColorAt(i, c.multiplyScalar(this.fade));
-    });
-    if (this.dirty) this.boxes.instanceMatrix.needsUpdate = true;
-    this.boxes.instanceColor.needsUpdate = true;
-    this.dirty = false;
-    if (this.flash && (this.flash.t += dt) > 0.8) this.flash = null;
+      this.edges.geometry.dispose();
+      this.edges.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    }
+    const pulse = 0.5 + 0.5 * Math.sin(time * 4.2);
+    this.avail.material.color.copy(this.cBright).lerp(this.cHot, pulse * 0.6);
+    this.avail.material.opacity = ((strong ? 0.5 : 0.36) + 0.2 * pulse) * this.fade;
+    this.edges.material.opacity = (0.45 + 0.5 * pulse) * this.fade;
+    this.rest.material.opacity = 0.14 * this.fade;
     this.lineMain.material.opacity = 0.55 * this.fade;
     this.lineFine.material.opacity = 0.2 * this.fade;
     this.group.visible = this.fade > 0.01;
@@ -327,7 +358,16 @@ export class GhostPlan {
     if (hover) {
       this.hi.position.set(hover.x, hover.y, hover.z);
       this.hi.rotation.set(0, hover.yaw, 0);
-      this.hiMat.opacity = 0.32 + 0.18 * Math.sin(time * 10);
+      this.hiMat.opacity = 0.45 + 0.2 * Math.sin(time * 10);
+    }
+    const f = this.flash;
+    this.no.visible = !!f;
+    if (f) {
+      f.t += dt;
+      this.no.position.set(f.p.x, f.p.y, f.p.z);
+      this.no.rotation.set(0, f.p.yaw, 0);
+      this.noMat.opacity = 0.7 * Math.max(0, 1 - f.t / 0.9) * (0.6 + 0.4 * Math.sin(f.t * 30));
+      if (f.t > 0.9) this.flash = null;
     }
   }
 }
@@ -647,7 +687,7 @@ export function drawChart(ctx, p, s) {
   let sub;
   if (s.done) {
     head = t('bricksChartDone', { m: s.doneMonth });
-    sub = s.early ? t(s.early.hit ? 'bricksChartHit' : 'bricksChartMiss') : '';
+    sub = s.early ? t(s.early.key, { lo: s.early.lo, hi: s.early.hi }) : '';
   } else if (ready) {
     head = t('bricksChartAt', { m: Math.ceil(pr.median) });
     sub = Number.isFinite(pr.hi) ? t('bricksChartRange', { lo: Math.ceil(pr.lo), hi: Math.ceil(pr.hi) }) : t('bricksChartOpen', { lo: Math.ceil(pr.lo) });
@@ -661,8 +701,8 @@ export function drawChart(ctx, p, s) {
   y += lg * 1.2;
   ctx.fillStyle = color('xr-panel-muted');
   ctx.font = font('bold', sm);
-  ctx.fillText(sub, pad, y);
-  y += sm * 1.45;
+  for (const ln of wrap(ctx, sub, W - pad * 2).slice(0, 2)) { ctx.fillText(ln, pad, y); y += sm * 1.22; }
+  y += sm * 0.23;
   // the note at the bottom (what the AI just learned)
   ctx.font = font('regular', sm);
   const noteLines = s.note ? wrap(ctx, s.note, W - pad * 2).slice(0, 2) : [];
@@ -774,9 +814,9 @@ export function drawChart(ctx, p, s) {
   }
   // legend dot labels next to the lines: "saved" near now, target label at the right
   ctx.font = font('bold', sm * 0.95);
-  ctx.textAlign = 'right';
+  ctx.textAlign = 'left';
   ctx.fillStyle = color('xr-bricks-chart-target');
-  ctx.fillText(t('bricksChartTarget', { n: s.target }), x1, Y(s.target) - sm * 1.15);
+  ctx.fillText(t('bricksChartTarget', { n: s.target }), x0 + sm * 0.4, Y(s.target) - sm * 1.15);
   // note
   ctx.textAlign = 'left';
   ctx.fillStyle = color('xr-panel-text');

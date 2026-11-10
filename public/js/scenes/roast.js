@@ -12,8 +12,9 @@
 import * as THREE from 'three';
 import { BaseScene } from '../scene.js';
 import { Button, textPanel, placeOnArc } from '../ui3d.js';
+import { SPONSOR } from '../content.js';
 import { color, num } from '../tokens.js';
-import { t, getLang } from '../i18n.js';
+import { t, L, getLang } from '../i18n.js';
 import { sfx } from '../sfx.js';
 import { music } from '../music.js';
 import { quality } from '../quality.js';
@@ -21,7 +22,7 @@ import { CHRISTMAS, makeLightString, makeTree } from '../christmas.js';
 import { makeEnvironment } from '../robot-visuals.js';
 import '../roast-text.js';
 import {
-  GUESTS, BASKET_GUEST, RATIOS, ITEMS, CUES, FIRST_CRACK, SECOND_CRACK, Recommender,
+  GUESTS, BASKET_GUEST, BEANS, RATIOS, ITEMS, CUES, FIRST_CRACK, SECOND_CRACK, Recommender,
   cupFlavor, rate, guestPoints, basketResult, basketFor, mapPos,
 } from '../roast-ai.js';
 import {
@@ -34,19 +35,19 @@ import { RoastAudio } from '../roast-audio.js';
 
 const DROP = num('xr-roast-counter-drop') || 0.6; // counter top below eye height
 const ROAST_RATE = 0.1; // roast level per second (about 9 s from green to burnt)
-const COUNTER_AT = new THREE.Vector3(-0.15, 0, -1.0); // shop space: y = 0 is the counter top
-const JAR_X = [-0.78, -0.57, -0.36, -0.15];
+const COUNTER_AT = new THREE.Vector3(0, 0, -1.0); // shop space: y = 0 is the counter top
+const JAR_X = [-0.63, -0.42, -0.21, 0.0];
 const JAR_Z = -0.86;
 const TAG_Z = -0.675;
-const SCALE_AT = new THREE.Vector3(0.04, 0, -0.86);
-const CUP_AT = new THREE.Vector3(0.2, 0, -0.92);
-const ROASTER_AT = new THREE.Vector3(0.98, 0, -1.02);
+const SCALE_AT = new THREE.Vector3(0.19, 0, -0.86);
+const CUP_AT = new THREE.Vector3(0.36, 0, -0.92);
+const ROASTER_AT = new THREE.Vector3(1.12, 0, -1.02);
 const ROASTER_BASE_MIN = -0.8; // the roaster stands on a pedestal so its drum is about counter height
-const GUEST_AT = new THREE.Vector3(-0.32, 0, -1.56);
+const GUEST_AT = new THREE.Vector3(-0.17, 0, -1.56);
 const ENTER_X = -1.9;
 const EXIT_X = 1.9;
-const ITEM_X = [-0.8, -0.61, -0.42, -0.23, -0.04, 0.15];
-const BASKET_AT = new THREE.Vector3(0.38, 0, -0.93);
+const ITEM_X = [-0.65, -0.46, -0.27, -0.08, 0.11, 0.3];
+const BASKET_AT = new THREE.Vector3(0.54, 0, -0.93);
 const clamp = THREE.MathUtils.clamp;
 const short = (id) => t(`roastShort_${id}`);
 
@@ -84,7 +85,9 @@ export class RoastScene extends BaseScene {
     this.group.add(this.ui);
     // Browser: an invisible box that the camera fit frames (the 3D shop itself is left out).
     this.fit = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ visible: false }));
-    this.fit.visible = !this.engine.isXR;
+    this.fit.visible = false; // shown while playing (the intro frames its own panel)
+    this.fit.position.set(0.25, this.eye - DROP + 0.17, -0.97);
+    this.fit.scale.set(2.2, 0.95, 0.7);
     this.group.add(this.fit);
 
     this.ready = loadShop().then((m) => { if (!this.disposed) this.buildShop(m); }).catch((e) => console.warn('roast models not loaded', e));
@@ -92,8 +95,27 @@ export class RoastScene extends BaseScene {
     window.addEventListener('keydown', this.onKey);
     this.onUpdate((dt) => this.update(dt));
     const hint = t(this.engine.isXR ? 'roastIntroXR' : this.engine.touchUI ? 'roastIntroTouch' : 'roastIntroScreen');
-    this.intro(t('roastName'), `${t('roastIntro')} ${hint}`, () => this.start());
+    this.showIntro(t('roastName'), `${t('roastIntro', { basket: t(CHRISTMAS ? 'roastBasketXmas' : 'roastBasketPlain') })} ${hint}`);
+    // Phones: the scene places the camera itself while playing (a little from above).
+    this.mobileView((cam, dt, ins) => this.gameCamera(cam, dt, ins));
     this.layout(true);
+  }
+
+  /** Like BaseScene.intro, but higher, so the counter in front never covers it. */
+  showIntro(title, text) {
+    this.clearLayer();
+    const panel = this.add(textPanel(1.1, 0.4, [
+      { text: title, size: 'xr-text-title', weight: 'black', gap: 0.04 },
+      { text, size: 'xr-text-md', color: color('xr-panel-muted'), gap: 0.04 },
+      { text: L(SPONSOR.presentedBy), size: 'xr-text-sm', weight: 'bold', color: color('xr-warning') },
+    ]));
+    panel.position.set(0, this.eye + 0.64 - panel.h / 2, -this.dist);
+    const go = this.add(new Button(0.42, 0.13, { label: t('start'), variant: 'primary', labelSize: 'xr-text-lg', onClick: () => this.start() }));
+    go.position.set(0, panel.position.y - panel.h / 2 - 0.04 - go.h / 2, -this.dist);
+    this.popIn(panel);
+    this.popIn(go, 0.1);
+    this.app.host?.introduce(this, 'roast', panel);
+    this.prepareMusic();
   }
 
   // ---------- the shop ----------
@@ -114,7 +136,7 @@ export class RoastScene extends BaseScene {
       this.counter.add(this.string);
       this.tree = makeTree();
       this.tree.group.scale.setScalar(0.72);
-      this.tree.group.position.set(-1.38, 0, -1.78);
+      this.tree.group.position.set(-1.22, 0, -1.78);
       s.add(this.tree.group);
     }
     // the roaster on a pedestal, turned towards the player
@@ -125,6 +147,13 @@ export class RoastScene extends BaseScene {
     this.pedestal = new THREE.Mesh(new THREE.BoxGeometry(0.56, 1, 0.56).translate(0, -0.5, 0), shopMaterials().RoastPlinth);
     this.pedestal.receiveShadow = true;
     this.roaster.group.add(this.pedestal);
+    // soft shadows of the counter, the roaster and the guests on the (real) floor
+    if (!quality.lite) {
+      this.floorShadow = new THREE.Mesh(new THREE.PlaneGeometry(4, 3).rotateX(-Math.PI / 2), new THREE.ShadowMaterial({ opacity: 0.32, depthWrite: false }));
+      this.floorShadow.position.set(0, -1, -1.2);
+      this.floorShadow.receiveShadow = true;
+      s.add(this.floorShadow);
+    }
     this.smoke = new Puffs(s, { count: 22, token: 'xr-roast-smoke', size: 0.16, rise: 0.3, life: 2.6 });
     this.steam = new Puffs(s, { count: 10, token: 'xr-roast-steam', size: 0.05, rise: 0.12, life: 1.4 });
     // the lever: a generous invisible handle around the knob
@@ -173,7 +202,7 @@ export class RoastScene extends BaseScene {
     this.flight = new BeanFlight(s, shop);
     // a cup on the counter, waiting (decoration)
     const deco = makeCup(shop);
-    deco.position.set(0.5, 0, -1.0);
+    deco.position.set(0.62, 0, -1.02);
     deco.rotation.y = 0.8;
     s.add(deco);
     this.popShop();
@@ -197,21 +226,23 @@ export class RoastScene extends BaseScene {
     this.startMusic(0, 'roast');
     Object.assign(this, { score: 0, idx: -1, stars: [], perGuest: [], usedAI: 0, aiRight: 0, basketStars: 0, chefAI: null });
     this.ui.visible = true;
+    this.fit.visible = !this.engine.isXR;
     this.buildUi();
     this.nextGuest();
   }
 
   hudText() {
-    const name = t('roastName');
+    // phones: without the game's name, so the line that matters fits the status bar
+    const name = this.engine.touchUI ? '' : t('roastName');
     let s = this.idx >= GUESTS.length
-      ? t('roastHudBasket', { name, score: this.score })
+      ? t('roastHudBasket', { name, basket: t(CHRISTMAS ? 'roastBasketXmas' : 'roastBasketPlain'), score: this.score })
       : t('roastHud', { name, n: Math.max(1, this.idx + 1), total: GUESTS.length, score: this.score });
     // Phones: the line that matters most right now, readable in the status bar.
     if (this.engine.touchUI) {
       if (this.mode === 'roast') s += ` · ${t('roastRoasting')}: ${stageName(this.r)}`;
       else if (this.mode === 'pick' && this.sug?.recipe) s += ` · ${t('roastAiStop')}: ${this.recipeText(this.sug.recipe)} (${Math.round(this.sug.conf * 100)} %)`;
     }
-    return s;
+    return s.replace(/^ · /, '');
   }
 
   recipeText(rc) {
@@ -240,7 +271,7 @@ export class RoastScene extends BaseScene {
     // roast gauge and stop button (same place as the blend)
     this.gauge = gaugePanel();
     ui.add(this.gauge);
-    this.stopBtn = new Button(0.22, 0.2, { label: t('roastStop'), variant: 'danger', labelSize: 'xr-text-lg', onClick: () => this.stopRoast() });
+    this.stopBtn = new Button(0.36, 0.11, { label: t('roastStop'), variant: 'primary', labelSize: 'xr-text-lg', onClick: () => this.stopRoast() });
     this.gauge.add(this.stopBtn);
     // basket round: what is in the basket, and "pack"
     this.basketInfo = textPanel(0.62, 0.12, () => [
@@ -264,12 +295,13 @@ export class RoastScene extends BaseScene {
     // phones use the big screen buttons instead of the 3D ones
     const touch = this.engine.touchUI;
     [this.moreA, this.moreB, this.roastBtn, this.stopBtn, this.packBtn, this.aiBtn].forEach((b) => { b.visible = !touch; });
-    this.aiBtn.visible = !touch && (which === 'blend' || which === 'basket') && !!this.sugAvailable();
+    // the AI's button under its panel (on phones too: it sits right under what it suggests)
+    this.aiBtn.visible = (which === 'blend' || which === 'basket') && !!this.sugAvailable();
     this.updatePads();
   }
 
   sugAvailable() {
-    if (this.mode === 'basket') return this.bsug?.pick?.length;
+    if (this.mode === 'basket') return this.bsug?.profile && this.bsug.pick.length;
     return this.sug?.recipe;
   }
 
@@ -382,12 +414,13 @@ export class RoastScene extends BaseScene {
   showAI(g) {
     const s = (this.sug = this.ai.suggest(g));
     const cues = CUES.filter((k) => g.cues[k]).sort((a, b) => g.cues[b] - g.cues[a]).map((k) => t(`roastCue_${k}`));
-    const view = { count: this.ai.count, cues, lines: [], title2: null, conf: null, aim: null, dots: this.dots(), learned: null };
+    const view = { count: this.ai.count, cues, cueLabel: 'roastAiHears', lines: [], title2: null, conf: null, aim: null, dots: this.dots(), learned: null };
     if (s.recipe) {
-      const liked = s.neighbors.find((n) => n.stars >= 3) ?? s.neighbors[0];
+      const liked = s.neighbors.find((n) => n.stars >= 3 && n.id !== g.id) ?? s.neighbors.find((n) => n.stars >= 3) ?? s.neighbors[0];
       view.kind = s.regular ? 'regular' : 'suggest';
       view.status = s.regular ? t('roastAiRegular', { n: s.regular.stars }) : t('roastAiSimilar', { list: s.neighbors.slice(0, 2).map((n) => `${short(n.id)} ${Math.round(n.sim * 100)} %`).join(', ') });
-      view.title2 = s.regular ? t('roastAiRegularLiked', { name: short(g.id) }) : t('roastAiLiked', { name: short(liked.id) });
+      // a regular who liked their last cup: that cup; else what similar guests liked
+      view.title2 = s.regular && s.regular.stars >= 3 ? t('roastAiRegularLiked', { name: short(g.id) }) : t('roastAiLiked', { name: short(liked.id) });
       view.lines = [this.recipeText(s.recipe), t('roastRecipeRoast', { stage: stageName(s.roast) })];
       view.conf = s.conf;
       view.aim = { ...mapPos(s.profile, s.roast), conf: s.conf };
@@ -401,7 +434,6 @@ export class RoastScene extends BaseScene {
     }
     if (g.key === 'chef') this.chefAI = s.recipe ? s.conf : 0;
     this.aiPanel.show(view);
-    this.aiPanel.scale.setScalar(1);
     this.pulse(this.aiPanel);
   }
 
@@ -410,8 +442,14 @@ export class RoastScene extends BaseScene {
     return this.ai.log.map((e, i) => ({ ...mapPos(e.cup, e.roast), stars: e.stars, label: short(e.id).slice(0, 1), big: i === this.ai.log.length - 1 }));
   }
 
+  /** Pops a 3D model in by its scale only (its materials are shared with the rest of the shop). */
+  popScale(obj, delay = 0) {
+    obj.scale.setScalar(0.001);
+    this.delay(delay, () => this.tween(0.35, (k) => obj.scale.setScalar(Math.max(0.001, k * (1 + 0.15 * Math.sin(k * Math.PI))))));
+  }
+
   pulse(obj) {
-    const s0 = obj.scale.x;
+    const s0 = obj.userData.base ?? obj.scale.x;
     this.tween(0.35, (k) => obj.scale.setScalar(s0 * (1 + 0.05 * Math.sin(k * Math.PI))));
   }
 
@@ -462,7 +500,7 @@ export class RoastScene extends BaseScene {
   /** Takes the AI's suggestion (beans, share and its stop mark on the gauge). */
   useAI() {
     if (this.mode === 'basket') {
-      if (!this.bsug?.pick?.length) return;
+      if (!this.sugAvailable()) return;
       this.picks = this.bsug.pick.map((k) => ITEMS.findIndex((it) => it.key === k));
       this.refreshItems();
       sfx.powerup();
@@ -503,7 +541,7 @@ export class RoastScene extends BaseScene {
       this.audio.rumble(true);
       this.gauge.set({ r: 0, aiStop: this.aiStop, done: false });
       this.showControls('gauge');
-      this.toast(t(this.engine.isXR ? 'roastPull' : 'roastStop'), 'xr-roast-flame');
+      this.toast(t(this.engine.isXR ? 'roastStopHintXR' : this.engine.touchUI ? 'roastStopHintTouch' : 'roastStopHintScreen'), 'xr-roast-flame');
     });
   }
 
@@ -601,7 +639,7 @@ export class RoastScene extends BaseScene {
     c.position.copy(CUP_AT);
     this.shop.add(c);
     this.cup = c;
-    this.popIn(c);
+    this.popScale(c);
     sfx.appear();
     this.tween(0.8, (k) => c.userData.fill(k));
     this.steamOn = true;
@@ -635,7 +673,7 @@ export class RoastScene extends BaseScene {
       this.stars.push(res.stars);
       this.perGuest.push({ key: g.key, stars: res.stars, usedAI: this.usedNow });
       const head = guest.main.head.getWorldPosition(new THREE.Vector3());
-      this.floatText(t('roastPoints', { n: pts.total }), head.add(new THREE.Vector3(-0.32, 0.18, 0.15)), 'xr-roast-star');
+      this.floatText(t('roastPoints', { n: pts.total }), head.add(new THREE.Vector3(0, 0.2, 0.3)), 'xr-roast-star');
       this.toast(t('roastPointsParts', { a: pts.taste, b: pts.timing, c: pts.speed }), 'xr-roast-star');
       this.refreshHud?.();
     });
@@ -705,6 +743,7 @@ export class RoastScene extends BaseScene {
 
   floatText(text, worldPos, token) {
     const s = scoreSprite(text, token, 0.32);
+    s.material.depthTest = false;
     const p = this.group.worldToLocal(worldPos.clone());
     s.position.copy(p);
     this.group.add(s);
@@ -729,7 +768,7 @@ export class RoastScene extends BaseScene {
     this.basket.position.copy(BASKET_AT);
     this.basket.rotation.y = -0.4;
     this.shop.add(this.basket);
-    this.popIn(this.basket);
+    this.popScale(this.basket);
     this.items = ITEMS.map((it, i) => {
       const g = new THREE.Group();
       const m = makeItem(this.M, it.model);
@@ -746,7 +785,7 @@ export class RoastScene extends BaseScene {
       g.userData.home = g.position.clone();
       g.userData.lift = 0;
       this.shop.add(g);
-      this.popIn(g, 0.1 + i * 0.06);
+      this.popScale(g, 0.1 + i * 0.06);
       return g;
     });
     this.itemTags = ITEMS.map((it, i) => {
@@ -763,7 +802,7 @@ export class RoastScene extends BaseScene {
     const known = !!this.bsug.profile;
     const forG = basketFor();
     this.aiPanel.show({
-      count: this.ai.count, cues: [short(forG.id)], kind: known ? 'basket' : 'cold',
+      count: this.ai.count, cues: [short(forG.id)], cueLabel: 'roastAiFor', kind: known ? 'basket' : 'cold',
       status: known ? t('roastAiBasket') : t('roastAiBasketCold'),
       title2: null,
       lines: known ? [this.bsug.pick.map((k) => t(`roastItem_${k}`)).join(', ')] : [],
@@ -774,7 +813,7 @@ export class RoastScene extends BaseScene {
     this.showControls('none');
     this.delay(1.5, () => {
       if (this.disposed) return;
-      this.say(t('roastGuest_student'), t('roastAsk_basket'));
+      this.say(t('roastGuest_student'), t(CHRISTMAS ? 'roastAsk_basket' : 'roastAsk_basket_plain'));
       this.mode = 'basket';
       this.pickT0 = this.time;
       this.showControls('basket');
@@ -840,7 +879,7 @@ export class RoastScene extends BaseScene {
       this.basketStars = res.stars;
       this.basketAI = usedAI;
       const head = this.guest.main.head.getWorldPosition(new THREE.Vector3());
-      this.floatText(t('roastPoints', { n: res.points }), head.add(new THREE.Vector3(-0.32, 0.18, 0.15)), 'xr-roast-star');
+      this.floatText(t('roastPoints', { n: res.points }), head.add(new THREE.Vector3(0, 0.2, 0.3)), 'xr-roast-star');
       this.refreshHud?.();
     });
     this.delay(4.6, () => { if (!this.disposed) this.finish(); });
@@ -851,8 +890,11 @@ export class RoastScene extends BaseScene {
     this.mode = 'over';
     this.audio.stop();
     this.ui.visible = false;
+    this.fit.visible = false;
     this.updatePads();
-    this.leaveGuest();
+    // the shop makes way for the results
+    const s = this.shop;
+    this.tween(0.5, (k) => s.scale.setScalar(Math.max(0.001, 1 - k)), { onDone: () => { s.visible = false; this.removeGuest(); } });
     const n = this.stars.length;
     const avg = n ? this.stars.reduce((s, v) => s + v, 0) / n : 0;
     const good = this.stars.filter((s) => s >= 4).length + (this.basketStars >= 4 ? 1 : 0);
@@ -880,8 +922,10 @@ export class RoastScene extends BaseScene {
     const p = textPanel(0.62, 0.08, [{ text, size: 'xr-text-sm', weight: 'black', color: color(token) }], { surface: { stroke: color(token) } });
     this.ui.add(p);
     const L = this.layoutKind;
-    if (L === 'portrait') p.position.set(0, this.eye + 0.5, -1.25);
-    else p.position.set(0.32, this.eye + 0.44, -1.3);
+    // above the controls (where the eyes are while roasting)
+    const c = this.gauge.visible ? this.gauge : this.blend;
+    p.position.set(c.position.x, c.position.y + (L === 'portrait' ? 0.19 : 0.22), c.position.z - 0.02);
+    p.rotation.copy(c.rotation);
     this.popIn(p);
     this.toastPanel = p;
     this.delay(2.2, () => { if (this.toastPanel === p) { p.removeFromParent(); p.dispose(); this.toastPanel = null; } });
@@ -924,11 +968,13 @@ export class RoastScene extends BaseScene {
       const ai = { icon: 'lab', label: t('roastAiUse'), onPress: () => this.useAI(), group: 'right' };
       let items = null;
       let opts = { grid: true };
-      if (kind === 'pick') items = [0, 1, 2, 3].map((i) => ({ icon: 'roast', label: beanName(i), onPress: () => this.toggleJar(i), group: i < 3 ? 'left' : 'right' })).concat([ai]);
+      // the bean and its main note ("Ethiopia · fruity"), since the 3D tags are small on a phone
+      const note = (i) => `${beanName(i)} · ${t(`roastBeanNote_${BEANS[i].key}`).split(',')[0]}`;
+      if (kind === 'pick') items = [0, 1, 2, 3].map((i) => ({ icon: '', label: note(i), onPress: () => this.toggleJar(i), group: i < 3 ? 'left' : 'right' })).concat([ai]);
       else if (kind === 'blend') {
         items = [
-          { icon: 'back', label: '+', onPress: () => this.shift(1), group: 'left' },
-          { icon: 'back', label: '+', onPress: () => this.shift(-1), group: 'left' },
+          { icon: '', label: '+', onPress: () => this.shift(1), group: 'left' },
+          { icon: '', label: '+', onPress: () => this.shift(-1), group: 'left' },
           { icon: 'review', label: t('roastChange'), onPress: () => { this.sel = []; this.refreshBlend(); }, group: 'left' },
           ai,
           { icon: 'roast', label: t('roastRoast'), onPress: () => this.startRoast(), group: 'right', primary: true },
@@ -963,8 +1009,8 @@ export class RoastScene extends BaseScene {
       this.pads?.disable(4, !this.sug?.recipe);
     } else if (kind === 'blend') {
       const [a, b] = this.sel;
-      this.pads?.relabel(0, 'back', t('roastMore', { name: beanName(a) }));
-      this.pads?.relabel(1, 'back', t('roastMore', { name: beanName(b) }));
+      this.pads?.relabel(0, '', t('roastMore', { name: beanName(a) }));
+      this.pads?.relabel(1, '', t('roastMore', { name: beanName(b) }));
       this.pads?.disable(0, this.ratioIdx >= RATIOS.length - 1);
       this.pads?.disable(1, this.ratioIdx <= 0);
       this.pads?.disable(3, !this.sug?.recipe);
@@ -984,7 +1030,9 @@ export class RoastScene extends BaseScene {
     const kind = e.isXR ? 'xr' : portrait ? 'portrait' : e.touchUI ? 'land' : 'desk';
     if (!force && kind === this.layoutKind && this.layoutBuilt) return;
     this.layoutKind = kind;
+    this.focusRoaster = undefined;
     if (!this.aiPanel) return;
+    this.aiPanel.visible = true;
     this.layoutBuilt = true;
     const eye = this.eye;
     const top = eye - DROP;
@@ -1004,40 +1052,130 @@ export class RoastScene extends BaseScene {
     const ctl = [this.blend, this.gauge, this.basketInfo];
     if (kind === 'portrait') {
       ai.rotation.set(0, 0, 0);
-      ai.position.set(0, top - 0.32 - ai.h / 2, -0.62);
-      ctl.forEach((c) => { c.rotation.set(-0.15, 0, 0); c.position.set(0.0, top + 0.27, -0.66); });
-      this.fit.position.set(0, top + 0.15, -1.0);
-      this.fit.scale.set(1.15, 0.8, 0.1);
+      ai.scale.setScalar(1.2);
+      ai.userData.base = 1.2;
+      ai.position.set(-0.02, top - 0.34 - (ai.h * 1.2) / 2, -0.66);
+      ctl.forEach((c) => { c.rotation.set(-0.15, 0, 0); c.position.set(0.05, top + 0.27, -0.66); });
+      this.fit.position.set(-0.02, top + 0.1, -0.96);
+      this.fit.scale.set(1.46, 0.8, 0.68);
     } else {
-      if (kind === 'xr') placeOnArc(ai, -1.08, eye - 0.08, 1.02);
-      else placeOnArc(ai, -0.92, eye - 0.1, 1.1);
+      ai.scale.setScalar(1);
+      ai.userData.base = 1;
+      if (kind === 'xr') placeOnArc(ai, -1.05, eye - 0.02, 1.05);
+      // phones held sideways: higher, clear of the thumb buttons in the lower corners
+      else if (kind === 'land') placeOnArc(ai, -0.86, eye + 0.1, 1.16);
+      else placeOnArc(ai, -0.82, eye - 0.06, 1.12);
       if (kind !== 'xr') ai.rotation.y *= 0.6;
       ctl.forEach((c) => {
-        c.position.set(0.4, top + 0.33, -0.8);
-        c.rotation.set(-0.22, kind === 'xr' ? -0.32 : -0.15, 0, 'YXZ');
+        c.position.set(0.5, top + 0.33, -0.8);
+        c.rotation.set(-0.22, kind === 'xr' ? -0.42 : -0.15, 0, 'YXZ');
       });
-      this.fit.position.set(0.12, top + 0.25, -1.0);
-      this.fit.scale.set(2.2, 0.95, 0.1);
+      this.fit.position.set(0.25, top + 0.17, -0.97);
+      this.fit.scale.set(2.2, 0.95, 0.7);
     }
     // the share buttons under the blend bar, "roast" beside it
     const by = -this.blend.h / 2 - 0.012 - this.moreA.h / 2;
     this.moreA.position.set(-this.moreA.w / 2 - 0.008, by, 0.002);
     this.moreB.position.set(this.moreB.w / 2 + 0.008, by, 0.002);
     this.roastBtn.position.set(this.blend.w / 2 + 0.02 + this.roastBtn.w / 2, -0.03, 0.002);
-    this.stopBtn.position.set(this.gauge.w / 2 + 0.02 + this.stopBtn.w / 2, 0, 0.002);
+    this.stopBtn.position.set(0, -this.gauge.h / 2 - 0.014 - this.stopBtn.h / 2, 0.002);
     this.aiBtn.position.set(0, -ai.h / 2 - 0.012 - this.aiBtn.h / 2, 0.002);
     this.placeBubble();
   }
 
+  /**
+   * Browser preview while playing: the camera looks down on the counter a little (like standing
+   * behind it) and frames the shop area and every visible panel, between the phone's status bar
+   * and its buttons. Returns false (the engine's own fit) for the intro and the results.
+   */
+  gameCamera(cam, dt, ins = { top: 0, bottom: 0 }) {
+    if (this.engine.isXR || !this.ui.visible || this.mode === 'over' || this.mode === 'intro') return false;
+    const kind = this.layoutKind;
+    const tilt = kind === 'portrait' ? 0.2 : 0.3;
+    const up = new THREE.Vector3(0, Math.cos(tilt), -Math.sin(tilt));
+    const fwd = new THREE.Vector3(0, -Math.sin(tilt), -Math.cos(tilt));
+    const pts = [];
+    const box = new THREE.Box3();
+    const visit = (o) => {
+      if (!o.visible || o.userData.noFit) return;
+      if (o.isMesh && o.geometry) {
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        box.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+        for (let i = 0; i < 8; i++) pts.push(new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z));
+      }
+      o.children.forEach(visit);
+    };
+    this.group.updateMatrixWorld(true);
+    visit(this.fit);
+    visit(this.ui);
+    this.group.children.forEach((o) => { if (o.userData.hud) visit(o); });
+    if (!pts.length) return false;
+    let a0 = Infinity; let a1 = -Infinity; let b0 = Infinity; let b1 = -Infinity;
+    for (const p of pts) {
+      a0 = Math.min(a0, p.x); a1 = Math.max(a1, p.x);
+      const b = p.dot(up);
+      b0 = Math.min(b0, b); b1 = Math.max(b1, b);
+    }
+    const H = window.innerHeight;
+    const free = Math.max(0.35, 1 - (ins.top + ins.bottom) / H);
+    const center = (ins.bottom - ins.top) / H;
+    const tv = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
+    const th = tv * cam.aspect;
+    const margin = this.engine.touchUI ? 1.03 : 1.08;
+    // the point the camera aims at: the middle of the content (across and up the view)
+    const T = new THREE.Vector3((a0 + a1) / 2, 0, 0);
+    const mid = pts.reduce((s, p) => s + p.dot(fwd), 0) / pts.length;
+    T.addScaledVector(up, (b0 + b1) / 2).addScaledVector(fwd, mid - T.dot(fwd));
+    let need = 0.3;
+    for (const p of pts) {
+      const q = p.clone().sub(T);
+      const f = q.dot(fwd);
+      need = Math.max(need, (margin * Math.abs(q.x)) / th - f, (margin * Math.abs(q.dot(up))) / (tv * free) - f);
+    }
+    const want = T.clone().addScaledVector(fwd, -need).addScaledVector(up, -center * need * tv);
+    const k = this.camReady ? Math.min(1, dt * 4) : 1;
+    this.camReady = true;
+    cam.position.lerp(want, k);
+    cam.rotation.set(-tilt, 0, 0);
+    return true;
+  }
+
   // ---------- frame loop ----------
+
+  /** Phones held upright: while roasting, the view moves over to the roaster and the gauge. */
+  portraitFocus() {
+    if (this.layoutKind !== 'portrait' || !this.aiPanel) return;
+    const roasting = this.mode === 'pour' || this.mode === 'roast';
+    if (roasting === this.focusRoaster) return;
+    this.focusRoaster = roasting;
+    const top = this.eye - DROP;
+    this.aiPanel.visible = !roasting;
+    if (roasting) {
+      this.fit.position.set(0.62, top + 0.12, -0.98);
+      this.fit.scale.set(1.3, 0.75, 0.6);
+      this.gauge.position.set(0.55, top + 0.42, -0.72);
+    } else {
+      this.fit.position.set(-0.02, top + 0.1, -0.96);
+      this.fit.scale.set(1.46, 0.8, 0.68);
+      this.gauge.position.copy(this.blend.position);
+    }
+  }
 
   update(dt) {
     this.time += dt;
     const e = this.engine;
     this.layout();
+    this.portraitFocus();
+    // desktop browser: our own camera while playing (phones use mobileView)
+    if (!e.isXR && !e.touchUI) {
+      const own = this.gameCamera(e.camera, dt);
+      e.fitEnabled = !own;
+      if (!own) this.camReady = false;
+    }
     // the floor (the counter's plinth, the roaster's pedestal and the guests stand on it)
     this.floorShop = e.floorY - e.root.position.y - this.group.position.y - this.shop.position.y;
     if (this.plinth) this.plinth.scale.y = Math.max(0.001, -0.9 - this.floorShop);
+    if (this.floorShadow) this.floorShadow.position.y = this.floorShop + 0.002;
     if (this.roaster) {
       const base = Math.max(this.floorShop, ROASTER_BASE_MIN);
       this.roaster.group.position.y = base;
@@ -1114,6 +1252,8 @@ export class RoastScene extends BaseScene {
 
   dispose() {
     this.mode = 'over';
+    this.engine.fitEnabled = true;
+    if (!this.engine.isXR) this.engine.camera.rotation.set(0, 0, 0);
     window.removeEventListener('keydown', this.onKey);
     this.audio.stop();
     music.stop();

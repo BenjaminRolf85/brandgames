@@ -43,6 +43,9 @@ export class GreenScene extends BaseScene {
     this.game = new GreenGame();
     this.vis = { wind: 0.55, sun: 1, cloud: 0.35, rain: 0, snowfall: CHRISTMAS ? 0.25 : 0, snow: 0.65, night: 0, storm: 0, month: 2.4, cutout: false };
     const r = this.engine.renderer;
+    // The diorama has its own sun: the room's light a little softer meanwhile.
+    this.prevHemi = this.engine.hemi.intensity;
+    this.engine.hemi.intensity = this.prevHemi * 0.6;
     this.envTarget = makeEnvironment(r);
     this.prevEnvironment = this.engine.scene.environment;
     this.engine.scene.environment = this.envTarget.texture;
@@ -82,14 +85,19 @@ export class GreenScene extends BaseScene {
     const tilt = num('xr-green-tilt');
     const over = this.mode === 'over';
     const intro = this.mode === 'intro';
+    board.visible = xr || !over; // behind the results only in the headset (on the table)
+    if (this.region) {
+      this.region.cloudY = xr ? 0.27 : 0.16;
+      this.region.showSun = xr;
+    }
     if (xr) {
       board.position.set(0, eye - num('xr-green-table-drop') - (over ? 0.16 : 0), num('xr-green-table-z'));
       board.rotation.set(0, 0, 0);
       board.scale.setScalar(over ? 0.8 : 1);
     } else if (intro) {
-      board.position.set(0, eye - (touch && portrait ? 0.62 : 0.5), -1.4);
+      board.position.set(0, eye - (touch && portrait ? 1.02 : 0.98), -1.6);
       board.rotation.set(tilt, 0, 0);
-      board.scale.setScalar(touch && portrait ? 0.9 : 0.85);
+      board.scale.setScalar(touch && portrait ? 1 : 0.95);
     } else if (over) {
       board.position.set(0, eye - 0.95, -2.3);
       board.rotation.set(tilt, 0, 0);
@@ -97,7 +105,7 @@ export class GreenScene extends BaseScene {
     } else if (!touch) {
       board.position.set(0, eye - 0.06, -1.4);
       board.rotation.set(tilt, 0, 0);
-      board.scale.setScalar(1);
+      board.scale.setScalar(1.08);
     } else if (portrait) {
       board.position.set(0, eye - 0.3, -1.4);
       board.rotation.set(tilt, 0, 0);
@@ -142,9 +150,9 @@ export class GreenScene extends BaseScene {
       this.cards.position.set(0, eye - num('xr-green-table-drop') - 0.03, num('xr-green-table-z') + 0.47);
       this.cards.rotation.set(-0.95, 0, 0);
     } else if (!touch) {
-      this.fc.position.set(-0.86, eye + 0.02, -1.4);
-      this.dash.position.set(0.86, eye + 0.02, -1.4);
-      this.cards.position.set(0, eye - 0.54, -1.4);
+      this.fc.position.set(-0.88, eye + 0.02, -1.4);
+      this.dash.position.set(0.88, eye + 0.02, -1.4);
+      this.cards.position.set(0, eye - 0.57, -1.4);
       this.cards.rotation.set(0, 0, 0);
     } else if (portrait) {
       this.fc.position.set(0, eye + 0.24, -1.4);
@@ -211,8 +219,9 @@ export class GreenScene extends BaseScene {
     if (this.mode === 'sim') {
       const k = clamp((this.month ?? 0) / 12, 0, 1);
       const r = this.report;
-      return { game: g, power: r.energy * this.monthFrac(), co2: g.co2Total - r.co2 * (1 - k), qol: r.qolBefore + (r.qol - r.qolBefore) * k };
+      return { game: g, year: r.year, report: r, upto: this.month ?? 0, power: r.energy * this.monthFrac(), co2: g.co2Total - r.co2 * (1 - k), qol: r.qolBefore + (r.qol - r.qolBefore) * k };
     }
+    if (this.mode === 'report') return { game: g, year: this.report.year, report: this.report };
     if (this.mode === 'plan') {
       // The forecast for this year's portfolio (what is built so far).
       const power = g.plots.filter((p) => p.built && TYPES[p.built].kind === 'energy').reduce((s, p) => s + g.forecast(p.built, p.id).value, 0);
@@ -347,7 +356,7 @@ export class GreenScene extends BaseScene {
     ];
     this.results({
       gameKey: 'green', score: sc.total, correct: Math.round(sc.total / 50), total: 100,
-      line: `${t('greenLine', { gwh: fmtInt(g.energyTotal), co2: fmtInt(g.co2Total), qol: fmtInt(g.qol) })} · ${t('greenParts', { e: sc.parts.energy, c: sc.parts.co2, s: sc.parts.social, m: sc.parts.mix, b: sc.parts.budget })}`,
+      line: `${t('greenLine', { gwh: fmtInt(g.energyTotal), co2: fmtInt(g.co2Total), qol: fmtInt(g.qol) })}\n${t('greenParts', { e: sc.parts.energy, c: sc.parts.co2, s: sc.parts.social, m: sc.parts.mix, b: sc.parts.budget })}`,
       learned,
       onAgain: () => this.app.startGame('green'),
     });
@@ -616,10 +625,12 @@ export class GreenScene extends BaseScene {
     if (this.waitStart && R) this.start();
     this.layout();
     if (!R) return;
-    if (this.mode === 'plan') {
-      this.planT -= dt;
-      if (this.planT <= 0) this.runYear(true);
-      if (Math.floor(this.time * 2) !== this.hudTick) { this.hudTick = Math.floor(this.time * 2); this.refreshHud?.(); }
+    if (this.mode === 'plan' || this.mode === 'report' || this.mode === 'intro' || this.mode === 'over') {
+      if (this.mode === 'plan') {
+        this.planT -= dt;
+        if (this.planT <= 0) this.runYear(true);
+        if (Math.floor(this.time * 2) !== this.hudTick) { this.hudTick = Math.floor(this.time * 2); this.refreshHud?.(); }
+      }
       // Calm planning weather (a winter morning at Christmas).
       const calm = { wind: 0.55, sun: 1, cloud: 0.3, rain: 0, snowfall: CHRISTMAS ? 0.22 : 0, snow: 0.65, night: 0, storm: 0 };
       for (const k of Object.keys(calm)) this.vis[k] += (calm[k] - this.vis[k]) * Math.min(1, dt * 1.5);
@@ -686,6 +697,7 @@ export class GreenScene extends BaseScene {
     this.mode = 'over';
     window.removeEventListener('keydown', this.onKey);
     this.region?.dispose(this.engine.renderer);
+    this.engine.hemi.intensity = this.prevHemi;
     this.engine.scene.environment = this.prevEnvironment ?? null;
     this.envTarget?.dispose();
     super.dispose();

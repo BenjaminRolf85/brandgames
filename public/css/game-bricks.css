@@ -67,9 +67,9 @@
   /* the temptation card */
   --xr-bricks-tempt:          #ff8a6b;
   /* sizes (meters) */
-  --xr-bricks-chart-w:        0.62;
-  --xr-bricks-chart-h:        0.44;
-  --xr-bricks-chart-h-narrow: 0.36;
+  --xr-bricks-chart-w:        0.66;
+  --xr-bricks-chart-h:        0.6;
+  --xr-bricks-chart-h-narrow: 0.52;
   --xr-bricks-snap:           0.075;     /* a held brick snaps to a free place this close (headset) */
   --xr-bricks-grab:           0.085;     /* a hand this close to a brick grabs it directly */
 }

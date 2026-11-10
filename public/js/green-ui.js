@@ -131,7 +131,7 @@ class Pen {
   /** One line of text; size in meters. Returns its height in px. */
   line(text, { size = num('xr-text-sm'), weight = 'regular', col = color('xr-panel-text'), gap = 0.008, align = 'left', min = 0.022 } = {}) {
     const { ctx, c } = this;
-    const px = fitText(ctx, text, weight, c.m(size), this.w, c.m(min));
+    const px = fitText(ctx, text, weight, c.m(size * (this.k ?? 1)), this.w, c.m(min));
     ctx.fillStyle = col;
     ctx.textAlign = align;
     ctx.textBaseline = 'middle';
@@ -144,7 +144,7 @@ class Pen {
   /** Wrapped text (up to maxLines). */
   para(text, { size = num('xr-text-min'), weight = 'regular', col = color('xr-panel-muted'), gap = 0.008, maxLines = 3 } = {}) {
     const { ctx, c } = this;
-    const px = c.m(size);
+    const px = c.m(size * (this.k ?? 1));
     ctx.font = font(weight, px);
     ctx.fillStyle = col;
     ctx.textAlign = 'left';
@@ -306,18 +306,25 @@ function monthChart(pen, months, upto, { h = 0.09, forecast = null } = {}) {
  *   { mode: 'report', report, game }                 forecast versus result
  */
 export function forecastPanel(w, h, view) {
+  const wide = w / h > 2;
   const panel = new Panel(w, h, (ctx, c) => {
     c.surface({ stroke: color('xr-accent') });
     const v = view();
-    const pen = new Pen(ctx, c, 0.03);
+    const pen = new Pen(ctx, c, wide ? 0.025 : 0.03);
+    if (wide) pen.k = 1.12; // phones held upright: a little larger letters
     // Title row with the AI icon.
     drawIcon(ctx, 'greenAI', pen.x + c.m(0.02), pen.y + c.m(0.022), c.m(0.04), color('xr-accent'));
+    const full = { x: pen.x, w: pen.w };
     pen.x += c.m(0.05);
-    pen.w -= c.m(0.05);
+    pen.w = (wide ? full.w * 0.46 : full.w) - c.m(0.05);
     const title = v.mode === 'sim' ? t('greenYearRuns', { year: v.report.label }) : v.mode === 'report' ? t('greenReportTitle', { year: v.report.label }) : t('greenAITitle');
     pen.line(title, { size: num('xr-text-md'), weight: 'black', col: color('xr-accent'), gap: 0.002 });
-    pen.x -= c.m(0.05);
-    pen.w += c.m(0.05);
+    pen.x = full.x;
+    pen.w = wide ? full.w * 0.46 : full.w;
+    if (wide) {
+      // Two columns: the left one starts below the title, the right one at the top.
+      pen.right = { x: full.x + full.w * 0.5, w: full.w * 0.5, top: c.m(0.025) };
+    }
     if (v.mode === 'plan') drawPlan(pen, v);
     else if (v.mode === 'sim') drawSim(pen, v);
     else drawReport(pen, v);
@@ -325,12 +332,24 @@ export function forecastPanel(w, h, view) {
   return panel;
 }
 
+/** Wide panels: continue in the right column (once). */
+function column(pen) {
+  if (!pen.right || pen.inRight) return;
+  pen.inRight = true;
+  pen.x = pen.right.x;
+  pen.w = pen.right.w;
+  pen.y = pen.right.top;
+}
+
 function drawPlan(pen, v) {
   const { game, type, plot } = v;
   const T = type ? TYPES[type] : null;
   const sub = !T ? t('greenAIHint') : T.kind === 'social' ? t('greenAISubNeed') : t(type === 'wind' ? 'greenAISubWind' : 'greenAISubSun');
   pen.para(sub, { gap: 0.004, maxLines: 2 });
-  pen.rule();
+  if (pen.right) {
+    if (v.map) { pen.space(0.006); legend(pen, v.map); }
+    column(pen);
+  } else pen.rule();
   if (!T) {
     if (plot?.built) builtInfo(pen, v);
     else pen.para(v.touch ? t('greenIntroTouch') : t('greenAIHintPlot'), { size: num('xr-text-sm'), col: color('xr-panel-text'), maxLines: 4 });
@@ -371,7 +390,7 @@ function drawPlan(pen, v) {
     pen.para(t(`greenWrong_${T.area}`), { size: num('xr-text-sm'), col: color('xr-warning'), weight: 'bold', maxLines: 3 });
   } else {
     // The AI's top picks for this project, with their ranges.
-    const list = game.plots.filter((p) => !p.built && p.area === T.area).map((p) => ({ p, f: game.forecast(type, p.id) })).sort((a, b) => b.f.value - a.f.value).slice(0, 4);
+    const list = game.plots.filter((p) => !p.built && p.area === T.area).map((p) => ({ p, f: game.forecast(type, p.id) })).sort((a, b) => b.f.value - a.f.value).slice(0, pen.right ? 3 : 4);
     const top = Math.max(1, ...list.map((x) => x.f.hi)) * 1.05;
     for (const { p, f } of list) {
       const val = T.kind === 'energy' ? `${fmt(f.value)} GWh` : `+${fmtInt(f.value)}`;
@@ -388,9 +407,9 @@ function drawPlan(pen, v) {
       bar(pen, { lo: f.lo / top, hi: f.hi / top, mark: f.value / top, token: T.token, h: 0.01, gap: 0.01 });
     }
     if (!list.length) pen.para(t('greenTaken'), { col: color('xr-warning') });
-    else pen.para(v.touch ? t('greenAIHintTouch') : t('greenAIHintPlot'), { maxLines: 2 });
+    else if (!pen.right) pen.para(v.touch ? t('greenAIHintTouch') : t('greenAIHintPlot'), { maxLines: 2 });
   }
-  if (v.map) {
+  if (v.map && !pen.right) {
     pen.y = Math.max(pen.y, pen.c.canvas.height - pen.c.m(0.03 + 0.055));
     legend(pen, v.map);
   }
@@ -416,7 +435,7 @@ function drawSim(pen, v) {
   const { report, month, news } = v;
   const names = t('greenMonthNames').split(',');
   pen.line(names[Math.min(11, Math.floor(month))], { size: num('xr-text-sm'), weight: 'bold', col: color('xr-panel-muted'), gap: 0.004 });
-  pen.rule();
+  if (!pen.right) pen.rule();
   // Running totals so far (the months that passed).
   const k = Math.min(12, month);
   let w = 0;
@@ -440,13 +459,13 @@ function drawSim(pen, v) {
     ctx.textAlign = 'right';
     ctx.fillStyle = color('xr-panel-text');
     ctx.fillText(`${fmt(a)} GWh`, pen.x + pen.w, pen.y + c.m(0.016));
-    pen.y += c.m(0.036);
+    pen.y += c.m(0.04);
     if (fc > 0.01) {
-      ctx.font = font('regular', c.m(num('xr-text-min')) * 0.9);
+      ctx.font = font('regular', c.m(num('xr-text-min')) * 0.85);
       ctx.fillStyle = color('xr-panel-muted');
       ctx.textAlign = 'right';
-      ctx.fillText(`${t('greenAITitle')}: ${fmt(fc)} GWh · ${pct(a / fc - 1)}`, pen.x + pen.w, pen.y + c.m(0.006));
-      pen.y += c.m(0.024);
+      ctx.fillText(`${t('greenAITitle')}: ${fmt(fc)} GWh · ${pct(a / fc - 1)}`, pen.x + pen.w, pen.y + c.m(0.008));
+      pen.y += c.m(0.034);
     }
   };
   if (report.windFc > 0) row(t('greenRepWind'), w, wf, 'xr-green-wind');
@@ -454,13 +473,22 @@ function drawSim(pen, v) {
   if (!report.windFc && !report.sunFc) pen.para(t('greenRepNone'), { maxLines: 3 });
   pen.space(0.006);
   const fcMonths = report.windFc || report.sunFc ? MONTH_WIND.map((m, i) => report.windFc * m + report.sunFc * MONTH_SUN[i]) : null;
+  if (pen.right) {
+    const ty = pen.y;
+    column(pen);
+    pen.y = Math.max(pen.y, pen.c.m(0.03));
+    if (news) pen.para(news, { size: num('xr-text-min'), weight: 'bold', col: color('xr-warning'), maxLines: 3 });
+    monthChart(pen, report.months, k, { h: Math.max(0.06, (pen.c.canvas.height - pen.y) / pen.c.px - 0.055), forecast: fcMonths });
+    pen.y = Math.max(pen.y, ty);
+    return;
+  }
   monthChart(pen, report.months, k, { h: 0.085, forecast: fcMonths });
   if (news) pen.para(news, { size: num('xr-text-min'), weight: 'bold', col: color('xr-warning'), maxLines: 3 });
 }
 
 function drawReport(pen, v) {
   const { report: r } = v;
-  pen.rule(0.008);
+  if (!pen.right) pen.rule(0.008);
   const rows = [];
   if (r.windFc > 0) rows.push([t('greenRepWind'), r.windSum, r.windFc, 'xr-green-wind']);
   if (r.sunFc > 0) rows.push([t('greenRepSun'), r.sunSum, r.sunFc, 'xr-green-sun']);
@@ -481,6 +509,7 @@ function drawReport(pen, v) {
     bar(pen, { k: a / top, mark: f / top, token, h: 0.012, gap: 0.01 });
   }
   if (!rows.length) pen.para(t('greenRepNone'), { maxLines: 2 });
+  column(pen);
   pen.para(t(`greenWx_${r.weather}`), { size: num('xr-text-min'), col: color('xr-panel-text'), maxLines: 3 });
   // The mix: the whole portfolio was closer to the forecast than its parts.
   if (r.windFc > 0 && r.sunFc > 0) {
@@ -504,13 +533,13 @@ export function dashPanel(w, h, view) {
     const v = view();
     const { game } = v;
     const pen = new Pen(ctx, c, 0.03);
-    const year = Math.min(game.year, YEARS - 1);
+    const year = v.year ?? Math.min(game.year, YEARS - 1);
     pen.line(t('greenDash', { year: FIRST_YEAR + year }), { size: num('xr-text-md'), weight: 'black', gap: 0.002 });
     // Five dots for the five years.
     for (let i = 0; i < YEARS; i++) {
       ctx.beginPath();
       ctx.arc(pen.x + c.m(0.008) + i * c.m(0.026), pen.y + c.m(0.008), c.m(0.0075), 0, Math.PI * 2);
-      ctx.fillStyle = color(i < game.year ? 'xr-green-energy' : i === game.year ? 'xr-accent' : 'xr-button-bg');
+      ctx.fillStyle = color(i < year ? 'xr-green-energy' : i === year ? 'xr-accent' : 'xr-button-bg');
       ctx.fill();
     }
     pen.y += c.m(0.028);
@@ -519,15 +548,15 @@ export function dashPanel(w, h, view) {
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
       ctx.fillStyle = color('xr-panel-muted');
-      ctx.fillText(label, pen.x, pen.y + c.m(0.014));
+      ctx.fillText(label, pen.x, pen.y + c.m(0.02));
       ctx.textAlign = 'right';
       ctx.fillStyle = color(token);
       ctx.font = font('black', c.m(num('xr-text-sm')));
-      ctx.fillText(value, pen.x + pen.w, pen.y + c.m(0.014));
-      pen.y += c.m(0.032);
+      ctx.fillText(value, pen.x + pen.w, pen.y + c.m(0.02));
+      pen.y += c.m(0.046);
     };
     kv(t('greenBudget'), money(game.budget), 'xr-warning');
-    const last = game.history[game.history.length - 1];
+    const last = v.report ?? game.history[game.history.length - 1];
     const power = v.power ?? last?.energy ?? 0;
     kv(t('greenPower'), `${fmt(power)} GWh`, 'xr-green-energy');
     pen.line(t('greenHouseholds', { n: fmtInt((power * 1000) / HOUSEHOLD_MWH) }), { size: num('xr-text-min') * 0.9, col: color('xr-panel-muted'), align: 'right', gap: 0.0 });
@@ -575,9 +604,9 @@ export function dashPanel(w, h, view) {
       ctx.fillText(String(n), cx + c.m(0.004), pen.y + c.m(0.017));
     });
     pen.y += c.m(0.04);
-    if (last && pen.y + c.m(0.13) < c.canvas.height) {
+    if (last && pen.y + c.m(0.11) < c.canvas.height) {
       pen.line(t('greenMonthly'), { size: num('xr-text-min') * 0.9, weight: 'bold', col: color('xr-panel-muted'), gap: 0.004 });
-      monthChart(pen, last.months, 12, { h: Math.min(0.07, (c.canvas.height - pen.y) / c.px - 0.05) });
+      monthChart(pen, last.months, v.upto ?? 12, { h: Math.min(0.07, (c.canvas.height - pen.y) / c.px - 0.05) });
     }
   });
 }

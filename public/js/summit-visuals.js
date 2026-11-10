@@ -103,7 +103,7 @@ function wallMaterials() {
 }
 
 function cloneNode(gltf, name, mats) {
-  const src = gltf.scene.getObjectByName(name);
+  const src = gltf?.scene.getObjectByName(name);
   if (!src) return null;
   const obj = src.clone(true);
   obj.position.set(0, 0, 0);
@@ -125,7 +125,7 @@ export function makeMountain(gltf) {
   group.userData.noFit = true;
   const wall = cloneNode(gltf, 'SummitWall', mats);
   const peak = cloneNode(gltf, 'SummitPeak', mats);
-  group.add(wall, peak);
+  for (const o of [wall, peak]) if (o) group.add(o);
   // The quickdraws hang on the bolts.
   for (const b of BOLTS) {
     const qd = cloneNode(gltf, 'SummitQuickdraw', mats);
@@ -199,6 +199,7 @@ export class Hold {
     patchRock(this.mat);
     this.body = cloneNode(gltf, `SummitHold${variant}`, { ...mats, SummitHold: this.mat }) ?? new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 8), this.mat);
     this.body.rotation.z = (Math.random() - 0.5) * 1.2;
+    this.size = n ? 1.35 : 1;
     this.group.add(this.body);
     // Glow behind the hold while it is an option.
     this.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTexture(), color: hex(HOLD_TOKENS[n] ?? IDLE_TOKENS[0]), transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false }));
@@ -248,9 +249,9 @@ export class Hold {
     this.mat.emissiveIntensity = this.state === 'route' ? 0.06 : 0.18 + 0.25 * p + 0.4 * Math.max(this.hover, this.near);
     this.glow.material.opacity = option ? 0.35 + 0.25 * p + 0.3 * Math.max(this.hover, this.near) : this.state === 'route' ? 0 : 0.5;
     this.glow.scale.setScalar(0.15 + 0.05 * Math.max(this.hover, this.near));
-    const s = 1 + 0.15 * Math.max(this.hover, this.near);
+    const s = this.size * (1 + 0.15 * Math.max(this.hover, this.near));
     this.body.scale.setScalar(s);
-    this.ring.material.opacity = this.near * 0.9;
+    this.ring.material.opacity = option ? 0.25 + this.near * 0.7 : 0;
     this.ring.scale.setScalar(1 + 0.12 * Math.sin(time * 9));
     this.shake = Math.max(0, this.shake - dt);
     this.body.position.set(Math.sin(time * 70) * 0.004 * Math.min(1, this.shake * 4), Math.cos(time * 63) * 0.003 * Math.min(1, this.shake * 4), 0);
@@ -258,12 +259,14 @@ export class Hold {
   }
 
   dispose() {
+    if (this.disposed) return;
     this.group.removeFromParent();
     this.mat.dispose();
     this.glow.material.dispose();
     this.ring.geometry.dispose();
     this.ring.material.dispose();
     this.hit.geometry.dispose();
+    this.disposed = true;
     this.badge?.material.map.dispose();
     this.badge?.material.dispose();
   }
@@ -276,10 +279,10 @@ export function makeDecorHolds(gltf, wall, avoid = () => false) {
   const rnd = (a, b) => a + Math.random() * (b - a);
   for (let v = 0; v < 4; v++) {
     let geo = null;
-    gltf.scene.getObjectByName(`SummitHold${v}`)?.traverse((o) => { if (o.isMesh && o.material.name === 'SummitHold' && !geo) geo = o.geometry; });
+    gltf?.scene.getObjectByName(`SummitHold${v}`)?.traverse((o) => { if (o.isMesh && o.material.name === 'SummitHold' && !geo) geo = o.geometry; });
     if (!geo) continue;
     const mat = patchRock(new THREE.MeshStandardMaterial({ roughness: 0.55, vertexColors: true }));
-    const N = 12;
+    const N = 7;
     const inst = new THREE.InstancedMesh(geo, mat, N);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -290,7 +293,7 @@ export function makeDecorHolds(gltf, wall, avoid = () => false) {
       if (avoid(x, y)) continue;
       const z = surfaceZ(wall, x, y);
       q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), rnd(-Math.PI, Math.PI));
-      const s = rnd(0.7, 1.05);
+      const s = rnd(0.6, 0.9);
       m.compose(new THREE.Vector3(x, y, z - 0.004), q, new THREE.Vector3(s, s, s));
       inst.setMatrixAt(n, m);
       inst.setColorAt(n, col(IDLE_TOKENS[(n + v) % IDLE_TOKENS.length]));
@@ -535,7 +538,7 @@ export class ClimberEcho {
 // ---------- the customer ----------
 
 const HAIRS = ['Bun', 'Short', 'Curly', 'Long'];
-const CUSTOMER_SIZE = 0.25;
+const CUSTOMER_SIZE = 0.36;
 
 /**
  * The customer at the summit (origin between the feet, faces +z), in the look of
@@ -756,7 +759,8 @@ export function makeSummitDecor(gltf, mats) {
   if (CHRISTMAS) {
     const cross = cloneNode(gltf, 'SummitCross', mats);
     if (cross) {
-      cross.position.set(-0.2, PLATEAU_Y - 0.012, -0.04);
+      cross.position.set(-0.22, PLATEAU_Y - 0.012, -0.04);
+      cross.scale.setScalar(0.9);
       group.add(cross);
       // Fairy lights along the beams of the cross (dimensions from build_summit.py).
       const pts = [];
@@ -829,15 +833,18 @@ export function makeSky() {
       uMid: { value: col('xr-summit-sky-mid') },
       uLow: { value: col('xr-summit-sky-low') },
       uGlow: { value: col('xr-summit-sky-glow') },
+      uCloud: { value: col('xr-summit-cloud-shade') },
     },
     vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
     fragmentShader: `
-      uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uLow; uniform vec3 uGlow;
+      uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uLow; uniform vec3 uGlow; uniform vec3 uCloud;
       varying vec3 vDir;
       void main() {
         float h = vDir.y;
-        vec3 c = mix(uLow, uMid, smoothstep(-0.05, 0.25, h));
+        vec3 c = mix(uLow, uMid, smoothstep(0.0, 0.25, h));
         c = mix(c, uTop, smoothstep(0.2, 0.75, h));
+        // Below the horizon: the sea of clouds.
+        c = mix(c, uCloud, smoothstep(0.0, -0.08, h));
         float sun = pow(max(0.0, dot(normalize(vDir), normalize(vec3(0.55, 0.08, -0.83)))), 6.0);
         c += uGlow * sun * 0.55 * (1.0 - smoothstep(0.0, 0.5, h));
         gl_FragColor = vec4(c, 1.0);

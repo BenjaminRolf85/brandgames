@@ -131,7 +131,7 @@ export function jarTag(i) {
   const w = 0.215;
   const h = 0.185;
   const p = new Panel(w, h, (ctx, c) => {
-    const { selected, hover, order } = c.state;
+    const { selected, hover } = c.state;
     const W = c.canvas.width;
     const H = c.canvas.height;
     roundRect(ctx, c.m(0.004), c.m(0.004), W - c.m(0.008), H - c.m(0.008), c.m(0.02));
@@ -145,7 +145,13 @@ export function jarTag(i) {
     ctx.arc(W / 2, c.m(0.016), c.m(0.006), 0, Math.PI * 2);
     ctx.fillStyle = color('xr-roast-tag-edge');
     ctx.fill();
-    text(ctx, c, `${i + 1}  ${beanName(i)}`, 0.016, 0.045, { size: 'xr-text-min', weight: 'black', col: 'xr-roast-tag-ink', max: w - 0.032 });
+    // the number (its key on a keyboard) in a circle, green when chosen, then the name
+    ctx.beginPath();
+    ctx.arc(c.m(0.03), c.m(0.046), c.m(0.016), 0, Math.PI * 2);
+    ctx.fillStyle = color(selected ? 'xr-roast-tag-pick' : 'xr-roast-tag-edge');
+    ctx.fill();
+    text(ctx, c, String(i + 1), 0.03, 0.047, { size: 'xr-text-min', weight: 'black', col: selected ? 'xr-on-primary' : 'xr-roast-tag', align: 'center' });
+    text(ctx, c, beanName(i), 0.054, 0.046, { size: 'xr-text-min', weight: 'black', col: 'xr-roast-tag-ink', max: w - 0.066 });
     // four bars: icon + filled bar
     const flav = BEANS[i].flavor;
     FLAVORS.forEach((f, k) => {
@@ -160,13 +166,6 @@ export function jarTag(i) {
       ctx.fillStyle = color(FLAVOR_INK[f]);
       ctx.fill();
     });
-    if (selected) {
-      ctx.beginPath();
-      ctx.arc(W - c.m(0.026), c.m(0.03), c.m(0.019), 0, Math.PI * 2);
-      ctx.fillStyle = color('xr-roast-tag-pick');
-      ctx.fill();
-      text(ctx, c, String(order), w - 0.026, 0.031, { size: 'xr-text-min', weight: 'black', col: 'xr-on-primary', align: 'center' });
-    }
   });
   p.userData.interactive = true;
   p.userData.setHover = (v) => p.set({ hover: v });
@@ -175,8 +174,8 @@ export function jarTag(i) {
 
 /** A small label under a gift basket item. */
 export function itemTag(label, n) {
-  const w = 0.17;
-  const h = 0.06;
+  const w = 0.185;
+  const h = 0.062;
   const p = new Panel(w, h, (ctx, c) => {
     const { selected, hover, n } = c.state;
     roundRect(ctx, c.m(0.003), c.m(0.003), c.canvas.width - c.m(0.006), c.canvas.height - c.m(0.006), c.m(0.018));
@@ -185,7 +184,13 @@ export function itemTag(label, n) {
     ctx.lineWidth = c.m(selected ? 0.008 : hover ? 0.005 : 0.0025);
     ctx.strokeStyle = color(selected ? 'xr-roast-tag-pick' : 'xr-roast-tag-edge');
     ctx.stroke();
-    text(ctx, c, `${n}  ${label}`, w / 2, h / 2, { size: 'xr-text-min', weight: 'bold', col: 'xr-roast-tag-ink', align: 'center', max: w - 0.02 });
+    // the number (its key on a keyboard) in a small circle, then the name
+    ctx.beginPath();
+    ctx.arc(c.m(0.024), c.m(h / 2), c.m(0.015), 0, Math.PI * 2);
+    ctx.fillStyle = color(selected ? 'xr-roast-tag-pick' : 'xr-roast-tag-edge');
+    ctx.fill();
+    text(ctx, c, String(n), 0.024, h / 2 + 0.001, { size: 'xr-text-min', weight: 'black', col: selected ? 'xr-on-primary' : 'xr-roast-tag', align: 'center' });
+    text(ctx, c, label, 0.047, h / 2, { size: 'xr-text-min', weight: 'bold', col: 'xr-roast-tag-ink', max: w - 0.058 });
   });
   p.state.n = n;
   p.redraw();
@@ -242,9 +247,10 @@ export class AiPanel extends Panel {
     if (v.cues?.length) {
       ctx.font = font('bold', this.m(sz('xr-text-min')));
       let x = pad;
-      text(ctx, this, t('roastAiHears', { cues: '' }).trim(), x, y + 0.022, { size: 'xr-text-min', col: 'xr-panel-muted' });
+      const lead = t(v.cueLabel ?? 'roastAiHears', { cues: '' }).trim();
+      text(ctx, this, lead, x, y + 0.022, { size: 'xr-text-min', col: 'xr-panel-muted' });
       ctx.font = font('regular', this.m(sz('xr-text-min')));
-      x += ctx.measureText(t('roastAiHears', { cues: '' }).trim()).width / this.px + 0.012;
+      x += ctx.measureText(lead).width / this.px + 0.012;
       ctx.font = font('bold', this.m(sz('xr-text-min')));
       for (const cue of v.cues) {
         const cw = ctx.measureText(cue).width / this.px + 0.024;
@@ -418,7 +424,7 @@ export const ratioIndex = (share) => RATIOS.reduce((best, r, i) => (Math.abs(r -
 /** Roast progress: the stage strip with the cracks, the AI's mark and a needle. */
 export function gaugePanel() {
   const w = 0.62;
-  const h = 0.2;
+  const h = 0.22;
   const p = new Panel(w, h, (ctx, c) => {
     const { r = 0, aiStop = null, done = false } = c.state;
     c.surface({ stroke: color(STAGE_TOKEN[stageOf(r).key] === 'xr-roast-bean-burnt' ? 'xr-danger' : 'xr-panel-border') });
@@ -427,7 +433,7 @@ export function gaugePanel() {
     const st = stageOf(r);
     text(ctx, c, t(`roastStage_${st.key}`), w - pad, 0.038, { size: 'xr-text-md', weight: 'black', col: st.key === 'burnt' ? 'xr-danger' : st.key === 'green' ? 'xr-roast-bean-green' : st.key === 'yellow' ? 'xr-roast-bean-yellow' : 'xr-roast-bean-cinnamon', align: 'right' });
     const bx = pad;
-    const by = 0.075;
+    const by = 0.094;
     const bw = w - pad * 2;
     const bh = 0.045;
     ctx.save();

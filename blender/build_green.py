@@ -824,22 +824,22 @@ bpy.context.scene.collection.objects.link(e)
 # ---------- projects (clone sources at the origin) ----------
 
 HUB_Y = 0.104
-HUB_Z = 0.0105
+HUB_Z = 0.0118
 
 
 def turbine():
     p = [tcyl('found', (0, 0.0015, 0), 0.011, 0.003, CONC, segs=20)]
-    p.append(tcyl('tower', (0, 0.003 + (HUB_Y - 0.003) / 2, 0), 0.0042, HUB_Y - 0.003, TURB, segs=16, r2=0.0024))
+    p.append(tcyl('tower', (0, 0.003 + (HUB_Y - 0.003) / 2, 0), 0.0052, HUB_Y - 0.003, TURB, segs=16, r2=0.003))
     p.append(tcyl('door', (0, 0.0065, 0.0038), 0.0012, 0.004, WINDOW, axis='z', segs=8))
     bm = bmesh.new()
-    nac = blob('nac', (0, HUB_Y + 0.0006, -0.002), 0.0062, TURB, s=(0.75, 0.68, 1.85), segs=16, rings=10)
+    nac = blob('nac', (0, HUB_Y + 0.0006, -0.002), 0.007, TURB, s=(0.75, 0.68, 1.85), segs=16, rings=10)
     p.append(nac)
-    p.append(tbox('stripe', (0, HUB_Y + 0.0006, -0.002), (0.0094, 0.0012, 0.018), MARK))
+    p.append(tbox('stripe', (0, HUB_Y + 0.0006, -0.002), (0.0106, 0.0013, 0.02), MARK))
     return merge(p, 'GreenTurbine')
 
 
 def rotor():
-    p = [blob('spinner', (0, 0, 0.002), 0.0042, TURB, s=(1, 1, 1.5), segs=16, rings=10)]
+    p = [blob('spinner', (0, 0, 0.003), 0.0048, TURB, s=(1, 1, 1.5), segs=16, rings=10)]
     for k in range(3):
         a = k * 2 * math.pi / 3
         bm = bmesh.new()
@@ -849,7 +849,7 @@ def rotor():
         for i in range(9):
             t = i / 8
             r = 0.003 + t * L
-            chord = 0.0055 * (1 - t) ** 0.7 + 0.0012 if t > 0.12 else 0.0045 + t * 0.008
+            chord = 0.0068 * (1 - t) ** 0.7 + 0.0015 if t > 0.12 else 0.0055 + t * 0.01
             tw = 0.35 * (1 - t)
             th = 0.0012 * (1 - t) + 0.0004
             pts = [(-chord * 0.3, -th), (chord * 0.7, 0), (-chord * 0.3, th)]
@@ -1076,10 +1076,12 @@ if PREVIEW or COIN:
     for o in projects:
         o.hide_render = True
     hub.hide_render = True
-    for pid in ('L1', 'L4', 'L2'):
-        t = place('GreenTurbine', pid)
+    TS = 1.25 if not COIN else 1.4  # the app shows turbines a little larger than true to scale
+    for k, pid in enumerate(('L1', 'L4', 'L2', 'L3')):
+        t = place('GreenTurbine', pid, -0.35)
+        t.matrix_world = t.matrix_world @ Matrix.Scale(TS, 4)
         r = place('GreenRotor', pid)
-        r.matrix_world = t.matrix_world @ Matrix.Translation(P(0, HUB_Y + 0.0006, HUB_Z)) @ Matrix.Rotation(0.4, 4, 'Y')
+        r.matrix_world = t.matrix_world @ Matrix.Translation(P(0, HUB_Y + 0.0006, HUB_Z)) @ Matrix.Rotation(0.4 + k, 4, 'Y')
     for pid in ('L6', 'L7', 'L8'):
         place('GreenSolar', pid)
     place('GreenSchool', 'T3')
@@ -1104,7 +1106,18 @@ if PREVIEW:
         bpy.ops.render.render(write_still=True)
 
 if COIN:
-    sc = setup_render((512, 512), int(os.environ.get('GREEN_SAMPLES', '64')))
+    res = int(os.environ.get('GREEN_COIN_RES', '512'))
+    sc = setup_render((res, res), int(os.environ.get('GREEN_SAMPLES', '64')))
+    # Snow caps on the hill tops (the Christmas look of the game).
+    snowm = mat('CoinSnow', (0.95, 0.97, 1.0), rough=0.8)
+    for poly in ground.data.polygons:
+        if poly.material_index == ground.data.materials.find('GreenHill') and poly.center.z > 0.075:
+            poly.material_index = ground.data.materials.find('CoinSnow') if 'CoinSnow' in ground.data.materials else poly.material_index
+    if 'CoinSnow' not in ground.data.materials:
+        ground.data.materials.append(snowm)
+        for poly in ground.data.polygons:
+            if poly.material_index == ground.data.materials.find('GreenHill') and poly.center.z > 0.075:
+                poly.material_index = ground.data.materials.find('CoinSnow')
     # Rich background: a gradient sky from the token colors (deep teal to violet).
     nt = sc.world.node_tree
     bg = nt.nodes['Background']
@@ -1120,8 +1133,11 @@ if COIN:
     ramp.color_ramp.elements[0].color = (0.05, 0.09, 0.22, 1)
     ramp.color_ramp.elements[1].color = (0.12, 0.42, 0.5, 1)
     bg.inputs['Strength'].default_value = 1.0
-    cam.data.lens = 50
-    look(cam, (-0.06, 0.42, 0.62), (-0.04, 0.02, -0.02))
+    sc.render.film_transparent = True  # the background is painted in when the picture becomes a WebP
+    sc.render.image_settings.color_mode = 'RGBA'
+    cam.data.lens = float(os.environ.get('GREEN_COIN_LENS', '42'))
+    cx, cy, cz = [float(v) for v in os.environ.get('GREEN_COIN_CAM', '-0.5,0.62,0.78').split(',')]
+    look(cam, (cx, cy, cz), (-0.02, 0.0, -0.04))
     sc.render.filepath = COIN
     bpy.ops.render.render(write_still=True)
 print('DONE')
