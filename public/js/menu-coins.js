@@ -21,6 +21,7 @@ export const CARD_ART = {
   green: 'assets/cards/green.webp',
   roast: 'assets/cards/roast.webp',
   pinball: 'assets/cards/pinball.webp',
+  summit: 'assets/cards/summit.webp',
 };
 
 let promise = null;

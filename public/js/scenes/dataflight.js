@@ -62,7 +62,7 @@ const Z0 = -9; // data appears here, out of the vortex
 const VORTEX_Z = -9.6;
 const GONE_Z = -0.3; // data that got past Echo dissolves here (well before your face)
 const GAIN = new THREE.Vector3(1.6, 1.6, 1.5); // hand movement -> Echo movement
-const R_GOOD = 0.13; // catch radius (generous)
+const R_GOOD = 0.18; // catch radius for everything good: crystals, coins (x1.1), power-ups (x1.2); generous so it never frustrates
 const R_BAD = 0.1; // hit radius (a bit forgiving)
 const MAX_ITEMS = 40;
 // Echomotion gold coins: bonus points and a fact each. Only facts from echomotion.ai, the same
@@ -836,7 +836,7 @@ export class DataflightScene extends BaseScene {
       g.obj.scale.setScalar(Math.max(0.001, clamp((z - Z0) / 0.8, 0, 1)));
       // Crossing Echo's depth this frame: through the middle?
       if (!g.done && !g.missed && g.prev.z < p.z && g.pos.z >= p.z && (this.mode === 'play' || this.mode === 'ready')) {
-        if (Math.hypot(p.x - g.pos.x, p.y - g.pos.y) < 0.16) this.passGate(g);
+        if (Math.hypot(p.x - g.pos.x, p.y - g.pos.y) < 0.2) this.passGate(g); // generous: grazing the ring counts
         else { g.missed = true; g.run.missed += 1; }
       }
       if (z >= GONE_Z) this.removeGate(g);

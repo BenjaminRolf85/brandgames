@@ -584,7 +584,7 @@ export function drawFitPanel(ctx, c, st) {
   const bw = c.w - x0 - 0.03;
   if (compact) {
     text(ctx, c, `${t('dockFit')} ${Math.round(f * 100)} %`, x0, 0.04, { size: 'xr-text-sm', weight: 'black' });
-    text(ctx, c, t('dockContacts', { n: st.good ?? 0, total: st.special ?? 0 }), c.w - 0.03, 0.04, { size: 'xr-text-min', weight: 'bold', fill: color('xr-dock-good'), align: 'right' });
+    text(ctx, c, t('dockContacts', { n: st.good ?? 0, total: st.special ?? 0 }), c.w - 0.03, 0.04, { size: 'xr-text-min', weight: 'bold', fill: color(st.good ? 'xr-dock-good' : 'xr-panel-muted'), align: 'right' });
     text(ctx, c, st.status ?? '', x0, 0.092, { size: 'xr-text-min', weight: 'bold', fill: st.statusColor ?? color('xr-panel-muted'), maxW: bw });
     return;
   }

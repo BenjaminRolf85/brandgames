@@ -1142,7 +1142,8 @@ export class DockScene extends BaseScene {
     } else {
       this.aiPanel.position.set(0, eye + 0.37, -0.9);
       this.fitPanel.position.set(0, eye + 0.1, -0.9);
-      this.labPanel.position.set(0, eye - 0.16, -0.55);
+      this.labPanel.position.set(0, eye - 0.15, -0.62);
+      this.labPanel.scale.setScalar(0.92);
     }
     // On phones the lab result lies over the protein; it does not change the framing.
     if (compact) {
@@ -1217,7 +1218,7 @@ export class DockScene extends BaseScene {
     const compact = this.layoutKey === 'port' || this.layoutKey === 'land';
     let status = t(this.isXR ? 'dockStatusPickXR' : 'dockStatusPick');
     let tok = 'xr-panel-muted';
-    if (c && (c.s === 'active' || c.s === 'lab')) {
+    if (c && c.s === 'done') { status = t('dockLabStrong'); tok = 'xr-dock-good'; } else if (c && (c.s === 'active' || c.s === 'lab')) {
       if (!this.near) status = t('dockStatusTurn');
       else if ((o.clash ?? 0) > 0.3) { status = t('dockStatusClash'); tok = 'xr-dock-bad'; }
       else if (this.snapped) { status = t('dockStatusLocked'); tok = (o.fit ?? 0) >= FIT_MIN ? 'xr-dock-good' : 'xr-dock-mid'; }
