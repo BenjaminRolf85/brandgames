@@ -20,8 +20,12 @@ import {
 import { IconBurst, makeLamps, makeFlasher, ICON } from './pinball-fx.js';
 import { makePhoneGate, makeTvGate, drawPosters, makeEnvelope, makeBubbleTop, makeBranchFx, makeCharacters } from './pinball-props.js';
 import { drawStudio, makeKpiChart, BG_W, BG_H, CHART } from './pinball-backglass.js';
+import { buildDetails, drawDetailArt, detailInserts } from './pinball-details.js';
+import { drawCity, drawShots } from './pinball-art.js';
+import { buildTown, PEOPLE_SPOTS, PEOPLE_SCALE } from './pinball-town.js';
 
 export const MODEL_URL = 'assets/models/pinball.glb';
+export const TOYS_URL = 'assets/models/pinball-toys.glb';
 const col = (token) => new THREE.Color(hex(token));
 const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false };
 /** Playfield point (x, y) at height h, in the field group's space. */
@@ -155,8 +159,27 @@ const SOLID = {
   PbColumn: ['xr-pinball-column', 0.3, 0.35],
   PbHouse: ['xr-pinball-house', 0, 0.7],
   PbRoof: ['xr-pinball-roof', 0, 0.55],
+  PbStarPost: ['xr-pinball-star-post', 0, 0.3],
+  PbStandup: ['xr-pinball-standup', 0, 0.35],
+  PbStar: ['xr-pinball-star', 0, 0.2],
+  PbSpinner: ['xr-pinball-spinner', 0.8, 0.25],
+  PbAgency: ['xr-pinball-agency', 0, 0.5],
+  PbAgencyTrim: ['xr-pinball-agency-trim', 0.1, 0.4],
+  PbVan: ['xr-pinball-van', 0.1, 0.35],
+  PbWheel: ['xr-pinball-ch-social', 0.1, 0.3],
+  PbWheel2: ['xr-pinball-ch-email', 0.1, 0.3],
+  PbMailbox: ['xr-pinball-mailbox', 0.1, 0.35],
+  PbHorn: ['xr-pinball-sticker', 0, 0.3],
+  PbPlant: ['xr-pinball-tree-light', 0, 0.6],
+  PbStone: ['xr-pinball-stone', 0, 0.6],
+  PbGold: ['xr-pinball-gold', 1, 0.25],
+  PbSteel: ['xr-pinball-steel', 0.9, 0.3],
+  PbPiggy: ['xr-pinball-piggy', 0, 0.35],
+  PbBird: ['xr-pinball-bird', 0, 0.4],
+  PbBeak: ['xr-pinball-ch-poster', 0, 0.4],
+  PbPaper: ['xr-pinball-paper', 0, 0.6],
 };
-const GLOWS = { PbCoinGlow: 'xr-pinball-coin-light', PbWindowGlow: 'xr-pinball-window' };
+const GLOWS = { PbCoinGlow: 'xr-pinball-coin-light', PbWindowGlow: 'xr-pinball-window', PbGlassGlow: 'xr-pinball-glass', PbLampGlow: 'xr-pinball-light' };
 
 function convert(m, posterTex) {
   const name = m.name;
@@ -164,6 +187,7 @@ function convert(m, posterTex) {
   if (name === 'PbBumperCap') {
     return new THREE.MeshPhysicalMaterial({ name, color: hex(CH_TOKEN.social), roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.1, emissive: hex(CH_TOKEN.social), emissiveIntensity: 0.35, vertexColors: false });
   }
+  if (name === 'PbGlassBox') return new THREE.MeshStandardMaterial({ name, color: hex('xr-pinball-glass'), roughness: 0.05, transparent: true, opacity: 0.3, depthWrite: false });
   if (name === 'PbPoster') return new THREE.MeshStandardMaterial({ name, map: posterTex, roughness: 0.6, vertexColors: true });
   if (name === 'PbBody') return new THREE.MeshPhysicalMaterial({ name, color: hex('xr-pinball-cabinet'), metalness: 0.3, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.12, vertexColors: true });
   const s = SOLID[name];
@@ -173,12 +197,12 @@ function convert(m, posterTex) {
 
 /** Loads the Blender model and gives it token materials: { parts, anchors }. */
 export async function loadPinballModel() {
-  const gltf = await loadGLTF(MODEL_URL);
+  const [gltf, toys] = await Promise.all([loadGLTF(MODEL_URL), loadGLTF(TOYS_URL)]);
   const posterTex = posterTexture();
   const made = new Map();
   const parts = {};
   const anchors = {};
-  for (const node of gltf.scene.children) {
+  for (const node of [...gltf.scene.children, ...toys.scene.children]) {
     if (!node.isMesh && !node.children.length) { anchors[node.name] = node.position.clone(); continue; }
     const root = node.clone(true);
     root.traverse((o) => {
@@ -280,13 +304,16 @@ function tube(points, radius, segs = 6) {
   return new THREE.TubeGeometry(curve, Math.max(8, points.length), radius, segs, false);
 }
 
-/** A wireform ramp with a clear plastic entrance, ribs and supports. */
-function makeRamp(r, mats, channel) {
+/**
+ * A ramp along a path: 'wire' (chrome wireform with a clear plastic entrance), 'plastic' (a
+ * colored clear plastic ramp all the way, lit edges) or 'gold' (the coin chute's gold wires).
+ */
+function makeRamp(r, mats, channel, style = 'wire') {
   const g = new THREE.Group();
   g.userData.noFit = true;
   const N = r.pts.length;
-  const sAt = (len) => r.len.findIndex((l) => l >= len);
-  const plasticEnd = Math.max(4, sAt(0.13));
+  const sAt = (len) => { const i = r.len.findIndex((l) => l >= len); return i < 0 ? N - 1 : i; };
+  const plasticEnd = style === 'plastic' ? N - 1 : style === 'gold' ? 0 : Math.max(4, sAt(0.13));
   // Plastic entrance: floor and two side walls, lofted along the path.
   const pos = [];
   const quad = (a, b, c, d) => pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, a.x, a.y, a.z, c.x, c.y, c.z, d.x, d.y, d.z);
@@ -299,18 +326,35 @@ function makeRamp(r, mats, channel) {
     quad(fl[i], fl[i + 1], wl[i + 1], wl[i]);
     quad(fr[i + 1], fr[i], wr[i], wr[i + 1]);
   }
-  const pg = new THREE.BufferGeometry();
-  pg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  pg.computeVertexNormals();
-  const plastic = new THREE.Mesh(pg, mats.rampPlastic);
-  plastic.renderOrder = 3;
-  g.add(plastic);
+  if (pos.length) {
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    pg.computeVertexNormals();
+    const pm = style === 'plastic' ? new THREE.MeshStandardMaterial({ color: hex(CH_TOKEN[channel]), roughness: 0.1, metalness: 0, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false, emissive: hex(CH_TOKEN[channel]), emissiveIntensity: 0.25 }) : mats.rampPlastic;
+    if (pm !== mats.rampPlastic) g.userData.owned = [pm];
+    const plastic = new THREE.Mesh(pg, pm);
+    plastic.renderOrder = 3;
+    g.add(plastic);
+  }
   // Glowing edges in the channel's color along the plastic walls.
   const edgeMat = new THREE.MeshBasicMaterial({ color: hex(CH_TOKEN[channel]), toneMapped: false });
-  const edges = mergeGeometries([tube(wl, 0.0016, 5), tube(wr, 0.0016, 5)]);
-  g.add(new THREE.Mesh(edges, edgeMat));
+  (g.userData.owned ??= []).push(edgeMat);
+  if (wl.length > 1) g.add(new THREE.Mesh(mergeGeometries([tube(wl, 0.0016, 5), tube(wr, 0.0016, 5)]), edgeMat));
+  if (style === 'plastic') {
+    // A plastic ramp: supports only.
+    const sup = [];
+    for (let s = 0.1; s < r.total - 0.05; s += 0.13) {
+      const p = r.at(s);
+      if (p.h < 0.03) continue;
+      const c = new THREE.CylinderGeometry(0.0017, 0.0017, p.h, 6);
+      c.translate(p.x, p.h / 2, -p.y);
+      sup.push(c);
+    }
+    if (sup.length) g.add(new THREE.Mesh(mergeGeometries(sup.map((w) => w.toNonIndexed())), mats.wire));
+    return g;
+  }
   // Wireform: four wires from the end of the plastic to the end of the ramp.
-  const from = plasticEnd - 2;
+  const from = Math.max(0, plasticEnd - 2);
   const wires = [
     tube(rampRail(r, from, N - 1, 0.0105, 0.003), 0.0017),
     tube(rampRail(r, from, N - 1, -0.0105, 0.003), 0.0017),
@@ -331,7 +375,7 @@ function makeRamp(r, mats, channel) {
     c.translate(p.x, p.h / 2, -p.y);
     wires.push(c);
   }
-  const wm = new THREE.Mesh(mergeGeometries(wires.map((w) => w.toNonIndexed())), mats.wire);
+  const wm = new THREE.Mesh(mergeGeometries(wires.map((w) => w.toNonIndexed())), style === 'gold' ? mats.gold : mats.wire);
   wm.castShadow = true;
   g.add(wm);
   return g;
@@ -342,24 +386,7 @@ function makeRamp(r, mats, channel) {
 function makeSling(sl, mats) {
   const g = new THREE.Group();
   const { A, B, C } = sl;
-  // Plastic cover, inset from the posts.
-  const cx = (A[0] + B[0] + C[0]) / 3;
-  const cy = (A[1] + B[1] + C[1]) / 3;
-  const ins = (p, k) => [p[0] + (cx - p[0]) * k, p[1] + (cy - p[1]) * k];
-  const s = new THREE.Shape();
-  const pa = ins(A, 0.12);
-  const pb = ins(B, 0.12);
-  const pc = ins(C, 0.12);
-  s.moveTo(pa[0], pa[1]);
-  s.lineTo(pb[0], pb[1]);
-  s.lineTo(pc[0], pc[1]);
-  s.closePath();
-  const geo = new THREE.ExtrudeGeometry(s, { depth: 0.006, bevelEnabled: true, bevelThickness: 0.0015, bevelSize: 0.0015, bevelSegments: 2 });
-  geo.rotateX(-Math.PI / 2);
-  geo.translate(0, 0.021, 0);
-  const cover = new THREE.Mesh(geo, mats.sling);
-  cover.castShadow = true;
-  g.add(cover);
+  // (The printed plastic on top is made with the other plastics in pinball-details.js.)
   // Rubber band around the three posts (tangent lines and arcs), at band height.
   const r = 0.0068;
   const pts = [A, B, C];
@@ -389,10 +416,10 @@ function makeSling(sl, mats) {
 
 // ---------- the playfield art ----------
 
-const PPM = 1700; // canvas pixels per meter
 const PF = { w: BOARD.x1 - BOARD.x0, h: BOARD.y1 - BOARD.y0 };
 
-function drawPlayfield(table) {
+function drawPlayfield(table, lite = false) {
+  const PPM = lite ? 1900 : 3150; // canvas pixels per meter (about 1800 x 4060 px)
   const W = Math.round(PF.w * PPM);
   const H = Math.round(PF.h * PPM);
   const c = document.createElement('canvas');
@@ -402,75 +429,18 @@ function drawPlayfield(table) {
   const X = (x) => (x - BOARD.x0) * PPM;
   const Y = (y) => (BOARD.y1 - y) * PPM;
   const M = (m) => m * PPM;
-  // Board edge outside the walls.
-  ctx.fillStyle = color('xr-pinball-cabinet-dark');
-  ctx.fillRect(0, 0, W, H);
-  // The field inside the outer wall (with the arc).
+  // The whole board: the town seen from above (also outside the arch and behind it).
+  drawCity(ctx, { X, Y, M, W, H, table });
   const outer = table.walls[0].pts;
   ctx.save();
   ctx.beginPath();
   outer.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
   ctx.closePath();
   ctx.clip();
-  const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, color('xr-pinball-field-2'));
-  bg.addColorStop(0.55, color('xr-pinball-field'));
-  bg.addColorStop(1, color('xr-pinball-field-2'));
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, W, H);
-  // The town map: blocks, a park, streets with dashed center lines.
-  ctx.globalAlpha = 0.55;
-  ctx.fillStyle = color('xr-pinball-field-2');
-  const rnd = mulberry(5);
-  for (let i = 0; i < 70; i++) {
-    const x = -0.23 + rnd() * 0.46;
-    const y = 0.12 + rnd() * 0.72;
-    const w = 0.02 + rnd() * 0.03;
-    const h = 0.015 + rnd() * 0.025;
-    ctx.beginPath();
-    ctx.roundRect(X(x), Y(y + h), M(w), M(h), M(0.004));
-    ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = color('xr-pinball-park');
-  ctx.beginPath();
-  ctx.ellipse(X(0), Y(0.72), M(0.15), M(0.12), 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = color('xr-pinball-tree-light');
-  for (let i = 0; i < 26; i++) {
-    const a = rnd() * Math.PI * 2;
-    const r = 0.06 + rnd() * 0.07;
-    ctx.beginPath();
-    ctx.arc(X(Math.cos(a) * r * 1.1), Y(0.72 + Math.sin(a) * r * 0.85), M(0.006), 0, Math.PI * 2);
-    ctx.fill();
-  }
-  const street = (pts, wid = 0.02) => {
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = color('xr-pinball-street');
-    ctx.lineWidth = M(wid);
-    ctx.beginPath();
-    pts.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
-    ctx.stroke();
-    ctx.setLineDash([M(0.008), M(0.008)]);
-    ctx.strokeStyle = color('xr-pinball-street-line');
-    ctx.lineWidth = M(0.0018);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  };
-  const ring = [];
-  for (let i = 0; i <= 40; i++) ring.push([Math.cos((i / 40) * Math.PI * 2) * 0.072, 0.5 + Math.sin((i / 40) * Math.PI * 2) * 0.072]);
-  street(ring);
-  street([[-0.068, 0.52], [-0.12, 0.555], [-0.168, 0.585]]);
-  street([[0.068, 0.52], [0.12, 0.555], [0.168, 0.585]]);
-  street([[-0.07, 0.48], [-0.14, 0.462], [-0.21, 0.465]]);
-  street([[0.07, 0.48], [0.14, 0.466], [0.19, 0.468]]);
-  street([[0, 0.572], [0, 0.64]]);
-  street([[0, 0.428], [0, 0.33]]);
-  street([[-0.15, 0.33], [-0.06, 0.31], [0.06, 0.31], [0.15, 0.33]], 0.016);
+  drawShots(ctx, { X, Y, M });
   // Lane area under the arc: a warm band behind the four target-group lanes.
-  ctx.fillStyle = color('xr-pinball-cabinet');
-  ctx.globalAlpha = 0.6;
+  ctx.fillStyle = color('xr-pinball-cabinet-dark');
+  ctx.globalAlpha = 0.55;
   ctx.fillRect(X(GUIDE_X[0]), Y(LANE_Y[1] + 0.01), M(GUIDE_X[4] - GUIDE_X[0]), M(LANE_Y[1] - LANE_Y[0] + 0.03));
   ctx.globalAlpha = 1;
   ctx.textAlign = 'center';
@@ -486,6 +456,10 @@ function drawPlayfield(table) {
     drawGlyph(ctx, ln.group, X(ln.x), Y(ln.y), M(0.024), color('xr-pinball-lane-light'), 2.2);
     ctx.fillStyle = color('xr-pinball-field-text');
     ctx.font = font('black', M(0.0105));
+    ctx.lineWidth = M(0.0026);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = color('xr-pinball-dark');
+    ctx.strokeText(t(`pinballLane_${ln.group}`), X(ln.x), Y(LANE_Y[0] - 0.014));
     ctx.fillText(t(`pinballLane_${ln.group}`), X(ln.x), Y(LANE_Y[0] - 0.014));
   }
   // Channel inserts: dark plastic with the channel color's outline, icon and name.
@@ -505,6 +479,10 @@ function drawPlayfield(table) {
     ctx.fillStyle = color('xr-pinball-field-text');
     ctx.font = font('black', M(0.0092));
     const ly = ins.dy > 0.9 ? ins.y - INS_R - 0.009 : ins.y - INS_R - 0.009;
+    ctx.lineWidth = M(0.0024);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = color('xr-pinball-dark');
+    ctx.strokeText(t(`pinballCh_${ch}`).toUpperCase(), X(ins.x), Y(ly));
     ctx.fillText(t(`pinballCh_${ch}`).toUpperCase(), X(ins.x), Y(ly));
   }
   // The marketing funnel: awareness, interest, conversion (narrower towards the bottom).
@@ -539,16 +517,9 @@ function drawPlayfield(table) {
   ctx.fillStyle = color('xr-pinball-accent-glow');
   ctx.font = font('black', M(0.0105));
   ctx.fillText(t('pinballFieldSave'), X(SAVE.x), Y(SAVE.y));
-  // Inlane arrows (down to the flippers), outlane warning stripes, shooter lane chevrons.
-  for (const s of [1, -1]) {
-    chevron(ctx, X(s * -0.175), Y(0.31), M(0.012), Math.PI / 2, color('xr-pinball-lane-light'));
-    ctx.fillStyle = color('xr-pinball-danger');
-    for (let k = 0; k < 4; k++) {
-      ctx.globalAlpha = 0.7 - k * 0.12;
-      ctx.fillRect(X(s * -0.2185) - M(0.008), Y(0.29 - k * 0.04), M(0.016), M(0.016));
-    }
-    ctx.globalAlpha = 1;
-  }
+  // Classic details: persona lamps, kickback, extra ball, spinner, inlane arrows, drop numbers.
+  drawDetailArt(ctx, X, Y, M, table);
+  // Shooter lane chevrons.
   for (let k = 0; k < 6; k++) chevron(ctx, X(LANE_X), Y(0.2 + k * 0.08), M(0.011), -Math.PI / 2, color('xr-pinball-lane-light'), 0.35 + k * 0.1);
   ctx.restore();
   // The wooden board edge: a thin line along the outer wall.
@@ -606,8 +577,8 @@ function apronShape() {
 }
 
 function apronTexture() {
-  const W = 1024;
-  const H = 256;
+  const W = 2048;
+  const H = 512;
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
@@ -621,33 +592,56 @@ function apronTexture() {
   ctx.fillStyle = color('xr-pinball-apron');
   ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = color('xr-pinball-accent');
-  ctx.fillRect(0, Y(-0.012), W, 8);
-  const card = (cx, text, accent) => {
-    const w = 0.15;
-    const h = 0.042;
+  ctx.fillRect(0, Y(-0.012), W, 14);
+  ctx.fillStyle = color('xr-pinball-lane-light');
+  ctx.fillRect(0, Y(-0.012) + 20, W, 4);
+  // A classic instruction card and a score card: a title band, then lines with icons.
+  const card = (cx, title, lines, accent) => {
+    const w = 0.152;
+    const h = 0.044;
+    const left = X(cx - w / 2);
+    const top = Y(0.027);
+    const cw = w * sx;
+    const ch = h * sy;
     ctx.fillStyle = color('xr-pinball-apron-card');
     ctx.beginPath();
-    ctx.roundRect(X(cx - w / 2), Y(0.026), w * sx, h * sy, 10);
+    ctx.roundRect(left, top, cw, ch, 14);
     ctx.fill();
     ctx.fillStyle = color(accent);
-    ctx.fillRect(X(cx - w / 2), Y(0.026), w * sx, 10);
-    ctx.fillStyle = color('xr-pinball-apron-ink');
+    ctx.beginPath();
+    ctx.roundRect(left, top, cw, 46, [14, 14, 0, 0]);
+    ctx.fill();
+    ctx.fillStyle = color('xr-pinball-sticker');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    let px = 30;
+    ctx.font = font('black', px);
+    while (ctx.measureText(title).width > cw - 30 && px > 14) { px -= 1; ctx.font = font('black', px); }
+    ctx.fillText(title, left + cw / 2, top + 24);
+    const lh = (ch - 58) / lines.length;
+    px = Math.min(25, lh * 0.8);
+    ctx.font = font('bold', px);
+    const maxW = cw - 70;
+    for (const ln of lines) while (ctx.measureText(ln.text).width > maxW && px > 11) { px -= 1; ctx.font = font('bold', px); }
     ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    let px = 22;
-    const maxW = w * sx - 24;
-    let lines;
-    do {
-      ctx.font = font('bold', px);
-      lines = wrapLines(ctx, text, maxW);
-      px -= 1;
-    } while (lines.length * px * 1.15 > h * sy - 22 && px > 12);
-    lines.forEach((ln, i) => ctx.fillText(ln, X(cx - w / 2) + 12, Y(0.026) + 16 + i * px * 1.18));
+    lines.forEach((ln, i) => {
+      const y = top + 54 + lh * (i + 0.5);
+      if (ln.glyph) drawGlyph(ctx, ln.glyph, left + 30, y, px * 1.15, color(ln.token ?? 'xr-pinball-apron-ink'), 2.4);
+      else {
+        ctx.fillStyle = color(ln.token ?? accent);
+        ctx.beginPath();
+        ctx.arc(left + 30, y, px * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = color('xr-pinball-apron-ink');
+      ctx.fillText(ln.text, left + 52, y + 1);
+    });
   };
-  card(-0.17, t('pinballApronRules'), 'xr-pinball-accent');
-  card(0.155, t('pinballApronAi'), 'xr-pinball-ai');
+  card(-0.17, t('pinballCardRules'), CHANNELS.map((ch) => ({ glyph: ch, token: CH_TOKEN[ch], text: t(`pinballCard_${ch}`) })), 'xr-pinball-accent');
+  card(0.155, t('pinballCardScore'), [1, 2, 3, 4, 5, 6].map((i) => ({ text: t(`pinballCardScore${i}`), token: ['xr-pinball-funnel-3', 'xr-pinball-ai', 'xr-pinball-lane-light', 'xr-pinball-group-1', 'xr-pinball-ch-app', 'xr-pinball-ch-poster'][i - 1] })), 'xr-pinball-cabinet');
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
   tex.repeat.set(1 / 0.5025, 1 / 0.09);
   tex.offset.set(0.262 / 0.5025, 0.02 / 0.09);
   return tex;
@@ -753,6 +747,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
     wire: new THREE.MeshStandardMaterial({ color: hex('xr-pinball-wire'), metalness: 1, roughness: 0.18 }),
     rubber: new THREE.MeshStandardMaterial({ color: hex('xr-pinball-rubber'), roughness: 0.7 }),
     sling: new THREE.MeshStandardMaterial({ color: hex('xr-pinball-sling'), roughness: 0.25, metalness: 0, transparent: true, opacity: 0.88, emissive: hex('xr-pinball-sling'), emissiveIntensity: 0.35 }),
+    gold: new THREE.MeshStandardMaterial({ color: hex('xr-pinball-gold'), metalness: 1, roughness: 0.2 }),
     rampPlastic: new THREE.MeshStandardMaterial({ color: hex('xr-pinball-ramp'), roughness: 0.1, metalness: 0, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false }),
   };
   owned.push(...Object.values(mats));
@@ -772,10 +767,12 @@ export function buildMachine(table, model, { lite = false } = {}) {
     legs.push({ leg, foot, top: a.y });
   }
   // The playfield board with its art (a little self-lit, so it reads well in a dark room).
-  const pfTex = drawPlayfield(table);
-  const board = new THREE.Mesh(new THREE.PlaneGeometry(PF.w, PF.h), new THREE.MeshStandardMaterial({
-    map: pfTex, emissiveMap: pfTex, emissive: hex('xr-pinball-white'), emissiveIntensity: 0.42, roughness: 0.32, metalness: 0.05,
-  }));
+  const pfTex = drawPlayfield(table, lite);
+  // A clear coat over the art (a wear-free shine that mirrors the room); plain in the lite mode.
+  const boardOpts = { map: pfTex, emissiveMap: pfTex, emissive: hex('xr-pinball-white'), emissiveIntensity: 0.42, roughness: 0.32, metalness: 0.05 };
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(PF.w, PF.h), lite
+    ? new THREE.MeshStandardMaterial(boardOpts)
+    : new THREE.MeshPhysicalMaterial({ ...boardOpts, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.06, envMapIntensity: 0.9 }));
   owned.push(board.material, pfTex);
   board.rotation.x = -Math.PI / 2;
   board.position.set((BOARD.x0 + BOARD.x1) / 2, 0, -(BOARD.y0 + BOARD.y1) / 2);
@@ -892,13 +889,19 @@ export function buildMachine(table, model, { lite = false } = {}) {
   // Plunger.
   const plunger = placePart('PinPlunger', LANE_X, PLUNGER_Y, { h: 0.012 });
   // Ramps: the video ramp starts under an LED wall, the app ramp inside a giant phone.
-  for (const r of Object.values(table.ramps)) field.add(makeRamp(r.ramp, mats, r.channel));
+  for (const r of Object.values(table.ramps)) {
+    const rm = makeRamp(r.ramp, mats, r.channel, r.ramp.id === 'right' ? 'plastic' : 'wire');
+    owned.push(...(rm.userData.owned ?? []));
+    field.add(rm);
+  }
+  const chuteMesh = makeRamp(table.chute, mats, 'branch', 'gold');
+  owned.push(...(chuteMesh.userData.owned ?? []));
+  field.add(chuteMesh);
   const tv = makeTvGate(table.ramps.left);
   const phone = makePhoneGate(table.ramps.right);
   field.add(tv.group, phone.group);
   // The target groups as cut-outs behind the top arch.
-  const spots = [-0.15, -0.05, 0.05, 0.15].map((x) => [x, ARC.y + Math.sqrt(ARC.r * ARC.r - (x - ARC.x) ** 2) + 0.016]);
-  const chars = makeCharacters(spots);
+  const chars = makeCharacters(PEOPLE_SPOTS, PEOPLE_SCALE);
   field.add(chars.group);
   // Apron with its two instruction cards.
   const ap = apronShape();
@@ -967,6 +970,12 @@ export function buildMachine(table, model, { lite = false } = {}) {
     plane.userData.noFit = true;
     field.add(plane);
   });
+  for (const it of detailInserts(table)) {
+    const s = new THREE.Shape();
+    if (it.circle) s.absarc(it.circle.x, it.circle.y, it.circle.r, 0, Math.PI * 2, false);
+    else it.pts.forEach(([x, y], i) => (i ? s.lineTo(x, y) : s.moveTo(x, y)));
+    addLight(it.key, s, it.token, it.x, it.y, it.size);
+  }
   {
     const s = new THREE.Shape();
     s.absarc(MULTI.x, MULTI.y, MULTI.r, 0, Math.PI * 2, false);
@@ -997,6 +1006,9 @@ export function buildMachine(table, model, { lite = false } = {}) {
     }
     acc = (acc + len) % 0.055;
   }
+  for (const s of [1, -1]) {
+    for (const [x, y] of [[-0.146, 0.335], [-0.136, 0.292], [-0.123, 0.27]]) giPts.push(fp(s * x, y, 0.012)); // under the sling plastics
+  }
   const lamps = makeLamps(giPts, { lite });
   field.add(lamps.group);
   const giWarm = col('xr-pinball-gi');
@@ -1007,6 +1019,12 @@ export function buildMachine(table, model, { lite = false } = {}) {
   flashers[0].position.copy(fp(-0.236, 0.975, 0));
   flashers[1].position.copy(fp(0.274, 0.975, 0));
   flashers.forEach((f) => { f.userData.k = 0; field.add(f); });
+  // Classic details: side art, wood blades, plastics, standups, spinner, rollovers, kickback,
+  // trough window, price card, sling flashers.
+  const det = buildDetails({ root, field, parts, anchors, table, lite });
+  owned.push(...det.owned);
+  // The agency town: toys behind the arch and on the playfield.
+  const town = buildTown({ field, parts, lite, chute: table.chute, burst: (icon, x, y, h, o) => fx.emit(icon, fp(x, y, h), o) });
   // The AI's tip: a floating arrow over the recommended channel, a light beam and a ring.
   const tip = makeTipArrow();
   field.add(tip.group);
@@ -1074,7 +1092,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
     for (let i = 0; i <= 20; i++) pts.push(new THREE.Vector3(-0.285 + (0.62 * i) / 20, top + 0.01 * Math.sin(i * 1.3), zf));
     for (const x of [-0.278, 0.328]) {
       for (let i = 0; i <= 16; i++) {
-        const y = -0.06 + (1.3 * i) / 16;
+        const y = -0.06 + (1.48 * i) / 16;
         pts.push(new THREE.Vector3(x, y * Math.sin(SLOPE) + 0.088 * Math.cos(SLOPE), -y * Math.cos(SLOPE) + 0.088 * Math.sin(SLOPE)));
       }
     }
@@ -1088,7 +1106,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
   const lampCol = new THREE.Color();
   const state = {
     root, field, board, legs, dmd, inserts, tip, slings, bumpers, drops, column, gate: gateWire, plunger, flippers, owned,
-    fx, phone, tv, branch, chars, chart, balls,
+    fx, phone, tv, branch, chars, chart, balls, det, town,
     /** Legs reach down to the floor (y in the root's parent space, scale of the machine). */
     setFloor(floorLocalY) {
       for (const l of legs) {
@@ -1115,6 +1133,8 @@ export function buildMachine(table, model, { lite = false } = {}) {
         v?.blob?.geometry?.dispose();
       }
       fx?.dispose?.();
+      det?.dispose?.();
+      town?.dispose?.();
       for (const o of owned) o?.dispose?.();
       owned.length = 0;
     },
@@ -1193,12 +1213,14 @@ export function buildMachine(table, model, { lite = false } = {}) {
         f.userData.flash(gi.mode === 'show' ? (Math.floor(time * 10) % 2) * 0.8 : f.userData.k);
       }
       neonMat.opacity = 0.22 + 0.12 * Math.sin(time * 2.2) + (gi.mode === 'show' ? 0.3 * Math.abs(Math.sin(time * 9)) : 0);
+      det.update(dt, time, { lampsOn: gi.mode === 'normal' ? 0.6 + gi.pulse * 0.4 : 0.5 + 0.5 * Math.abs(Math.sin(time * 6)), onTurn: st.onSpinTurn });
       tip.update(dt, time, st.eye && field.worldToLocal(st.eye.clone()));
       fx.update(time);
       phone.update(dt, time);
       tv.update(dt, time);
       branch.update(dt, time);
       chars.update(dt, time);
+      town.update(dt, time);
       bgBulbs?.userData.tick(time);
       railBulbs?.userData.tick(time + 1.3);
     },

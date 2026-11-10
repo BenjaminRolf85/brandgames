@@ -39,14 +39,22 @@
 # vertex colors.
 # Usage: blender -b -P build_pinball.py -- <out.glb> <out.blend>
 #        blender -b -P build_pinball.py -- coin <out.png>   (the menu coin picture)
+#        blender -b -P build_pinball.py -- toys <out.glb>   (pinball-toys.glb: the agency town)
+# Toys (field frame, origin on the playfield, facing the player): PinHQ (the client's head office
+# tower: facades PbTowerFace and rooftop sign PbHqSign with UVs, portals for the ramp), PinVault
+# and PinVaultDoor (hinged at its left edge), PinAtm (screen PbAtmScreen), PinPiggy (with a clear
+# money box), PinCoin, PinDesk (advisory desk), PinPress and PinRoller (printing press), PinBird
+# and PinWing (the campaign courier), PinAgency (the agency's studio, sign PbSign), PinBillboard
+# (poster face PbBillboard), PinVan (wrap PbWrap), PinMegaphone, PinMailbox.
 import os, sys, math
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bpy, bmesh
 from mathutils import Vector, Matrix
-from bhelpers import init, P, material, link, tbox, tcyl, ttorus, merge, bake_ao, export, blob, prism
+from bhelpers import init, P, material, link, tbox, tcyl, ttorus, merge, bake_ao, export, blob, prism, cone
 
 ARGS = sys.argv[sys.argv.index('--') + 1:]
 COIN = ARGS[0] == 'coin'
+TOYS = ARGS[0] == 'toys'
 init()
 
 A = math.radians(7)
@@ -95,7 +103,7 @@ SPINNER = material('PbSpinner', (0.85, 0.87, 0.9), 0.8, 0.25)
 
 BX0, BX1 = -0.288, 0.338   # outer sides
 IX0, IX1 = -0.268, 0.318   # inner sides
-YF, YB = -0.075, 1.30      # front and back of the cabinet (playfield y)
+YF, YB = -0.075, 1.48      # front and back of the cabinet (playfield y; the town behind the arch)
 HT = 0.07                  # top rim above the playfield (glass level)
 YBOT = -0.30               # bottom of the cabinet (machine y)
 
@@ -594,6 +602,210 @@ def build_parts():
     return parts
 
 
+
+# ---------------------------------------------------------------- toys (the agency town)
+
+def uvquad(name, pts, mat):
+    """A quad with UVs 0..1 (pts: bottom left, bottom right, top right, top left; three.js)."""
+    bm = bmesh.new()
+    uv = bm.loops.layers.uv.new('UVMap')
+    vs = [bm.verts.new(P(*q)) for q in pts]
+    f = bm.faces.new(vs)
+    for loop, c in zip(f.loops, ((0, 0), (1, 0), (1, 1), (0, 1))):
+        loop[uv].uv = c
+    return link(name, bm, mat)
+
+
+def toys():
+    T = {}
+    AG = material('PbAgency', (0.95, 0.9, 0.85), 0.0, 0.5)
+    AG2 = material('PbAgencyTrim', (0.55, 0.3, 0.95), 0.1, 0.4)
+    GLASS = material('PbGlassGlow', (0, 0, 0), emit=(0.5, 0.85, 1.0))
+    SIGN = material('PbSign', (1, 1, 1), 0.0, 0.5)
+    SCREEN = material('PbScreen', (1, 1, 1), 0.0, 0.5)
+    LAMP = material('PbLampGlow', (0, 0, 0), emit=(1.0, 0.95, 0.8))
+    BEACON = material('PbBeacon', (0.9, 0.1, 0.1), 0.0, 0.3)
+    BILL = material('PbBillboard', (1, 1, 1), 0.0, 0.5)
+    VAN = material('PbVan', (1.0, 1.0, 1.0), 0.1, 0.35)
+    WRAP = material('PbWrap', (1, 1, 1), 0.0, 0.4)
+    WHEEL = material('PbWheel', (1.0, 0.3, 0.6), 0.1, 0.3)
+    WHEEL2 = material('PbWheel2', (0.3, 0.8, 1.0), 0.1, 0.3)
+    MAIL = material('PbMailbox', (1.0, 0.8, 0.1), 0.1, 0.35)
+    HORN = material('PbHorn', (0.95, 0.95, 0.95), 0.0, 0.3)
+    STONE = material('PbStone', (0.85, 0.82, 0.78), 0.0, 0.6)
+    TWR = material('PbTowerFace', (1, 1, 1), 0.0, 0.3)
+    HQS = material('PbHqSign', (1, 1, 1), 0.0, 0.4)
+    GOLD = material('PbGold', (1.0, 0.75, 0.2), 1.0, 0.25)
+    STEEL = material('PbSteel', (0.6, 0.63, 0.68), 0.9, 0.3)
+    PIG = material('PbPiggy', (1.0, 0.55, 0.7), 0.0, 0.35)
+    BOX = material('PbGlassBox', (0.8, 0.95, 1.0), 0.0, 0.05)
+    ATMS = material('PbAtmScreen', (1, 1, 1), 0.0, 0.4)
+    BIRD = material('PbBird', (0.2, 0.75, 1.0), 0.0, 0.4)
+    BEAK = material('PbBeak', (1.0, 0.6, 0.1), 0.0, 0.4)
+    PAPER = material('PbPaper', (0.97, 0.97, 0.95), 0.0, 0.6)
+    # The agency: two blocks of studio with big glass fronts, a roof terrace, a sign on the roof.
+    p = [tbox('base', (0, 0.002, 0), (0.118, 0.004, 0.072), DARK),
+         tbox('block1', (-0.018, 0.034, 0), (0.07, 0.06, 0.06), AG, bev=0.0015),
+         tbox('block2', (0.033, 0.024, 0.006), (0.044, 0.04, 0.05), AG2, bev=0.0015)]
+    for k in range(3):  # glass floors of block 1
+        p.append(tbox('glass', (-0.018, 0.016 + k * 0.017, 0.0302), (0.062, 0.011, 0.001), GLASS))
+    for k in range(2):
+        p.append(tbox('glass2', (0.033, 0.014 + k * 0.016, 0.0312), (0.038, 0.01, 0.001), GLASS))
+    p.append(tbox('entrance', (-0.018, 0.005, 0.031), (0.016, 0.009, 0.002), DARK))
+    p.append(tbox('canopy', (-0.018, 0.0105, 0.035), (0.026, 0.0014, 0.01), AG2))
+    p.append(tbox('roof', (-0.018, 0.0655, 0), (0.074, 0.003, 0.064), AG2))
+    for x in (-0.048, 0.012):
+        p.append(tcyl('signLeg', (x * 0.62 - 0.006, 0.072, -0.004), 0.0012, 0.012, CHROME, segs=6))
+    p.append(tbox('signBack', (-0.018, 0.084, -0.0055), (0.07, 0.022, 0.003), DARK))
+    p.append(uvquad('sign', [(-0.052, 0.0735, -0.0038), (0.016, 0.0735, -0.0038), (0.016, 0.0945, -0.0038), (-0.052, 0.0945, -0.0038)], SIGN))
+    p.append(tcyl('ac', (0.04, 0.0465, -0.01), 0.006, 0.006, CHROME, segs=12))
+    p.append(tbox('plant', (0.002, 0.07, 0.022), (0.012, 0.006, 0.008), material('PbPlant', (0.2, 0.7, 0.3), 0.0, 0.6)))
+    T['agency'] = merge(p, 'PinAgency')
+    # The headquarters: a stone podium, a tall tower with window facades (painted by the app),
+    # setbacks, a rooftop sign, portals where the ramp goes in (right side) and out (front).
+    W, D, H = 0.05, 0.04, 0.15
+    p = [tbox('podium', (0, 0.01, 0.002), (0.07, 0.02, 0.056), STONE, bev=0.002),
+         tbox('core', (0, 0.02 + H / 2, 0), (W - 0.002, H, D - 0.002), AG2),
+         tbox('crown', (0, 0.02 + H + 0.006, 0), (W - 0.012, 0.012, D - 0.01), STONE, bev=0.0015),
+         tbox('crown2', (0, 0.02 + H + 0.016, 0), (W - 0.024, 0.008, D - 0.02), AG2),
+         tcyl('mast', (0, 0.02 + H + 0.03, 0), 0.0008, 0.022, CHROME, segs=6),
+         blob('mastLight', (0, 0.02 + H + 0.042, 0), 0.0022, BEACON, segs=10, rings=6),
+         tbox('canopy', (0, 0.021, 0.031), (0.036, 0.002, 0.012), ACCENT),
+         tbox('door', (0, 0.008, 0.0285), (0.016, 0.014, 0.001), GLASS)]
+    y0, y1 = 0.025, 0.02 + H - 0.004
+    p.append(uvquad('front', [(-W / 2, y0, D / 2 + 0.0005), (W / 2, y0, D / 2 + 0.0005), (W / 2, y1, D / 2 + 0.0005), (-W / 2, y1, D / 2 + 0.0005)], TWR))
+    p.append(uvquad('side', [(W / 2 + 0.0005, y0, D / 2), (W / 2 + 0.0005, y0, -D / 2), (W / 2 + 0.0005, y1, -D / 2), (W / 2 + 0.0005, y1, D / 2)], TWR))
+    p.append(uvquad('sideL', [(-W / 2 - 0.0005, y0, -D / 2), (-W / 2 - 0.0005, y0, D / 2), (-W / 2 - 0.0005, y1, D / 2), (-W / 2 - 0.0005, y1, -D / 2)], TWR))
+    p.append(uvquad('sign', [(-0.018, 0.02 + H + 0.013, D / 2 - 0.004), (0.018, 0.02 + H + 0.013, D / 2 - 0.004), (0.018, 0.02 + H + 0.024, D / 2 - 0.004), (-0.018, 0.02 + H + 0.024, D / 2 - 0.004)], HQS))
+    for (c, sz) in (((W / 2 + 0.001, 0.084, -0.002), (0.002, 0.03, 0.032)), ((0, 0.084, D / 2 + 0.001), (0.032, 0.03, 0.002))):
+        p.append(tbox('portal', c, sz, DARK))
+    for x in (-W / 2, W / 2):
+        for z in (-D / 2, D / 2):
+            p.append(tbox('edge', (x, 0.02 + H / 2, z), (0.003, H, 0.003), STONE))
+    T['hq'] = merge(p, 'PinHQ')
+    # The vault: a wall block with a round frame, the door (separate, hinged on its left edge),
+    # gold bars inside.
+    p = [tbox('wall', (0, 0.026, -0.006), (0.056, 0.052, 0.012), STONE, bev=0.002),
+         tcyl('inside', (0, 0.028, -0.0005), 0.019, 0.002, DARK, axis='z', segs=32),
+         ttorus('frame', (0, 0.028, 0.0005), 0.0205, 0.0022, STEEL, axis='z', segs=40, tsegs=8)]
+    for i, (x, y) in enumerate(((-0.006, 0.016), (0.006, 0.016), (0.0, 0.021))):
+        p.append(tbox('bar', (x, y, -0.003), (0.011, 0.0045, 0.006), GOLD, bev=0.0008))
+    T['vault'] = merge(p, 'PinVault')
+    p = [tcyl('door', (0.0195, 0, 0.0025), 0.0185, 0.004, STEEL, axis='z', segs=32, bev=0.001),
+         tcyl('hub', (0.0195, 0, 0.0055), 0.004, 0.003, CHROME, axis='z', segs=16),
+         tcyl('hinge', (0, 0, 0.002), 0.0016, 0.03, CHROME, segs=8)]
+    for k in range(3):
+        a = k * math.pi / 3
+        p.append(tcyl('spoke', (0.0195, 0, 0.0065), 0.0007, 0.02, CHROME, axis='x', segs=6, rot=Matrix.Rotation(a, 3, 'Y')))
+    T['vaultDoor'] = merge(p, 'PinVaultDoor')
+    # ATM: a cabinet with a lit screen, keypad, card and cash slots, a small roof.
+    p = [tbox('body', (0, 0.021, 0), (0.024, 0.042, 0.016), STEEL, bev=0.0015),
+         tbox('roof', (0, 0.043, 0.002), (0.028, 0.003, 0.02), ACCENT, bev=0.001),
+         uvquad('screen', [(-0.008, 0.027, 0.0082), (0.008, 0.027, 0.0082), (0.008, 0.038, 0.0082), (-0.008, 0.038, 0.0082)], ATMS),
+         tbox('keypad', (0, 0.02, 0.0085), (0.012, 0.007, 0.002), DARK),
+         tbox('cash', (0, 0.012, 0.0083), (0.014, 0.002, 0.001), DARK)]
+    T['atm'] = merge(p, 'PinAtm')
+    # The piggy bank on a pedestal, a clear money box next to it (the app stacks coins inside).
+    p = [tcyl('pedestal', (0, 0.004, 0), 0.016, 0.008, STONE, segs=24, bev=0.001),
+         blob('body', (0, 0.021, 0), 0.013, PIG, s=(1.25, 0.95, 0.95), segs=24, rings=14),
+         blob('head', (0.014, 0.025, 0), 0.0085, PIG, segs=16, rings=10),
+         tcyl('snout', (0.022, 0.024, 0), 0.0035, 0.004, PIG, axis='x', segs=12, bev=0.0008),
+         tbox('slot', (0, 0.0335, 0), (0.008, 0.001, 0.0016), DARK),
+         tbox('box', (-0.032, 0.016, 0), (0.022, 0.032, 0.022), BOX)]
+    for (x, z) in ((-0.008, -0.006), (-0.008, 0.006), (0.008, -0.006), (0.008, 0.006)):
+        p.append(tcyl('leg', (x, 0.011, z), 0.0026, 0.006, PIG, segs=8))
+    for z in (-0.004, 0.004):
+        p.append(cone('ear', (0.015, 0.035, z), 0.003, 0.0, 0.006, PIG, down=False, segs=8))
+        p.append(blob('eye', (0.021, 0.028, z), 0.0011, DARK, segs=6, rings=4))
+    p.append(tcyl('tail', (-0.016, 0.024, 0), 0.0012, 0.004, PIG, axis='x', segs=6))
+    T['piggy'] = merge(p, 'PinPiggy')
+    T['coin'] = merge([tcyl('coin', (0, 0.00075, 0), 0.006, 0.0015, GOLD, segs=16)], 'PinCoin')
+    # The advisory desk: table, monitor, two chairs (the app puts the consultant and the customer).
+    p = [tbox('top', (0, 0.02, 0), (0.044, 0.002, 0.022), AG, bev=0.0006),
+         tbox('front', (0, 0.0105, 0.009), (0.042, 0.017, 0.002), AG2),
+         tbox('monitor', (-0.012, 0.028, -0.006), (0.012, 0.009, 0.001), DARK),
+         tbox('stand', (-0.012, 0.022, -0.006), (0.002, 0.004, 0.002), DARK),
+         tbox('plant', (0.016, 0.024, -0.005), (0.004, 0.006, 0.004), material('PbPlant', (0.2, 0.7, 0.3), 0.0, 0.6))]
+    for x in (-0.03, 0.03):
+        p.append(tbox('seat', (x, 0.011, 0.0), (0.012, 0.002, 0.012), ACCENT, bev=0.0006))
+        p.append(tbox('back', (x + (0.006 if x > 0 else -0.006), 0.018, 0), (0.002, 0.014, 0.012), ACCENT))
+        p.append(tcyl('pole', (x, 0.005, 0), 0.0012, 0.01, CHROME, segs=6))
+    T['desk'] = merge(p, 'PinDesk')
+    # Printing press for flyers: a base, two rollers (separate, they turn), a stack of flyers.
+    p = [tbox('base', (0, 0.01, 0), (0.05, 0.02, 0.026), AG2, bev=0.002),
+         tbox('frameL', (-0.024, 0.026, 0), (0.003, 0.016, 0.022), STEEL),
+         tbox('frameR', (0.024, 0.026, 0), (0.003, 0.016, 0.022), STEEL),
+         tbox('tray', (0, 0.021, 0.018), (0.034, 0.002, 0.016), STEEL),
+         tbox('stack', (0, 0.025, 0.018), (0.028, 0.006, 0.012), PAPER),
+         tbox('feed', (0, 0.024, -0.018), (0.03, 0.002, 0.014), PAPER)]
+    T['press'] = merge(p, 'PinPress')
+    T['roller'] = merge([tcyl('roller', (0, 0, 0), 0.0055, 0.046, CHROME, axis='x', segs=16),
+                         tcyl('band', (0, 0, 0), 0.0058, 0.03, ACCENT, axis='x', segs=16)], 'PinRoller')
+    # The campaign courier: a little bird carrying a letter (our own design); one wing separate.
+    p = [blob('body', (0, 0, 0), 0.008, BIRD, s=(1.35, 1, 1), segs=16, rings=10),
+         blob('head', (0.009, 0.005, 0), 0.0055, BIRD, segs=14, rings=8),
+         cone('beak', (0.0145, 0.005, 0), 0.0018, 0.0, 0.006, BEAK, segs=8, down=False),
+         blob('eyeL', (0.012, 0.007, 0.004), 0.0012, DARK, segs=6, rings=4),
+         blob('eyeR', (0.012, 0.007, -0.004), 0.0012, DARK, segs=6, rings=4),
+         tbox('letter', (0.012, -0.006, 0), (0.01, 0.007, 0.0012), PAPER),
+         tbox('seal', (0.012, -0.006, 0.0008), (0.003, 0.003, 0.0006), ACCENT),
+         cone('tail', (-0.01, 0.002, 0), 0.004, 0.001, 0.008, BIRD, segs=6, down=False)]
+    p[2].matrix_world = Matrix.Translation(P(0.0145, 0.005, 0)) @ Matrix.Rotation(-math.pi / 2, 4, 'Y') @ Matrix.Translation(-P(0.0145, 0.005, 0)) @ p[2].matrix_world
+    T['bird'] = merge(p, 'PinBird')
+    T['wing'] = merge([blob('wing', (0, 0, 0.007), 0.0075, BIRD, s=(0.8, 0.18, 1.0), segs=12, rings=6)], 'PinWing')
+    # Billboard on stilts: two posts, a frame, a catwalk with lamps, the poster face.
+    p = []
+    for x in (-0.025, 0.025):
+        p.append(tcyl('stilt', (x, 0.035, -0.004), 0.0018, 0.07, CHROME, segs=8))
+        p.append(tbox('foot', (x, 0.001, -0.004), (0.008, 0.002, 0.008), DARK))
+    p.append(tbox('frame', (0, 0.093, -0.004), (0.078, 0.05, 0.004), DARK, bev=0.001))
+    p.append(uvquad('face', [(-0.036, 0.0705, -0.0018), (0.036, 0.0705, -0.0018), (0.036, 0.1155, -0.0018), (-0.036, 0.1155, -0.0018)], BILL))
+    p.append(tbox('catwalk', (0, 0.0685, 0.004), (0.078, 0.0015, 0.01), CHROME))
+    for x in (-0.024, 0.0, 0.024):
+        p.append(tcyl('lampArm', (x, 0.068, 0.009), 0.0007, 0.006, CHROME, segs=4))
+        p.append(tbox('lamp', (x, 0.0705, 0.011), (0.006, 0.0025, 0.004), LAMP))
+    T['billboard'] = merge(p, 'PinBillboard')
+    # Delivery van (front to +x), with a wrap on both sides.
+    p = [tbox('body', (0.0, 0.017, 0), (0.05, 0.022, 0.022), VAN, bev=0.003),
+         tbox('cab', (0.021, 0.012, 0), (0.014, 0.014, 0.0215), VAN, bev=0.003),
+         tbox('windshield', (0.0282, 0.019, 0), (0.001, 0.007, 0.018), GLASS),
+         tbox('bumper', (0.029, 0.007, 0), (0.002, 0.004, 0.022), CHROME)]
+    for sz in (-1, 1):
+        p.append(uvquad('wrap', [(-0.024, 0.008, sz * 0.0112), (0.012, 0.008, sz * 0.0112), (0.012, 0.027, sz * 0.0112), (-0.024, 0.027, sz * 0.0112)][::sz] if sz > 0 else
+                       [(0.012, 0.008, -0.0112), (-0.024, 0.008, -0.0112), (-0.024, 0.027, -0.0112), (0.012, 0.027, -0.0112)], WRAP))
+        for x in (-0.015, 0.018):
+            p.append(tcyl('tire', (x, 0.0055, sz * 0.0105), 0.0055, 0.004, DARK, axis='z', segs=14))
+            p.append(tcyl('rim', (x, 0.0055, sz * 0.0126), 0.0028, 0.0006, CHROME, axis='z', segs=10))
+    T['van'] = merge(p, 'PinVan')
+    # Megaphone on a swivel (mouth to +z), for the top of the advertising column.
+    p = [tcyl('pole', (0, 0.006, 0), 0.0014, 0.012, CHROME, segs=8),
+         tcyl('horn', (0, 0.018, 0.004), 0.004, 0.026, HORN, axis='z', segs=20, r2=0.013),
+         ttorus('rimH', (0, 0.018, 0.017), 0.0128, 0.0014, ACCENT, axis='z', segs=24, tsegs=6),
+         tcyl('back', (0, 0.018, -0.012), 0.0055, 0.008, ACCENT, axis='z', segs=16, bev=0.001),
+         tbox('grip', (0, 0.011, -0.006), (0.004, 0.01, 0.004), DARK)]
+    T['megaphone'] = merge(p, 'PinMegaphone')
+    # Mailbox on a short post.
+    p = [tcyl('post', (0, 0.006, 0), 0.0015, 0.012, CHROME, segs=8),
+         tbox('box', (0, 0.019, 0), (0.016, 0.014, 0.012), MAIL, bev=0.002),
+         blob('top', (0, 0.026, 0), 0.008, MAIL, s=(1, 0.45, 0.75), segs=16, rings=6),
+         tbox('slot', (0, 0.022, 0.0062), (0.009, 0.0012, 0.0008), DARK),
+         tbox('label', (0, 0.015, 0.0062), (0.008, 0.004, 0.0006), ACCENT)]
+    T['mailbox'] = merge(p, 'PinMailbox')
+    return T
+
+
+if TOYS:
+    OUT_GLB = ARGS[1]
+    T = toys()
+    assets = [(o, 0.01) for o in T.values()]
+    bake_ao(assets, {'PbGlassGlow', 'PbLampGlow', 'PbSign', 'PbScreen', 'PbBillboard', 'PbWrap', 'PbTowerFace', 'PbHqSign', 'PbAtmScreen', 'PbGlassBox'}, distance=0.03, samples=24)
+    print('faces', sum(len(o.data.polygons) for o, _ in assets))
+    bpy.ops.export_scene.gltf(filepath=OUT_GLB, export_format='GLB', use_selection=False, export_apply=True,
+                              export_yup=True, export_animations=False, export_normals=True,
+                              export_vertex_color='ACTIVE', export_active_vertex_color_when_no_material=True)
+    print('DONE')
+    sys.exit(0)
+
 # ---------------------------------------------------------------- export
 
 if not COIN:
@@ -704,6 +916,45 @@ for ob in (env, flap, seal):
     ob.matrix_world = Matrix.Translation(P(-0.085, 0.075, -0.15)) @ Matrix.Rotation(0.35, 4, 'Z') @ Matrix.Rotation(-0.25, 4, 'X') @ ob.matrix_world
 place(parts['plunger'], 9, 9)
 parts['plunger'].hide_render = True
+# The agency town: the like wheel and the agency behind, the megaphone on the column, colorful
+# city blocks printed on the playfield.
+TY = toys()
+for k in ('billboard', 'van', 'mailbox', 'desk', 'press', 'roller', 'vault', 'vaultDoor', 'coin', 'wing', 'atm', 'agency'):
+    TY[k].hide_render = True
+place(TY['hq'], 0.02, 0.42, rot=-0.25, s=1.3)
+place(TY['piggy'], 0.12, 0.3, rot=-2.3, s=1.4)
+TY['bird'].matrix_world = Matrix.Translation(P(-0.02, 0.13, -0.33)) @ Matrix.Rotation(-0.6, 4, 'Z') @ Matrix.Scale(1.6, 4) @ TY['bird'].matrix_world
+TY['megaphone'].matrix_world = Matrix.Translation(P(-0.07, 0.1, -0.205)) @ Matrix.Rotation(0.7, 4, 'Z') @ TY['megaphone'].matrix_world
+rnd_cols = [(0.05, 0.08, 0.25), (0.08, 0.12, 0.35), (0.12, 0.18, 0.45), (0.05, 0.08, 0.25), (0.9, 0.08, 0.12), (0.08, 0.12, 0.35)]
+# The head office's facades: lit windows (a brick pattern as the window grid).
+TF = bpy.data.materials.get('PbTowerFace')
+if TF:
+    nt = TF.node_tree
+    bsdf = nt.nodes['Principled BSDF']
+    bsdf.inputs['Base Color'].default_value = (0.03, 0.05, 0.2, 1)
+    br = nt.nodes.new('ShaderNodeTexBrick')
+    br.inputs['Color1'].default_value = (1.0, 0.8, 0.45, 1)
+    br.inputs['Color2'].default_value = (0.9, 0.7, 0.35, 1)
+    br.inputs['Mortar'].default_value = (0.0, 0.0, 0.0, 1)
+    br.inputs['Scale'].default_value = 9.0
+    br.inputs['Mortar Size'].default_value = 0.25
+    br.offset = 0.0
+    tc = nt.nodes.new('ShaderNodeTexCoord')
+    mp = nt.nodes.new('ShaderNodeMapping')
+    mp.inputs['Scale'].default_value = (0.6, 3.0, 1.0)
+    nt.links.new(tc.outputs['UV'], mp.inputs['Vector'])
+    nt.links.new(mp.outputs['Vector'], br.inputs['Vector'])
+    nt.links.new(br.outputs['Color'], bsdf.inputs['Emission Color'])
+    bsdf.inputs['Emission Strength'].default_value = 0.7
+import random
+random.seed(5)
+for i in range(70):
+    x = -0.2 + random.random() * 0.4
+    y = 0.03 + random.random() * 0.4
+    w = 0.012 + random.random() * 0.02
+    m = material('blk%d' % i, rnd_cols[i % 6], 0.0, 0.5, emit=rnd_cols[i % 6])
+    m.node_tree.nodes['Principled BSDF'].inputs['Emission Strength'].default_value = 0.1
+    tbox('block', (x, 0.0004, -y), (w, 0.0008, w * (0.6 + random.random() * 0.6)), m)
 # Fairy lights in the background (soft bokeh).
 cols = [(1, 0.18, 0.25), (1, 0.82, 0.48), (0.56, 0.89, 0.44), (0.35, 0.85, 1.0), (0.9, 0.48, 0.85)]
 for i in range(26):

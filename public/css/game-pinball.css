@@ -7,17 +7,37 @@
   --xr-pinball-accent-glow:    #ff5a4f;
   --xr-pinball-chrome:         #dfe4ee;
   --xr-pinball-dark:           #0a0d18;
-  --xr-pinball-wood:           #1b2a66;   /* inner side walls of the cabinet */
+  --xr-pinball-wood:           #6b3f1f;   /* wooden side blades inside the cabinet */
+  --xr-pinball-wood-light:     #9a6136;
+  --xr-pinball-wood-grain:     #3f2210;
+  --xr-pinball-side-ray:       rgb(255 255 255 / 0.06);   /* side art: rays behind the megaphone */
+  --xr-pinball-halftone:       rgb(255 255 255 / 0.13);   /* printed halftone dots (side art, plastics) */
+  --xr-pinball-price-card:     #fffaf0;
   --xr-pinball-speaker:        #141a33;
   --xr-pinball-coin-light:     #ffb02e;
   --xr-pinball-leg:            #c9d0de;
 
   /* playfield */
-  --xr-pinball-field:          #13248a;
-  --xr-pinball-field-2:        #2b1d86;
-  --xr-pinball-street:         #3a54c8;   /* the town map painted on the playfield */
-  --xr-pinball-street-line:    #8aa2ff;
-  --xr-pinball-park:           #11705e;
+  --xr-pinball-field:          #17255f;
+  --xr-pinball-field-2:        #0c1538;
+  --xr-pinball-plan:           #22346f;   /* the fine city plan printed on the playfield */
+  --xr-pinball-plan-light:     #8297d8;
+  --xr-pinball-street:         #2a1d52;   /* the town map painted on the playfield */
+  --xr-pinball-street-line:    #ffd23f;
+  --xr-pinball-park:           #2a9a7a;
+  --xr-pinball-ground:         #3a1d5c;   /* plum ground between the blocks */
+  --xr-pinball-district-1:     #ff4f9a;   /* districts: pink, orange, yellow, green, cyan, violet */
+  --xr-pinball-district-2:     #ff8a2a;
+  --xr-pinball-district-3:     #ffd23f;
+  --xr-pinball-district-4:     #3ccf6e;
+  --xr-pinball-district-5:     #2fd3e8;
+  --xr-pinball-district-6:     #9b5cff;
+  --xr-pinball-river:          #3fd6ff;
+  --xr-pinball-river-deep:     #1677d6;
+  --xr-pinball-river-bank:     #f7e3b0;
+  --xr-pinball-bridge:         #e9e2f5;
+  --xr-pinball-plaza:          #d9709f;
+  --xr-pinball-plaza-line:     #ffb3d5;
   --xr-pinball-field-text:     #e8ecf6;
   --xr-pinball-danger:         #ff4d5e;   /* outlanes */
   --xr-pinball-wall:           #2b40a6;
@@ -31,7 +51,27 @@
   --xr-pinball-ball-glow:      #9fe8ff;
   --xr-pinball-flipper:        #f6f2e8;
   --xr-pinball-flipper-rubber: #ff2238;
-  --xr-pinball-rubber:         #15161c;
+  --xr-pinball-rubber:         #f3f1ea;   /* white rubber rings */
+  --xr-pinball-star-post:      #ffc21a;   /* fluted plastic star posts */
+  --xr-pinball-standup:        #f6f2e8;   /* persona standup targets */
+  --xr-pinball-star:           #ffffff;   /* star rollovers */
+  --xr-pinball-spinner:        #e8ecf4;
+  --xr-pinball-trough:         #04060d;   /* the ball trough window */
+  --xr-pinball-agency:         #fff4ec;   /* the agency town's toys */
+  --xr-pinball-agency-trim:    #9b5cff;
+  --xr-pinball-glass:          #8fe8ff;
+  --xr-pinball-beacon:         #ff3048;
+  --xr-pinball-van:            #ffffff;
+  --xr-pinball-mailbox:        #ffc21a;
+  --xr-pinball-stone:          #e9e3da;   /* the head office's stone podium, the vault's wall */
+  --xr-pinball-hq:             #1d2b6e;   /* the tower's facade */
+  --xr-pinball-hq-glass:       #3b5bb8;
+  --xr-pinball-gold:           #ffc23d;
+  --xr-pinball-gold-dark:      #b07a12;
+  --xr-pinball-steel:          #aeb6c4;
+  --xr-pinball-piggy:          #ff8fb4;
+  --xr-pinball-bird:           #3fc4ff;
+  --xr-pinball-paper:          #f7f5ef;
   --xr-pinball-sling:          #ff3b48;
   --xr-pinball-bumper-body:    #f6f2e8;
   --xr-pinball-bumper-base:    #1a1f33;
