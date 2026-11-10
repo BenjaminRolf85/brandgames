@@ -108,6 +108,7 @@ export class DockScene extends BaseScene {
     // The bench: the Blender model (bench-local: y = 0 is its top).
     const bench = (this.bench = new THREE.Group());
     bench.position.set(0, eye - BENCH_DROP, 0);
+    bench.userData.noFit = this.touch; // phones frame the panels and the protein, the bench is backdrop
     this.world.add(bench);
     this.deck = fallbackDeck(1.28, 0.54);
     this.deck.position.z = BENCH_Z;
@@ -147,6 +148,7 @@ export class DockScene extends BaseScene {
     bench.add(this.wells);
     // An invisible box over the tray, so phones frame the candidates too.
     this.trayFit = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.1, 0.1), this.kit.hidden);
+    this.trayFit.visible = false; // placed by layout() on phones
     this.world.add(this.trayFit);
   }
 

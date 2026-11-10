@@ -582,9 +582,20 @@ export function drawFitPanel(ctx, c, st) {
   if (!compact) text(ctx, c, '%', gx, gy + 0.036, { size: 'xr-text-min', weight: 'bold', fill: color('xr-panel-muted'), align: 'center' });
   const x0 = compact ? 0.14 : 0.215;
   const bw = c.w - x0 - 0.03;
+  const dots = (y) => {
+    const n = st.special ?? 0;
+    for (let i = 0; i < n; i++) {
+      const x = c.w - 0.04 - (n - 1 - i) * 0.035;
+      ctx.beginPath();
+      ctx.arc(c.m(x), c.m(y), c.m(0.012), 0, Math.PI * 2);
+      ctx.fillStyle = i < (st.good ?? 0) ? color('xr-dock-good') : i < (st.good ?? 0) + (st.bad ?? 0) ? color('xr-dock-bad') : color('xr-dock-ai-track');
+      ctx.fill();
+    }
+  };
   if (compact) {
-    text(ctx, c, `${t('dockFit')} ${Math.round(f * 100)} %`, x0, 0.04, { size: 'xr-text-sm', weight: 'black' });
-    text(ctx, c, t('dockContacts', { n: st.good ?? 0, total: st.special ?? 0 }), c.w - 0.03, 0.04, { size: 'xr-text-min', weight: 'bold', fill: color(st.good ? 'xr-dock-good' : 'xr-panel-muted'), align: 'right' });
+    // One line: fit and the contact spots as dots; below it the status.
+    text(ctx, c, `${t('dockFit')} ${Math.round(f * 100)} %`, x0, 0.04, { size: 'xr-text-sm', weight: 'black', maxW: c.w - x0 - 0.16 });
+    dots(0.04);
     text(ctx, c, st.status ?? '', x0, 0.092, { size: 'xr-text-min', weight: 'bold', fill: st.statusColor ?? color('xr-panel-muted'), maxW: bw });
     return;
   }
@@ -592,14 +603,7 @@ export function drawFitPanel(ctx, c, st) {
   text(ctx, c, t('dockShape'), x0, 0.09, { size: 'xr-text-min', weight: 'bold', fill: color('xr-panel-muted') });
   bar(ctx, c, x0 + 0.12, 0.09, bw - 0.12, 0.016, st.shape ?? 0, fitColor(st.shape ?? 0));
   text(ctx, c, t('dockContacts', { n: st.good ?? 0, total: st.special ?? 0 }), x0, 0.135, { size: 'xr-text-min', weight: 'bold', fill: color('xr-panel-muted') });
-  const dots = st.special ?? 0;
-  for (let i = 0; i < dots; i++) {
-    const x = c.w - 0.04 - (dots - 1 - i) * 0.035;
-    ctx.beginPath();
-    ctx.arc(c.m(x), c.m(0.135), c.m(0.012), 0, Math.PI * 2);
-    ctx.fillStyle = i < (st.good ?? 0) ? color('xr-dock-good') : i < (st.good ?? 0) + (st.bad ?? 0) ? color('xr-dock-bad') : color('xr-dock-ai-track');
-    ctx.fill();
-  }
+  dots(0.135);
   ctx.font = font('bold', c.m(S('xr-text-min')));
   const lines = wrap(ctx, st.status ?? '', c.m(c.w - x0 - 0.03));
   lines.slice(0, 2).forEach((ln, i) => text(ctx, c, ln, x0, 0.185 + i * 0.038, { size: 'xr-text-min', weight: 'bold', fill: st.statusColor ?? color('xr-panel-muted') }));
