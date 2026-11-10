@@ -399,6 +399,8 @@ export class GreenScene extends BaseScene {
     this.sel = null;
     this.region?.showMap(null);
     this.region?.setTags(null);
+    this.region?.clearSky();
+    Object.assign(this.vis, { cloud: 0, rain: 0, snowfall: 0, storm: 0, night: 0 });
     this.ui.visible = false;
     this.pad?.show(false);
     this.layout(true);

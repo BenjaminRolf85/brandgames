@@ -1010,6 +1010,14 @@ export class Region {
     this.updatePeople(dt);
   }
 
+  /** Clears the sky at once (clouds, rain, snowfall), e.g. behind the results. */
+  clearSky() {
+    for (const c of this.clouds) { c.userData.k = 0; c.scale.setScalar(0.001); }
+    this.rain.material.opacity = 0;
+    this.flakes.material.opacity = 0;
+    this.gustMat.opacity = 0;
+  }
+
   /** Shadow maps back off; the shared radial texture stays. */
   dispose(renderer) {
     renderer.shadowMap.enabled = false;

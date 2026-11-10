@@ -1123,7 +1123,7 @@ export class BricksScene extends BaseScene {
     if (this.engine.isXR) {
       // The finished house moves aside so the results can be read; it stays in view on the left.
       const p0 = this.plotRoot.position.clone();
-      const p1 = new THREE.Vector3(-0.95, this.eye - 0.75, -0.95);
+      const p1 = new THREE.Vector3(-1.05, this.eye - 0.8, -0.85);
       this.tween(1.2, (k) => { this.plotRoot.position.lerpVectors(p0, p1, k); this.plotRoot.rotation.y = 0.75 * k; }, { ease });
     } else this.world.visible = false;
     const speed = Math.round(PTS.speed * clamp((SLOW - this.doneMonth) / (SLOW - FAST), 0, 1));

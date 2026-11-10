@@ -20,7 +20,9 @@
 #   GreenHomes, GreenCloud, GreenBoat.
 # Materials are named Green* so the runtime colors them from the --xr-green-* tokens; ambient
 # occlusion is baked into the vertex colors ('Col').
-# Usage: blender -b -P build_green.py -- <out.glb> <out.blend> [coin.png] [preview-folder]
+# Usage: blender -b -P build_green.py -- <out.glb> <out.blend> [coin.png|-] [preview-folder]
+# The coin picture (512 x 512, Cycles 64 samples): GREEN_COIN_CAM=-0.62,0.78,0.98 GREEN_COIN_LENS=36,
+# then PIL: Image.open(coin.png).convert('RGB').save('public/assets/cards/green.webp', quality=82, method=6)
 import os, sys, math, random
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bpy, bmesh
@@ -1140,4 +1142,27 @@ if COIN:
     look(cam, (cx, cy, cz), (-0.02, 0.0, -0.04))
     sc.render.filepath = COIN
     bpy.ops.render.render(write_still=True)
+    # Background for the menu coin: a radial gradient from the game's tokens (--xr-green-heat-wind-mid,
+    # --xr-green-water-deep, a deep dusk blue), soft falling snow and a shadow under the diorama.
+    import numpy as np
+    img = bpy.data.images.load(COIN)
+    W, H = img.size
+    px = np.array(img.pixels[:], dtype=np.float32).reshape(H, W, 4)  # rows from the bottom
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    yt = (H - 1 - yy)  # rows from the top
+    hx = lambda h: np.array([int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)], dtype=np.float32)
+    inner, mid, outer = hx('#19b6c2'), hx('#1d5f8f'), hx('#1f1d5c')
+    r = np.minimum(1, np.hypot(xx - W * 0.5, yt - H * 0.42) / (W * 0.62))[..., None]
+    bg = np.where(r < 0.62, inner + (mid - inner) * np.minimum(1, r * 1.6), mid + (outer - mid) * (r - 0.62) / 0.38)
+    rs = random.Random(5)
+    for _ in range(70):
+        cx, cy, rr = rs.uniform(0, W), rs.uniform(0, H * 0.7), rs.uniform(1.2, 3.4) * W / 512
+        a = np.clip(1 - np.hypot(xx - cx, yt - cy) / (rr + 1), 0, 1)[..., None] * rs.uniform(0.35, 0.8)
+        bg = bg * (1 - a) + a
+    e = np.hypot((xx - W * 0.5) / (W * 0.38), (yt - H * 0.76) / (H * 0.11))[..., None]
+    bg = bg * (1 - 0.45 * np.clip(1 - e, 0, 1) ** 1.5)
+    al = px[..., 3:4]
+    out = np.concatenate([px[..., :3] * al + bg * (1 - al), np.ones_like(al)], axis=2)
+    img.pixels[:] = out.ravel()
+    img.save()
 print('DONE')

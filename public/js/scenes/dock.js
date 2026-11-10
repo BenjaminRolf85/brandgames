@@ -135,8 +135,9 @@ export class DockScene extends BaseScene {
     this.prot.position.set(0, eye + PROT.y, PROT.z);
     this.world.add(this.prot);
     this.protMat = proteinMaterial();
+    // A soft light at the pocket that warms to green as the fit grows (not in Lite effects).
     this.pocketLight = new THREE.PointLight(hex('xr-dock-ai'), 0, 0.6, 2);
-    this.prot.add(this.pocketLight);
+    if (!quality.lite) this.prot.add(this.pocketLight);
 
     // The tray's slots (where candidates wait), the screening stream, the microplate wells.
     this.screening = makeScreening(quality.lite ? 500 : 900);
