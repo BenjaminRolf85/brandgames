@@ -4,9 +4,10 @@
 // the shooter lane with its gate. Playfield units are meters (x to the right, y up the
 // playfield); the main field spans x = -0.24 .. 0.24, the shooter lane x = 0.2445 .. 0.29.
 // The six channels: poster (advertising column), social media (pop bumpers), e-mail (drop
-// targets), app (right ramp), branch office (saucer) and video (left ramp).
+// targets), app (right ramp), branch office (saucer) and video (left ramp). Also: four persona
+// standups, a spinner on the top arch, a kickback in the left outlane, in/outlane rollovers.
 // No three.js here: the module also runs in node for tests.
-import { World } from './pinball-physics.js';
+import { World, Ramp } from './pinball-physics.js';
 
 export const BALL_R = 0.0145;
 export const SLOPE = (7 * Math.PI) / 180; // visual tilt of the playfield
@@ -20,6 +21,13 @@ export const GROUPS = ['young', 'families', 'founders', 'seniors'];
 export const ARC = { x: 0.025, y: 0.8, r: 0.265 };
 export const GUIDE_X = [-0.13, -0.065, 0, 0.065, 0.13];
 export const LANE_Y = [0.855, 0.925];
+/** The spinner hangs across the top arch (the orbit), between these radii at this angle. */
+export const SPINNER = { a: (140 * Math.PI) / 180, r0: 0.212, r1: 0.262 };
+/** The kickback in the left outlane: lane center, the plunger tip and the sensor line. */
+export const KICKBACK = { x: -0.2185, tip: 0.084, y: 0.108 };
+/** Rollovers: inlanes (on the way to the flippers) and outlanes (on the way to the drain). */
+export const INLANE_Y = 0.3;
+export const OUTLANE_Y = 0.25;
 
 const deg = (d) => (d * Math.PI) / 180;
 const mirror = (pts) => pts.map(([x, y]) => [-x, y]);
@@ -136,6 +144,34 @@ export function buildTable() {
     ramps[id] = { ramp, mouth: m, channel, side };
   }
 
+  // Personas: two standup targets in front of each deflector (faces of the four target groups,
+  // from the left: young people, families, founders, seniors). The deflector stays the wall
+  // behind them; the standups sit just in front of it, facing the bumpers.
+  const standups = [];
+  for (const id of ['left', 'right']) {
+    const { side, mouth: m } = ramps[id];
+    const a = [side > 0 ? -0.24 : 0.2445, 0.735];
+    const b = [m.r1[0] + 0.003 * side, m.r1[1] + 0.003];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const u = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+    let n = [-u[1], u[0]];
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (n[0] * (0 - mid[0]) + n[1] * (0.75 - mid[1]) < 0) n = [-n[0], -n[1]];
+    const ts = side > 0 ? [0.3, 0.7] : [0.7, 0.3]; // left to right across the table
+    for (const tt of ts) {
+      const c = [a[0] + u[0] * len * tt + n[0] * 0.0055, a[1] + u[1] * len * tt + n[1] * 0.0055];
+      const h = 0.0115;
+      const index = standups.length;
+      const seg = w.addSegment(c[0] - u[0] * h, c[1] - u[1] * h, c[0] + u[0] * h, c[1] + u[1] * h, { th: 0.003, e: 0.5, tag: 'standup', index });
+      standups.push({ x: c[0], y: c[1], nx: n[0], ny: n[1], index, seg });
+    }
+  }
+
+  // Spinner over the top arch (a sensor: the flap does not stop the ball).
+  const sa = [ARC.x + Math.cos(SPINNER.a) * SPINNER.r0, ARC.y + Math.sin(SPINNER.a) * SPINNER.r0];
+  const sb = [ARC.x + Math.cos(SPINNER.a) * SPINNER.r1, ARC.y + Math.sin(SPINNER.a) * SPINNER.r1];
+  const spinner = { x: (sa[0] + sb[0]) / 2, y: (sa[1] + sb[1]) / 2, a: SPINNER.a, sensor: w.addSensor(sa[0], sa[1], sb[0], sb[1], { tag: 'spinner' }) };
+
   // E-mail: a bank of three drop targets on the left, facing the right flipper.
   const drops = [0.425, 0.465, 0.505].map((y, i) => {
     const s = w.addSegment(-0.219, y - 0.0175, -0.219, y + 0.0175, { th: 0.004, e: 0.25, tag: 'email', index: i });
@@ -186,11 +222,28 @@ export function buildTable() {
   }
   // Rubber posts at the lane guides' tops (visual: the guides end in posts).
   for (const x of GUIDE_X) posts.push({ x, y: LANE_Y[1], r: 0.0045 });
+  // Rollover switches in the inlanes and outlanes (sensors, crossing downwards: dir -1).
+  const rollovers = [];
+  for (const side of [1, -1]) {
+    const inX = [-0.194, -0.158].map((x) => x * side).sort((p, q) => p - q);
+    const outX = (side > 0 ? [-0.2385, -0.1995] : [0.1995, 0.2425]);
+    rollovers.push({ kind: 'inlane', side, x: (inX[0] + inX[1]) / 2, y: INLANE_Y, sensor: w.addSensor(inX[0], INLANE_Y, inX[1], INLANE_Y, { tag: 'inlane', side }) });
+    rollovers.push({ kind: 'outlane', side, x: (outX[0] + outX[1]) / 2, y: OUTLANE_Y, sensor: w.addSensor(outX[0], OUTLANE_Y, outX[1], OUTLANE_Y, { tag: 'outlane', side }) });
+  }
+  // The kickback fires a ball that rolls down the left outlane back up (when lit).
+  // Its flight: straight up the outlane, over the outlane post and out into the field (a guided
+  // path like a ramp ride, not in the world's ramp list: nothing else can enter it).
+  const kx = KICKBACK.x;
+  const path = new Ramp({
+    id: 'kick', mouth: [[kx - 0.02, KICKBACK.y], [kx + 0.02, KICKBACK.y]], dir: [0, 1], samples: 60,
+    points: [[kx, KICKBACK.y, 0], [kx, 0.25, 0], [kx, 0.33, 0], [-0.214, 0.372, 0], [-0.202, 0.392, 0], [-0.186, 0.405, 0], [-0.172, 0.425, 0]],
+  });
+  const kickback = { ...KICKBACK, path, sensor: w.addSensor(kx - 0.02, KICKBACK.y, kx + 0.02, KICKBACK.y, { tag: 'kickback' }) };
 
   // The plunger: a moving segment across the bottom of the shooter lane.
   const plunger = w.addSegment(0.2475, PLUNGER_Y, 0.287, PLUNGER_Y, { th: 0.003, e: 0.1, fr: 0.3 });
 
-  return { world: w, walls, gate, lanes, bumpers, ramps, drops, column, house, saucer, slings, flippers, posts, plunger };
+  return { world: w, walls, gate, lanes, bumpers, ramps, drops, column, house, saucer, slings, flippers, posts, plunger, standups, spinner, rollovers, kickback };
 }
 
 /** Moves the plunger tip (pull 0 .. 1). */

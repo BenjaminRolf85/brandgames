@@ -11,7 +11,18 @@
 #   PinLeg       one leg, origin at its top, 1 m long downwards (the app scales it to the floor)
 #   PinFoot      leg leveler, origin on the floor
 #   PinBumper    pop bumper (field frame: origin on the playfield, y = up from the playfield)
-#   PinPost      metal post with a rubber ring (physics radius 0.0065)
+#   PinPost      star post (fluted plastic) with a white rubber ring and a screw on top
+#                (physics radius 0.0065)
+#   PinStandup   standup target facing +x (switch housing, stem, white blade; the app prints
+#                the face), origin on the playfield below the blade
+#   PinSpinner   spinner frame: two wire brackets and the axle along z, 3 cm above the field
+#   PinSpinnerFlap  the spinner's flap, origin on its axle (it turns about z)
+#   PinStar      star rollover button in its ring (flush with the playfield)
+#   PinRollover  wire rollover switch along x, with its slot
+#   PinKickback  kickback in the outlane: coil housing and plunger with a rubber tip, firing
+#                towards -z (up the playfield), origin at the tip
+#   PinScrew     round slotted screw head;  PinNut  hex nut with washer (plastics on posts)
+#   PinSpacer    hex standoff, 1 m tall (the app scales it to the plastic's height)
 #   PinFlipper   flipper bat along +x from its pivot (radius 0.0125 to 0.0066, length 0.074)
 #   PinDrop      drop target facing +x, origin at the bottom of its face
 #   PinColumn    advertising column (poster channel); the poster band has UVs for a texture
@@ -19,11 +30,13 @@
 #   PinSaucer    the kickout hole in front of the branch office's door
 #   PinGate      wire gate, hinge along x
 #   PinPlunger   plunger rod with spring and knob, origin at the tip, the rod along +z
-# Empties: BackglassAnchor, DmdAnchor (centers of the two windows), LegFL, LegFR, LegBL, LegBR.
+# Empties: BackglassAnchor, DmdAnchor (centers of the two windows), LegFL, LegFR, LegBL, LegBR,
+# PriceCardAnchor (the price card in the coin door).
 # Materials (the app recolors them from the --xr-pinball-* tokens): PbBody, PbAccent, PbChrome,
 # PbDark, PbWood, PbButton, PbCoinGlow, PbSpeaker, PbLeg, PbFlipper, PbFlipperRubber, PbRubber,
 # PbBumperBase, PbBumperBody, PbBumperCap, PbDropFace, PbColumn, PbPoster, PbHouse, PbRoof,
-# PbWindowGlow. Ambient occlusion is baked into the vertex colors.
+# PbWindowGlow, PbStarPost, PbStandup, PbStar, PbSpinner. Ambient occlusion is baked into the
+# vertex colors.
 # Usage: blender -b -P build_pinball.py -- <out.glb> <out.blend>
 #        blender -b -P build_pinball.py -- coin <out.png>   (the menu coin picture)
 import os, sys, math
@@ -73,6 +86,10 @@ POSTER = material('PbPoster', (0.9, 0.85, 0.7), 0.0, 0.5)
 HOUSE = material('PbHouse', (0.9, 0.82, 0.68), 0.0, 0.7)
 ROOF = material('PbRoof', (0.75, 0.05, 0.06), 0.0, 0.55)
 WINDOW = material('PbWindowGlow', (0, 0, 0), emit=(1.0, 0.8, 0.4))
+STARPOST = material('PbStarPost', (1.0, 0.75, 0.1), 0.0, 0.3)
+STANDUP = material('PbStandup', (0.95, 0.95, 0.95), 0.0, 0.35)
+STAR = material('PbStar', (0.95, 0.95, 1.0), 0.0, 0.2)
+SPINNER = material('PbSpinner', (0.85, 0.87, 0.9), 0.8, 0.25)
 
 # ---------------------------------------------------------------- cabinet
 
@@ -97,13 +114,7 @@ def cabinet():
     zb = prof[2][0]
     p.append(prism('sideL', prof, BX0, IX0, BODY))
     p.append(prism('sideR', prof, IX1, BX1, BODY))
-    # Red stripes along the sides, following the slope (just outside the panels).
-    for x0, x1 in ((BX0 - 0.0012, BX0 + 0.004), (BX1 - 0.004, BX1 + 0.0012)):
-        for off, hgt in ((0.012, 0.03), (0.055, 0.008)):
-            f = FP(0, YF, HT)
-            b = FP(0, YB, HT)
-            pr = [(f[2] + 0.001, f[1] - off - hgt), (f[2] + 0.001, f[1] - off), (b[2] - 0.001, b[1] - off), (b[2] - 0.001, b[1] - off - hgt)]
-            p.append(prism('stripe', pr, x0, x1, ACCENT, smooth=False))
+    # The side art (stripes, town, megaphones) is painted by the app onto the side panels.
     # Inner linings above the playfield.
     lin = [FP(0, YF, -0.02), FP(0, YF, HT), FP(0, YB, HT), FP(0, YB, -0.02)]
     lin = [(q[2], q[1]) for q in lin]
@@ -144,14 +155,29 @@ def cabinet():
     hp = FP(0.267, YF, 0.012)
     p.append(tbox('plungerPlate', (0.267, hp[1] - 0.005, zf + 0.004), (0.06, 0.05, 0.008), CHROME, bev=0.004))
     p.append(tcyl('plungerBush', (0.267, hp[1], zf + 0.012), 0.009, 0.012, CHROME, axis='z', segs=20))
-    # Leg brackets.
+    # Leg brackets under the corners, leg plates on the sides with two big bolts each.
     for x in (BX0 + 0.03, BX1 - 0.03):
         for z in (zf - 0.035, zb + 0.035):
             p.append(tbox('bracket', (x, YBOT - 0.006, z), (0.075, 0.012, 0.075), LEG, bev=0.003))
+    for x, s in ((BX0, -1), (BX1, 1)):
+        for z in (zf - 0.035, zb + 0.035):
+            p.append(tbox('legPlate', (x + s * 0.003, YBOT + 0.035, z), (0.006, 0.11, 0.054), LEG, bev=0.0025))
+            for by in (YBOT + 0.068, YBOT + 0.018):
+                p.append(tcyl('washer', (x + s * 0.0068, by, z), 0.0115, 0.0016, CHROME, axis='x', segs=20))
+                p.append(tcyl('bolt', (x + s * 0.0095, by, z), 0.0085, 0.005, CHROME, axis='x', segs=6, bev=0.001))
+    # Coin door: coin return buttons and the price card's frame between the returns.
+    for dx in (-0.045, 0.045):
+        p.append(tcyl('returnBtn', (cx + dx, cy - 0.035, zf + 0.0145), 0.0055, 0.004, BUTTON, axis='z', segs=16, bev=0.001))
+    p.append(tbox('cardFrame', (cx, cy - 0.035, zf + 0.0112), (0.056, 0.034, 0.0034), CHROME, bev=0.0012))
+    p.append(tbox('cardBack', (cx, cy - 0.035, zf + 0.0124), (0.05, 0.028, 0.001), DARK))
+    for sx in (-0.1, 0.1):
+        for sy in (-0.09, 0.09):
+            p.append(tcyl('doorScrew', (cx + sx * 1.15, cy + sy * 1.05, zf + 0.0088), 0.003, 0.0015, CHROME, axis='z', segs=10))
     cab = merge(p, 'PinCabinet')
-    for e, (x, z) in (('LegFL', (BX0 + 0.03, zf - 0.035)), ('LegFR', (BX1 - 0.03, zf - 0.035)),
-                      ('LegBL', (BX0 + 0.03, zb + 0.035)), ('LegBR', (BX1 - 0.03, zb + 0.035))):
+    for e, (x, z) in (('LegFL', (BX0 + 0.02, zf - 0.035)), ('LegFR', (BX1 - 0.02, zf - 0.035)),
+                      ('LegBL', (BX0 + 0.02, zb + 0.035)), ('LegBR', (BX1 - 0.02, zb + 0.035))):
         empty(e, (x, YBOT - 0.012, z))
+    empty('PriceCardAnchor', (cx, cy - 0.035, zf + 0.0131))
     return cab, zb
 
 
@@ -209,6 +235,25 @@ def backbox(zb):
         p.append(tcyl('spk', (sx, dy, z1 + 0.001), 0.025, 0.006, SPEAKER, axis='z', segs=32))
         p.append(ttorus('spkRing', (sx, dy, z1 + 0.004), 0.026, 0.0035, CHROME, axis='z', segs=40, tsegs=8))
         p.append(tcyl('spkCone', (sx, dy, z1 + 0.004), 0.009, 0.004, CHROME, axis='z', segs=20))
+    # Speaker grilles: chrome bars across each speaker.
+    for s in (-1, 1):
+        sx = cx + s * 0.279
+        for k in (-2, -1, 0, 1, 2):
+            yy = k * 0.0085
+            half = math.sqrt(max(0.0, 0.0235 ** 2 - yy ** 2))
+            p.append(tbox('grille', (sx, dy + yy, z1 + 0.0072), (2 * half, 0.0022, 0.0018), CHROME))
+    # The backglass frame is hinged on the left and locked on the right: three hinge knuckles,
+    # a lock with a key slot, a screw in each corner of the trim.
+    hx = cx - gw / 2 - t
+    for hy in (gy - 0.15, gy, gy + 0.15):
+        p.append(tcyl('hinge', (hx - 0.002, hy, z1 + 0.006), 0.0042, 0.034, CHROME, segs=12, bev=0.001))
+        p.append(tcyl('hingePin', (hx - 0.002, hy, z1 + 0.006), 0.0015, 0.038, DARK, segs=8))
+    lx = cx + gw / 2 + t / 2
+    p.append(tcyl('lock', (lx, gy, z1 + 0.0075), 0.0075, 0.004, CHROME, axis='z', segs=20, bev=0.001))
+    p.append(tbox('keySlot', (lx, gy, z1 + 0.0096), (0.0014, 0.007, 0.0008), DARK))
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            p.append(tcyl('trimScrew', (cx + sx * (gw / 2 + t / 2), gy + sy * (gh / 2 + t / 2), z1 + 0.0065), 0.0028, 0.0015, CHROME, axis='z', segs=10))
     # Red crown along the top edge and a chrome band below it.
     p.append(tbox('crown', (cx, y1 + 0.012, (z0 + z1) / 2 + 0.01), (w + 0.01, 0.024, depth + 0.02), ACCENT, bev=0.008))
     p.append(tbox('band', (cx, y1 - 0.03, z1 + 0.001), (w - 0.01, 0.01, 0.006), CHROME, bev=0.002))
@@ -261,11 +306,114 @@ def bumper():
     return merge(p, 'PinBumper')
 
 
+def star_prism(name, r_out, r_in, y0, y1, mat, points=6):
+    bm = bmesh.new()
+    n = points * 2
+    lo, hi = [], []
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        r = r_out if i % 2 == 0 else r_in
+        lo.append(bm.verts.new(P(r * math.cos(a), y0, r * math.sin(a))))
+        hi.append(bm.verts.new(P(r * math.cos(a), y1, r * math.sin(a))))
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((lo[i], lo[j], hi[j], hi[i]))
+    bm.faces.new(hi)
+    bm.faces.new(list(reversed(lo)))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return link(name, bm, mat)
+
+
 def post():
-    p = [tcyl('pin', (0, 0.013, 0), 0.0028, 0.026, CHROME, segs=16),
+    # A star post: fluted plastic, a white rubber ring at ball height, a slotted screw on top.
+    p = [star_prism('star', 0.0043, 0.0029, 0.0, 0.022, STARPOST),
+         tcyl('cap', (0, 0.0228, 0), 0.0036, 0.0016, STARPOST, segs=12, bev=0.0006),
          ttorus('rubber', (0, 0.011, 0), 0.0045, 0.0021, RUBBER, axis='y', segs=24, tsegs=8),
-         tcyl('nut', (0, 0.0265, 0), 0.0042, 0.003, CHROME, segs=6)]
+         blob('screw', (0, 0.0238, 0), 0.0024, CHROME, s=(1, 0.5, 1), segs=12, rings=6),
+         tbox('slot', (0, 0.025, 0), (0.0036, 0.0005, 0.0007), DARK)]
     return merge(p, 'PinPost')
+
+
+def standup():
+    # Faces +x; the blade's front is at x = 0.002 (the app prints the face there).
+    p = [tbox('housing', (-0.011, 0.005, 0), (0.012, 0.01, 0.02), DARK, bev=0.001),
+         tbox('stem', (-0.004, 0.009, 0), (0.004, 0.018, 0.005), DARK),
+         tbox('blade', (0.0, 0.0175, 0), (0.004, 0.023, 0.025), STANDUP, bev=0.0012)]
+    for z in (-0.007, 0.007):
+        p.append(tcyl('screw', (-0.011, 0.0105, z), 0.0018, 0.001, CHROME, segs=8))
+    return merge(p, 'PinStandup')
+
+
+def spinner():
+    p = []
+    for z in (-0.027, 0.027):
+        p.append(tcyl('leg', (0, 0.016, z), 0.0013, 0.032, CHROME, segs=8))
+        p.append(tbox('foot', (0, 0.0008, z), (0.012, 0.0016, 0.006), CHROME, bev=0.0005))
+        p.append(blob('bearing', (0, 0.031, z), 0.0026, CHROME, segs=10, rings=6))
+    p.append(tcyl('axle', (0, 0.031, 0), 0.0009, 0.054, CHROME, axis='z', segs=8))
+    return merge(p, 'PinSpinner')
+
+
+def spinner_flap():
+    p = [tbox('flap', (0, -0.0125, 0), (0.0016, 0.023, 0.046), SPINNER, bev=0.0006),
+         tcyl('sleeve', (0, 0, 0), 0.0017, 0.048, SPINNER, axis='z', segs=10)]
+    return merge(p, 'PinSpinnerFlap')
+
+
+def star_rollover():
+    bm = bmesh.new()
+    n = 10
+    top, bot = [], []
+    for i in range(n):
+        a = math.pi / 2 + 2 * math.pi * i / n
+        r = 0.0068 if i % 2 == 0 else 0.0029
+        top.append(bm.verts.new(P(r * math.cos(a), 0.0022, -r * math.sin(a))))
+        bot.append(bm.verts.new(P(r * math.cos(a), 0.0, -r * math.sin(a))))
+    c = bm.verts.new(P(0, 0.0026, 0))
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((top[i], top[j], c))
+        bm.faces.new((bot[i], bot[j], top[j], top[i]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    st = link('star', bm, STAR)
+    p = [st, ttorus('ring', (0, 0.0006, 0), 0.0082, 0.0009, CHROME, axis='y', segs=24, tsegs=6)]
+    return merge(p, 'PinStar')
+
+
+def rollover_wire():
+    arch = ttorus('wire', (0, 0, 0), 0.012, 0.0008, CHROME, axis='z', segs=16, tsegs=6, arc=math.pi)
+    arch.data.transform(Matrix.Diagonal((1, 1, 0.38, 1)))  # a flat arch (Blender z = three y)
+    p = [arch, tbox('slot', (0, 0.0003, 0), (0.028, 0.0006, 0.0042), DARK)]
+    for x in (-0.0125, 0.0125):
+        p.append(blob('end', (x, 0.0008, 0), 0.0012, CHROME, segs=8, rings=5))
+    return merge(p, 'PinRollover')
+
+
+def kickback():
+    p = [tcyl('tip', (0, 0.0125, 0.003), 0.0058, 0.006, RUBBER, axis='z', segs=16, bev=0.0012),
+         tcyl('rod', (0, 0.0125, 0.017), 0.0026, 0.024, CHROME, axis='z', segs=12),
+         tbox('coil', (0, 0.0125, 0.036), (0.016, 0.016, 0.02), DARK, bev=0.0015),
+         tcyl('wrap', (0, 0.0125, 0.036), 0.0092, 0.014, ACCENT, axis='z', segs=16),
+         tbox('bracket', (0, 0.0012, 0.032), (0.026, 0.0024, 0.034), CHROME, bev=0.0006)]
+    for x in (-0.01, 0.01):
+        p.append(tcyl('screw', (x, 0.0028, 0.044), 0.0018, 0.001, CHROME, segs=8))
+    return merge(p, 'PinKickback')
+
+
+def screw():
+    p = [blob('head', (0, 0.0, 0), 0.0024, CHROME, s=(1, 0.5, 1), segs=12, rings=6),
+         tbox('slot', (0, 0.0011, 0), (0.0036, 0.0005, 0.0007), DARK)]
+    return merge(p, 'PinScrew')
+
+
+def nut():
+    p = [tcyl('washer', (0, 0.0003, 0), 0.0042, 0.0006, CHROME, segs=16),
+         tcyl('nut', (0, 0.0016, 0), 0.0029, 0.0022, CHROME, segs=6, bev=0.0004)]
+    return merge(p, 'PinNut')
+
+
+def spacer():
+    return merge([tcyl('spacer', (0, 0.5, 0), 0.0024, 1.0, CHROME, segs=6)], 'PinSpacer')
 
 
 def outline(len_, r0, r1, n=24):
@@ -439,6 +587,10 @@ def build_parts():
     }
     parts['gate'] = gate()
     parts['gatePosts'] = merge(gate_posts(), 'PinGatePosts')
+    parts.update({
+        'standup': standup(), 'spinner': spinner(), 'flap': spinner_flap(), 'star': star_rollover(),
+        'rollover': rollover_wire(), 'kickback': kickback(), 'screw': screw(), 'nut': nut(), 'spacer': spacer(),
+    })
     return parts
 
 
@@ -452,7 +604,7 @@ if not COIN:
     ft = foot()
     parts = build_parts()
     assets = [(cab, 0.06), (bb, 0.06), (lg, 0.2), (ft, 0.02)] + [(o, 0.01) for o in parts.values()]
-    bake_ao(assets, {'PbCoinGlow', 'PbWindowGlow', 'PbBumperCap'}, distance=0.04, samples=24)
+    bake_ao(assets, {'PbCoinGlow', 'PbWindowGlow', 'PbBumperCap', 'PbStar'}, distance=0.04, samples=24)
     print('faces', sum(len(o.data.polygons) for o, _ in assets))
     export(OUT_GLB, OUT_BLEND)
     print('DONE')
@@ -463,7 +615,7 @@ if not COIN:
 # advertising column behind it, glowing channel inserts, fairy-light bokeh. No text.
 OUT_PNG = ARGS[1]
 parts = build_parts()
-for k in ('house', 'saucer', 'gate', 'gatePosts', 'drop', 'post'):
+for k in ('house', 'saucer', 'gate', 'gatePosts', 'drop', 'post', 'standup', 'spinner', 'flap', 'star', 'rollover', 'kickback', 'screw', 'nut', 'spacer'):
     parts[k].hide_render = True
 
 
