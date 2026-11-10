@@ -106,6 +106,26 @@
   --xr-roast-chef-pants:    #2c2c34;
   --xr-roast-chef-acc:      #d63a3a;
   --xr-roast-chef-acc2:     #3a3a42;
+  /* guests of the rush who resemble earlier ones (same figures, own colors) */
+  --xr-roast-biz2-hair:     #6b4a33;
+  --xr-roast-biz2-coat:     #4a5a3a;
+  --xr-roast-biz2-pants:    #2e3326;
+  --xr-roast-biz2-acc:      #e0a43a;
+  --xr-roast-biz2-acc2:     #3d2416;
+  --xr-roast-student2-hair: #2a1c14;
+  --xr-roast-student2-coat: #7a4fc2;
+  --xr-roast-student2-pants:#2c3242;
+  --xr-roast-student2-acc:  #3fb6a8;
+  --xr-roast-student2-acc2: #f2d24a;
+  --xr-roast-chef2-hair:    #d9c49a;
+  --xr-roast-chef2-coat:    #f1e4cc;
+  --xr-roast-chef2-pants:   #5a3a24;
+  --xr-roast-chef2-acc:     #2f7a4a;
+  --xr-roast-chef2-acc2:    #8a5a3a;
+  /* the rush: the guest you serve now, patience bars, wave banners */
+  --xr-roast-active:        #ffd27a;
+  --xr-roast-patience-bg:   rgb(7 10 20 / 0.7);
+  --xr-roast-wave:          #ff8a3d;
   /* ratings and the AI panel */
   --xr-roast-star:          #ffc65c;
   --xr-roast-star-empty:    #4a4f66;

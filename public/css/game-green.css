@@ -70,6 +70,12 @@
   --xr-green-key-light:    #fff1d6;   /* the sun over the diorama */
   --xr-green-storm-light:  #b9c6e0;
   --xr-green-sun-orb:      #ffd27a;
+  --xr-green-heat-light:   #ffb36b;   /* a heat peak: warm, orange light */
+  --xr-green-smoke:        #4a4f5f;   /* a damaged turbine */
+  --xr-green-dark:         #9b85ff;   /* dark lull (warning color) */
+  --xr-green-flood:        #3d8bff;   /* flood (warning color) */
+  --xr-green-bubble:       #fff8ea;   /* citizens' speech bubbles */
+  --xr-green-bubble-text:  #24180f;
 
   /* ----- plots and the AI map ----- */
   --xr-green-plot:         #c9b78f;

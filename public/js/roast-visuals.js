@@ -471,6 +471,10 @@ const GUEST_TOKENS = {
   family: { GSkin: 'xr-roast-skin-3', GHair: 'xr-roast-family-hair', GCoat: 'xr-roast-family-coat', GPants: 'xr-roast-family-pants', GAccent: 'xr-roast-family-acc', GAccent2: 'xr-roast-family-acc2' },
   kid: { GSkin: 'xr-roast-skin-3', GHair: 'xr-roast-family-hair', GCoat: 'xr-roast-kid-coat', GPants: 'xr-roast-family-pants', GAccent: 'xr-roast-kid-acc', GAccent2: 'xr-roast-kid-acc' },
   chef: { GSkin: 'xr-roast-skin-2', GHair: 'xr-roast-chef-hair', GCoat: 'xr-roast-chef-coat', GPants: 'xr-roast-chef-pants', GAccent: 'xr-roast-chef-acc', GAccent2: 'xr-roast-chef-acc2' },
+  // the rush: new guests on the same figures in their own colors
+  biz2: { GSkin: 'xr-roast-skin-2', GHair: 'xr-roast-biz2-hair', GCoat: 'xr-roast-biz2-coat', GPants: 'xr-roast-biz2-pants', GAccent: 'xr-roast-biz2-acc', GAccent2: 'xr-roast-biz2-acc2' },
+  student2: { GSkin: 'xr-roast-skin-3', GHair: 'xr-roast-student2-hair', GCoat: 'xr-roast-student2-coat', GPants: 'xr-roast-student2-pants', GAccent: 'xr-roast-student2-acc', GAccent2: 'xr-roast-student2-acc2' },
+  chef2: { GSkin: 'xr-roast-skin-1', GHair: 'xr-roast-chef2-hair', GCoat: 'xr-roast-chef2-coat', GPants: 'xr-roast-chef2-pants', GAccent: 'xr-roast-chef2-acc', GAccent2: 'xr-roast-chef2-acc2' },
 };
 const COMMON = { GShoe: 'xr-roast-wood-dark', GEye: 'xr-roast-eye', GWhite: 'xr-roast-white', GCheek: 'xr-roast-cheek', GMetal: 'xr-roast-metal' };
 const MODEL = { student: 'GuestStudent', grandma: 'GuestGrandma', business: 'GuestBusiness', family: 'GuestFamily', kid: 'GuestKid', chef: 'GuestChef' };
@@ -478,12 +482,12 @@ const HEAD_R = { kid: 0.14 };
 
 /** One figure (body, head with face, arms) from the guests model. */
 class Figure {
-  constructor(gltf, model) {
+  constructor(gltf, model, look = model) {
     const src = gltf.scene.getObjectByName(MODEL[model]);
     this.root = src ? src.clone(true) : new THREE.Group();
     this.root.position.set(0, 0, 0);
     this.mats = [];
-    const tokens = { ...COMMON, ...GUEST_TOKENS[model] };
+    const tokens = { ...COMMON, ...(GUEST_TOKENS[look] ?? GUEST_TOKENS[model]) };
     const cache = {};
     this.root.traverse((o) => {
       if (!o.isMesh) return;
@@ -558,9 +562,9 @@ class Figure {
  * talk(on), drink(k 0..1), react(mood) with a little hop, a shake or a tilt.
  */
 export class Guest {
-  constructor(gltf, model) {
+  constructor(gltf, model, look = model) {
     this.group = new THREE.Group();
-    this.main = new Figure(gltf, model);
+    this.main = new Figure(gltf, model, look);
     this.group.add(this.main.root);
     this.figures = [this.main];
     if (model === 'family') {
@@ -642,6 +646,8 @@ export class Guest {
       } else if (i === 0 && f.mouths.talk.visible && f.mood !== 'talk') f.setMood(f.mood);
     });
     const f = this.main;
+    // Waited too long: the head hangs (and the walk out is slow).
+    if (this.slump) this.figures.forEach((g) => { g.head.rotation.x += 0.32; g.armL.rotation.x *= 0.4; g.armR.rotation.x *= 0.4; });
     // Drinking: the right arm brings the cup up, the head tilts back.
     if (this.drinkK > 0) {
       const k = smooth(clamp(this.drinkK, 0, 1));

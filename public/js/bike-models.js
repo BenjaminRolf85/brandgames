@@ -15,6 +15,7 @@ import { color, font } from './tokens.js';
 
 export const BIKE_URL = 'assets/models/bike.glb';
 export const WORLD_URL = 'assets/models/bike-world.glb';
+export const JUMPS_URL = 'assets/models/bike-jumps.glb';
 export const TIRE_NODES = { slick: 'TireSlick', allround: 'TireAllround', knobby: 'TireKnobby', spikes: 'TireSpikes' };
 export const TIRE_TOKENS = { slick: 'xr-bike-tire-slick', allround: 'xr-bike-tire-allround', knobby: 'xr-bike-tire-knobby', spikes: 'xr-bike-tire-spikes' };
 
@@ -105,6 +106,10 @@ const SPEC = {
   BkArchBanner: { t: 'xr-bike-arch-banner', r: 0.5 },
   BkArchPost: { t: 'xr-bike-arch-post', r: 0.4, m: 0.6 },
   BkGarland: { t: 'xr-bike-garland', r: 0.8 },
+  BkRampStripe: { t: 'xr-bike-ramp-stripe', r: 0.5, glow: 0.12 },
+  BkCone: { t: 'xr-bike-cone', r: 0.45 },
+  BkPitSign: { t: 'xr-bike-pit-sign', r: 0.5 },
+  BkPitGlow: { t: 'xr-bike-pit-glow', type: 'glow' },
 };
 
 function makeMaterial(name, vc, clip) {
@@ -177,6 +182,8 @@ let bikePromise = null;
 let worldPromise = null;
 export const loadBikeGLTF = () => (bikePromise ??= loadGLTF(BIKE_URL));
 export const loadWorldGLTF = () => (worldPromise ??= loadGLTF(WORLD_URL));
+let jumpsPromise = null;
+export const loadJumpsGLTF = () => (jumpsPromise ??= loadGLTF(JUMPS_URL));
 
 // ---------------------------------------------------------------- the bike
 
@@ -317,20 +324,23 @@ export class EchoRider {
   hurt() { this.hurtT = 1; this.face?.setMood('dizzy', 1.2); }
   cheer() { this.cheerT = 1; this.face?.setMood('happy', 3); }
 
-  /** state: { speed, turn (0..1 look back), steer, lookWorld } */
-  update(dt, { speed = 0, turn = 0, steer = 0, lookWorld = null, pedal = 0 } = {}) {
+  /** state: { speed, turn (0..1 look back), steer, lookWorld, air (0..1), tuck (0..1) } */
+  update(dt, { speed = 0, turn = 0, steer = 0, lookWorld = null, pedal = 0, air = 0, tuck = 0 } = {}) {
     this.time += dt;
     const t = this.time;
     this.turn += (turn - this.turn) * Math.min(1, dt * 3);
     this.cheerT = Math.max(0, this.cheerT - dt * 0.4);
     this.hurtT = Math.max(0, this.hurtT - dt * 1.4);
     // Pedaling bob and a little sway, leaning into the steering.
-    const bob = Math.abs(Math.sin(pedal)) * 0.025 * Math.min(1, speed / 2);
-    this.body.position.set(Math.sin(pedal) * 0.012, bob + this.cheerT * 0.08 * Math.abs(Math.sin(t * 6)), 0);
-    this.body.rotation.set(-0.1 - 0.12 * Math.min(1, speed / 3), this.turn * 0.9 - steer * 0.5, -steer * 0.6 + Math.sin(t * 30) * 0.2 * this.hurtT);
+    this.air = (this.air ?? 0) + (air - (this.air ?? 0)) * Math.min(1, dt * 10);
+    this.tuck = (this.tuck ?? 0) + (tuck - (this.tuck ?? 0)) * Math.min(1, dt * 10);
+    const bob = Math.abs(Math.sin(pedal)) * 0.025 * Math.min(1, speed / 2) * (1 - this.air);
+    this.body.position.set(Math.sin(pedal) * 0.012 * (1 - this.air), bob + this.cheerT * 0.08 * Math.abs(Math.sin(t * 6)) - this.tuck * 0.1 + this.air * 0.04, this.tuck * -0.06);
+    this.body.rotation.set(-0.1 - 0.12 * Math.min(1, speed / 3) - this.tuck * 0.35, this.turn * 0.9 - steer * 0.5, -steer * 0.6 + Math.sin(t * 30) * 0.2 * this.hurtT);
+    this.body.scale.set(1 + this.tuck * 0.06, 1 - this.tuck * 0.1, 1 + this.tuck * 0.06);
     if (this.wings) {
       // Wings folded forward to the grips; raised and waving when cheering.
-      const cheer = Math.min(1, this.cheerT * 2);
+      const cheer = Math.min(1, this.cheerT * 2 + this.air * 0.45 * (1 - this.tuck));
       for (const w of this.wings) {
         const fold = 1.4 * (1 - cheer) - this.turn * 0.3;
         const a = -0.55 * (1 - cheer) + cheer * (0.9 + Math.sin(t * 14) * 0.35);
@@ -420,6 +430,35 @@ function bannerPanel(text, clip) {
   p.material.transparent = false;
   p.material.clippingPlanes = clip;
   p.userData.noFit = true;
+  return p;
+}
+
+/** The pit stop's sign: a text panel on the gantry's sign box (gantry units, right half). */
+export function pitSign(text, clip) {
+  const p = new Panel(1.8, 0.5, (ctx, c) => {
+    const W = c.canvas.width;
+    const H = c.canvas.height;
+    ctx.fillStyle = color('xr-bike-pit-sign');
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = color('xr-bike-ramp-stripe');
+    for (let x = -H; x < W; x += H * 0.5) {
+      ctx.beginPath();
+      ctx.moveTo(x, H);
+      ctx.lineTo(x + H * 0.25, H);
+      ctx.lineTo(x + H * 0.5, H * 0.82);
+      ctx.lineTo(x + H * 0.25, H * 0.82);
+      ctx.fill();
+    }
+    ctx.fillStyle = color('xr-bike-pit-glow');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = font('black', H * 0.46);
+    ctx.fillText(text, W / 2, H * 0.42, W * 0.92);
+  });
+  p.material.transparent = false;
+  p.material.clippingPlanes = clip;
+  p.userData.noFit = true;
+  p.position.set(1.5, 2.15, 0.056);
   return p;
 }
 

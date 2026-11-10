@@ -6,7 +6,7 @@ import { Panel, textPanel, roundRect } from './ui3d.js';
 import { color, num, font } from './tokens.js';
 import { ICONS, drawIcon } from './icons.js';
 import { t, getLang } from './i18n.js';
-import { TYPES, YEARS, FIRST_YEAR, HOUSEHOLD_MWH, CO2_PER_GWH, MONTH_WIND, MONTH_SUN } from './green-sim.js';
+import { TYPES, YEARS, FIRST_YEAR, HOUSEHOLD_MWH, CO2_PER_GWH, MONTH_WIND, MONTH_SUN, LIVE, WEATHER } from './green-sim.js';
 
 // Line icons for the projects (24 x 24, stroked like icons.js); registered so the phone's thumb
 // buttons (touch-ui.js) can show them too.
@@ -19,6 +19,11 @@ const GREEN_ICONS = {
   greenKita: `M2.5 21.5h19M4.5 21.5V11L12 5l7.5 6v10.5${circ(12, 12.2, 1.6)}M12 13.8v3.6M9.8 15.3h4.4M10.3 20.5l1.7-3 1.7 3`,
   greenGo: 'M4 5h16v15H4zM4 9h16M8.5 2.5v4M15.5 2.5v4M10 12l5 3-5 3z',
   greenNext: 'M4 12h15M13 6l6 6-6 6',
+  greenStorm: 'M6.5 15.5a4 4 0 0 1 .3-8A5.5 5.5 0 0 1 17.3 8.6a3.5 3.5 0 0 1 .7 6.9H6.5zM12.5 15.5l-2 3.5h3l-2 3.5',
+  greenHeat: `${circ(12, 12, 4)}M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1`,
+  greenDark: 'M6.5 16.5a4 4 0 0 1 .3-8A5.5 5.5 0 0 1 17.3 9.6a3.5 3.5 0 0 1 .7 6.9H6.5zM3 3l18 18',
+  greenFlood: 'M3 15.5c2-1.5 4-1.5 6 0s4 1.5 6 0 4-1.5 6 0M3 19.5c2-1.5 4-1.5 6 0s4 1.5 6 0 4-1.5 6 0M7 12V7l5-3.5L17 7v5',
+  greenBet: 'M7 20V5M3.5 8.5L7 5l3.5 3.5M17 4v15M13.5 15.5L17 19l3.5-3.5',
   greenAI: `${circ(12, 12, 3)}M12 2.5v3.5M12 18v3.5M2.5 12H6M18 12h3.5M5.3 5.3l2.5 2.5M16.2 16.2l2.5 2.5M5.3 18.7l2.5-2.5M16.2 7.8l2.5-2.5`,
 };
 for (const [k, d] of Object.entries(GREEN_ICONS)) if (!(k in ICONS)) ICONS[k] = d;
@@ -379,6 +384,9 @@ function drawMini(ctx, c, v) {
     }
     const dq = r.qol - r.qolBefore;
     pen.line(`${t('greenQol')} ${dq >= 0 ? '+' : '−'}${fmtInt(Math.abs(dq))}`, { size: M, weight: 'bold', col: color('xr-green-qol') });
+    const live = r.live ?? [];
+    if (live.length) pen.line(t('greenRepLive', { good: live.filter((e) => e.good).length, n: live.length }), { size: num('xr-text-sm'), weight: 'bold' });
+    if (r.bet) pen.line(`${t('greenBetAsk').replace('?', '')}: ${r.bet.winner === 'player' ? '+' : ''}${r.bet.pts}`, { size: num('xr-text-sm'), weight: 'bold', col: color(r.bet.winner === 'player' ? 'xr-green-up' : 'xr-green-down') });
     if (!rows.length) pen.para(t('greenRepNone'), { size: num('xr-text-sm'), maxLines: 4 });
     return;
   }
@@ -407,8 +415,13 @@ function drawMini(ctx, c, v) {
   } else if (plot?.built) {
     pen.line(typeName(plot.built), { size: M, weight: 'bold', col: color(TYPES[plot.built].token) });
     pen.line(plotName(plot), { size: M, col: color('xr-panel-muted') });
+  } else if (plot && game.canBet(plot.id)) {
+    const f = game.forecast('wind', plot.id);
+    pen.line(plotName(plot), { size: M, weight: 'bold', gap: 0.004 });
+    pen.line(`${fmt(f.value)} GWh ±${fmt((f.hi - f.lo) / 2)}`, { size: M, weight: 'black', col: color('xr-green-wind'), gap: 0.004 });
+    pen.para(game.bet?.id === plot.id ? t('greenBetSet', { plot: plotName(plot), dir: t(game.bet.dir > 0 ? 'greenBetUp' : 'greenBetDown') }) : t('greenBetHint'), { size: num('xr-text-sm'), weight: 'bold', col: color('xr-accent'), maxLines: 4 });
   } else {
-    pen.para(t('greenIntroTouch'), { size: num('xr-text-sm'), col: color('xr-panel-text'), maxLines: 5 });
+    pen.para(game.bet ? t('greenBetSet', { plot: t(`greenPlot_${game.bet.id}`), dir: t(game.bet.dir > 0 ? 'greenBetUp' : 'greenBetDown') }) : t('greenIntroTouch'), { size: num('xr-text-sm'), col: color('xr-panel-text'), maxLines: 5 });
   }
 }
 
@@ -428,11 +441,16 @@ function drawPlan(pen, v) {
   pen.para(sub, { gap: 0.004, maxLines: 2 });
   if (pen.right) {
     if (v.map) { pen.space(0.006); legend(pen, v.map); }
+    if (!T) { pen.space(0.006); betLine(pen, game, { maxLines: 3 }); }
     column(pen);
   } else pen.rule();
   if (!T) {
     if (plot?.built) builtInfo(pen, v);
-    else overview(pen, game);
+    else if (plot && game.canBet(plot.id)) betInfo(pen, v);
+    else {
+      overview(pen, game);
+      if (!pen.right) { pen.space(0.006); betLine(pen, game); }
+    }
     return;
   }
   if (plot && plot.built) { builtInfo(pen, v); return; }
@@ -466,6 +484,9 @@ function drawPlan(pen, v) {
       bar(pen, { lo: f.needLo / top, hi: f.needHi / top, mark: f.cap / top, token: T.token, h: 0.018, gap: 0.008 });
       pen.line(`${t(`greenNeed_${f.need}`, { n: fmtInt(f.input) })} · ${t('greenNeedCap', { cap: f.cap })}`, { size: num('xr-text-min'), weight: 'bold', gap: 0.002 });
       pen.line(`${t('greenRange', { lo: fmtInt(f.needLo), hi: fmtInt(f.needHi) })} · ${t('greenConf', { n: fmtInt(f.conf * 100) })}`, { size: num('xr-text-min'), col: color('xr-panel-muted'), gap: 0.004 });
+      // The citizens' wish here, if it is for this project.
+      const w = game.wishes.find((x) => x.district === plot.district && x.type === type);
+      if (w) pen.para(t('greenWishLabel', { text: t(`greenWish_${w.type}_${w.level}`) }), { col: color('xr-green-social'), weight: 'bold', maxLines: 2 });
     }
     if (game.budget < T.cost - 1e-9) pen.para(t('greenNoMoney'), { col: color('xr-danger'), weight: 'bold' });
   } else if (plot) {
@@ -510,7 +531,7 @@ function overview(pen, game) {
   for (const type of Object.keys(TYPES)) {
     const T = TYPES[type];
     const best = game.plots.filter((p) => !p.built && p.area === T.area).map((p) => ({ p, f: game.forecast(type, p.id) })).sort((a, b) => b.f.value - a.f.value)[0];
-    const rowH = c.m(0.042 * kk);
+    const rowH = c.m((pen.right ? 0.042 : 0.038) * kk);
     if (pen.y + rowH > c.canvas.height - c.m(0.02)) break;
     drawIcon(ctx, T.icon, pen.x + c.m(0.016 * kk), pen.y + rowH / 2, c.m(0.03 * kk), color(T.token));
     ctx.textBaseline = 'middle';
@@ -537,7 +558,10 @@ function builtInfo(pen, v) {
   if (pr) {
     pen.line(t('greenLastYear', { v: `${fmt(pr.actual)} GWh`, f: fmt(pr.forecast) }), { size: num('xr-text-min'), gap: 0.004 });
     const d = pr.actual / pr.forecast - 1;
-    pen.line(pct(d), { size: num('xr-text-md'), weight: 'black', col: color(d >= 0 ? 'xr-green-up' : 'xr-green-down') });
+    pen.line(pct(d), { size: num('xr-text-md'), weight: 'black', col: color(d >= 0 ? 'xr-green-up' : 'xr-green-down'), gap: 0.002 });
+    // Without the year's weather: the AI's error at this very place (a hint for bets).
+    const wx = WEATHER[last.weather][pr.type === 'wind' ? 'wind' : 'sun'];
+    pen.line(t('greenAdjusted', { d: pct(pr.actual / (pr.forecast * wx) - 1) }), { size: num('xr-text-min'), col: color('xr-panel-muted') });
   } else if (TYPES[plot.built].kind === 'energy') {
     const f = game.forecast(plot.built, plot.id);
     pen.para(`${fmt(f.value)} GWh · ${t('greenRange', { lo: fmt(f.lo), hi: fmt(f.hi) })}`, { col: color('xr-panel-text'), maxLines: 2 });
@@ -584,6 +608,7 @@ function drawSim(pen, v) {
   if (report.windFc > 0) row(t('greenRepWind'), w, wf, 'xr-green-wind');
   if (report.sunFc > 0) row(t('greenRepSun'), s, sf, 'xr-green-sun');
   if (!report.windFc && !report.sunFc) pen.para(t('greenRepNone'), { maxLines: 3 });
+  if (v.game?.battery) pen.line(t('greenBattery'), { size: num('xr-text-min'), weight: 'bold', col: color('xr-green-sun'), gap: 0.002 });
   pen.space(0.006);
   const fcMonths = report.windFc || report.sunFc ? MONTH_WIND.map((m, i) => report.windFc * m + report.sunFc * MONTH_SUN[i]) : null;
   if (pen.right) {
@@ -623,18 +648,50 @@ function drawReport(pen, v) {
   }
   if (!rows.length) pen.para(t('greenRepNone'), { maxLines: 2 });
   column(pen);
-  pen.para(t(`greenWx_${r.weather}`), { size: num('xr-text-min'), col: color('xr-panel-text'), maxLines: 3 });
+  const small = { size: num('xr-text-min'), gap: 0.002 };
   // The mix: the whole portfolio was closer to the forecast than its parts.
   if (r.windFc > 0 && r.sunFc > 0) {
     const dw = Math.abs(r.windSum / r.windFc - 1);
     const ds = Math.abs(r.sunSum / r.sunFc - 1);
     const dt = Math.abs(r.energy / r.forecastEnergy - 1);
-    if (dt < Math.max(dw, ds) - 0.01) pen.para(t('greenRepMix', { p: `${fmtInt(dt * 100)} %` }), { col: color('xr-green-energy'), weight: 'bold', maxLines: 2 });
+    if (dt < Math.max(dw, ds) - 0.01) pen.para(t('greenRepMix', { p: `${fmtInt(dt * 100)} %` }), { col: color('xr-green-energy'), weight: 'bold', maxLines: 2, gap: 0.004 });
   }
+  const live = r.live ?? [];
+  if (live.length) pen.line(t('greenRepLive', { good: live.filter((e) => e.good).length, n: live.length }), { ...small, weight: 'bold', col: color(live.every((e) => e.good) ? 'xr-green-up' : 'xr-warning') });
+  if (r.bet) betResult(pen, r.bet, v.game, small);
+  const met = (r.wishes ?? []).filter((w) => w.met).length;
   const dq = r.qol - r.qolBefore;
-  pen.line(t('greenRepQol', { d: `${dq >= 0 ? '+' : '−'}${fmtInt(Math.abs(dq))}`, qol: fmtInt(r.qol) }), { size: num('xr-text-min'), weight: 'bold', col: color('xr-green-qol'), gap: 0.002 });
-  if (r.revenue > 0.05) pen.line(t('greenRepReturns', { n: money(r.revenue) }), { size: num('xr-text-min'), col: color('xr-panel-muted'), gap: 0.002 });
+  pen.para(`${t('greenRepQol', { d: `${dq >= 0 ? '+' : '−'}${fmtInt(Math.abs(dq))}`, qol: fmtInt(r.qol) })}${met ? ` · ${t('greenRepWish', { n: met })}` : ''}`, { size: num('xr-text-min'), weight: 'bold', col: color('xr-green-qol'), maxLines: 2, gap: 0.002 });
+  if (pen.right) return; // phones held upright: the rest does not fit
+  const last = r.year >= YEARS - 1;
+  const money2 = [r.revenue > 0.05 && !last ? t('greenRepReturns', { n: money(r.revenue) }) : null, r.costs > 0.05 ? t('greenRepCosts', { n: `−${money(r.costs)}` }) : null].filter(Boolean).join(' · ');
+  if (money2) pen.para(money2, { maxLines: 2, gap: 0.002 });
   if (r.waiting.length) pen.para(t('greenRepWaiting', { list: r.waiting.map((k) => t(`greenDistrict_${k}`)).join(', ') }), { col: color('xr-warning'), maxLines: 2 });
+}
+
+/** The year's bet: who was right, the player or the AI. */
+function betResult(pen, b, game, opt) {
+  const name = t(`greenPlot_${b.id}`);
+  const text = b.winner === 'player' ? t('greenBetWin', { plot: name, d: pct(b.d), pts: b.pts }) : t('greenBetLose', { plot: name, d: pct(b.d), pts: b.pts });
+  pen.para(text, { size: opt.size, weight: 'bold', col: color(b.winner === 'player' ? 'xr-green-up' : 'xr-green-down'), maxLines: 2, gap: 0.004 });
+}
+
+/** The bet of this year (or how to place one). */
+function betLine(pen, game, opt = {}) {
+  if (game.bet) pen.para(t('greenBetSet', { plot: t(`greenPlot_${game.bet.id}`), dir: t(game.bet.dir > 0 ? 'greenBetUp' : 'greenBetDown') }), { col: color('xr-accent'), weight: 'bold', maxLines: 2, ...opt });
+  else pen.para(t('greenBetHint'), { maxLines: 3, ...opt });
+}
+
+/** An uncertain plot (no project chosen): the AI's wind forecast and the bet on it. */
+function betInfo(pen, v) {
+  const { game, plot } = v;
+  const f = game.forecast('wind', plot.id);
+  pen.line(`${plotName(plot)} · ${t('greenType_wind')}`, { weight: 'bold', gap: 0.002 });
+  pen.line(`${fmt(f.value)} GWh · ${t('greenConf', { n: fmtInt(f.conf * 100) })}`, { size: num('xr-text-sm'), weight: 'black', col: color('xr-green-wind'), gap: 0.004 });
+  const top = Math.max(f.hi * 1.08, 1);
+  bar(pen, { lo: f.lo / top, hi: f.hi / top, mark: f.value / top, token: 'xr-green-wind', h: 0.014, gap: 0.006 });
+  betLine(pen, game);
+  pen.para(t('greenBetInfo'), { maxLines: 2 });
 }
 
 // ---------- the region dashboard ----------
@@ -721,6 +778,69 @@ export function dashPanel(w, h, view) {
       pen.line(t('greenMonthly'), { size: num('xr-text-min') * 0.9, weight: 'bold', col: color('xr-panel-muted'), gap: 0.004 });
       monthChart(pen, last.months, v.upto ?? 12, { h: Math.min(0.07, (c.canvas.height - pen.y) / c.px - 0.05) });
     }
+  });
+}
+
+/**
+ * The AI's warning while the year runs. view() -> { ev, secs, lead, reacted, outcome, act, hint,
+ * battery }: countdown ring around the event's icon, the confidence, the reaction or the outcome.
+ */
+export function alertPanel(w, h, view) {
+  return new Panel(w, h, (ctx, c) => {
+    const v = view();
+    if (!v?.ev) return;
+    const { ev } = v;
+    const L = LIVE[ev.type];
+    const done = !!v.outcome;
+    const tok = done ? (v.outcome.good ? 'xr-green-up' : 'xr-green-down') : v.reacted ? 'xr-green-up' : 'xr-warning';
+    c.surface({ stroke: color(tok), strokeWidth: num('xr-border-width') * 2 });
+    const H = c.canvas.height;
+    const R = H * 0.36;
+    const cx = c.m(0.03) + R;
+    const cy = H / 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fillStyle = color('xr-button-bg');
+    ctx.fill();
+    if (!done) {
+      // The countdown runs out around the icon.
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, v.secs / v.lead));
+      ctx.lineWidth = c.m(0.008);
+      ctx.strokeStyle = color(tok);
+      ctx.stroke();
+    }
+    drawIcon(ctx, L.icon, cx, cy, R * 1.15, color(L.token));
+    const x = cx + R + c.m(0.025);
+    const tw = c.canvas.width - x - c.m(0.025);
+    const pen = new Pen(ctx, c, 0.02);
+    pen.x = x;
+    pen.w = tw;
+    pen.y = c.m(0.016);
+    const name = t(`greenLive_${ev.type}`);
+    if (done) {
+      pen.line(`${t('greenWarnTitle')}: ${name} · ${t('greenWarnConf', { n: fmtInt(ev.conf * 100) })}`, { size: num('xr-text-sm'), weight: 'bold', col: color('xr-panel-muted'), gap: 0.004 });
+      pen.para(v.outcome.text, { size: num('xr-text-sm'), weight: 'black', col: color(tok), maxLines: 3 });
+      return;
+    }
+    pen.line(`${t('greenWarnTitle')}: ${t('greenWarn', { event: name, s: Math.max(0, Math.ceil(v.secs)) })}`, { size: num('xr-text-md'), weight: 'black', col: color('xr-warning'), gap: 0.006 });
+    // The confidence as a bar.
+    const bh = c.m(0.016);
+    const bw = tw * 0.55;
+    ctx.fillStyle = color('xr-button-bg');
+    rr(ctx, x, pen.y, bw, bh, bh / 2);
+    ctx.fill();
+    ctx.fillStyle = color('xr-accent');
+    rr(ctx, x, pen.y, bw * ev.conf, bh, bh / 2);
+    ctx.fill();
+    ctx.font = font('bold', c.m(num('xr-text-sm')));
+    ctx.fillStyle = color('xr-accent');
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(t('greenWarnConf', { n: fmtInt(ev.conf * 100) }), x + bw + c.m(0.012), pen.y + bh / 2);
+    pen.y += bh + c.m(0.012);
+    if (v.reacted) pen.line(t(`greenActDone_${ev.type}`), { size: num('xr-text-sm'), weight: 'black', col: color('xr-green-up') });
+    else pen.para(`${v.act}? ${v.hint}`, { size: num('xr-text-min'), col: color('xr-panel-text'), maxLines: 2 });
   });
 }
 

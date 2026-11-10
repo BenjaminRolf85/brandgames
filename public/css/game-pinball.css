@@ -1,9 +1,9 @@
 /* Design tokens of the game 'pinball' (colors and sizes of its 3D world and UI). Read by tokens.js like tokens.css. */
 :root {
   /* cabinet: midnight blue paint, red accent stripes, chrome */
-  --xr-pinball-cabinet:        #16245a;
+  --xr-pinball-cabinet:        #1c2f86;
   --xr-pinball-cabinet-dark:   #0b1230;
-  --xr-pinball-accent:         #e3262f;   /* red accent stripes, buttons, roofs */
+  --xr-pinball-accent:         #ff2238;   /* red accent stripes, buttons, roofs */
   --xr-pinball-accent-glow:    #ff5a4f;
   --xr-pinball-chrome:         #dfe4ee;
   --xr-pinball-dark:           #0a0d18;
@@ -13,15 +13,15 @@
   --xr-pinball-leg:            #c9d0de;
 
   /* playfield */
-  --xr-pinball-field:          #0e1a44;
-  --xr-pinball-field-2:        #18296b;
-  --xr-pinball-street:         #2a3d86;   /* the town map painted on the playfield */
-  --xr-pinball-street-line:    #4a63b8;
-  --xr-pinball-park:           #164a4a;
+  --xr-pinball-field:          #13248a;
+  --xr-pinball-field-2:        #2b1d86;
+  --xr-pinball-street:         #3a54c8;   /* the town map painted on the playfield */
+  --xr-pinball-street-line:    #8aa2ff;
+  --xr-pinball-park:           #11705e;
   --xr-pinball-field-text:     #e8ecf6;
   --xr-pinball-danger:         #ff4d5e;   /* outlanes */
-  --xr-pinball-wall:           #23347a;
-  --xr-pinball-wall-top:       #e3262f;
+  --xr-pinball-wall:           #2b40a6;
+  --xr-pinball-wall-top:       #ff2238;
   --xr-pinball-apron:          #101a42;
   --xr-pinball-apron-card:     #f4f1ea;
   --xr-pinball-apron-ink:      #121a3a;
@@ -30,18 +30,52 @@
   --xr-pinball-ball:           #eef2f8;
   --xr-pinball-ball-glow:      #9fe8ff;
   --xr-pinball-flipper:        #f6f2e8;
-  --xr-pinball-flipper-rubber: #e3262f;
+  --xr-pinball-flipper-rubber: #ff2238;
   --xr-pinball-rubber:         #15161c;
   --xr-pinball-sling:          #ff3b48;
   --xr-pinball-bumper-body:    #f6f2e8;
   --xr-pinball-bumper-base:    #1a1f33;
   --xr-pinball-column:         #1f6b4f;   /* advertising column: base and cap */
   --xr-pinball-house:          #f2e3c6;   /* the branch office */
-  --xr-pinball-roof:           #e3262f;
+  --xr-pinball-roof:           #ff2238;
   --xr-pinball-window:         #ffd27a;
   --xr-pinball-ramp:           #8fd8ff;   /* clear ramp plastic */
   --xr-pinball-wire:           #e6ebf4;
   --xr-pinball-lane-light:     #ffe08a;
+
+  /* props: the giant phone, the LED wall, the branch's door, people */
+  --xr-pinball-phone:          #171b2b;
+  --xr-pinball-led-grid:       rgb(0 0 0 / 0.32);
+  --xr-pinball-door:           #7a3f1e;
+  --xr-pinball-sticker:        #ffffff;   /* white edge of icons and cut-outs */
+  --xr-pinball-like:           #3d8bff;
+  --xr-pinball-clear:          rgb(255 255 255 / 0);
+  --xr-pinball-shadow:         rgb(0 0 0 / 0.22);
+  --xr-pinball-skin-1:         #f2c8a8;
+  --xr-pinball-skin-2:         #d79a72;
+  --xr-pinball-skin-3:         #9b6a4c;
+  --xr-pinball-hair-gray:      #d4d7e0;
+
+  /* the target groups (lanes, cut-outs, board portraits) */
+  --xr-pinball-group-1:        #c77dff;   /* young people */
+  --xr-pinball-group-2:        #ff9a3d;   /* families */
+  --xr-pinball-group-3:        #ffe14d;   /* founders */
+  --xr-pinball-group-4:        #4cc9ff;   /* seniors */
+
+  /* the marketing funnel */
+  --xr-pinball-funnel-1:       #ffc65c;   /* awareness */
+  --xr-pinball-funnel-2:       #5ad8ff;   /* interest */
+  --xr-pinball-funnel-3:       #3dff9a;   /* conversion */
+
+  /* general illumination */
+  --xr-pinball-gi:             #ffe3a8;
+
+  /* backglass studio */
+  --xr-pinball-studio-wall-top: #2c2470;
+  --xr-pinball-studio-wall:    #171447;
+  --xr-pinball-board:          #c08a55;   /* cork */
+  --xr-pinball-board-frame:    #6b4425;
+  --xr-pinball-desk:           #8a5a36;
 
   /* the six channels (inserts, panel bars) */
   --xr-pinball-ch-poster:      #ffb02e;
@@ -66,7 +100,6 @@
   /* backglass: a small town square on a winter evening */
   --xr-pinball-sky-top:        #0a1538;
   --xr-pinball-sky-bottom:     #33498f;
-  --xr-pinball-sky-warm:       #8a5a8f;
   --xr-pinball-star:           #ffffff;
   --xr-pinball-house-1:        #c8503c;
   --xr-pinball-house-2:        #e8c38a;
@@ -74,17 +107,13 @@
   --xr-pinball-house-4:        #a07bc0;
   --xr-pinball-house-5:        #e9a35e;
   --xr-pinball-house-6:        #7fb59b;
-  --xr-pinball-timber:         #4a2a1e;
   --xr-pinball-house-roof:     #7a3326;
   --xr-pinball-snow:           #f4f8ff;
-  --xr-pinball-snow-shade:     #c9d7ee;
-  --xr-pinball-ground:         #3a4f8f;
   --xr-pinball-cobble:         #4f66ab;
   --xr-pinball-tree:           #1f7a45;
   --xr-pinball-tree-light:     #2fa860;
   --xr-pinball-trunk:          #5c3a24;
   --xr-pinball-lamp:           #ffd27a;
-  --xr-pinball-lamp-clear:     rgb(255 210 122 / 0);
   --xr-pinball-title:          #ffffff;
   --xr-pinball-title-glow:     #ff5a4f;
 

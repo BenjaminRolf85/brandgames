@@ -7,6 +7,12 @@
 // data is unclear (fog, wet leaves, slush) and the AI is wrong. The right choice gives grip,
 // speed and points; the wrong one slips, slows and punctures more easily. A flat tire means a
 // short pumping break. A swallow flies ahead and shows the best line.
+// Jumps: ramps (snow drifts) and obstacles across the trail (logs, branches, huge potholes) that
+// only a jump clears; jumping right at a ramp's lip gives big air, holding the jump button does a
+// wheelie, steering in the air a tilt; a clean landing gives points, a speed boost and a combo.
+// Weather: mid-section the weather can turn (rain, frost, sun, thaw, or only fog); the scanner
+// re-scans live with new sensor data and the player can take a quick pit stop (tire, pressure,
+// pump) or ride on.
 // In the headset the trail is a diorama at table height (steer with both hands like on a
 // handlebar, or one hand); in the browser a chase camera follows the bike (keys, mouse, or on
 // phones swiping and two big buttons).
@@ -20,13 +26,16 @@ import { sfx } from '../sfx.js';
 import { music } from '../music.js';
 import { quality } from '../quality.js';
 import { EVENT } from '../event.js';
-import { makeEnvironment } from '../robot-visuals.js';
-import { TIRES, PRESSURES, BEST, planScans, rate, sensorText } from '../bike-ai.js';
+import { makeEnvironment, radialTexture } from '../robot-visuals.js';
+import { TIRES, PRESSURES, BEST, planScans, rate, sensorText, liveScan } from '../bike-ai.js';
 import {
   makeCourse, makeTerrain, Scatter, makeSky, makeBase, makeScanFx, makeGuideDots, makeSnow, makeMist, makeSparks,
-  HZ, ITEMS, S0, STOP_GAP, HALF, EDGE,
+  HZ, ITEMS, RAMPS, RAMP_H, S0, STOP_GAP, HALF, EDGE,
 } from '../bike-world.js';
-import { loadBikeGLTF, loadWorldGLTF, modelKit, BikeRig, EchoRider, SwallowGuide, ScanDrone, makeArch, TIRE_NODES, TIRE_TOKENS } from '../bike-models.js';
+import {
+  loadBikeGLTF, loadWorldGLTF, loadJumpsGLTF, modelKit, BikeRig, EchoRider, SwallowGuide, ScanDrone, makeArch, pitSign, TIRE_NODES, TIRE_TOKENS,
+} from '../bike-models.js';
+import { makeWeatherLayer, makeRain, WEATHER_LOOK } from '../bike-weather.js';
 
 const clamp = THREE.MathUtils.clamp;
 const lerp = THREE.MathUtils.lerp;
@@ -34,15 +43,27 @@ const smooth = (a, b, x) => { const k = clamp((x - a) / (b - a), 0, 1); return k
 const easeOut = (k) => 1 - (1 - k) ** 3;
 
 const V_NOM = 5.0; // m/s at bike scale with a neutral choice
-const SCAN_T = 3.4; // seconds of scanning
-const CHOOSE_T = EVENT ? 11 : 16; // seconds to choose
-const BRAKE = 4.2; // m/s^2
-const STAR_PTS = 40;
-const CHOICE_PTS = 250; // right tire 150 + right pressure 100
+const SCAN_T = 2.2; // seconds of scanning
+const CHOOSE_T = EVENT ? 8 : 10; // seconds to choose
+const BRAKE = 5; // m/s^2
+// Points (a perfect round stays below 5000): choices 4 x 200, overrule 150, stars 36 x 30,
+// clean riding 4 x 150, time 700, jumps at most 900, pit stop at most 300, fog judged 60.
+const STAR_PTS = 30;
 const OVERRULE_PTS = 150;
-const CLEAN_PTS = 250;
-const TIME_PTS = 1000;
+const CLEAN_PTS = 150;
+const TIME_PTS = 700;
+const JUMP_CAP = 900;
+const PIT_MAX = 300;
+const FOG_PTS = 60;
 const MAX_SCORE = 5000;
+// Jumps (course units): gravity, a hop, a jump off a ramp's lip (perfect timing: big air).
+const GRAVITY = 16;
+const HOP = 4.3;
+const RAMP_AUTO = 3.0;
+const RAMP_JUMP = 5.0;
+const RAMP_PERFECT = 7.2;
+const CLEAR_Y = 0.32; // above this the bike clears hazards
+const PIT_PUMPS = { low: 2, mid: 3, high: 4 };
 const AIR_FLAT = 22; // below this the tire is flat
 const WIN = { back: 1.6, frontXR: 11.2, side: 4.2, front: 32 }; // diorama window (course units)
 const CHEVRON = 'M15 5l-7 7 7 7';
@@ -58,6 +79,12 @@ function iconTile(w, h, draw) {
   p.userData.setHover = (v) => { hover = v; p.userData.hoverK = v ? num('xr-hover-scale') : 1; p.redraw(); };
   p.userData.hoverK = 1;
   return p;
+}
+
+/** The ground height under the bike (a ramp's slope, else 0). */
+function ramp0(c, s, u) {
+  const r = c.rampAt(s, u);
+  return r ? RAMP_H * clamp((s - (r.s - 0.8)) / 1.6, 0, 1) : 0;
 }
 
 const fmtTime = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
@@ -81,6 +108,13 @@ export class BikeScene extends BaseScene {
     this.sec = 0;
     this.choice = { tire: 'allround', pressure: 'mid' };
     this.rating = rate('asphalt', 'allround', 'mid');
+    this.y = 0; // the bike's height (jumps)
+    this.vy = 0;
+    this.inAir = false;
+    this.pitch = 0;
+    this.roll = 0;
+    this.timeScale = 1;
+    this.jumpHeld = false;
     this.keys = { left: false, right: false };
     this.btn = { left: false, right: false };
     this.inputMode = 'none';
@@ -94,8 +128,8 @@ export class BikeScene extends BaseScene {
     this.buildStage();
     this.buildUI();
     this.setupInput();
-    Promise.all([loadBikeGLTF(), loadWorldGLTF()])
-      .then(([b, w]) => { if (!this.disposed) this.attachModels(b, w); })
+    Promise.all([loadBikeGLTF(), loadWorldGLTF(), loadJumpsGLTF()])
+      .then(([b, w, j]) => { if (!this.disposed) this.attachModels(b, w, j); })
       .catch((e) => console.warn('Bike models not loaded', e));
     this.onUpdate((dt) => this.update(dt));
     const hint = this.engine.isXR ? 'bikeIntroXR' : this.engine.touchUI ? 'bikeIntroTouch' : 'bikeIntroScreen';
@@ -132,6 +166,19 @@ export class BikeScene extends BaseScene {
     cg.add(this.mist);
     this.sparks = makeSparks();
     cg.add(this.sparks);
+    // Weather: the new ground per event (shown when it turns) and rain streaks.
+    this.wLayers = this.course.weather.map((w) => {
+      const layer = makeWeatherLayer(this.course, w, this.clip);
+      if (layer) cg.add(layer);
+      return layer;
+    });
+    this.rain = makeRain();
+    cg.add(this.rain);
+    // A soft shadow under the bike that stays on the ground: it shows the height of a jump.
+    this.blob = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.9).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-bike-hole'), transparent: true, opacity: 0.5, depthWrite: false }));
+    this.blob.userData.noFit = true;
+    this.blob.renderOrder = 1;
+    cg.add(this.blob);
     // The diorama's earth base (headset; browser intro and results).
     const len0 = WIN.back * S;
     const len1 = -WIN.frontXR * S;
@@ -170,7 +217,9 @@ export class BikeScene extends BaseScene {
   }
 
   placeStage() {
-    this.stage.position.set(0, this.eye - num('xr-bike-table-drop'), num('xr-bike-table-z'));
+    // A landing gives the diorama a small bounce in the headset.
+    const dip = this.engine.isXR ? (this.camDip ?? 0) * 0.008 : 0;
+    this.stage.position.set(0, this.eye - num('xr-bike-table-drop') - dip, num('xr-bike-table-z'));
   }
 
   /** The diorama window: narrow in the headset (and in the browser's intro and results). */
@@ -179,11 +228,13 @@ export class BikeScene extends BaseScene {
     return narrow ? { back: WIN.back, front: WIN.frontXR, side: WIN.side } : { back: 9, front: WIN.front, side: 40 };
   }
 
-  attachModels(bGltf, wGltf) {
+  attachModels(bGltf, wGltf, jGltf) {
     const B = modelKit(bGltf);
     const W = modelKit(wGltf, this.clip);
     const WU = modelKit(wGltf);
-    this.kits = [B, W, WU];
+    const J = modelKit(jGltf, this.clip);
+    this.kits = [B, W, WU, J];
+    const partsOf = (n) => { const a = W.parts(n); return a.length ? a : J.parts(n); };
     const c = this.course;
     this.bike = new BikeRig(B);
     this.cg.add(this.bike.root);
@@ -199,8 +250,19 @@ export class BikeScene extends BaseScene {
     const groups = new Map();
     for (const p of c.props) { if (!groups.has(p.n)) groups.set(p.n, []); groups.get(p.n).push(p); }
     const big = new Set(['PrTree', 'PrPine', 'PrPineSnow', 'PrLamp', 'PrSnowman', 'PrHay', 'PrFence', 'PrBush', 'PrLantern', 'PrSign', 'PrStump', 'PrRock', 'PrRockSnow']);
-    for (const [n, list] of groups) this.scatters.push(new Scatter(this.cg, W.parts(n), list, c, { shadow: !lite && big.has(n) }));
-    this.hzScatters = Object.entries(HZ).map(([type, spec]) => new Scatter(this.cg, W.parts(spec.node), c.hazards.filter((h) => h.type === type), c, { shadow: !lite }));
+    big.add('PitGantry');
+    for (const [n, list] of groups) this.scatters.push(new Scatter(this.cg, partsOf(n), list, c, { shadow: !lite && big.has(n) }));
+    this.hzScatters = Object.entries(HZ).map(([type, spec]) => new Scatter(this.cg, partsOf(spec.node), c.hazards.filter((h) => h.type === type), c, { shadow: !lite }));
+    // Ramps: the course knows their middle; the model's lip is 0.8 ahead.
+    for (const [kind, node] of Object.entries(RAMPS)) this.scatters.push(new Scatter(this.cg, partsOf(node), c.ramps.filter((r) => r.kind === kind), c, { shadow: !lite }));
+    // The pit stop signs.
+    this.pitSigns = c.weather.map((w) => {
+      const sign = pitSign(t('bikePitSign'), this.clip);
+      sign.position.applyAxisAngle(new THREE.Vector3(0, 1, 0), c.yaw(w.pit + 1.6)).add(c.point(w.pit + 1.6, 0));
+      sign.rotation.y = c.yaw(w.pit + 1.6);
+      this.cg.add(sign);
+      return sign;
+    });
     const lift = { star: 0.62, cart: 0.55, shield: 0.66 };
     this.itemScatters = Object.entries(ITEMS).map(([type, node]) => new Scatter(this.cg, W.parts(node), c.items.filter((it) => it.type === type), c, { shadow: false, lift: lift[type] }));
     // The start and finish arches.
@@ -255,7 +317,7 @@ export class BikeScene extends BaseScene {
     this.scanPanel = new Panel(0.66, 0.6, (ctx, c) => this.drawScan(ctx, c, false));
     this.scanSmall = new Panel(0.66, 0.36, (ctx, c) => this.drawScan(ctx, c, true));
     this.chip = new Panel(0.52, 0.09, (ctx, c) => this.drawChip(ctx, c));
-    this.gauge = new Panel(0.36, 0.17, (ctx, c) => this.drawGauge(ctx, c));
+    this.gauge = new Panel(0.4, 0.21, (ctx, c) => this.drawGauge(ctx, c));
     for (const p of [this.scanPanel, this.scanSmall, this.chip, this.gauge]) { p.visible = false; p.userData.noFit = true; ui.add(p); }
     // The choice console: tires, pressure, ride off.
     const con = (this.console = new THREE.Group());
@@ -283,13 +345,24 @@ export class BikeScene extends BaseScene {
       return tile;
     });
     this.goBtn = iconTile(0.68, 0.1, (ctx, c, s) => {
-      c.surface({ fill: color(s.hover ? 'xr-primary-hover' : 'xr-primary'), stroke: color('xr-primary-hover'), stripe: false });
-      ctx.fillStyle = color('xr-on-primary');
+      // Choosing: ride off. Pit stop: pump (once a pressure is picked), with the progress.
+      const pit = this.mode === 'pit';
+      const ready = !pit || !!this.pitPress;
+      c.surface({ fill: color(ready ? (s.hover ? 'xr-primary-hover' : 'xr-primary') : 'xr-button-bg'), stroke: color(ready ? 'xr-primary-hover' : 'xr-panel-border'), stripe: false });
+      if (pit && ready) {
+        const k = (this.pitPumps ?? 0) / PIT_PUMPS[this.pitPress];
+        ctx.fillStyle = color('xr-success');
+        ctx.globalAlpha = 0.55;
+        ctx.fillRect(c.m(0.01), c.m(0.01), (c.canvas.width - c.m(0.02)) * k, c.canvas.height - c.m(0.02));
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = color(ready ? 'xr-on-primary' : 'xr-panel-muted');
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = font('black', c.m(num('xr-text-lg')));
-      ctx.fillText(t('bikeGo'), c.canvas.width / 2, c.canvas.height / 2);
-      if (!this.engine.isXR && !this.engine.touchUI) {
+      ctx.font = font('black', c.m(num(ready ? 'xr-text-lg' : 'xr-text-md')));
+      const label = !pit ? t('bikeGo') : ready ? t('bikePitPump', { n: this.pitPumps ?? 0, total: PIT_PUMPS[this.pitPress] }) : t('bikePitPick');
+      ctx.fillText(label, c.canvas.width / 2, c.canvas.height / 2, c.canvas.width - c.m(0.14));
+      if (!this.engine.isXR && !this.engine.touchUI && ready) {
         ctx.font = font('bold', c.m(num('xr-text-min')) * 0.8);
         ctx.textAlign = 'right';
         ctx.globalAlpha = 0.75;
@@ -298,7 +371,7 @@ export class BikeScene extends BaseScene {
       }
     });
     this.goBtn.userData.label = t('bikeGo');
-    this.goBtn.userData.onClick = () => { sfx.click(); this.go(); };
+    this.goBtn.userData.onClick = () => { sfx.click(); if (this.mode === 'pit') this.pumpOnce(); else this.go(); };
     this.goBtn.position.set(0, -0.225, 0);
     con.add(this.goBtn);
     // A showcase card for the chosen tire (the 3D tire turns in front of it).
@@ -328,6 +401,16 @@ export class BikeScene extends BaseScene {
     this.tireCard.userData.keepDepth = true;
     this.tireCard.visible = false;
     ui.add(this.tireCard);
+    // The live re-scan when the weather turns, with the pit stop button.
+    this.livePanel = new Panel(0.66, 0.42, (ctx, c) => this.drawLive(ctx, c));
+    this.livePanel.visible = false;
+    this.livePanel.userData.noFit = true;
+    ui.add(this.livePanel);
+    const pitLabel = this.engine.isXR || this.engine.touchUI ? t('bikePitBtn') : `${t('bikePitBtn')} (${t('bikePitKey')})`;
+    this.pitBtn = new Button(0.5, 0.12, { label: pitLabel, variant: 'sponsor', labelSize: 'xr-text-lg', onClick: () => this.requestPit() });
+    this.pitBtn.visible = false;
+    this.pitBtn.userData.noFit = true;
+    ui.add(this.pitBtn);
     // The pump button (browser and headset; phones get a thumb button).
     this.pumpBtn = new Button(0.42, 0.13, { label: t('bikePump'), variant: 'primary', labelSize: 'xr-text-lg', onClick: () => this.pumpOnce() });
     this.pumpBtn.visible = false;
@@ -339,10 +422,9 @@ export class BikeScene extends BaseScene {
   /** Thumb buttons on phones: steer (two layouts for portrait and landscape) and pump. */
   buildTouch() {
     if (!this.engine.touchUI || this.padPort) return;
-    const items = [
-      { icon: 'back', label: t('bikeLeft'), group: 'left', onPress: () => { this.btn.left = true; this.inputMode = 'keys'; }, onRelease: () => { this.btn.left = false; } },
-      { icon: 'back', label: t('bikeRight'), group: 'right', onPress: () => { this.btn.right = true; this.inputMode = 'keys'; }, onRelease: () => { this.btn.right = false; } },
-    ];
+    const left = { icon: 'back', label: t('bikeLeft'), group: 'left', onPress: () => { this.btn.left = true; this.inputMode = 'keys'; }, onRelease: () => { this.btn.left = false; } };
+    const right = { icon: 'back', label: t('bikeRight'), group: 'right', onPress: () => { this.btn.right = true; this.inputMode = 'keys'; }, onRelease: () => { this.btn.right = false; } };
+    const jump = { icon: 'flap', label: t('bikeJump'), group: 'right', primary: true, onPress: () => this.jumpPress(), onRelease: () => { this.jumpHeld = false; } };
     const lastPad = () => { const els = document.querySelectorAll('#stage .mtouch'); return els[els.length - 1]; };
     const setIcon = (el, i, d, mirror = false) => {
       const svg = el?.querySelectorAll('.mtouch__btn')[i]?.querySelector('svg');
@@ -353,11 +435,13 @@ export class BikeScene extends BaseScene {
       svg.appendChild(path);
       if (mirror) svg.style.transform = 'scaleX(-1)';
     };
-    this.padPort = this.touchButtons(items);
+    // Portrait: left, jump, right in a row. Landscape: left thumb steers left, the right thumb
+    // has right and (wide, below) jump.
+    this.padPort = this.touchButtons([left, jump, right]);
     const ep = lastPad();
     setIcon(ep, 0, CHEVRON);
-    setIcon(ep, 1, CHEVRON, true);
-    this.padLand = this.touchButtons(items, { grid: true });
+    setIcon(ep, 2, CHEVRON, true);
+    this.padLand = this.touchButtons([left, right, jump], { grid: true });
     const el = lastPad();
     setIcon(el, 0, CHEVRON);
     setIcon(el, 1, CHEVRON, true);
@@ -502,16 +586,16 @@ export class BikeScene extends BaseScene {
     const H = c.canvas.height;
     const scan = this.scans[this.sec];
     const st = this.chipState ?? 'ai';
-    const tok = st === 'right' ? 'xr-success' : st === 'wrong' ? 'xr-warning' : scan.tricky ? 'xr-warning' : 'xr-bike-scan';
+    const tok = st === 'live' ? 'xr-bike-live' : st === 'right' ? 'xr-success' : st === 'wrong' ? 'xr-warning' : scan.tricky ? 'xr-warning' : 'xr-bike-scan';
     c.surface({ stroke: color(tok), strokeWidth: num('xr-border-width') * 1.5, stripe: false });
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     const mn = c.m(num('xr-text-sm'));
     ctx.font = font('black', mn);
     ctx.fillStyle = color(tok);
-    const text = st === 'right' ? t('bikeChipAIRight') : st === 'wrong' ? t('bikeChipAIWrong', { terrain: this.terrainName(scan.terrain) }) : t('bikeChipAI', { terrain: this.terrainName(scan.top), conf: scan.conf });
+    const text = st === 'live' ? t('bikeLiveChip', { terrain: this.terrainName(this.live.top), conf: this.live.conf }) : st === 'right' ? t('bikeChipAIRight') : st === 'wrong' ? t('bikeChipAIWrong', { terrain: this.terrainName(scan.terrain) }) : t('bikeChipAI', { terrain: this.terrainName(scan.top), conf: scan.conf });
     // a small check mark or cross after the reveal
-    if (st !== 'ai') {
+    if (st === 'right' || st === 'wrong') {
       ctx.strokeStyle = color(tok);
       ctx.lineWidth = c.m(0.007);
       ctx.lineCap = 'round';
@@ -522,7 +606,74 @@ export class BikeScene extends BaseScene {
       if (st === 'right') { ctx.moveTo(x - r, y); ctx.lineTo(x - r * 0.2, y + r * 0.8); ctx.lineTo(x + r, y - r * 0.9); } else { ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); }
       ctx.stroke();
     }
-    ctx.fillText(text, c.m(st === 'ai' ? 0.03 : 0.075), H / 2, W - c.m(0.1));
+    ctx.fillText(text, c.m(st === 'right' || st === 'wrong' ? 0.075 : 0.03), H / 2, W - c.m(0.1));
+  }
+
+  /** The live re-scan: new sensor data (before -> now), the new class and the recommendation. */
+  drawLive(ctx, c) {
+    const W = c.canvas.width;
+    const live = this.live;
+    const ev = this.wEv;
+    if (!live || !ev) return;
+    const unsure = !ev.to;
+    c.surface({ stroke: color(unsure ? 'xr-warning' : 'xr-bike-live'), strokeWidth: num('xr-border-width') * 1.6 });
+    const pad = c.m(0.03);
+    const md = c.m(num('xr-text-md'));
+    const sm = c.m(num('xr-text-sm'));
+    const mn = c.m(num('xr-text-min'));
+    let y = pad;
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = color('xr-bike-live');
+    ctx.font = font('black', md);
+    ctx.globalAlpha = 0.75 + 0.25 * Math.sin(this.time * 6);
+    ctx.fillText(t('bikeLiveTitle'), pad, y, W - pad * 2);
+    ctx.globalAlpha = 1;
+    y += md * 1.3;
+    // sensor values, before -> now
+    const a = sensorText(live.before);
+    const b = sensorText(live.reading);
+    const dec = (v) => (getLang() === 'de' ? v.toFixed(1).replace('.', ',') : v.toFixed(1));
+    const rows = [[t('bikeRough'), `${dec(a.rough)} mm`, `${dec(b.rough)} mm`], [t('bikeWet'), `${a.wet} %`, `${b.wet} %`], [t('bikeTemp'), `${a.temp} °C`, `${b.temp} °C`]];
+    ctx.font = font('regular', mn);
+    for (const [label, from, to] of rows) {
+      ctx.textAlign = 'left';
+      ctx.fillStyle = color('xr-panel-muted');
+      ctx.fillText(label, pad, y, W * 0.32);
+      ctx.fillText(from, pad + W * 0.34, y, W * 0.2);
+      ctx.fillStyle = color('xr-panel-text');
+      ctx.fillText('→', pad + W * 0.55, y);
+      ctx.font = font('bold', mn);
+      ctx.textAlign = 'right';
+      ctx.fillText(to, W - pad, y);
+      ctx.font = font('regular', mn);
+      y += mn * 1.25;
+    }
+    y += mn * 0.2;
+    // the new class
+    const top = live.probs[0];
+    ctx.textAlign = 'left';
+    ctx.font = font('black', sm);
+    ctx.fillStyle = color(TERRAIN_TOKEN[top.key]);
+    ctx.fillText(this.terrainName(top.key), pad, y, W * 0.3);
+    const bx = pad + W * 0.32;
+    const bw = W * 0.4;
+    ctx.fillStyle = color('xr-button-bg');
+    ctx.fillRect(bx, y + sm * 0.2, bw, sm * 0.62);
+    ctx.fillStyle = color(unsure ? 'xr-warning' : 'xr-bike-live');
+    ctx.fillRect(bx, y + sm * 0.2, bw * top.p, sm * 0.62);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = color('xr-panel-text');
+    ctx.fillText(`${live.conf} %`, W - pad, y);
+    y += sm * 1.35;
+    ctx.textAlign = 'left';
+    ctx.font = font('bold', mn);
+    ctx.fillStyle = color(unsure ? 'xr-warning' : 'xr-panel-text');
+    ctx.fillText(t('bikeLiveLine', { what: t(`bikeLiveWhat_${ev.kind}`), conf: live.conf }), pad, y, W - pad * 2);
+    y += mn * 1.3;
+    const rec = BEST[live.top];
+    ctx.fillStyle = color(TIRE_TOKENS[rec.tire]);
+    ctx.fillText(t('bikeLiveRec', { tire: t(`bikeTire_${rec.tire}`), press: t(`bikePress_${rec.pressure}`) }), pad, y, W - pad * 2);
   }
 
   drawGauge(ctx, c) {
@@ -575,6 +726,13 @@ export class BikeScene extends BaseScene {
       ctx.arc(x + c.m(0.016) + i * c.m(0.04), c.m(0.132), c.m(0.012), 0, Math.PI * 2);
       ctx.stroke();
     }
+    if ((this.combo ?? 0) > 1) {
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = color('xr-bike-combo');
+      ctx.font = font('black', c.m(num('xr-text-min')));
+      ctx.fillText(t('bikeCombo', { n: this.combo }), x, c.m(0.178), W - x - c.m(0.015));
+    }
   }
 
   drawHeader(ctx, c) {
@@ -585,10 +743,20 @@ export class BikeScene extends BaseScene {
     ctx.textAlign = 'left';
     ctx.fillStyle = color('xr-panel-text');
     ctx.font = font('black', c.m(num('xr-text-md')));
-    ctx.fillText(t('bikeChoose'), c.m(0.025), H * 0.32, W * 0.6);
+    const pit = this.mode === 'pit';
+    if (pit) ctx.fillStyle = color('xr-bike-pit-glow');
+    ctx.fillText(t(pit ? 'bikePitTitle' : 'bikeChoose'), c.m(0.025), H * 0.32, W * 0.6);
     ctx.fillStyle = color('xr-panel-muted');
     ctx.font = font('regular', c.m(num('xr-text-min')));
-    ctx.fillText(t('bikeChooseHint'), c.m(0.025), H * 0.72, W - c.m(0.13));
+    ctx.fillText(t(pit ? 'bikePitHint' : 'bikeChooseHint'), c.m(0.025), H * 0.72, W - c.m(0.13));
+    if (pit) {
+      // a stopwatch, running
+      ctx.textAlign = 'right';
+      ctx.fillStyle = color('xr-bike-pit-glow');
+      ctx.font = font('black', c.m(num('xr-text-md')));
+      ctx.fillText(`${(this.phaseT ?? 0).toFixed(1)} s`, W - c.m(0.025), H / 2);
+      return;
+    }
     // countdown ring
     const left = Math.max(0, CHOOSE_T - (this.phaseT ?? 0));
     const cx = W - c.m(0.045);
@@ -656,12 +824,19 @@ export class BikeScene extends BaseScene {
     ctx.restore();
   }
 
+  /** The AI's current recommendation (the section scan, or the live re-scan in the pit). */
+  aiPick() {
+    if (this.mode === 'pit' && this.live) return BEST[this.live.top];
+    if (this.mode === 'choose') return BEST[this.scans[this.sec].top];
+    return null;
+  }
+
   aiBadge(ctx, c, x, y) {
     const txt = t('bikeAIPick');
     ctx.font = font('black', c.m(num('xr-text-min')) * 0.78);
     const w = ctx.measureText(txt).width + c.m(0.016);
     const h = c.m(0.028);
-    ctx.fillStyle = color(this.scans[this.sec].tricky ? 'xr-warning' : 'xr-bike-scan');
+    ctx.fillStyle = color(this.mode === 'pit' ? 'xr-bike-live' : this.scans[this.sec].tricky ? 'xr-warning' : 'xr-bike-scan');
     ctx.beginPath();
     ctx.roundRect(x - w, y, w, h, h / 2);
     ctx.fill();
@@ -690,7 +865,7 @@ export class BikeScene extends BaseScene {
     const sub = t(`bikeTireText_${kind}`);
     do { ctx.font = font('regular', px); px -= 1; } while (ctx.measureText(sub).width > W - c.m(0.012) && px > 8);
     ctx.fillText(sub, W / 2, H * 0.83);
-    if (BEST[this.scans[this.sec].top].tire === kind && this.mode === 'choose') this.aiBadge(ctx, c, W - c.m(0.008), c.m(0.008));
+    if (this.aiPick()?.tire === kind) this.aiBadge(ctx, c, W - c.m(0.008), c.m(0.008));
     if (!this.engine.isXR && !this.engine.touchUI) {
       ctx.font = font('bold', c.m(num('xr-text-min')) * 0.7);
       ctx.fillStyle = color('xr-panel-muted');
@@ -701,7 +876,7 @@ export class BikeScene extends BaseScene {
   }
 
   drawPressTile(ctx, c, kind, s, i) {
-    const sel = this.choice.pressure === kind;
+    const sel = this.mode === 'pit' ? this.pitPress === kind : this.choice.pressure === kind;
     c.surface({ fill: color(s.hover || sel ? 'xr-button-hover' : 'xr-button-bg'), stroke: color(sel ? 'xr-accent' : 'xr-panel-border'), strokeWidth: num('xr-border-width') * (sel ? 2.4 : 1), stripe: false });
     const W = c.canvas.width;
     const H = c.canvas.height;
@@ -728,7 +903,7 @@ export class BikeScene extends BaseScene {
     ctx.fillStyle = color('xr-panel-muted');
     ctx.font = font('regular', c.m(num('xr-text-min')) * 0.8);
     ctx.fillText(t(`bikeBar_${kind}`), c.m(0.085), H * 0.72, W - c.m(0.09));
-    if (BEST[this.scans[this.sec].top].pressure === kind && this.mode === 'choose') this.aiBadge(ctx, c, W - c.m(0.008), c.m(0.008));
+    if (this.aiPick()?.pressure === kind) this.aiBadge(ctx, c, W - c.m(0.008), c.m(0.008));
     if (!this.engine.isXR && !this.engine.touchUI) {
       ctx.font = font('bold', c.m(num('xr-text-min')) * 0.7);
       ctx.fillStyle = color('xr-panel-muted');
@@ -752,18 +927,22 @@ export class BikeScene extends BaseScene {
       const c = e.code;
       if (c === 'ArrowLeft' || c === 'KeyA') { this.keys.left = true; this.inputMode = 'keys'; e.preventDefault(); }
       else if (c === 'ArrowRight' || c === 'KeyD') { this.keys.right = true; this.inputMode = 'keys'; e.preventDefault(); }
-      else if (/^Digit[1-4]$/.test(c) && this.mode === 'choose') this.pickTire(TIRES[Number(c[5]) - 1]);
-      else if (/^Digit[5-7]$/.test(c) && this.mode === 'choose') this.pickPressure(PRESSURES[Number(c[5]) - 5]);
+      else if (/^Digit[1-4]$/.test(c)) this.pickTire(TIRES[Number(c[5]) - 1]);
+      else if (/^Digit[5-7]$/.test(c)) this.pickPressure(PRESSURES[Number(c[5]) - 5]);
+      else if (c === 'KeyB') this.requestPit();
       else if (c === 'Space' || c === 'Enter' || c === 'NumpadEnter') {
         e.preventDefault();
         if (e.repeat) return;
         if (this.mode === 'choose') this.go();
-        else if (this.mode === 'flat') this.pumpOnce();
+        else if (this.mode === 'flat' || this.mode === 'pit') this.pumpOnce();
+        else if (c === 'Space') this.jumpPress();
+        else this.requestPit();
       }
     };
     const up = (e) => {
       if (e.code === 'ArrowLeft' || e.code === 'KeyA') this.keys.left = false;
       if (e.code === 'ArrowRight' || e.code === 'KeyD') this.keys.right = false;
+      if (e.code === 'Space') this.jumpHeld = false;
     };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
@@ -779,8 +958,44 @@ export class BikeScene extends BaseScene {
         this.inputMode = 'drag';
       },
     });
-    // Headset: the trigger (or a pinch) pumps a flat tire.
-    this.engine.onEmptyPress = () => { if (this.mode === 'flat') this.pumpOnce(); };
+    // Headset: the trigger (or a pinch) pumps, and jumps while riding.
+    this.engine.onEmptyPress = () => {
+      if (this.mode === 'flat' || this.mode === 'pit') this.pumpOnce();
+      else if (this.mode === 'ride' || this.mode === 'brake') this.jumpPress();
+    };
+  }
+
+  /** Jump: pressed now (held for a wheelie in the air). */
+  jumpPress() {
+    if (this.mode !== 'ride' && this.mode !== 'brake') return;
+    this.jumpHeld = true;
+    this.jumpQueued = 0.15; // a press shortly before landing still counts
+  }
+
+  /**
+   * Headset: a quick jerk of both hands upwards jumps; hands held high (or a trigger held) keep
+   * the wheelie going.
+   */
+  readXRJump(dt) {
+    const e = this.engine;
+    if (!e.isXR) return;
+    const hands = e.pointers.filter((p) => p.kind === 'xr' && p.active && p.controller);
+    this.handY ??= new Map();
+    let up = 0;
+    let high = 0;
+    const head = e.head.pos;
+    let trigger = false;
+    for (const p of hands) {
+      const y = new THREE.Vector3().setFromMatrixPosition(p.controller.matrixWorld).y;
+      const prev = this.handY.get(p);
+      this.handY.set(p, y);
+      if (prev !== undefined && (y - prev) / Math.max(dt, 1e-3) > 1.3) up += 1;
+      if (y > head.y - 0.12) high += 1;
+      if (p.source?.gamepad?.buttons?.[0]?.pressed) trigger = true;
+    }
+    if (up >= 2 && !this.xrJumpLock) { this.jumpPress(); this.xrJumpLock = 0.4; }
+    this.xrJumpLock = Math.max(0, (this.xrJumpLock ?? 0) - dt) || 0;
+    if (this.inAir) this.jumpHeld = trigger || high >= 2;
   }
 
   setRays(visible) {
@@ -834,11 +1049,16 @@ export class BikeScene extends BaseScene {
     this.startMusic(1, 'bike');
     Object.assign(this, {
       sB: S0 - STOP_GAP, u: 0, target: 0, latV: 0, speed: 0, air: 100, shields: 0, rideT: 0,
-      pts: { choice: 0, overrule: 0, stars: 0, clean: 0, time: 0 }, starsTaken: 0, flats: 0, punctures: 0,
+      pts: { choice: 0, overrule: 0, stars: 0, clean: 0, time: 0, jumps: 0, pit: 0, fog: 0 }, starsTaken: 0, flats: 0, punctures: 0,
       hzIdx: 0, itIdx: 0, choices: [], secStats: [], wobble: 0, slowT: 0, slipT: 0, slipV: 0, mudT: 0, gripSlip: 0,
+      y: 0, vy: 0, inAir: false, pitch: 0, roll: 0, combo: 0, bestCombo: 0, jumps: 0, cleanJumps: 0, crashes: 0, boostT: 0, camDip: 0,
+      timeScale: 1, jumpQueued: 0, jumpHeld: false, hints: {}, wEv: null, live: null, terrainNow: null, pitPress: null, pitPumps: 0,
+      weatherLog: [],
     });
-    this.course.hazards.forEach((h) => { h.hit = false; h.passed = false; });
+    this.course.hazards.forEach((h) => { h.hit = false; h.passed = false; h.hidden = h.weather !== undefined; });
     this.course.items.forEach((it) => { it.taken = false; it.hidden = false; });
+    this.course.weather.forEach((w) => Object.assign(w, { triggered: false, applied: false, decided: false, pitted: false }));
+    this.hzScatters?.forEach((sc) => { sc.dirty = true; });
     this.itemScatters?.forEach((sc) => { sc.dirty = true; });
     this.ui.visible = true;
     this.beginScan(0);
@@ -854,7 +1074,7 @@ export class BikeScene extends BaseScene {
   liveScore() {
     const p = this.pts;
     if (!p) return 0;
-    return Math.min(MAX_SCORE, p.choice + p.overrule + p.stars + p.clean + p.time);
+    return Math.min(MAX_SCORE, Math.round(p.choice + p.overrule + p.stars + p.clean + p.time + p.jumps + p.pit + p.fog));
   }
 
   beginScan(i) {
@@ -865,10 +1085,13 @@ export class BikeScene extends BaseScene {
     this.chipState = 'ai';
     const sec = this.course.sections[i];
     this.fx.grid(sec.b0 + 0.3, sec.b0 + 9.6);
+    this.scanArea = sec.b0;
     const scan = this.scans[i];
     this.mistOn = scan.why === 'fog' || scan.why === 'dust';
     if (this.mistOn) this.mist.userData.place(this.course, sec.b0, scan.why === 'dust' ? 'xr-bike-gravel-light' : 'xr-bike-fog-mist');
     this.choice = { tire: BEST[scan.top].tire, pressure: BEST[scan.top].pressure };
+    this.terrainNow = scan.terrain;
+    this.wEv = null;
     this.setRays(true);
     this.rider?.mood('focus', 3);
     this.scanPanel.redraw();
@@ -896,7 +1119,8 @@ export class BikeScene extends BaseScene {
   }
 
   pickTire(k) {
-    if (this.mode !== 'choose') return;
+    if (this.mode !== 'choose' && this.mode !== 'pit') return;
+    if (this.mode === 'pit' && k !== this.choice.tire) this.spark(this.sB, this.u + 0.4, 0.4, TIRE_TOKENS[k], 10, 1.8);
     this.choice.tire = k;
     this.bike?.setTire(k);
     sfx.click();
@@ -906,8 +1130,9 @@ export class BikeScene extends BaseScene {
   }
 
   pickPressure(k) {
-    if (this.mode !== 'choose') return;
+    if (this.mode !== 'choose' && this.mode !== 'pit') return;
     this.choice.pressure = k;
+    if (this.mode === 'pit') { this.pitPress = k; this.pitPumps = 0; this.goBtn.redraw(); }
     sfx.tick();
     this.redrawConsole();
     this.gauge.redraw();
@@ -965,6 +1190,224 @@ export class BikeScene extends BaseScene {
     }
   }
 
+  // ---------------------------------------------------------------- weather and the pit stop
+
+  /** The weather turns ahead: the drone re-scans live, new data, a pit stop is offered. */
+  weatherStart(w) {
+    w.triggered = true;
+    this.wEv = w;
+    this.live = liveScan(w.from, w.to, Math.random);
+    this.liveT = 0;
+    this.scanArea = w.s;
+    this.fx.grid(w.s + 0.3, w.s + 9.6);
+    this.chipState = 'live';
+    this.chip.redraw();
+    this.livePanel.redraw();
+    this.pop(this.livePanel);
+    this.pop(this.pitBtn);
+    // Hazards that come with it, puddles that dry up.
+    for (const h of this.course.hazards) {
+      if (h.weather === w.i) h.hidden = false;
+      if (h.dryAt === w.i) h.hidden = true;
+    }
+    this.hzScatters?.forEach((sc) => { sc.dirty = true; });
+    if (w.kind === 'fog') this.mist.userData.place(this.course, w.s - 6, 'xr-bike-fog-mist');
+    this.toast(t(`bikeWeather_${w.kind}`), t('bikePitAsk'), w.to ? 'xr-bike-live' : 'xr-warning', 3.2);
+    sfx.announce();
+    this.rider?.mood('surprised', 1.2);
+    this.haptic(0.4, 60);
+  }
+
+  /** The bike reaches the changed ground: the grip now depends on the new surface. */
+  weatherApply(w) {
+    w.applied = true;
+    if (!w.decided) this.skipPit(w);
+    if (w.to) {
+      this.terrainNow = w.to;
+      const r = (this.rating = rate(w.to, this.choice.tire, this.choice.pressure));
+      if (!w.pitted) {
+        const grip = r.grip >= 0.95 ? 'good' : r.grip >= 0.7 ? 'ok' : 'bad';
+        this.toast(t(`bikeGrip_${grip}`, { tire: t(`bikeTire_${this.choice.tire}`), terrain: this.terrainName(w.to) }), null, grip === 'good' ? 'xr-success' : grip === 'ok' ? 'xr-warning' : 'xr-danger', 2.2);
+      }
+    } else if (!w.pitted) {
+      this.pts.fog += FOG_PTS;
+      this.toast(t('bikeFogRight', { n: FOG_PTS }), null, 'xr-success', 2.4);
+      sfx.correct();
+    }
+    this.weatherLog.push({ kind: w.kind, to: w.to, pitted: w.pitted, live: this.live, from: w.from });
+  }
+
+  skipPit(w) {
+    w.decided = true;
+    if (w.to) this.toast(t('bikePitSkip', { tire: t(`bikeTire_${this.choice.tire}`) }), null, 'xr-warning', 1.8);
+  }
+
+  /** Pit stop wanted (button, key B, or riding into the box): brake to the pit. */
+  requestPit() {
+    const w = this.wEv;
+    if (!w || w.decided || this.mode !== 'ride' || this.sB > w.pit - 0.5) return;
+    w.decided = true;
+    w.pitted = true;
+    this.stopS = w.pit;
+    this.mode = 'pitIn';
+    sfx.click();
+  }
+
+  beginPit(w) {
+    this.mode = 'pit';
+    this.phaseT = 0;
+    this.speed = 0;
+    this.pitPress = null;
+    this.pitPumps = 0;
+    this.setRays(true);
+    this.redrawConsole();
+    this.goBtn.redraw();
+    this.tireCard.redraw();
+    this.pop(this.console);
+    this.pop(this.tireCard);
+    this.rider?.mood('focus', 2);
+    sfx.appear();
+    this.toast(t('bikePitTitle'), t('bikePitHint'), 'xr-bike-pit-glow', 2);
+  }
+
+  pitPump() {
+    if (!this.pitPress) { sfx.wrong(); return; }
+    this.pitPumps += 1;
+    this.pumpAnim = 1;
+    sfx.boing();
+    this.haptic(0.4, 30);
+    this.goBtn.redraw();
+    if (this.pitPumps >= PIT_PUMPS[this.pitPress]) this.endPit();
+  }
+
+  /** The stop is done: points for the right tire and pressure for the new ground and for speed. */
+  endPit() {
+    const w = this.wEv;
+    const time = this.phaseT;
+    const speed = time < 5 ? 150 : time < 8 ? 100 : time < 12 ? 50 : 20;
+    let gain = 0;
+    if (w?.to) {
+      const r = rate(w.to, this.choice.tire, this.choice.pressure);
+      gain = Math.round((r.tireOk ? 100 : 0) + (r.pressOk ? 50 : 0) + speed * (r.tireOk ? 1 : 0.3));
+    }
+    gain = Math.min(gain, PIT_MAX - this.pts.pit);
+    this.pts.pit += Math.max(0, gain);
+    this.rating = rate(w?.to ?? this.terrainNow, this.choice.tire, this.choice.pressure);
+    this.pitTime = time;
+    this.air = 100;
+    this.mode = 'ride';
+    this.phaseT = 3; // the AI check of this section is already done
+    this.setRays(false);
+    this.gauge.redraw();
+    sfx.powerup();
+    this.rider?.mood('happy', 1.2);
+    if (w?.to) this.toast(t('bikePitDone', { time: time.toFixed(1), n: gain }), null, 'xr-success', 2.2);
+    else this.toast(t('bikePitNoNeed'), null, 'xr-warning', 2.2);
+  }
+
+  // ---------------------------------------------------------------- jumps
+
+  /** Takes off: a hop, or off a ramp (pressed close to the lip: big air). */
+  takeoff(ramp, auto = false) {
+    let vy = HOP;
+    let big = false;
+    let lip = false;
+    if (ramp) {
+      const d = ramp.lip - this.sB; // 0 at the lip
+      if (auto) vy = RAMP_AUTO;
+      else {
+        const q = 1 - clamp(Math.abs(d - 0.1) / 0.9, 0, 1);
+        vy = RAMP_JUMP + (RAMP_PERFECT - RAMP_JUMP) * q;
+        big = q > 0.45;
+        lip = q > 0.7;
+      }
+    }
+    Object.assign(this, { inAir: true, vy, big, lipBonus: lip, airT: 0, tuckT: 0, tiltT: 0, feature: !!ramp, fromRamp: ramp ?? null, slowDone: false });
+    this.jumps += 1;
+    sfx.jump();
+    this.rider?.mood(big ? 'happy' : 'focus', 0.8);
+    if (big) this.toast(t('bikeBigAir'), null, 'xr-bike-jump', 1.1);
+    const kind = this.course.sectionAt(this.sB).kind;
+    this.spark(this.sB, this.u, 0.05, kind === 'snow' ? 'xr-bike-snow' : kind === 'mud' ? 'xr-bike-mud-wet' : kind === 'gravel' ? 'xr-bike-gravel-light' : 'xr-bike-curb', 8, 1.4);
+  }
+
+  /** Touchdown: clean (straight, wheelie released) gives points, a boost and the combo. */
+  land(ground) {
+    this.inAir = false;
+    this.y = ground;
+    this.vy = 0;
+    const clean = Math.abs(this.roll) < 0.3 && this.pitch < 0.24;
+    this.camDip = this.big ? 1 : 0.6;
+    const kind = this.course.sectionAt(this.sB).kind;
+    this.spark(this.sB, this.u, 0.05, kind === 'snow' ? 'xr-bike-snow' : kind === 'mud' ? 'xr-bike-mud-wet' : kind === 'gravel' ? 'xr-bike-gravel-light' : 'xr-bike-curb', this.big ? 22 : 12, this.big ? 2.6 : 1.8);
+    this.haptic(this.big ? 0.8 : 0.5, 60);
+    if (clean) {
+      const tricks = [];
+      let pts = 0;
+      if (this.feature) {
+        pts = 15;
+        if (this.lipBonus) pts += 10;
+        if (this.tuckT >= 0.25) { pts += 10; tricks.push(t('bikeTrickWheelie')); }
+        if (this.tiltT >= 0.2) { pts += 5; tricks.push(t('bikeTrickTilt')); }
+        this.combo += 1;
+        this.bestCombo = Math.max(this.bestCombo, this.combo);
+        this.cleanJumps += 1;
+      }
+      const gain = Math.min(Math.round(pts * (1 + 0.1 * Math.min(Math.max(0, this.combo - 1), 5))), JUMP_CAP - this.pts.jumps);
+      this.pts.jumps += Math.max(0, gain);
+      this.boostT = this.feature ? 1.1 : 0.4;
+      if (this.feature) {
+        const sub = [...tricks, this.combo > 1 ? t('bikeCombo', { n: this.combo }) : null].filter(Boolean).join(' · ') || null;
+        this.toast(gain > 0 ? t('bikeLand', { n: gain }) : t('bikeLandPlain'), sub, this.combo > 1 ? 'xr-bike-combo' : 'xr-bike-jump', 1.4);
+        sfx.coin();
+        this.rider?.mood('happy', 0.8);
+      } else sfx.bounce();
+    } else {
+      this.combo = 0;
+      this.wobble = 1;
+      this.slowT = 1;
+      this.toast(t('bikeSloppy'), t('bikeSloppyHint'), 'xr-warning', 1.5);
+      sfx.thud();
+      this.rider?.hurt();
+      const st = this.secStats[this.sec];
+      if (st && this.feature) st.hits += 0.5;
+    }
+    this.gauge.redraw();
+  }
+
+  /** Hit an obstacle across the trail without jumping. */
+  crash(h) {
+    h.hit = true;
+    this.crashes += 1;
+    this.combo = 0;
+    this.speed *= 0.2;
+    this.wobble = 1;
+    this.slowT = 1.4;
+    if (h.type === 'trench') { this.air -= 14; this.punctures += 1; }
+    const st = this.secStats[this.sec];
+    if (st) st.hits += 1;
+    this.toast(t('bikeCrash', { name: t(`bikeHz_${h.type}`) }), t('bikeCrashHint'), 'xr-danger', 1.8);
+    sfx.crash();
+    this.spark(h.s, this.u, 0.3, h.type === 'trench' ? 'xr-bike-chunk' : 'xr-bike-wood', 18, 2.2);
+    this.rider?.hurt();
+    this.haptic(1, 160);
+    this.gauge.redraw();
+  }
+
+  /** One-time hints: the first obstacle across the trail and the first ramp. */
+  jumpHints() {
+    const s = this.sB;
+    const key = t(`bikeKeyJump_${this.engine.isXR ? 'xr' : this.engine.touchUI ? 'touch' : 'screen'}`);
+    if (!this.hints.block) {
+      const h = this.course.hazards.find((x) => x.block && x.s > s + 4 && x.s < s + 13);
+      if (h) { this.hints.block = true; this.toast(t('bikeJumpHint', { name: t(`bikeHz_${h.type}`) }), key, 'xr-bike-jump', 2.4); }
+    }
+    if (!this.hints.ramp) {
+      const r = this.course.ramps.find((x) => x.s > s + 4 && x.s < s + 12);
+      if (r) { this.hints.ramp = true; this.toast(t('bikeRampHint'), key, 'xr-bike-jump', 2.6); }
+    }
+  }
+
   /** End of a section: points for clean riding. */
   endSection(i) {
     const st = this.secStats[i];
@@ -989,6 +1432,7 @@ export class BikeScene extends BaseScene {
   }
 
   pumpOnce() {
+    if (this.mode === 'pit') { this.pitPump(); return; }
     if (this.mode !== 'flat') return;
     this.air = Math.min(100, this.air + 14);
     this.pumpAnim = 1;
@@ -1023,7 +1467,7 @@ export class BikeScene extends BaseScene {
     const best = dist / (V_NOM * 1.08) + 2;
     const slow = best * 1.6;
     this.pts.time = Math.round(TIME_PTS * clamp((slow - this.rideT) / (slow - best), 0, 1));
-    const score = Math.min(MAX_SCORE, Math.round(this.pts.choice + this.pts.overrule + this.pts.stars + this.pts.clean + this.pts.time));
+    const score = this.liveScore();
     this.refreshHud?.();
     this.mode = 'over';
     this.app.echo?.suppress(false);
@@ -1037,25 +1481,28 @@ export class BikeScene extends BaseScene {
     const right = this.choices.filter((c) => c?.rating.tireOk).length;
     this.results({
       gameKey: 'bike', score, correct: right, total: 4,
-      line: t('bikeLine', { right, flats: this.flats, stars: this.starsTaken, time: fmtTime(this.rideT) }),
+      line: t('bikeLine', { right, jumps: this.cleanJumps, stars: this.starsTaken, time: fmtTime(this.rideT) }),
       learned: this.learned(),
       onAgain: () => this.app.startGame('bike'),
     });
   }
 
-  /** Takeaways about the AI: confidence, when it was wrong, overruling, who decides. */
+  /** Takeaways about the AI: confidence, the live update with new data, when it was wrong. */
   learned() {
     const out = [];
     const first = this.choices[0]?.scan ?? this.scans[0];
     out.push({ q: t('bikeLearnConfQ', { terrain: this.terrainName(first.top), conf: first.conf }), a: t('bikeLearnConfA') });
+    const change = this.weatherLog.find((x) => x.to);
+    const fog = this.weatherLog.find((x) => !x.to);
+    if (change) out.push({ q: t('bikeLearnLiveQ'), a: t('bikeLearnLiveA', { what: t(`bikeLiveWhat_${change.kind}`), terrain: this.terrainName(change.live.top), conf: change.live.conf }) });
     const wrong = this.choices.find((c) => c?.scan.tricky === 'wrong');
     const unsure = this.choices.find((c) => c?.scan.tricky === 'unsure');
     if (wrong) {
       const v = { terrain: this.terrainName(wrong.scan.terrain), conf: wrong.scan.conf, why: t(`bikeWhy_${wrong.scan.why}`).replace(/^./, (ch) => ch.toUpperCase()) };
       out.push(wrong.overruled ? { q: t('bikeLearnOverruleQ'), a: t('bikeLearnOverruleA', v) } : { q: t('bikeLearnWrongQ', v), a: t('bikeLearnWrongA', v) });
-    } else if (unsure) {
-      out.push({ q: t('bikeLearnUnsureQ'), a: t('bikeLearnUnsureA', { terrain: this.terrainName(unsure.scan.terrain), conf: unsure.scan.conf }) });
     }
+    if (fog) out.push({ q: t('bikeLearnFogQ'), a: t('bikeLearnFogA', { conf: fog.live.conf }) });
+    if (unsure) out.push({ q: t('bikeLearnUnsureQ'), a: t('bikeLearnUnsureA', { terrain: this.terrainName(unsure.scan.terrain), conf: unsure.scan.conf }) });
     out.push({ q: t('bikeLearnHumanQ'), a: t('bikeLearnHumanA') });
     return out.slice(0, 3);
   }
@@ -1081,23 +1528,30 @@ export class BikeScene extends BaseScene {
   update(dt) {
     this.time += dt;
     const e = this.engine;
+    // A short slow motion at the top of a big jump (eased in and out).
+    const wantScale = this.inAir && this.big && Math.abs(this.vy) < 2.6 ? 0.42 : 1;
+    this.timeScale += (wantScale - this.timeScale) * Math.min(1, dt * (wantScale < this.timeScale ? 10 : 6));
+    const gdt = dt * this.timeScale;
+    this.camDip = Math.max(0, (this.camDip ?? 0) - dt * 2.5);
     this.placeStage();
     this.updateWindow(dt);
+    if (this.mode === 'ride' || this.mode === 'brake') this.readXRJump(dt);
     switch (this.mode) {
       case 'scan': this.updateScan(dt); break;
       case 'choose': this.updateChoose(dt); break;
-      case 'ride': case 'brake': this.updateRide(dt); break;
+      case 'ride': case 'brake': case 'pitIn': this.updateRide(gdt); break;
+      case 'pit': this.updatePit(dt); break;
       case 'flat': this.updateFlat(dt); break;
       case 'finish': this.updateFinish(dt); break;
       default: break;
     }
     this.positionCourse();
-    this.updateActors(dt);
+    this.updateActors(gdt);
     if (!e.isXR) this.updateCamera(dt);
     this.layoutUI(dt);
     this.onTop();
     if (this.toastPanel && (this.toastT -= dt) <= 0) { this.toastPanel.removeFromParent(); this.toastPanel.dispose(); this.toastPanel = null; }
-    const riding = this.mode === 'ride' || this.mode === 'brake';
+    const riding = this.mode === 'ride' || this.mode === 'brake' || this.mode === 'pitIn';
     const portrait = window.innerWidth < window.innerHeight;
     this.padPort?.show(riding && portrait);
     this.padLand?.show(riding && !portrait);
@@ -1107,9 +1561,17 @@ export class BikeScene extends BaseScene {
       if (this.mode !== 'intro' && this.mode !== 'over') {
         this.refreshHud?.();
         if (riding || this.mode === 'flat') this.gauge.redraw();
-        if (this.mode === 'choose') this.header.redraw();
+        if (this.mode === 'choose' || this.mode === 'pit') this.header.redraw();
+        if (this.livePanel.visible) this.livePanel.redraw();
       }
     }
+  }
+
+  updatePit(dt) {
+    this.phaseT += dt;
+    this.rideT += dt;
+    this.speed = 0;
+    this.pumpAnim = Math.max(0, (this.pumpAnim ?? 0) - dt * 3);
   }
 
   updateWindow(dt) {
@@ -1131,7 +1593,7 @@ export class BikeScene extends BaseScene {
   updateScan(dt) {
     this.phaseT += dt;
     const k = this.phaseT;
-    this.scanProg = clamp((k - 0.7) / (SCAN_T - 1.0), 0, 0.999);
+    this.scanProg = clamp((k - 0.4) / (SCAN_T - 0.6), 0, 0.999);
     if (Math.floor(k * 10) !== this.scanTick) { this.scanTick = Math.floor(k * 10); this.scanPanel.redraw(); }
     this.speed = 0;
     if (k >= SCAN_T) this.beginChoose();
@@ -1152,6 +1614,10 @@ export class BikeScene extends BaseScene {
     const mouse = this.readMouse();
     if (mouse !== null) this.target = mouse;
     this.target = clamp(this.target, -EDGE + 0.1, EDGE - 0.1);
+    // How fast the steering input moves right now (a tilt in the air follows it).
+    const tv = (this.target - (this.prevTarget ?? this.target)) / Math.max(dt, 1e-3);
+    this.prevTarget = this.target;
+    this.targetVel = (this.targetVel ?? 0) + (tv - (this.targetVel ?? 0)) * Math.min(1, dt * 12);
   }
 
   updateRide(dt) {
@@ -1163,6 +1629,11 @@ export class BikeScene extends BaseScene {
     this.phaseT += dt;
     this.rideT += dt;
     this.steer(dt);
+    if (this.mode === 'pitIn') this.target = 1.25; // into the box on the right
+    this.jumpQueued = Math.max(0, (this.jumpQueued ?? 0) - dt);
+    this.boostT = Math.max(0, (this.boostT ?? 0) - dt);
+    this.liveT = (this.liveT ?? 0) + dt;
+    this.jumpHints();
     // Speed: grip, air, off the trail, slowdowns.
     this.slowT = Math.max(0, this.slowT - dt);
     this.mudT = Math.max(0, this.mudT - dt);
@@ -1174,23 +1645,25 @@ export class BikeScene extends BaseScene {
     if (off) vT *= 0.6;
     if (this.slowT > 0) vT *= 0.55;
     if (this.mudT > 0) vT *= 0.42;
-    if (this.mode === 'brake') {
+    if (this.boostT > 0) vT *= 1.15;
+    if ((this.mode === 'brake' || this.mode === 'pitIn') && !this.inAir) {
       const left = Math.max(0, this.stopS - this.sB);
       this.speed = Math.min(this.speed, Math.sqrt(2 * BRAKE * left));
       if (left < 0.03 || this.speed < 0.08) {
         this.sB = this.stopS;
         this.speed = 0;
+        if (this.mode === 'pitIn') { this.beginPit(this.wEv); return; }
         this.endSection(this.sec);
         this.beginScan(this.sec + 1);
         return;
       }
-    } else {
+    } else if (this.mode !== 'brake' && this.mode !== 'pitIn') {
       this.speed += (vT - this.speed) * Math.min(1, dt * (vT > this.speed ? 1.3 : 2.5));
     }
     // Lateral: towards the target, slower with little grip; drift outwards in curves.
     const vmax = 2.4 + 1.6 * g;
     const want = clamp((this.target - this.u) * 5, -vmax, vmax);
-    this.latV += (want - this.latV) * Math.min(1, dt * (2.5 + 7 * g));
+    this.latV += (want - this.latV) * Math.min(1, dt * (2.5 + 7 * g) * (this.inAir ? 0.35 : 1));
     const drift = -c.ddcx(this.sB) * this.speed * this.speed * (1 - g) * 0.6;
     let lat = this.latV + drift;
     if (this.slipT > 0) lat = this.latV * 0.3 + this.slipV * (this.slipT / 1.1);
@@ -1198,6 +1671,17 @@ export class BikeScene extends BaseScene {
     this.latNow = lat;
     const prev = this.sB;
     this.sB += this.speed * dt;
+    this.updateJump(dt, prev);
+    // Weather: it turns ahead (live re-scan), the pit stop before it, the new ground.
+    const w = c.weather.find((x) => x.sec === this.sec && !x.applied);
+    if (w) {
+      if (!w.triggered && this.sB >= w.trigger) this.weatherStart(w);
+      if (w.triggered && !w.decided && this.mode === 'ride') {
+        if (this.sB > w.pit - 3.2 && this.u > 1.0 && !this.inAir) this.requestPit();
+        else if (this.sB > w.pit - 0.5) this.skipPit(w);
+      }
+      if (w.triggered && this.sB >= w.s) this.weatherApply(w);
+    }
     if (st) { st.ride += dt; if (off) st.off += dt; }
     if (off && !this.offWarned && this.mode === 'ride') { this.offWarned = true; this.toast(t('bikeOffTrail'), null, 'xr-warning', 1.4); }
     if (!off) this.offWarned = false;
@@ -1225,7 +1709,45 @@ export class BikeScene extends BaseScene {
     } else if (this.sec === 3 && this.sB >= c.finish) {
       this.beginFinish();
     }
-    if (this.air < AIR_FLAT && this.mode === 'ride') this.beginFlat();
+    if (this.air < AIR_FLAT && this.mode === 'ride' && !this.inAir) this.beginFlat();
+  }
+
+  /** Jump physics: ramps under the wheels, takeoff, air time with tricks, landing. */
+  updateJump(dt, prevS) {
+    const c = this.course;
+    const ramp = c.rampAt(this.sB, this.u);
+    const ground = ramp ? RAMP_H * clamp((this.sB - (ramp.s - 0.8)) / 1.6, 0, 1) : 0;
+    if (!this.inAir) {
+      if (this.jumpQueued > 0 && this.mode === 'ride') {
+        this.jumpQueued = 0;
+        // Pressed at the lip but the wheels just left it: still a jump off the ramp.
+        const r = ramp ?? (this.onRamp && this.sB - this.onRamp.lip < 0.4 ? this.onRamp : null);
+        this.y = r && !ramp ? RAMP_H : ground;
+        this.takeoff(r);
+      } else if (this.onRamp && !ramp && prevS < this.onRamp.lip + 0.05 && this.sB >= this.onRamp.lip - 0.05) {
+        this.y = RAMP_H;
+        this.takeoff(this.onRamp, true); // off the lip without a jump: a small launch
+      } else this.y = ground;
+      this.onRamp = this.inAir ? null : ramp;
+      this.pitch += (0 - this.pitch) * Math.min(1, dt * 10);
+      this.roll += (0 - this.roll) * Math.min(1, dt * 10);
+      return;
+    }
+    this.airT += dt;
+    this.vy -= GRAVITY * dt;
+    this.y += this.vy * dt;
+    // Tricks: hold the jump for a wheelie, steer for a tilt.
+    const tuck = this.jumpHeld && this.airT > 0.14;
+    this.pitch += ((tuck ? 0.5 : 0) - this.pitch) * Math.min(1, dt * 9);
+    if (tuck) this.tuckT += dt;
+    let dir = (this.keys.right || this.btn.right ? 1 : 0) - (this.keys.left || this.btn.left ? 1 : 0);
+    if (!dir && this.inputMode !== 'keys') {
+      const v = this.targetVel ?? 0; // a deliberate swipe or hand move tilts (dead zone 1.8 m/s)
+      dir = clamp(Math.sign(v) * Math.max(0, Math.abs(v) - 1.8) / 2.5, -1, 1);
+    }
+    this.roll += (-dir * 0.6 - this.roll) * Math.min(1, dt * 7);
+    if (Math.abs(this.roll) > 0.3) this.tiltT += dt;
+    if (this.y <= ground && this.vy < 0) this.land(ground);
   }
 
   collide(s0, s1) {
@@ -1233,15 +1755,22 @@ export class BikeScene extends BaseScene {
     const H = c.hazards;
     while (this.hzIdx < H.length && H[this.hzIdx].s <= s1) {
       const h = H[this.hzIdx++];
-      if (h.s < s0 - 0.5) continue;
-      if (Math.abs(this.u - h.v) < h.r + 0.2) this.hitHazard(h);
+      if (h.s < s0 - 0.5 || h.hidden) continue;
+      const over = Math.abs(this.u - h.v) < h.r + 0.2;
+      if (this.y > CLEAR_Y) {
+        // Cleared in the air: it counts as a jump over something.
+        h.passed = true;
+        if (over && this.inAir) this.feature = true;
+      } else if (h.block) this.crash(h);
+      else if (over) this.hitHazard(h);
       else h.passed = true;
     }
     const I = c.items;
     while (this.itIdx < I.length && I[this.itIdx].s <= s1) {
       const it = I[this.itIdx++];
       if (it.s < s0 - 0.5 || it.taken) continue;
-      if (Math.abs(this.u - it.v) < 0.62) this.collect(it);
+      const lift = it.type === 'star' ? 0.62 : it.type === 'cart' ? 0.55 : 0.66;
+      if (Math.abs(this.u - it.v) < 0.62 && Math.abs((it.y ?? 0) + lift - (this.y + 0.65)) < 0.75) this.collect(it);
     }
   }
 
@@ -1391,7 +1920,7 @@ export class BikeScene extends BaseScene {
   updateActors(dt) {
     const c = this.course;
     const s = this.sB;
-    const riding = this.mode === 'ride' || this.mode === 'brake' || this.mode === 'finish';
+    const riding = this.mode === 'ride' || this.mode === 'brake' || this.mode === 'finish' || this.mode === 'pitIn';
     const front = this.win.front + 2;
     const back = this.win.back + 1.5;
     this.terrain.userData.cull(s - back - 1, s + front + 1);
@@ -1412,17 +1941,28 @@ export class BikeScene extends BaseScene {
     if (this.bike) {
       const yawRel = -Math.atan2(this.latNow ?? 0, Math.max(1.5, this.speed)) * 0.9;
       this.bike.root.position.copy(c.point(s, this.u));
-      this.bike.root.rotation.y = c.yaw(s) + (riding ? yawRel : 0);
+      const groundY = ramp0(c, s, this.u);
+      this.blob.position.set(this.bike.root.position.x, groundY + 0.04, this.bike.root.position.z);
+      this.blob.rotation.y = c.yaw(s);
+      const lift = Math.max(0, this.y - groundY);
+      this.blob.scale.setScalar(1 / (1 + lift * 0.6));
+      this.blob.material.opacity = 0.5 / (1 + lift * 0.8);
+      this.bike.root.position.y = this.y;
+      // Nose up on a ramp, the wheelie pitch in the air.
+      const ramp = c.rampAt(s, this.u);
+      const slope = ramp && !this.inAir ? Math.atan2(RAMP_H, 1.6) : 0;
+      this.bike.root.rotation.set(slope + this.pitch, c.yaw(s) + (riding ? yawRel : 0), 0, 'YXZ');
       const steer = clamp(yawRel * 1.4 - c.ddcx(s) * 4, -0.45, 0.45) * (riding ? 1 : 0);
-      this.bike.update(dt, { speed: this.speed, steer, roll: -clamp((this.latNow ?? 0) * 0.07, -0.25, 0.25) * (riding ? 1 : 0), wobble: this.wobble ?? 0 });
+      const roll = this.inAir ? this.roll : -clamp((this.latNow ?? 0) * 0.07, -0.25, 0.25) * (riding ? 1 : 0);
+      this.bike.update(dt, { speed: this.speed, steer: this.inAir ? steer * 0.3 : steer, roll, wobble: this.wobble ?? 0 });
       this.bike.setBand(this.shields ?? 0);
       const look = this.mode === 'scan' ? this.drone?.root : this.mode === 'choose' || this.mode === 'over' || this.mode === 'intro' ? null : this.swallow?.root;
       const lookWorld = look ? look.getWorldPosition(new THREE.Vector3()) : this.engine.camera.getWorldPosition(new THREE.Vector3());
-      this.rider?.update(dt, { speed: this.speed, turn: this.mode === 'choose' || this.mode === 'intro' ? 0.7 : 0, steer: clamp((this.latNow ?? 0) * 0.15, -0.4, 0.4), lookWorld, pedal: this.bike.crank });
+      this.rider?.update(dt, { speed: this.speed, turn: this.mode === 'choose' || this.mode === 'intro' || this.mode === 'pit' ? 0.7 : 0, steer: clamp((this.latNow ?? 0) * 0.15, -0.4, 0.4), lookWorld, pedal: this.bike.crank, air: this.inAir ? 1 : 0, tuck: clamp(this.pitch / 0.5, 0, 1) });
     }
     // The pump next to the bike while the tire is flat.
     if (this.pump) {
-      this.pump.visible = this.mode === 'flat';
+      this.pump.visible = this.mode === 'flat' || this.mode === 'pit';
       if (this.pump.visible) {
         this.pump.position.copy(c.point(s - 0.2, this.u + (this.u > 1 ? -0.75 : 0.75)));
         this.pump.rotation.y = c.yaw(s) + 0.4;
@@ -1458,33 +1998,44 @@ export class BikeScene extends BaseScene {
       const d = this.drone.root;
       const sec = c.sections[this.sec ?? 0];
       const scanning = this.mode === 'scan' || this.mode === 'choose';
-      const sd = scanning ? sec.b0 + 2.4 : s + 3.6;
-      const want = c.point(sd, scanning ? 0 : -1.6 + Math.sin(time * 0.6) * 0.3);
-      want.y = scanning ? 3.6 : 3.0 + Math.sin(time * 2) * 0.08;
-      d.position.lerp(want, Math.min(1, dt * 2));
+      const w = this.wEv;
+      const live = w && w.triggered && (this.liveT ?? 9) < 2.6 && this.mode !== 'pit';
+      const area = this.scanArea ?? sec.b0;
+      const sd = scanning ? sec.b0 + 2.4 : live ? Math.max(s + 4, w.s - 2) : s + 3.6;
+      const want = c.point(sd, scanning || live ? 0 : -1.6 + Math.sin(time * 0.6) * 0.3);
+      want.y = scanning || live ? 3.6 : 3.0 + Math.sin(time * 2) * 0.08;
+      d.position.lerp(want, Math.min(1, dt * (live ? 4 : 2.6)));
       d.rotation.set(scanning ? 0.18 : 0.06, c.yaw(sd), Math.sin(time * 1.4) * 0.05, 'YXZ');
       this.drone.update(dt);
       // The scan beam and grid.
       let alpha = 0;
       let reveal = -1e9;
       let gridA = 0;
-      let sLine = sec.b0;
+      let sLine = area;
       if (this.mode === 'scan') {
         const k = this.phaseT;
-        alpha = smooth(0.5, 0.9, k) * (1 - smooth(SCAN_T - 0.35, SCAN_T, k));
-        sLine = sec.b0 + 0.4 + clamp((k - 0.8) / (SCAN_T - 1.2), 0, 1) * 9;
+        alpha = smooth(0.25, 0.5, k) * (1 - smooth(SCAN_T - 0.3, SCAN_T, k));
+        sLine = area + 0.4 + clamp((k - 0.4) / (SCAN_T - 0.75), 0, 1) * 9;
         reveal = sLine;
-        gridA = smooth(0.6, 1, k);
+        gridA = smooth(0.3, 0.7, k);
       } else if (this.mode === 'choose') {
-        reveal = sec.b0 + 11;
+        reveal = area + 11;
         gridA = 0.7;
+      } else if (live) {
+        // The live re-scan of the changed ground ahead.
+        const k = this.liveT;
+        alpha = smooth(0.1, 0.4, k) * (1 - smooth(2.2, 2.6, k));
+        sLine = area + 0.4 + clamp((k - 0.3) / 1.8, 0, 1) * 9;
+        reveal = sLine;
+        gridA = smooth(0.2, 0.6, k) * (1 - smooth(2.2, 2.6, k));
       } else if (riding && this.phaseT < 2) {
-        reveal = sec.b0 + 11;
+        reveal = area + 11;
         gridA = 0.7 * (1 - this.phaseT / 2);
       }
       d.updateMatrixWorld(true);
       const apex = this.cg.worldToLocal(d.localToWorld(this.drone.lens.clone()));
-      this.fx.set({ apex, sLine, alpha, reveal, gridAlpha: gridA, warn: this.scanProg >= 0.99 && !!this.scans[this.sec ?? 0]?.tricky });
+      const warn = live ? !w.to : this.scanProg >= 0.99 && !!this.scans[this.sec ?? 0]?.tricky;
+      this.fx.set({ apex, sLine, alpha, reveal, gridAlpha: gridA, warn });
     }
     // The big tire beside the console turns slowly, so its tread reads well.
     if (this.previewTires) {
@@ -1494,17 +2045,27 @@ export class BikeScene extends BaseScene {
     // The swallow's light dots on the best line.
     this.dotsA = lerp(this.dotsA ?? 0, this.mode === 'ride' ? 1 : 0, Math.min(1, dt * 3));
     this.dots.userData.set(c, s, time, this.dotsA);
+    // Weather: the new ground fades in when it turns, rain, the light.
+    const w = this.wEv;
+    const wOn = w && w.triggered && this.mode !== 'intro' && this.mode !== 'over' && s < w.end + 2;
+    this.weatherK = lerp(this.weatherK ?? 0, wOn ? 1 : 0, Math.min(1, dt * 0.9));
+    this.wLayers.forEach((layer, i) => layer?.userData.setK(w && w.i === i ? this.weatherK : 0));
+    this.rain.userData.update(dt, c, s, w && (w.kind === 'rain' || w.kind === 'thaw') ? this.weatherK : 0);
+    const look = w ? WEATHER_LOOK[w.kind] : null;
+    this.key.intensity = 1.55 * (1 + ((look?.light ?? 1) - 1) * this.weatherK);
+
     // Snow over the snow section, mist where the scanner was blinded.
     const kind = c.sectionAt(s + 4).kind;
     this.snow.userData.update(dt, s, kind === 'snow' && this.mode !== 'intro', this.S);
     const sec = c.sections[this.sec ?? 0];
-    const mistWant = this.mistOn && (this.mode === 'scan' || this.mode === 'choose' || (riding && s < sec.b0 + 14)) ? 1 : 0;
+    const fogEv = this.wEv?.kind === 'fog' && this.wEv.triggered && s < this.wEv.s + 30;
+    const mistWant = fogEv || (this.mistOn && (this.mode === 'scan' || this.mode === 'choose' || (riding && s < sec.b0 + 14))) ? 1 : 0;
     this.mistA = lerp(this.mistA ?? 0, mistWant, Math.min(1, dt * 1.5));
     this.mist.userData.fade(this.mistA, time);
     // Sky and fog follow the section (browser).
     if (this.sky) this.sky.visible = !this.engine.isXR;
     if (this.sky && !this.engine.isXR) {
-      const [top, low] = SKY[clamp(this.sec ?? 0, 0, 3)];
+      const [top, low] = this.weatherK > 0.5 && look ? look.sky : SKY[clamp(this.sec ?? 0, 0, 3)];
       const k = Math.min(1, dt * 0.8);
       this.skyTop.lerp(new THREE.Color(hex(top)), k);
       this.skyLow.lerp(new THREE.Color(hex(low)), k);
@@ -1514,8 +2075,9 @@ export class BikeScene extends BaseScene {
       if (fogOn) {
         if (!this.fog) this.fog = new THREE.Fog(this.skyLow.getHex(), 1, 4);
         this.fog.color.copy(this.skyLow);
-        this.fog.near = 1.6;
-        this.fog.far = (this.win.front - 3) * this.S;
+        const foggy = w?.kind === 'fog' ? this.weatherK : 0;
+        this.fog.near = 1.6 - foggy * 0.9;
+        this.fog.far = (this.win.front - 3) * this.S * (1 - foggy * 0.55);
         this.engine.scene.fog = this.fog;
       }
     }
@@ -1533,9 +2095,13 @@ export class BikeScene extends BaseScene {
     let look;
     let fov = portrait ? 64 : 52;
     if (this.mode === 'scan') { pos = portrait ? [bx * 0.5, 0.78, 0.48] : [bx * 0.5, 0.52, 0.55]; look = portrait ? [0, 0, -0.5] : [0, 0, -0.95]; }
-    else if (this.mode === 'choose') { pos = portrait ? [0.2, 0.32, 0.52] : [0.28, 0.24, 0.42]; look = [0, 0.03, -0.5]; fov = portrait ? 62 : 50; }
+    else if (this.mode === 'choose' || this.mode === 'pit') { pos = portrait ? [0.2, 0.32, 0.52] : [0.28, 0.24, 0.42]; look = [0, 0.03, -0.5]; fov = portrait ? 62 : 50; }
     else if (this.mode === 'finish') { const a = 0.5 + this.phaseT * 0.35; pos = [Math.sin(a) * 0.42 + bx, 0.2, Math.cos(a) * 0.42]; look = [bx, 0.08, 0]; }
     else { pos = [bx, portrait ? 0.5 : 0.4, portrait ? 0.72 : 0.6]; look = [bx * 1.1, 0, portrait ? -0.66 : -0.95]; }
+    // Follow a jump upwards a little; a landing dips the camera.
+    const jy = (this.y ?? 0) * this.S;
+    pos[1] += jy * 0.2 - (this.camDip ?? 0) * 0.035;
+    look[1] += jy * 0.3;
     const wantPos = this.stage.localToWorld(new THREE.Vector3(...pos));
     const wantLook = this.stage.localToWorld(new THREE.Vector3(...look));
     if (!this.camInit) {
@@ -1559,13 +2125,18 @@ export class BikeScene extends BaseScene {
   /** Panels in the headset (on the arc and on the diorama) or fixed on the screen (browser). */
   layoutUI(dt) {
     const m = this.mode;
+    const w = this.wEv;
+    const moving = m === 'ride' || m === 'brake' || m === 'pitIn';
+    const alert = !!w && w.triggered && moving && (!w.decided || (this.liveT ?? 0) < 5) && this.sB < w.s + 6;
     const show = {
       scanPanel: m === 'scan' || m === 'choose',
-      chip: m === 'ride' || m === 'brake' || m === 'flat',
-      gauge: m === 'ride' || m === 'brake' || m === 'flat' || m === 'scan' || m === 'choose' || m === 'finish',
-      console: m === 'choose',
+      livePanel: alert || m === 'pit',
+      pitBtn: !!w && w.triggered && !w.decided && m === 'ride',
+      chip: moving || m === 'flat',
+      gauge: moving || m === 'flat' || m === 'scan' || m === 'choose' || m === 'finish' || m === 'pit',
+      console: m === 'choose' || m === 'pit',
       pumpBtn: m === 'flat' && !this.engine.touchUI,
-      tirePreview: m === 'choose',
+      tirePreview: m === 'choose' || m === 'pit',
     };
     this.ui.visible = m !== 'intro' && m !== 'over';
     if (!this.ui.visible) return;
@@ -1580,6 +2151,13 @@ export class BikeScene extends BaseScene {
       this.scanSmall.visible = false;
       placeOnArc(sp, -0.62, this.eye - 0.06, 1.0);
       sp.scale.setScalar(popK(sp));
+      const lp = this.livePanel;
+      lp.visible = show.livePanel;
+      placeOnArc(lp, -0.62, this.eye - 0.02, 1.0);
+      lp.scale.setScalar(popK(lp));
+      this.pitBtn.visible = show.pitBtn;
+      placeOnArc(this.pitBtn, -0.62, this.eye - 0.33, 0.96);
+      this.pitBtn.rotation.x = -0.2;
       const con = this.console;
       con.visible = show.console;
       placeOnArc(con, 0.6, this.eye - 0.12, 0.95);
@@ -1626,20 +2204,20 @@ export class BikeScene extends BaseScene {
     const portrait = W < H;
     const ins = e.insets();
     const place = (obj, x, y, ax, ay, ppm) => {
-      const w = obj.userData.w ?? obj.w;
-      const h = obj.userData.h ?? obj.h;
+      const ow = obj.userData.w ?? obj.w;
+      const oh = obj.userData.h ?? obj.h;
       const k = (ppm / pxPerM) * popK(obj) * (obj.userData.hoverK ?? 1);
       obj.scale.setScalar(k);
-      obj.position.set((2 * x - 1) * hw + (0.5 - ax) * w * k, (1 - 2 * y) * hh + (ay - 0.5) * h * k, -D);
+      obj.position.set((2 * x - 1) * hw + (0.5 - ax) * ow * k, (1 - 2 * y) * hh + (ay - 0.5) * oh * k, -D);
       obj.rotation.set(0, 0, 0);
-      return { w: (w * ppm), h: (h * ppm) };
+      return { w: (ow * ppm), h: (oh * ppm) };
     };
     const top = (ins.top + 8) / H;
     let freeTop = top;
     let freeBot = 1 - (ins.bottom + 6) / H;
     const desk = num('xr-bike-ui-px') * clamp(H / 760, 0.75, 1.35);
     const phone = num('xr-bike-ui-px-phone');
-    for (const k of ['scanPanel', 'chip', 'gauge', 'console', 'pumpBtn']) this[k].visible = show[k];
+    for (const k of ['scanPanel', 'livePanel', 'pitBtn', 'chip', 'gauge', 'console', 'pumpBtn']) this[k].visible = show[k];
     this.scanSmall.visible = false;
     this.tireCard.visible = show.tirePreview && !touch;
     // Top bar (desktop: the 3D status bar and the menu button).
@@ -1650,13 +2228,16 @@ export class BikeScene extends BaseScene {
       freeTop = (0.015 * H + 0.15 * desk * 0.8 + 8) / H;
     }
     if (!touch) {
-      if (show.scanPanel) place(this.scanPanel, 0.012, freeTop + 0.01, 0, 0, desk * 0.82);
+      let leftY = freeTop + 0.01;
+      if (show.scanPanel) leftY += place(this.scanPanel, 0.012, leftY, 0, 0, desk * 0.82).h / H + 0.012;
+      if (show.chip) leftY += place(this.chip, 0.012, leftY, 0, 0, desk * 0.85).h / H + 0.012;
+      if (show.livePanel) leftY += place(this.livePanel, 0.012, leftY, 0, 0, desk * 0.8).h / H + 0.012;
+      if (show.tirePreview) place(this.tireCard, 0.012, leftY, 0, 0, desk * (m === 'pit' ? 0.7 : 0.82));
       if (show.console) { place(this.console, 0.988, 0.56, 1, 0.5, desk * 0.9); this.layoutTiles(); }
-      if (show.tirePreview) place(this.tireCard, 0.012, freeTop + 0.02 + (0.6 * desk * 0.82) / H, 0, 0, desk * 0.82);
-      if (show.chip) place(this.chip, 0.012, freeTop + 0.01, 0, 0, desk * 0.85);
       if (show.gauge) place(this.gauge, 0.012, 0.985, 0, 1, desk * 0.9);
       if (this.toastPanel) place(this.toastPanel, 0.5, freeTop + 0.07, 0.5, 0, desk * 0.85);
       if (show.pumpBtn) place(this.pumpBtn, 0.5, 0.72, 0.5, 0.5, desk);
+      if (show.pitBtn) place(this.pitBtn, 0.5, 0.8, 0.5, 0.5, desk);
       this.freeShift = 0;
       return;
     }
@@ -1665,31 +2246,38 @@ export class BikeScene extends BaseScene {
     if (portrait) {
       const fitW = (W - 12) / 0.68;
       const ppm = Math.min(phone * 1.25, fitW);
-      if (m === 'choose') {
-        const s = place(this.scanSmall, 0.5, top, 0.5, 0, ppm);
-        this.scanSmall.visible = true;
+      if (m === 'choose' || m === 'pit') {
+        const head = m === 'pit' ? this.livePanel : this.scanSmall;
+        const sh = place(head, 0.5, top, 0.5, 0, m === 'pit' ? Math.min(ppm, (H * 0.3) / 0.42) : ppm);
+        head.visible = true;
         this.scanPanel.visible = false;
         const c = place(this.console, 0.5, 1 - gap, 0.5, 1, ppm);
         this.layoutTiles();
-        freeTop = top + s.h / H;
+        freeTop = top + sh.h / H;
         freeBot = 1 - gap - c.h / H;
       } else if (show.scanPanel) {
-        const s = place(this.scanPanel, 0.5, top, 0.5, 0, ppm);
-        freeTop = top + s.h / H;
+        const sh = place(this.scanPanel, 0.5, top, 0.5, 0, ppm);
+        freeTop = top + sh.h / H;
       }
-      const small = Math.min(phone, (W - 18) / 0.88);
+      const small = Math.min(phone, (W - 18) / 0.94);
       if (show.chip) place(this.chip, 0.012, top, 0, 0, small);
-      if (show.gauge && m !== 'choose' && m !== 'scan') {
+      if (show.gauge && m !== 'choose' && m !== 'scan' && m !== 'pit') {
         const gs = place(this.gauge, 0.988, top, 1, 0, small);
         freeTop = Math.max(freeTop, top + gs.h / H);
       } else this.gauge.visible = false;
+      if (show.livePanel && m !== 'pit') {
+        const ls = place(this.livePanel, 0.5, freeTop + gap, 0.5, 0, Math.min(phone * 0.95, (W - 12) / 0.66));
+        freeTop += gap + ls.h / H;
+      }
+      if (show.pitBtn) place(this.pitBtn, 0.5, freeBot - 0.06, 0.5, 1, phone * 1.1);
       if (this.toastPanel) place(this.toastPanel, 0.5, Math.max(freeTop + gap, top + 0.11), 0.5, 0, Math.min(ppm, phone * 1.1));
     } else {
       const avail = H - ins.top - 12;
-      if (m === 'choose') {
-        const ppmS = Math.min(phone, avail / 0.36, (W * 0.42) / 0.66);
-        place(this.scanSmall, 0.008, top, 0, 0, ppmS);
-        this.scanSmall.visible = true;
+      if (m === 'choose' || m === 'pit') {
+        const head = m === 'pit' ? this.livePanel : this.scanSmall;
+        const ppmS = Math.min(phone, avail / (m === 'pit' ? 0.42 : 0.36), (W * 0.42) / 0.66);
+        place(head, 0.008, top, 0, 0, ppmS);
+        head.visible = true;
         this.scanPanel.visible = false;
         const ppmC = Math.min(phone * 1.1, avail / 0.62, (W * 0.5) / 0.68);
         place(this.console, 0.992, top + (1 - top) / 2, 1, 0.5, ppmC);
@@ -1698,9 +2286,12 @@ export class BikeScene extends BaseScene {
         place(this.scanPanel, 0.008, top, 0, 0, Math.min(phone, avail / 0.6));
       }
       const small = Math.min(phone * 0.9, (W * 0.3) / 0.52);
-      if (show.chip) place(this.chip, 0.008, top, 0, 0, small);
-      if (show.gauge && m !== 'choose' && m !== 'scan') place(this.gauge, 0.992, top, 1, 0, small);
+      let leftY = top;
+      if (show.chip) leftY += place(this.chip, 0.008, top, 0, 0, small).h / H + gap;
+      if (show.gauge && m !== 'choose' && m !== 'scan' && m !== 'pit') place(this.gauge, 0.992, top, 1, 0, small);
       else this.gauge.visible = false;
+      if (show.livePanel && m !== 'pit') place(this.livePanel, 0.008, leftY, 0, 0, Math.min(phone * 0.85, (H - leftY * H - 90) / 0.42, (W * 0.34) / 0.66));
+      if (show.pitBtn) place(this.pitBtn, 0.5, 0.97, 0.5, 1, Math.min(phone, (W * 0.3) / 0.5));
       if (this.toastPanel) place(this.toastPanel, 0.5, top + 0.02, 0.5, 0, Math.min(phone, (W * 0.44) / 0.64));
     }
     // The bike in the middle of the free band between the panels.

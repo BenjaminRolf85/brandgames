@@ -178,10 +178,10 @@ def backbox(zb):
     p.append(tbox('bbSideR', (BX1 - 0.01, (y0 + y1) / 2, (z0 + z1) / 2), (0.02, hgt, depth), BODY, bev=0.004))
     p.append(tbox('bbTop', (cx, y1 - 0.01, (z0 + z1) / 2), (w, 0.02, depth), BODY, bev=0.004))
     p.append(tbox('bbBottom', (cx, y0 + 0.01, (z0 + z1) / 2), (w, 0.02, depth), BODY))
-    gy = y1 - 0.06 - 0.2     # backglass center
+    gy = y1 - 0.05 - 0.2     # backglass center
     gw, gh = 0.56, 0.4
-    dy = y0 + 0.095          # display center
-    dw, dh = 0.4, 0.1
+    dy = y0 + 0.092          # display center (a big dot matrix display)
+    dw, dh = 0.46, 0.115
     # Front face: panels around the backglass and the display (a dark recess behind them).
     p.append(tbox('bbRecess', (cx, (y0 + y1) / 2, z1 - 0.03), (w - 0.04, hgt - 0.04, 0.01), DARK))
     fz = z1 - 0.006
@@ -205,10 +205,10 @@ def backbox(zb):
         p.append(tbox('bezel', (c[0], c[1], z1 + 0.002), (s[0], s[1], 0.008), DARK, bev=0.002))
     # Speakers left and right of the display.
     for s in (-1, 1):
-        sx = cx + s * 0.255
-        p.append(tcyl('spk', (sx, dy, z1 + 0.001), 0.036, 0.006, SPEAKER, axis='z', segs=32))
-        p.append(ttorus('spkRing', (sx, dy, z1 + 0.004), 0.037, 0.004, CHROME, axis='z', segs=40, tsegs=8))
-        p.append(tcyl('spkCone', (sx, dy, z1 + 0.004), 0.012, 0.004, CHROME, axis='z', segs=20))
+        sx = cx + s * 0.279
+        p.append(tcyl('spk', (sx, dy, z1 + 0.001), 0.025, 0.006, SPEAKER, axis='z', segs=32))
+        p.append(ttorus('spkRing', (sx, dy, z1 + 0.004), 0.026, 0.0035, CHROME, axis='z', segs=40, tsegs=8))
+        p.append(tcyl('spkCone', (sx, dy, z1 + 0.004), 0.009, 0.004, CHROME, axis='z', segs=20))
     # Red crown along the top edge and a chrome band below it.
     p.append(tbox('crown', (cx, y1 + 0.012, (z0 + z1) / 2 + 0.01), (w + 0.01, 0.024, depth + 0.02), ACCENT, bev=0.008))
     p.append(tbox('band', (cx, y1 - 0.03, z1 + 0.001), (w - 0.01, 0.01, 0.006), CHROME, bev=0.002))
@@ -317,6 +317,7 @@ def drop():
 
 def column():
     bm = bmesh.new()
+    bm.loops.layers.uv.new('UVMap')  # calc_uvs needs a UV layer to write into
     bmesh.ops.create_cone(bm, cap_ends=False, cap_tris=False, segments=40, radius1=0.0212, radius2=0.0212, depth=0.064, calc_uvs=True)
     bmesh.ops.translate(bm, vec=P(0, 0.041, 0), verts=bm.verts)
     poster = link('poster', bm, POSTER)
@@ -367,12 +368,19 @@ def house():
     # Door towards the saucer, with a light above it; windows on the long side and the ends.
     p.append(tbox('door', (x0 - 0.0008, 0.011, -0.468), (0.002, 0.02, 0.013), DARK))
     p.append(tbox('doorFrame', (x0 - 0.0006, 0.0115, -0.468), (0.0016, 0.023, 0.017), HOUSE))
-    p.append(tbox('doorLight', (x0 - 0.0015, 0.0245, -0.468), (0.002, 0.003, 0.008), WINDOW))
     for z in (-0.49, -0.448):
         p.append(tbox('win', (x0 - 0.0008, 0.019, z), (0.002, 0.009, 0.007), WINDOW))
     for z in (z0 - 0.0008, z1 + 0.0008):
         p.append(tbox('winEnd', (cx, 0.02, z), (0.012, 0.009, 0.002), WINDOW))
-    p.append(tbox('step', (x0 - 0.003, 0.0015, -0.468), (0.005, 0.003, 0.016), HOUSE))
+    # Portico of a little branch office: steps, two columns, entablature and a pediment.
+    zc = -0.468
+    p.append(tbox('step1', (x0 - 0.003, 0.0012, zc), (0.006, 0.0024, 0.03), HOUSE))
+    p.append(tbox('step2', (x0 - 0.0048, 0.0006, zc), (0.0096, 0.0012, 0.034), HOUSE))
+    for dz in (-0.0115, 0.0115):
+        p.append(tcyl('column', (x0 - 0.0028, 0.0146, zc + dz), 0.0016, 0.026, HOUSE, segs=12))
+        p.append(tbox('capital', (x0 - 0.0028, 0.0272, zc + dz), (0.0042, 0.0012, 0.0042), HOUSE))
+    p.append(tbox('entablature', (x0 - 0.0026, 0.0295, zc), (0.0052, 0.0036, 0.035), HOUSE))
+    p.append(prism('pediment', [(zc - 0.0175, 0.0313), (zc + 0.0175, 0.0313), (zc, 0.0398)], x0 - 0.005, x0, ROOF, smooth=False))
     p.append(tbox('chimney', (cx + 0.006, ridge - 0.002, -0.49), (0.006, 0.014, 0.006), HOUSE))
     return merge(p, 'PinHouse')
 
@@ -490,6 +498,58 @@ place(parts['bumper'], 0.055, 0.215, s=1.1)
 b2 = bumper()
 place(b2, -0.005, 0.29)
 place(parts['column'], -0.07, 0.205, s=1.05)
+# Marketing touches: chat bubble lids with hearts on the bumpers, a flying envelope, hearts.
+WHITE = material('CoinWhite', (0.95, 0.95, 0.97), 0.0, 0.35)
+PINK = material('CoinPink', (1.0, 0.2, 0.45), 0.0, 0.3, emit=(1.0, 0.2, 0.45))
+PINK.node_tree.nodes['Principled BSDF'].inputs['Emission Strength'].default_value = 1.5
+SEAL = material('CoinSeal', (0.55, 0.0, 0.04), 0.1, 0.35)
+
+
+def heart(name, c, size, mat, rot=None):
+    bm = bmesh.new()
+    pts = []
+    for i in range(40):
+        a = 2 * math.pi * i / 40
+        x = 16 * math.sin(a) ** 3
+        y = 13 * math.cos(a) - 5 * math.cos(2 * a) - 2 * math.cos(3 * a) - math.cos(4 * a)
+        pts.append((x / 17 * size, y / 17 * size))
+    top = [bm.verts.new((x, 0.0015, y)) for x, y in pts]
+    bot = [bm.verts.new((x, -0.0015, y)) for x, y in pts]
+    bm.faces.new(top)
+    bm.faces.new(list(reversed(bot)))
+    for i in range(40):
+        j = (i + 1) % 40
+        bm.faces.new((top[i], top[j], bot[j], bot[i]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    ob = link(name, bm, mat)
+    m = Matrix.Translation(Vector(c)) @ (rot or Matrix.Identity(4))
+    ob.matrix_world = m
+    return ob
+
+
+def bubble_lid(x, y, s):
+    h = 0.047 * s
+    lid = tcyl('lid', (0, 0, 0), 0.024 * s, 0.005 * s, WHITE, segs=40, bev=0.0015)
+    tail = tcyl('tail', (0, 0, 0), 0.007 * s, 0.005 * s, WHITE, segs=3)
+    lid.matrix_world = Matrix.Translation(P(x, h, -y)) @ lid.matrix_world
+    tail.matrix_world = Matrix.Translation(P(x - 0.02 * s, h, -y + 0.016 * s)) @ tail.matrix_world
+    heart('lidHeart', P(x, h + 0.014 * s, -y), 0.012 * s, PINK)  # a standing like-heart on the bubble
+
+
+bubble_lid(0.055, 0.215, 1.1)
+bubble_lid(-0.005, 0.29, 1.0)
+for (hx, hy, hh, hs) in ((0.085, 0.24, 0.085, 0.011), (0.04, 0.27, 0.11, 0.008), (0.1, 0.3, 0.12, 0.007)):
+    heart('flyHeart', P(hx, hh, -hy), hs, PINK, Matrix.Rotation(0.35, 4, 'Y'))  # upright, a little tilted
+FLAP = material('CoinFlap', (0.01, 0.12, 0.55), 0.0, 0.45)  # deep, so the key light does not wash it out
+PAPER = material('CoinPaper', (0.62, 0.64, 0.7), 0.0, 0.5)
+env = tbox('envelope', (0, 0, 0), (0.034, 0.024, 0.003), PAPER, bev=0.001)
+bm = bmesh.new()
+vs = [bm.verts.new(v) for v in ((-0.0166, -0.0018, 0.0116), (0.0166, -0.0018, 0.0116), (0.0, -0.0018, -0.0025))]
+bm.faces.new(vs)
+flap = link('flap', bm, FLAP)  # the closed envelope flap, so it reads as a letter
+seal = heart('seal', (0, -0.003, -0.0025), 0.005, SEAL)
+for ob in (env, flap, seal):
+    ob.matrix_world = Matrix.Translation(P(-0.085, 0.075, -0.15)) @ Matrix.Rotation(0.35, 4, 'Z') @ Matrix.Rotation(-0.25, 4, 'X') @ ob.matrix_world
 place(parts['plunger'], 9, 9)
 parts['plunger'].hide_render = True
 # Fairy lights in the background (soft bokeh).

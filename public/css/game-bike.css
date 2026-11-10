@@ -134,6 +134,31 @@
   --xr-bike-confetti-3:     #e0303a;
   --xr-bike-confetti-4:     #2fcf8a;
 
+  /* ---- jumps and the pit stop (bike-jumps.glb) ---- */
+  --xr-bike-ramp-stripe:    #ffc21a;
+  --xr-bike-cone:           #ff6a1a;
+  --xr-bike-pit-sign:       #161829;
+  --xr-bike-pit-glow:       #ffc21a;
+  --xr-bike-jump:           #ffc21a;   /* jump and trick callouts */
+  --xr-bike-combo:          #ff5ec4;
+
+  /* ---- weather ---- */
+  --xr-bike-rain:           #b9d7ff;
+  --xr-bike-wet:            #1d2a3a;   /* the wet sheen over the ground */
+  --xr-bike-frost:          #e4f4ff;
+  --xr-bike-frost-crack:    #ffffff;
+  --xr-bike-dry:            #efe2c2;
+  --xr-bike-slush:          #8a8f96;
+  --xr-bike-live:           #ff5ec4;   /* the live re-scan */
+  --xr-bike-sky-rain-top:   #4b5868;
+  --xr-bike-sky-rain-low:   #a9b4c0;
+  --xr-bike-sky-frost-top:  #6f9ccc;
+  --xr-bike-sky-frost-low:  #e8f2ff;
+  --xr-bike-sky-sun-top:    #3a8de0;
+  --xr-bike-sky-sun-low:    #ffe3a8;
+  --xr-bike-sky-fog-top:    #9aa6b4;
+  --xr-bike-sky-fog-low:    #dde3ea;
+
   /* ---- terrain names in the UI ---- */
   --xr-bike-terrain-asphalt: #a9b4c6;
   --xr-bike-terrain-gravel:  #e2cfa6;

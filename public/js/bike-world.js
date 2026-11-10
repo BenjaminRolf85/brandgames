@@ -21,7 +21,7 @@ export const STOP_GAP = 2.8; // the bike stops this far before a section for the
 export const HALF = 1.85; // half width of the trail
 export const EDGE = 3.0; // beyond this you cannot ride
 const RUNOUT = 36;
-const MAX_STARS = 10; // per section (40 stars at most: the score stays below 5000)
+const MAX_STARS = 9; // per section, the stars in the air included (36 at most: the score stays below 5000)
 
 /** Hazards: model, effect class and lateral reach (half width). */
 export const HZ = {
@@ -32,7 +32,18 @@ export const HZ = {
   roots: { node: 'HzRoots', cls: 'bump', r: 0.95 },
   ice: { node: 'HzIce', cls: 'slip', r: 0.72 },
   puddle: { node: 'HzPuddle', cls: 'mud', r: 0.66 },
+  // Across the whole trail: only a jump clears them.
+  log: { node: 'HzLog', cls: 'block', r: 9 },
+  branch: { node: 'HzBranch', cls: 'block', r: 9 },
+  trench: { node: 'HzTrench', cls: 'block', r: 9 },
 };
+/** Ramps: a wooden kicker or a snow drift (lip 0.8 ahead of the middle, 0.45 high). */
+export const RAMPS = { ramp: 'HzRamp', drift: 'HzDriftRamp' };
+export const RAMP_H = 0.45;
+/** What the weather turns the ground into (fog leaves it as it is). */
+export const WEATHER_TO = { rain: 'mud', frost: 'snow', sun: 'gravel', thaw: 'mud', fog: null };
+const WEATHER_BY = { asphalt: ['frost'], gravel: ['rain'], mud: ['sun', 'frost'], snow: ['thaw'] };
+const FEATURES = { asphalt: ['ramp', 'trench', 'ramp', 'branch'], gravel: ['ramp', 'log', 'ramp', 'trench'], mud: ['log', 'ramp', 'log', 'branch'], snow: ['drift', 'log', 'drift', 'trench'] };
 const HZ_BY = { asphalt: ['glass', 'nails', 'pothole'], gravel: ['glass', 'thorns', 'pothole'], mud: ['thorns', 'roots', 'puddle'], snow: ['ice', 'glass', 'roots'] };
 export const ITEMS = { star: 'ItStar', cart: 'ItCartridge', shield: 'ItShield' };
 
@@ -113,13 +124,49 @@ export function makeCourse(rnd) {
   const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
   const addHz = (type, s, v) => hazards.push({ type, s, v, r: HZ[type].r, rot: rnd() * TAU, hit: false, passed: false });
 
+  // Weather: one change of the ground in section 2, 3 or 4 (rain, frost, sun, thaw), in half of
+  // the rounds also fog in another section (the ground stays). A pit stop comes before each.
+  const weather = [];
+  const addWeather = (i, kind) => {
+    const sec = sections[i];
+    const s = sec.b0 + rr(0.5, 0.56) * SEC_LEN;
+    weather.push({ i: weather.length, sec: i, kind, from: sec.kind, to: WEATHER_TO[kind], s, pit: s - 8, trigger: s - 30, end: sec.b1 });
+  };
+  const wSec = 1 + Math.floor(rnd() * 3);
+  addWeather(wSec, pick(WEATHER_BY[sections[wSec].kind]));
+  if (rnd() < 0.5) addWeather(pick([0, 1, 2, 3].filter((i) => i !== wSec)), 'fog');
+  weather.sort((a, b) => a.s - b.s);
+  weather.forEach((w, i) => { w.i = i; });
+  // Jumps: ramps (snow drifts in the snow), obstacles across the whole trail, stars in the air.
+  const ramps = [];
+  const reserved = weather.map((w) => [w.pit - 9, w.s + 4]); // no other hazards in here
+  const isReserved = (s) => reserved.some(([a, b]) => s > a && s < b);
+  for (const sec of sections) {
+    FEATURES[sec.kind].forEach((f, k) => {
+      let s = sec.b0 + (0.15 + k * 0.22 + rr(-0.03, 0.03)) * SEC_LEN;
+      for (const w of weather) if (s > w.pit - 15 && s < w.s + 10) s = w.s + 11;
+      if (s > sec.b1 - 14 || isReserved(s)) return;
+      if (RAMPS[f]) {
+        const v = pick([-0.8, 0, 0.8]);
+        ramps.push({ kind: f, s, v, lip: s + 0.8, w: f === 'drift' ? 0.8 : 0.72, rot: yaw(s), sec: sec.i });
+        reserved.push([s - 4, s + 6.5]);
+        items.push({ type: 'star', s: s + 3.0, v, y: 1.0, air: true });
+        items.push({ type: 'star', s: s + 4.2, v, y: 0.8, air: true });
+      } else {
+        hazards.push({ type: f, s, v: 0, r: HZ[f].r, rot: yaw(s), hit: false, passed: false, block: true });
+        reserved.push([s - 5, s + 5]);
+      }
+    });
+  }
+
   for (const sec of sections) {
     const types = HZ_BY[sec.kind];
     let s = sec.b0 + 13;
     const end = sec.b1 - 12;
     const gap = 8.6 - sec.i * 0.45;
-    let stars = 0;
+    let stars = items.filter((it) => it.air && it.s >= sec.b0 && it.s < sec.b1).length;
     while (s < end) {
+      if (isReserved(s) || isReserved(s + 7)) { s += 1.5; continue; }
       const p = rnd();
       const ty = pick(types);
       const wide = HZ[ty].r > 0.8;
@@ -154,11 +201,11 @@ export function makeCourse(rnd) {
       s += gap + rnd() * 2.6;
     }
     // A few lines of stars in quiet stretches, so every section has about 8.
-    for (let tries = 0; stars < 8 && tries < 60; tries++) {
+    for (let tries = 0; stars < MAX_STARS && tries < 60; tries++) {
       const s1 = rr(sec.b0 + 10, sec.b1 - 12);
-      if (hazards.some((h) => Math.abs(h.s - s1) < 3.2)) continue;
+      if (hazards.some((h) => Math.abs(h.s - s1) < 3.2) || isReserved(s1) || isReserved(s1 + 3)) continue;
       const v = rr(-1.2, 1.2);
-      const n = Math.min(3, 8 - stars);
+      const n = Math.min(3, MAX_STARS - stars);
       for (let k = 0; k < n; k++) items.push({ type: 'star', s: s1 + k * 1.3, v });
       stars += n;
     }
@@ -173,6 +220,17 @@ export function makeCourse(rnd) {
     };
     if (sec.i < 3) { const [s1, v] = freeSpot(sec.b0 + 0.22 * SEC_LEN, sec.b0 + 0.4 * SEC_LEN); items.push({ type: 'shield', s: s1, v }); }
     if (sec.i > 0) { const [s1, v] = freeSpot(sec.b0 + 0.5 * SEC_LEN, sec.b0 + 0.75 * SEC_LEN); items.push({ type: 'cart', s: s1, v }); }
+  }
+  // Hazards that come with the weather (hidden until it turns), puddles that the sun dries.
+  for (const w of weather) {
+    const extra = { rain: 'puddle', frost: 'ice', thaw: 'puddle' }[w.kind];
+    if (extra) {
+      for (let s = w.s + 7; s < w.end - 10; s += rr(9, 14)) {
+        if (hazards.some((h) => h.block && Math.abs(h.s - s) < 5) || ramps.some((r) => Math.abs(r.s - s) < 5)) continue;
+        hazards.push({ type: extra, s, v: rr(-1.2, 1.2), r: HZ[extra].r, rot: rnd() * TAU, hit: false, passed: false, weather: w.i, hidden: true });
+      }
+    }
+    if (w.kind === 'sun') hazards.filter((h) => h.type === 'puddle' && h.s > w.s && h.s < w.end).forEach((h) => { h.dryAt = w.i; });
   }
   hazards.sort((a, b) => a.s - b.s);
   items.sort((a, b) => a.s - b.s);
@@ -201,6 +259,11 @@ export function makeCourse(rnd) {
         const n = Math.round((to - from) * spec.density);
         for (let k = 0; k < n; k++) place(rr(from, to), rnd() < 0.5 ? -1 : 1);
       }
+    }
+    // The pit stop before a weather change: a gantry over the right half and spare tires.
+    for (const w of weather.filter((x) => x.sec === sec.i)) {
+      props.push({ n: 'PitGantry', s: w.pit + 1.6, v: 0, rot: yaw(w.pit + 1.6), scale: 1 });
+      props.push({ n: 'PitRack', s: w.pit + 0.6, v: 3.25, rot: rnd() * TAU, scale: 1 });
     }
     // Flags at the start of every section.
     if (sec.i > 0) for (const side of [-1, 1]) props.push({ n: 'PrFlag', s: sec.b0, v: side * 2.35, rot: yaw(sec.b0) + (side > 0 ? Math.PI : 0), scale: 1.2 });
@@ -235,6 +298,25 @@ export function makeCourse(rnd) {
       for (let j = 0; j < L; j++) if (Math.abs(lanes[j] - it.v) < 0.4) cost[k * L + j] -= it.type === 'star' ? 1.4 : 2;
     }
   }
+  for (const r of ramps) {
+    for (let i = Math.max(0, Math.floor((r.s - 3) / STEP)); i <= Math.min(N - 1, Math.ceil(r.lip / STEP)); i++) {
+      for (let j = 0; j < L; j++) if (Math.abs(lanes[j] - r.v) < r.w * 0.6) cost[i * L + j] -= 1.2;
+    }
+  }
+  // The guide's jump arcs: over ramps (a big jump) and over the obstacles across the trail.
+  const arc = new Float32Array(N);
+  const arcOver = (s0, len, h, base = 0) => {
+    for (let i = Math.max(0, Math.floor(s0 / STEP)); i <= Math.min(N - 1, Math.ceil((s0 + len) / STEP)); i++) {
+      const k = (i * STEP - s0) / len;
+      if (k >= 0 && k <= 1) arc[i] = Math.max(arc[i], base * (1 - k) + h * Math.sin(Math.PI * k));
+    }
+  };
+  for (const r of ramps) {
+    for (let i = Math.max(0, Math.floor((r.s - 0.8) / STEP)); i <= Math.min(N - 1, Math.floor(r.lip / STEP)); i++) arc[i] = Math.max(arc[i], RAMP_H * clamp((i * STEP - (r.s - 0.8)) / 1.6, 0, 1));
+    arcOver(r.lip, 4.6, 1.25, RAMP_H);
+  }
+  for (const h of hazards) if (h.block) arcOver(h.s - 1.9, 3.8, 0.8);
+  const arcAt = (s) => arc[clamp(Math.round(s / STEP), 0, N - 1)];
   const acc = new Float32Array(N * L);
   const from = new Int16Array(N * L);
   for (let j = 0; j < L; j++) acc[j] = cost[j];
@@ -269,7 +351,9 @@ export function makeCourse(rnd) {
     return sm[i] * (1 - k) + sm[Math.min(N - 1, i + 1)] * k;
   };
 
-  return { sections, finish, length, cx, dcx, ddcx, point, yaw, sectionAt, hazards, items, props, guideAt, starTotal: items.filter((it) => it.type === 'star').length };
+  /** The ramp under the bike (s within its length, u within its width), or null. */
+  const rampAt = (s, u) => ramps.find((r) => Math.abs(s - r.s) <= 0.8 && Math.abs(u - r.v) < r.w) ?? null;
+  return { sections, finish, length, cx, dcx, ddcx, point, yaw, sectionAt, hazards, items, props, ramps, weather, rampAt, guideAt, arcAt, starTotal: items.filter((it) => it.type === 'star').length };
 }
 
 // ---------------------------------------------------------------- textures
@@ -809,7 +893,7 @@ export function makeGuideDots(n = 9) {
     for (let i = 0; i < n; i++) {
       const si = s + 1.6 + i * 0.75 - ((time * 1.5) % 0.75);
       course.point(si, course.guideAt(si), p);
-      p.y = 0.05;
+      p.y = 0.05 + (course.arcAt?.(si) ?? 0);
       const k = Math.min(1, (i + 1) / 3) * (1 - i / n) * alpha;
       sc.setScalar(0.4 + 0.6 * k + 0.001);
       m.compose(p, q, sc);

@@ -94,10 +94,13 @@ export function flavorIcon(ctx, key, x, y, s, col) {
 
 // ---------- speech bubble ----------
 
-/** The guest's speech bubble (cream with a tail at the bottom). stars: 0 = none. */
-export function bubblePanel({ name, body, sub = null, stars: n = 0, w = 0.66 }) {
+/**
+ * The guest's speech bubble (cream with a tail at the bottom). stars: 0 = none. active: the guest
+ * you prepare for now (a thick warm border). tail: 'left' (bubble beside the head) or 'center'.
+ */
+export function bubblePanel({ name, body, sub = null, stars: n = 0, w = 0.66, active = false, tail: tailAt = 'left', bodySize = 'xr-text-md' }) {
   const pad = 0.035;
-  const blocks = [{ text: name, size: 'xr-text-sm', weight: 'bold', gap: 0.012 }, { text: body, size: 'xr-text-md', weight: 'bold', gap: 0.012 }];
+  const blocks = [{ text: name, size: 'xr-text-sm', weight: 'bold', gap: 0.012 }, { text: body, size: bodySize, weight: 'bold', gap: 0.012 }];
   if (sub) blocks.push({ text: sub, size: 'xr-text-sm', gap: 0.012 });
   const starH = n ? 0.065 : 0;
   const tail = 0.045;
@@ -105,19 +108,27 @@ export function bubblePanel({ name, body, sub = null, stars: n = 0, w = 0.66 }) 
   const p = new Panel(w, h, (ctx, c) => {
     const W = c.canvas.width;
     const H = c.canvas.height - c.m(tail);
-    roundRect(ctx, c.m(0.004), c.m(0.004), W - c.m(0.008), H - c.m(0.008), c.m(0.04));
+    const bw = active ? 0.009 : 0;
+    roundRect(ctx, c.m(0.004 + bw / 2), c.m(0.004 + bw / 2), W - c.m(0.008 + bw), H - c.m(0.008 + bw), c.m(0.04));
     ctx.fillStyle = color('xr-roast-bubble');
     ctx.fill();
-    // the tail points down to the left, towards the guest's head
+    if (active) {
+      ctx.lineWidth = c.m(bw);
+      ctx.strokeStyle = color('xr-roast-active');
+      ctx.stroke();
+    }
+    // the tail points down to the guest's head (left: the bubble sits beside it)
+    const tx = tailAt === 'center' ? W / 2 : c.m(0.07);
     ctx.beginPath();
-    ctx.moveTo(c.m(0.07), H - c.m(0.01));
-    ctx.lineTo(c.m(0.012), H + c.m(tail) - c.m(0.004));
-    ctx.lineTo(c.m(0.16), H - c.m(0.01));
+    ctx.moveTo(tx - c.m(0.04), H - c.m(0.012));
+    ctx.lineTo(tailAt === 'center' ? tx : c.m(0.012), H + c.m(tail) - c.m(0.004));
+    ctx.lineTo(tx + c.m(0.05), H - c.m(0.012));
     ctx.closePath();
+    ctx.fillStyle = color(active ? 'xr-roast-active' : 'xr-roast-bubble');
     ctx.fill();
     let y = pad;
     y = para(ctx, c, name, pad, y, w - pad * 2, { size: 'xr-text-sm', weight: 'bold', col: 'xr-roast-bubble-muted' }) + 0.012;
-    y = para(ctx, c, body, pad, y, w - pad * 2, { size: 'xr-text-md', weight: 'bold', col: 'xr-roast-bubble-ink' }) + 0.012;
+    y = para(ctx, c, body, pad, y, w - pad * 2, { size: bodySize, weight: 'bold', col: 'xr-roast-bubble-ink' }) + 0.012;
     if (sub) y = para(ctx, c, sub, pad, y, w - pad * 2, { size: 'xr-text-sm', col: 'xr-roast-bubble-muted' }) + 0.012;
     if (n) stars(ctx, c, n, pad + 0.03, y + 0.03, 0.026, 0.065);
   });
@@ -377,10 +388,10 @@ export function blendPanel() {
   const w = 0.62;
   const h = 0.16;
   const p = new Panel(w, h, (ctx, c) => {
-    const { a = null, b = null, share = 0.5, hover } = c.state;
-    c.surface({ stroke: color(hover ? 'xr-accent' : 'xr-panel-border') });
+    const { a = null, b = null, share = 0.5, hover, who = null } = c.state;
+    c.surface({ stroke: color(who ? 'xr-roast-active' : hover ? 'xr-accent' : 'xr-panel-border') });
     const pad = 0.03;
-    text(ctx, c, t('roastBlend'), pad, 0.034, { size: 'xr-text-min', weight: 'bold', col: 'xr-panel-muted' });
+    text(ctx, c, who ? t('roastBlendFor', { name: who }) : t('roastBlend'), pad, 0.034, { size: 'xr-text-min', weight: 'bold', col: who ? 'xr-roast-active' : 'xr-panel-muted', max: w - pad * 2 });
     const bx = pad;
     const by = 0.062;
     const bw = w - pad * 2;
@@ -389,7 +400,7 @@ export function blendPanel() {
       roundRect(ctx, c.m(bx), c.m(by), c.m(bw), c.m(bh), c.m(0.02));
       ctx.fillStyle = color('xr-button-bg');
       ctx.fill();
-      text(ctx, c, t(a === null ? 'roastPickTwo' : 'roastPickOne'), w / 2, by + bh / 2, { size: 'xr-text-sm', weight: 'bold', col: 'xr-panel-muted', align: 'center' });
+      text(ctx, c, t(!who ? 'roastNobody' : a === null ? 'roastPickTwo' : 'roastPickOne'), w / 2, by + bh / 2, { size: 'xr-text-sm', weight: 'bold', col: 'xr-panel-muted', align: 'center', max: bw - 0.02 });
       return;
     }
     const split = bw * share;
@@ -426,12 +437,14 @@ export function gaugePanel() {
   const w = 0.62;
   const h = 0.22;
   const p = new Panel(w, h, (ctx, c) => {
-    const { r = 0, aiStop = null, done = false } = c.state;
-    c.surface({ stroke: color(STAGE_TOKEN[stageOf(r).key] === 'xr-roast-bean-burnt' ? 'xr-danger' : 'xr-panel-border') });
+    const { r = 0, aiStop = null, done = false, who = null, next = null, idle = false } = c.state;
+    const roasting = !idle && !done;
+    c.surface({ stroke: color(roasting ? 'xr-roast-active' : STAGE_TOKEN[stageOf(r).key] === 'xr-roast-bean-burnt' ? 'xr-danger' : 'xr-panel-border') });
     const pad = 0.03;
-    text(ctx, c, t('roastRoasting'), pad, 0.036, { size: 'xr-text-min', weight: 'bold', col: 'xr-panel-muted' });
+    text(ctx, c, idle ? t('roastDrumFree') : who ? t('roastRoastFor', { name: who }) : t('roastRoasting'), pad, 0.036, { size: 'xr-text-min', weight: 'bold', col: roasting ? 'xr-roast-active' : 'xr-panel-muted', max: w * 0.62 });
     const st = stageOf(r);
-    text(ctx, c, t(`roastStage_${st.key}`), w - pad, 0.038, { size: 'xr-text-md', weight: 'black', col: st.key === 'burnt' ? 'xr-danger' : st.key === 'green' ? 'xr-roast-bean-green' : st.key === 'yellow' ? 'xr-roast-bean-yellow' : 'xr-roast-bean-cinnamon', align: 'right' });
+    if (!idle) text(ctx, c, t(`roastStage_${st.key}`), w - pad, 0.038, { size: 'xr-text-md', weight: 'black', col: st.key === 'burnt' ? 'xr-danger' : st.key === 'green' ? 'xr-roast-bean-green' : st.key === 'yellow' ? 'xr-roast-bean-yellow' : 'xr-roast-bean-cinnamon', align: 'right' });
+    if (next) text(ctx, c, t('roastNext', { name: next }), w - pad, h - 0.03, { size: 'xr-text-min', weight: 'bold', col: 'xr-accent', align: 'right' });
     const bx = pad;
     const by = 0.094;
     const bw = w - pad * 2;

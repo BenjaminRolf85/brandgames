@@ -3,17 +3,22 @@
 // finances wind turbines, solar parks, homes, schools and kindergartens. An AI forecasts the yield
 // of every plot from weather data (wind speed, sun hours) with a confidence, and the demand of the
 // town's districts (children, families); the real year then brings weather surprises.
+// While the year runs, the AI warns of live events (storm, heat peak, dark doldrums, flood) with a
+// confidence that is calibrated (80 % comes true four times in five): react in time or not.
+// Citizens voice wishes where the AI's demand forecast is high (louder when ignored), and the
+// player may bet against the AI's wind forecast on an uncertain plot (human versus AI).
 //
 // Layout (diorama space, meters; x to the right, z towards the player = south, y up). It mirrors
 // the terrain of blender/build_green.py (hills, coast, river, town, fields): keep both in sync.
 
-export const YEARS = 5;
+export const YEARS = 4;
 export const FIRST_YEAR = 2027;
-export const BASE_BUDGET = 8; // million euros per year
+export const BASE_BUDGET = 10; // million euros per year
 export const RETURN_PER_GWH = 0.08; // feed-in revenue that flows back into next year's budget
 export const CO2_PER_GWH = 400; // tonnes of CO2 a GWh of green power saves
 export const HOUSEHOLD_MWH = 3.5; // a household's yearly power use
 export const QOL_START = 40;
+export const ENERGY_REF = 170; // GWh over the round for full energy points
 
 export const TYPE_KEYS = ['wind', 'solar', 'homes', 'school', 'kita'];
 export const TYPES = {
@@ -24,6 +29,20 @@ export const TYPES = {
   kita: { cost: 2, kind: 'social', area: 'town', token: 'xr-green-kita', icon: 'greenKita', need: 'small', cap: 45, weight: 9, co2: 25 },
 };
 export const CHEAPEST = Math.min(...TYPE_KEYS.map((k) => TYPES[k].cost));
+
+// Live events while the year runs. The AI warns about 6 s ahead with a confidence; the player
+// reacts (or not). Effects in green-sim (resolveLive), looks in green-visuals and the scene.
+export const LIVE = {
+  storm: { token: 'xr-green-wind', icon: 'greenStorm' },
+  heat: { token: 'xr-green-sun', icon: 'greenHeat' },
+  dark: { token: 'xr-green-dark', icon: 'greenDark' },
+  flood: { token: 'xr-green-flood', icon: 'greenFlood' },
+};
+export const LIVE_SLOTS = [4.6, 10.0]; // months of the two events of a year
+export const BET_CONF = 0.8; // plots where the AI is less sure than this (the hatched hills) take bets
+export const BET_DRAW = 0.04; // within 4 % the AI counts as right
+// Citizens' wishes per project type (the district's demand forecast against the places).
+export const WISH_FOR = { kita: 'small', school: 'kids', homes: 'homes' };
 
 // ---------- the region ----------
 
@@ -172,12 +191,13 @@ export class GreenGame {
   constructor(seed) {
     this.r = rng(seed);
     const r = this.r;
-    // Weather of the five years: the first one ordinary, then a calm, a stormy and two more
-    // in a random order (so every round shows why a mix helps).
-    const later = ['calm', 'stormy', ['sunny', 'windy', 'dull'][Math.floor(r() * 3)], ['windy', 'sunny', 'normal'][Math.floor(r() * 3)]];
+    // Weather of the four years: the first one ordinary, then a calm, a stormy and one more in a
+    // random order (so every round shows why a mix helps).
+    const later = ['calm', 'stormy', ['sunny', 'windy', 'dull'][Math.floor(r() * 3)]];
     for (let i = later.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [later[i], later[j]] = [later[j], later[i]]; }
     this.weather = [r() < 0.5 ? 'normal' : 'windy', ...later];
-    this.events = [null, 'families', 'babyboom', 'oldtown', null];
+    this.events = [null, 'families', 'babyboom', 'oldtown'];
+    this.floodYear = 1 + Math.floor(r() * 2); // one flood warning per round, in year 2 or 3
     // Plots: true long-term climate and the AI's estimate of it (good, not perfect).
     this.plots = PLOTS.map((p) => {
       const q = { ...p, built: null, year: -1 };
@@ -187,7 +207,7 @@ export class GreenGame {
         q.windConf = windConfAt(p.x, p.z);
         q.sunConf = sunConfAt(p.x, p.z);
         // The AI's error in the mean: larger where it is less sure.
-        q.windBias = r.gauss() * (0.02 + 0.05 * (1 - q.windConf));
+        q.windBias = r.gauss() * (0.02 + 0.09 * (1 - q.windConf));
         q.sunBias = r.gauss() * (0.01 + 0.03 * (1 - q.sunConf));
       }
       return q;
@@ -206,6 +226,12 @@ export class GreenGame {
     this.qolYears = 0;
     this.pending = []; // projects placed this year (can be undone until the year runs)
     this.announce = null;
+    this.battery = false; // storage charged (a heat peak) for a dark lull later in the year
+    this.liveLog = []; // every warning: { type, real, reacted, good }
+    this.wishes = [];
+    this.wishLog = []; // fulfilled wishes
+    this.bet = null; // this year's bet: { id, dir: 1 more wind | -1 less }
+    this.betLog = [];
   }
 
   get yearLabel() { return FIRST_YEAR + this.year; }
@@ -231,6 +257,47 @@ export class GreenGame {
     this.spentBy[T.kind] += T.cost;
     this.pending.push(id);
     return true;
+  }
+
+  // ---------- bets against the forecast ----------
+
+  canBet(id) {
+    const p = this.plot(id);
+    return !!p && p.area === 'land' && p.windConf < BET_CONF;
+  }
+
+  /** Cycles the bet on a plot: more wind than the AI says, less, none (one bet a year). */
+  cycleBet(id) {
+    if (!this.canBet(id)) return null;
+    if (!this.bet || this.bet.id !== id) this.bet = { id, dir: 1 };
+    else if (this.bet.dir === 1) this.bet = { id, dir: -1 };
+    else this.bet = null;
+    return this.bet;
+  }
+
+  // ---------- citizens' wishes ----------
+
+  /** Wishes where the AI's demand forecast is high; an ignored wish gets louder (level 1 to 3). */
+  makeWishes() {
+    const prev = this.wishes;
+    this.wishes = [];
+    for (const k of DISTRICT_KEYS) {
+      const f = this.demandForecast(k);
+      let best = null;
+      for (const [type, need] of Object.entries(WISH_FOR)) {
+        const ratio = f[need].value / TYPES[type].cap;
+        if (ratio >= 0.65 && (!best || ratio > best.ratio)) best = { type, ratio };
+      }
+      if (!best) continue;
+      const old = prev.find((w) => w.district === k && w.type === best.type && !this.wishMet(w, true));
+      this.wishes.push({ district: k, type: best.type, level: old ? Math.min(3, old.level + 1) : 1 });
+    }
+  }
+
+  /** A wish is met when a project of its type goes up in its district (this year). */
+  wishMet(w, last = false) {
+    if (last) return !!w.met;
+    return this.pending.some((id) => { const p = this.plot(id); return p.district === w.district && p.built === w.type; });
   }
 
   /** Takes back a project placed this year (refund). */
@@ -323,6 +390,88 @@ export class GreenGame {
         for (const need of ['kids', 'small', 'homes']) d[need] += E[need] ?? 0;
       }
     }
+    this.bet = null;
+    this.battery = false;
+    this.makeWishes();
+  }
+
+  /**
+   * The year's live events (two): one that fits the weather (likely real), one more (often a
+   * false alarm), and one flood warning per round. conf is what the AI says; it is calibrated:
+   * an event comes true with exactly that probability.
+   */
+  planLive() {
+    const r = this.r;
+    const has = (type) => this.plots.some((p) => p.built === type);
+    const main = { stormy: 'storm', windy: 'storm', calm: 'dark', dull: 'dark', sunny: 'heat' }[this.weather[this.year]];
+    const want = [];
+    const ok = (type) => (type !== 'storm' || has('wind')) && (type !== 'heat' || has('solar')) && !want.some((e) => e.type === type);
+    if (main && ok(main)) want.push({ type: main, conf: 0.75 + Math.round(r() * 3) * 0.05 });
+    if (this.year === this.floodYear && ok('flood')) want.push({ type: 'flood', conf: 0.6 + Math.round(r() * 4) * 0.05 });
+    const pool = ['storm', 'heat', 'dark'].filter(ok);
+    while (want.length < 2 && pool.length) {
+      const type = pool.splice(Math.floor(r() * pool.length), 1)[0];
+      if (ok(type)) want.push({ type, conf: 0.5 + Math.round(r() * 5) * 0.05 });
+    }
+    if (want.length < 2 && ok('flood')) want.push({ type: 'flood', conf: 0.55 });
+    // Slots: heat and floods in spring and summer, storms and dark lulls in autumn and winter.
+    const early = (e) => e.type === 'heat' || e.type === 'flood';
+    want.sort((a, b) => Number(early(b)) - Number(early(a)));
+    const live = want.slice(0, 2).map((e, i) => ({ ...e, month: LIVE_SLOTS[i], real: r() < e.conf, district: e.type === 'flood' ? 'river' : null }));
+    return live;
+  }
+
+  /**
+   * A live event happens (or not): its effect on this year's report and the region, given
+   * whether the player reacted in time. Returns { good, money, dq, dE }.
+   */
+  resolveLive(ev, reacted) {
+    const rep = this.history[this.history.length - 1];
+    let dw = 0;
+    let ds = 0;
+    let money = 0;
+    let dq = 0;
+    const turbines = rep.projects.filter((p) => p.type === 'wind').length;
+    if (ev.type === 'storm') {
+      if (reacted) dw = -0.02; // throttled: a little less power
+      else if (ev.real) { dw = -0.09; money = -0.5 * turbines; } // damaged turbines, repairs
+    } else if (ev.type === 'heat') {
+      if (reacted) { this.battery = true; money = -0.1; if (ev.real) ds = 0.06; } // stored and sold later
+      else if (ev.real) ds = -0.06; // the grid is full, panels are switched off
+    } else if (ev.type === 'dark') {
+      if (reacted) { if (this.battery) this.battery = false; else money = -0.5; } // storage or bought power
+      else if (ev.real) dq = -3; // power cuts
+    } else if (ev.type === 'flood') {
+      if (reacted) money = -0.3; // sandbags and a mobile dike
+      else if (ev.real) { money = -1; dq = -4; } // flooded cellars
+    }
+    const dEw = rep.windSum * dw;
+    const dEs = rep.sunSum * ds;
+    const dE = dEw + dEs;
+    for (const pr of rep.projects) pr.actual *= 1 + (pr.type === 'wind' ? dw : ds);
+    for (const m of rep.months) { m.wind *= 1 + dw; m.sun *= 1 + ds; }
+    rep.windSum += dEw;
+    rep.sunSum += dEs;
+    rep.energy += dE;
+    rep.co2 += dE * CO2_PER_GWH;
+    rep.households = Math.round((rep.energy * 1000) / HOUSEHOLD_MWH);
+    this.energyTotal += dE;
+    this.co2Total += dE * CO2_PER_GWH;
+    const back = dE * RETURN_PER_GWH;
+    rep.revenue += back;
+    if (!this.over) this.budget = Math.max(0, this.budget + back + money);
+    rep.costs = (rep.costs ?? 0) - money;
+    if (dq) {
+      const before = this.qol;
+      this.qol = clamp(this.qol + dq, 0, 100);
+      this.qolYears += this.qol - before;
+      rep.qol = this.qol;
+    }
+    const good = reacted === ev.real;
+    const out = { type: ev.type, real: ev.real, reacted, good, money, dq, dE, conf: ev.conf };
+    this.liveLog.push(out);
+    (rep.live ??= []).push(out);
+    return out;
   }
 
   /**
@@ -341,6 +490,8 @@ export class GreenGame {
     let sunFc = 0;
     let co2 = 0;
     const qolBefore = this.qol;
+    // This year's local wind noise on every plot (also where nothing stands, for the bet).
+    const epsWind = Object.fromEntries(this.plots.filter((p) => p.area === 'land').map((p) => [p.id, clamp(r.gauss() * this.localSigma('wind', p), -0.3, 0.3)]));
     // Energy: every turbine and solar park built so far produces this year.
     for (const p of this.plots) {
       if (!p.built) continue;
@@ -352,9 +503,8 @@ export class GreenGame {
       const fc = this.forecast(p.built, p.id);
       const wind = p.built === 'wind';
       const base = wind ? windEnergy(p.wind) : solarEnergy(p.sun);
-      const eps = clamp(r.gauss() * this.localSigma(p.built, p), -0.3, 0.3);
-      let actual = base * (wind ? wx.wind : wx.sun) * (1 + eps);
-      if (wind && wx.storm) actual *= 0.97; // storm shutdowns
+      const eps = wind ? epsWind[p.id] : clamp(r.gauss() * this.localSigma(p.built, p), -0.3, 0.3);
+      const actual = base * (wind ? wx.wind : wx.sun) * (1 + eps);
       energy += actual;
       forecastEnergy += fc.value;
       if (wind) { windSum += actual; windFc += fc.value; } else { sunSum += actual; sunFc += fc.value; }
@@ -377,6 +527,25 @@ export class GreenGame {
       this.qol = Math.min(100, this.qol + gain);
       social.push({ id, type: p.built, gain, served, district: p.district });
     }
+    // Wishes: met ones make the district happy, a loud ignored one costs.
+    const wishes = [];
+    for (const w of this.wishes) {
+      w.met = this.wishMet(w);
+      let dq = 0;
+      if (w.met) { dq = 2 + w.level; this.wishLog.push(w); } else if (w.level >= 3) dq = -2;
+      this.qol = clamp(this.qol + dq, 0, 100);
+      wishes.push({ ...w, dq });
+    }
+    // The bet: the plot's wind this year against the AI's forecast, without the year's weather
+    // (weather-adjusted: only the AI's local error and the local gusts count).
+    let bet = null;
+    if (this.bet) {
+      const p = this.plot(this.bet.id);
+      const d = (p.wind / (p.wind * (1 + p.windBias))) ** 3 * (1 + epsWind[p.id]) - 1;
+      const winner = Math.abs(d) >= BET_DRAW && Math.sign(d) === this.bet.dir ? 'player' : 'ai';
+      bet = { ...this.bet, d, winner, pts: winner === 'player' ? 100 : -40 };
+      this.betLog.push(bet);
+    }
     // Long waiting lists cost quality of life.
     const waiting = [];
     for (const k of DISTRICT_KEYS) {
@@ -389,9 +558,12 @@ export class GreenGame {
     this.qolYears += this.qol; // the quality of life counts in every year it is lived
     const revenue = energy * RETURN_PER_GWH;
     Object.assign(report, {
-      energy, forecastEnergy, windSum, windFc, sunSum, sunFc, co2, revenue, social, waiting,
+      energy, forecastEnergy, windSum, windFc, sunSum, sunFc, co2, revenue, social, waiting, wishes, bet, costs: 0,
       households: Math.round((energy * 1000) / HOUSEHOLD_MWH), qolBefore, qol: this.qol, wx,
     });
+    report.live = [];
+    report.plan = this.planLive();
+    report.batteryStart = false;
     this.history.push(report);
     // Next year: the base budget plus the returns; unspent money stays.
     this.pending = [];
@@ -412,14 +584,18 @@ export class GreenGame {
     const share = total ? this.spentBy.social / total : 0;
     const balance = total ? clamp(1 - Math.abs(share - 0.4) / 0.4, 0, 1) : 0;
     const both = typesUsed.has('wind') && typesUsed.has('solar') ? 1 : 0;
+    const liveGood = this.liveLog.filter((e) => e.good).length;
+    const betWins = this.betLog.filter((b) => b.winner === 'player').length;
     const parts = {
-      energy: Math.round(1500 * Math.min(1, this.energyTotal / 230)),
-      co2: Math.round(700 * Math.min(1, this.co2Total / 90000)),
-      social: Math.round(1500 * clamp((this.qolYears / YEARS - QOL_START) / 45, 0, 1)),
-      mix: Math.round(900 * (0.5 * balance + 0.3 * (typesUsed.size / TYPE_KEYS.length) + 0.2 * both)),
-      budget: Math.round(400 * Math.min(1, this.available ? this.spent / this.available : 0)),
+      energy: Math.round(1200 * Math.min(1, this.energyTotal / ENERGY_REF)),
+      co2: Math.round(500 * Math.min(1, this.co2Total / (ENERGY_REF * CO2_PER_GWH * 1.05))),
+      social: Math.round(1200 * clamp((this.qolYears / YEARS - QOL_START) / 45, 0, 1)),
+      mix: Math.round(600 * (0.5 * balance + 0.3 * (typesUsed.size / TYPE_KEYS.length) + 0.2 * both)),
+      budget: Math.round(300 * Math.min(1, this.available ? this.spent / this.available : 0)),
+      live: this.liveLog.length ? Math.round((700 * liveGood) / Math.max(this.liveLog.length, YEARS * 2)) : 0,
+      bets: clamp(this.betLog.reduce((a, b) => a + b.pts, 0), -160, 400),
     };
-    const sum = Math.min(5000, Object.values(parts).reduce((a, b) => a + b, 0));
+    const sum = clamp(Object.values(parts).reduce((a, b) => a + b, 0), 0, 5000);
     // How far off the forecast was, over all energy projects and years (mean absolute %).
     let err = 0;
     let n = 0;
@@ -431,6 +607,7 @@ export class GreenGame {
     }
     return {
       total: sum, parts, typesUsed: typesUsed.size, share, balance, both: !!both,
+      liveGood, liveTotal: this.liveLog.length, betWins, betAi: this.betLog.length - betWins, wishes: this.wishLog.length,
       projectErr: n ? err / n : 0, portfolioErr: yearsWithEnergy ? portfolioErr / yearsWithEnergy : 0,
     };
   }

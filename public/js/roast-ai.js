@@ -70,17 +70,23 @@ export function cupFlavor(a, b, ratio, r) {
 }
 
 /**
- * The guests in the order they come. ideal: their hidden favourite cup, weights: how much each
- * flavor matters to them, roast: their favourite roast level, cues: what the AI hears in their
- * request. 'grandma2' is grandma coming back (same person, id 'grandma').
+ * The guests in the order they come, in three waves: 'calm' (one at a time, to learn the counter),
+ * 'rush' (up to three wait at once) and 'peak' (the last guests before closing). ideal: their hidden
+ * favourite cup, weights: how much each flavor matters to them, roast: their favourite roast level,
+ * cues: what the AI hears in their request, patience: seconds they wait at the counter, look: an
+ * alternative color set for the same figure. 'grandma2' is grandma coming back (same person, id
+ * 'grandma'); 'business2', 'student2' and 'chef2' are new guests who resemble earlier ones.
  */
 export const GUESTS = [
-  { key: 'student', id: 'student', model: 'student', ideal: [0.15, 0.3, 0.6, 0.85], weights: [1, 0.6, 1, 1.4], roast: 0.74, cues: { strong: 1, awake: 1 } },
-  { key: 'grandma', id: 'grandma', model: 'grandma', ideal: [0.15, 0.85, 0.6, 0.1], weights: [1, 1.4, 1, 1], roast: 0.52, cues: { mild: 1, cozy: 1 } },
-  { key: 'business', id: 'business', model: 'business', ideal: [0.12, 0.35, 0.85, 0.5], weights: [1, 0.8, 1.4, 1], roast: 0.68, cues: { strong: 1, awake: 0.8, mild: 0.3 } },
-  { key: 'family', id: 'family', model: 'family', ideal: [0.22, 0.8, 0.6, 0.12], weights: [1, 1.3, 1, 1], roast: 0.47, cues: { mild: 1, cozy: 0.6, family: 1 } },
-  { key: 'chef', id: 'chef', model: 'chef', ideal: [0.72, 0.15, 0.3, 0.3], weights: [1.6, 1, 1, 1], roast: 0.38, cues: { fruit: 1, mild: 0.4 } },
-  { key: 'grandma2', id: 'grandma', model: 'grandma', ideal: [0.15, 0.85, 0.6, 0.1], weights: [1, 1.4, 1, 1], roast: 0.52, cues: { mild: 1, cozy: 1 }, returning: true },
+  { key: 'student', id: 'student', model: 'student', wave: 'calm', patience: 75, ideal: [0.15, 0.3, 0.6, 0.85], weights: [1, 0.6, 1, 1.4], roast: 0.74, cues: { strong: 1, awake: 1 } },
+  { key: 'grandma', id: 'grandma', model: 'grandma', wave: 'calm', patience: 75, ideal: [0.15, 0.85, 0.6, 0.1], weights: [1, 1.4, 1, 1], roast: 0.52, cues: { mild: 1, cozy: 1 } },
+  { key: 'business', id: 'business', model: 'business', wave: 'rush', patience: 42, ideal: [0.12, 0.35, 0.85, 0.5], weights: [1, 0.8, 1.4, 1], roast: 0.68, cues: { strong: 1, awake: 0.8, mild: 0.3 } },
+  { key: 'family', id: 'family', model: 'family', wave: 'rush', patience: 42, ideal: [0.22, 0.8, 0.6, 0.12], weights: [1, 1.3, 1, 1], roast: 0.47, cues: { mild: 1, cozy: 0.6, family: 1 } },
+  { key: 'chef', id: 'chef', model: 'chef', wave: 'rush', patience: 42, ideal: [0.72, 0.15, 0.3, 0.3], weights: [1.6, 1, 1, 1], roast: 0.38, cues: { fruit: 1, mild: 0.4 } },
+  { key: 'business2', id: 'business2', model: 'business', look: 'biz2', wave: 'rush', patience: 42, ideal: [0.1, 0.3, 0.9, 0.45], weights: [1, 0.8, 1.4, 1], roast: 0.66, cues: { strong: 1, awake: 1 } },
+  { key: 'grandma2', id: 'grandma', model: 'grandma', wave: 'peak', patience: 36, ideal: [0.15, 0.85, 0.6, 0.1], weights: [1, 1.4, 1, 1], roast: 0.52, cues: { mild: 1, cozy: 1 }, returning: true },
+  { key: 'student2', id: 'student2', model: 'student', look: 'student2', wave: 'peak', patience: 36, ideal: [0.12, 0.3, 0.55, 0.8], weights: [1, 0.6, 1, 1.4], roast: 0.72, cues: { strong: 1, awake: 1 } },
+  { key: 'chef2', id: 'chef2', model: 'chef', look: 'chef2', wave: 'peak', patience: 36, ideal: [0.6, 0.2, 0.35, 0.25], weights: [1.5, 1, 1, 1], roast: 0.44, cues: { fruit: 1, cozy: 0.5 } },
 ];
 /** The Christmas round: the student comes back and wants a gift basket for her grandma. */
 export const BASKET_GUEST = { key: 'basket', id: 'student', model: 'student', forId: 'grandma' };
@@ -129,12 +135,15 @@ export function rate(guest, cup, r) {
   return { stars, sat, hint };
 }
 
-/** Points for one guest: taste (stars), roast timing and speed. Max 600. */
-export function guestPoints(guest, stars, r, seconds) {
-  const taste = stars * 80;
-  const timing = Math.round(150 * clamp(1 - Math.abs(r - guest.roast) / 0.18));
-  const speed = Math.round(50 * clamp(1 - (seconds - 14) / 22));
-  return { taste, timing, speed, total: taste + timing + speed };
+/**
+ * Points for one guest: taste (stars), roast timing and a tip for fast service (the patience that
+ * was left, only from guests who liked the cup). Max 400.
+ */
+export function guestPoints(guest, stars, r, patienceLeft) {
+  const taste = stars * 50;
+  const timing = Math.round(80 * clamp(1 - Math.abs(r - guest.roast) / 0.18));
+  const tip = stars >= 3 ? Math.round(70 * clamp(patienceLeft)) : 0;
+  return { taste, timing, tip, total: taste + timing + tip };
 }
 
 function cosine(a, b) {

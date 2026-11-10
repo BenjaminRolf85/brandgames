@@ -23,7 +23,9 @@ import { makeEnvironment } from '../robot-visuals.js';
 import { WINTER, makeSnowfall, makeSnowCover, setSnowAmount, snowSettled, winterize } from '../snow.js';
 import { buildTable, setPlunger, inShooterLane, launchSpeed, CHANNELS, GROUPS, LANE_X, PLUNGER_Y, BALL_R } from '../pinball-layout.js';
 import { Planner, makeTruth, respond, rng } from '../pinball-ai.js';
-import { loadPinballModel, buildMachine, CH_TOKEN, TARGETS, drawGlyph, glyphSVG, fp } from '../pinball-visuals.js';
+import { loadPinballModel, buildMachine, CH_TOKEN, TARGETS, FUNNEL, drawGlyph, glyphSVG, fp } from '../pinball-visuals.js';
+import { ICON } from '../pinball-fx.js';
+import { fmt } from '../pinball-backglass.js';
 
 const BALLS = 3;
 const DURATION = EVENT ? 120 : 180; // seconds of campaign time
@@ -35,6 +37,10 @@ const AUTO_LAUNCH = 12; // seconds in the shooter lane before the ball launches 
 const REPLAN = 15; // seconds before the planner gives a new tip if its tip was not followed
 const PULL_TIME = 0.9; // seconds to pull the plunger all the way
 const PULL = 0.62; // intro and results: the UI layer is pulled towards the eyes by this factor
+const PEOPLE = 50; // people reached per contact (the KPIs on the display)
+const CLICKS = 2; // clicks per response
+const AWARE = 3000; // funnel: people reached for awareness ...
+const INTEREST = 45; // ... then clicks for interest; then a visit to the branch closes the deal
 const clamp = THREE.MathUtils.clamp;
 const KEYS = {
   ArrowLeft: 'left', KeyA: 'left', ShiftLeft: 'left', KeyY: 'left', KeyZ: 'left',
@@ -333,7 +339,10 @@ export class PinballScene extends BaseScene {
       score: 0, ballNo: 1, playT: 0, mult: 1, campaigns: 0, conv: 0, contacts: 0, tipsRight: 0, tipsFollowed: 0,
       chBall: new Set(), lanesLit: new Set(), aud: GROUPS[Math.floor(r() * GROUPS.length)],
       tip: null, tipSince: 0, msg: null, hurried: false, saveUntil: 0, idle: 0,
+      funnel: { stage: 0, reach: 0, clicks: 0 }, kpi: { reach: 0, clicks: 0, customers: 0, history: [0], perChannel: {} },
+      launches: 0, multi: false, showUntil: 0, shake: 0, kpiT: 0, histT: 0,
     });
+    this.machine?.chars.setCurrent(this.aud);
     this.buildPlanPanel();
     this.placePanels();
     this.mode = 'drain';
@@ -408,7 +417,7 @@ export class PinballScene extends BaseScene {
           this.channelHit('email', d.x + 0.02, d.y);
           if (T.drops.every((q) => q.down)) {
             this.addPoints(60);
-            this.message(t('pinballDmdDrops', { n: 60 * this.mult }), '', 1.6);
+            this.message(t('pinballDmdDrops', { n: 60 * this.factor() }), '', 1.6);
             this.after(1.2, () => { if (!this.disposed) T.drops.forEach((q) => { q.down = false; q.seg.enabled = true; }); });
           }
         } else if (obj.tag === 'poster') {
@@ -437,14 +446,17 @@ export class PinballScene extends BaseScene {
         if (obj.tag === 'lane') this.laneHit(obj.index);
         break;
       case 'drain':
-        this.drained();
+        this.drained(info.ball);
         break;
       default:
     }
   }
 
+  /** Reach x2 after a complete campaign or during the multiball (they do not stack). */
+  factor() { return Math.max(this.mult, this.multi ? 2 : 1); }
+
   addPoints(n) {
-    this.score += n * this.mult;
+    this.score += n * this.factor();
   }
 
   /** A channel was hit: people of the current target group are reached, some respond. */
@@ -455,17 +467,25 @@ export class PinballScene extends BaseScene {
     this.planner.observe(this.aud, ch, k, n);
     this.conv += k;
     this.contacts += n;
-    let pts = (ch === 'social' ? 2 : 12) + 6 * k;
+    // KPIs: people reached and clicks (shown on the display and the studio's monitor).
+    const people = n * PEOPLE;
+    const clicks = k * CLICKS;
+    const K = this.kpi;
+    K.reach += people;
+    K.clicks += clicks;
+    K.perChannel[ch] = (K.perChannel[ch] ?? 0) + clicks;
+    this.kpiDirty = true;
+    let pts = ch === 'social' ? 2 + 3 * k : 8 + 4 * k;
     const followed = this.tip?.channel === ch;
-    let line = t('pinballDmdHit', { ch: t(`pinballCh_${ch}`).toUpperCase(), k, n });
+    let line = t('pinballKpiRate', { r: fmt((100 * K.clicks) / Math.max(1, K.reach), 1) });
     if (followed) {
       // Right when this channel reached more people than the group's channels do on average.
       const avg = CHANNELS.reduce((s, c) => s + this.truth[this.aud][c], 0) / CHANNELS.length;
       this.tipsFollowed += 1;
       if (k / n >= avg) {
         this.tipsRight += 1;
-        pts += 40;
-        line = t('pinballDmdTipRight', { n: 40 * this.mult });
+        pts += 30;
+        line = t('pinballDmdTipRight', { n: 30 * this.factor() });
         sfx.coin();
       } else {
         line = t('pinballDmdTipWeak');
@@ -473,25 +493,133 @@ export class PinballScene extends BaseScene {
       this.replan();
     }
     this.addPoints(pts);
-    this.popup(`+${pts * this.mult}`, CH_TOKEN[ch], x, y);
-    if (ch !== 'social' || followed || !this.msg) this.message(this.shownScore(), line, ch === 'social' && !followed ? 0.8 : 1.6);
+    this.popup(`+${pts * this.factor()}`, CH_TOKEN[ch], x, y);
+    if (ch !== 'social' || followed || !this.msg) this.message(t('pinballKpiReachUp', { n: fmt(people) }), line, ch === 'social' && !followed ? 0.8 : 1.6);
     this.flash(CH_TOKEN[ch], x, y);
+    this.themed(ch, x, y, k, n);
     this.chBall.add(ch);
+    this.funnelStep(ch, people, clicks);
     if (this.chBall.size === CHANNELS.length) this.campaignComplete();
+  }
+
+  /** What a channel does when it is hit: its own icons, props and the target group's cut-out. */
+  themed(ch, x, y, k, n) {
+    const m = this.machine;
+    if (!m) return;
+    const lite = quality.lite;
+    const c = (v) => (lite ? Math.ceil(v / 2) : v);
+    switch (ch) {
+      case 'social':
+        m.burst([ICON.heart, ICON.like, ICON.comment], x, y, 0.06, { count: c(2 + k), up: 0.2, speed: 0.1 });
+        break;
+      case 'email':
+        m.burst(ICON.mail, x, y, 0.03, { count: c(2 + Math.ceil(k / 2)), up: 0.17, speed: 0.16, size: 0.03 });
+        break;
+      case 'app':
+        m.phone.hit();
+        m.burst(ICON.badge, 0.19, 0.62, 0.16, { count: c(3 + Math.ceil(k / 3)), up: 0.12, speed: 0.12, size: 0.028 });
+        break;
+      case 'video':
+        m.tv.hit();
+        m.burst([ICON.play, ICON.star], -0.19, 0.62, 0.13, { count: c(5), up: 0.13, speed: 0.14 });
+        break;
+      case 'poster':
+        m.flipPoster();
+        m.burst([ICON.poster, ICON.eye], x, y, 0.09, { count: c(3 + Math.ceil(k / 3)), up: 0.15, speed: 0.12 });
+        break;
+      case 'branch':
+        m.burst([ICON.person, ICON.star], x, y, 0.03, { count: c(3), up: 0.16, speed: 0.1 });
+        break;
+      default:
+    }
+    m.giPulse(0.6);
+    // The target group's cut-out waves when the channel went down well with it.
+    if (k / n >= 0.3) m.chars.react(this.aud, 'wave');
+  }
+
+  /** The funnel: enough reach lights awareness, enough clicks interest; then the branch closes. */
+  funnelStep(ch, people, clicks) {
+    const F = this.funnel;
+    const m = this.machine;
+    F.reach += people;
+    if (F.stage >= 1) F.clicks += clicks;
+    if (F.stage === 0 && F.reach >= AWARE) {
+      F.stage = 1;
+      this.addPoints(40);
+      this.message(t('pinballDmdAware'), t('pinballKpiReachUp', { n: fmt(F.reach) }), 1.8);
+      sfx.powerup();
+      m?.burst(ICON.eye, FUNNEL[0].x, FUNNEL[0].y, 0.02, { count: 5, up: 0.14 });
+      m?.flash(0);
+    } else if (F.stage === 1 && F.clicks >= INTEREST) {
+      F.stage = 2;
+      this.addPoints(60);
+      this.message(t('pinballDmdInterest'), t('pinballDmdToBranch'), 2.4);
+      sfx.powerup();
+      m?.burst(ICON.cursor, FUNNEL[1].x, FUNNEL[1].y, 0.02, { count: 5, up: 0.14 });
+      m?.flash(1);
+    } else if (F.stage === 2 && ch === 'branch') {
+      this.funnelComplete();
+    }
+  }
+
+  /** A new customer: the campaign is launched (light show, cheering, multiball). */
+  funnelComplete() {
+    const m = this.machine;
+    this.funnel = { stage: 3, reach: 0, clicks: 0 };
+    this.kpi.customers += 1;
+    this.kpiDirty = true;
+    this.launches += 1;
+    this.addPoints(200);
+    this.message(t('pinballDmdCustomer'), t('pinballDmdLaunch'), 2.2);
+    sfx.finish();
+    m?.branch.welcome();
+    m?.chars.cheerAll();
+    m?.burst([ICON.person, ICON.star, ICON.spark], this.table.saucer.x, this.table.saucer.y, 0.03, { count: quality.lite ? 6 : 14, up: 0.22, speed: 0.2, size: 0.03 });
+    this.lightShow(3.4);
+    this.after(2.3, () => {
+      if (this.disposed || this.mode !== 'play') return;
+      this.funnel = { stage: 0, reach: 0, clicks: 0 };
+      this.startMultiball();
+    });
+  }
+
+  /** Kampagnenstart: a second ball comes out of the shooter lane. */
+  startMultiball() {
+    const W = this.table.world;
+    if (W.balls.filter((b) => b.mode !== 'gone').length >= 2) return;
+    const b = W.balls.find((q) => q.mode === 'gone') ?? W.addBall();
+    b.place(LANE_X, PLUNGER_Y + BALL_R + 0.0035);
+    b.vy = launchSpeed(0.72);
+    this.multi = true;
+    this.saveUntil = Math.max(this.saveUntil, this.playT + 10);
+    this.message(t('pinballDmdMultiball'), t('pinballDmdMultiDouble'), 2.4);
+    sfx.whoosh();
+    this.machine?.flash(0);
+    this.machine?.flash(1);
+  }
+
+  /** A short light show: GI strobes, flashers fire, inserts chase, the screen shakes a little. */
+  lightShow(dur = 2.6) {
+    this.showUntil = Math.max(this.showUntil ?? 0, this.time + dur);
+    this.shake = Math.max(this.shake ?? 0, 1);
+    for (const q of this.engine.pointers) if (q.kind === 'xr' && q.active) this.engine.haptic(q, 0.6, 120);
   }
 
   campaignComplete() {
     this.campaigns += 1;
     this.mult = 2; // reach x2 for the rest of this ball
-    this.addPoints(150);
+    this.addPoints(120);
     this.chBall.clear();
     sfx.finish();
     this.message(t('pinballDmdComplete'), t('pinballDmdMulti', { n: this.mult }), 2.6);
-    if (this.machine) {
+    this.lightShow(2.6);
+    const m = this.machine;
+    if (m) {
       for (const ch of CHANNELS) {
         const [x, y] = TARGETS[ch];
-        this.burst(this.machine.world(x, y, 0.04), CH_TOKEN[ch], 16);
+        m.burst(ICON.star, x, y, 0.05, { count: 2, up: 0.2 });
       }
+      m.chars.cheerAll();
     }
   }
 
@@ -501,24 +629,42 @@ export class PinballScene extends BaseScene {
     sfx.tick();
     if (this.skillOpen && this.playT - this.launchedAt < 4) {
       this.addPoints(25);
-      this.message(t('pinballDmdSkill', { n: 25 * this.mult }), t(`pinballGr_${g}`).toUpperCase(), 1.6);
+      this.message(t('pinballDmdSkill', { n: 25 * this.factor() }), t(`pinballGr_${g}`).toUpperCase(), 1.6);
     }
     this.skillOpen = false;
     this.lanesLit.add(i);
     if (g !== this.aud) {
       this.aud = g;
       this.message(t('pinballDmdGroup', { g: t(`pinballGr_${g}`).toUpperCase() }), '', 1.6);
+      this.machine?.chars.setCurrent(g);
+      this.machine?.chars.react(g, 'wave');
       this.replan();
     }
     if (this.lanesLit.size === GROUPS.length) {
       this.addPoints(60);
-      this.message(t('pinballDmdAllGroups', { n: 60 * this.mult }), '', 1.8);
+      this.message(t('pinballDmdAllGroups', { n: 60 * this.factor() }), '', 1.8);
+      this.machine?.chars.cheerAll();
       this.after(0.6, () => { if (!this.disposed) this.lanesLit.clear(); });
     }
   }
 
-  drained() {
+  drained(ball) {
     if (this.mode !== 'play' && this.mode !== 'ready') return;
+    const W = this.table.world;
+    const live = W.balls.filter((q) => q.mode !== 'gone');
+    if (live.length > 0) {
+      // Multiball: another ball is still in play. During the save, this one comes back.
+      if (this.playT < this.saveUntil && ball) {
+        ball.place(LANE_X, PLUNGER_Y + BALL_R + 0.0035);
+        ball.vy = launchSpeed(0.7);
+        this.message(t('pinballDmdSave'), '', 1.2);
+        return;
+      }
+      if (ball) W.removeBall(ball);
+      if (W.balls.filter((q) => q.mode !== 'gone').length <= 1) this.multi = false;
+      return;
+    }
+    this.multi = false;
     if (this.playT < this.saveUntil) {
       this.saveUntil = 0; // one save per ball
       this.mode = 'drain';
@@ -579,7 +725,7 @@ export class PinballScene extends BaseScene {
     learned.push({ q: t('pinballLearnAbQ'), a: t('pinballLearnAbA') });
     this.results({
       gameKey: 'pinball', score, correct: score, total: 3500,
-      line: t('pinballLine', { score, conv: this.conv, c: this.campaigns, tips: this.tipsRight }),
+      line: t('pinballLine', { reach: fmt(this.kpi.reach), clicks: fmt(this.kpi.clicks), cust: this.kpi.customers, tips: this.tipsRight }),
       learned,
       onAgain: () => this.app.startGame('pinball'),
     });
@@ -741,6 +887,12 @@ export class PinballScene extends BaseScene {
     if (cam.fov !== 60) { cam.fov = 60; cam.updateProjectionMatrix(); }
     cam.position.lerp(pos, k);
     cam.quaternion.slerp(quat, k);
+    // A short shake on big moments (browser only; in the headset the controllers buzz instead).
+    if (this.shake > 0.01) {
+      const a = this.shake * 0.012;
+      cam.position.x += (Math.random() - 0.5) * a;
+      cam.position.y += (Math.random() - 0.5) * a;
+    }
     return true;
   }
 
@@ -784,15 +936,15 @@ export class PinballScene extends BaseScene {
       if (this.idle > AUTO_LAUNCH) { this.pull = 0.6; this.launch(); }
     }
     if (playing || this.mode === 'drain') T.world.step(dt);
-    // The gate swings when the ball leaves the shooter lane.
-    const b = T.world.ball;
-    if (this.machine && b.mode === 'field' && b.x > 0.245 && b.y > 0.78 && b.y < 0.86 && b.vy > 0) this.machine.gate.rotation.x = Math.min(1.2, b.vy * 0.6);
-    if (this.mode === 'play') {
+    for (const b of T.world.balls) {
+      // The gate swings when a ball leaves the shooter lane.
+      if (this.machine && b.mode === 'field' && b.x > 0.245 && b.y > 0.78 && b.y < 0.86 && b.vy > 0) this.machine.gate.rotation.x = Math.min(1.2, b.vy * 0.6);
       // Ball search: a ball resting somewhere away from the flippers gets a little nudge.
+      if (this.mode !== 'play') continue;
       const still = b.mode === 'field' && b.speed < 0.03 && b.y > 0.28 && !inShooterLane(b);
-      this.stillT = still ? (this.stillT ?? 0) + dt : 0;
-      if (this.stillT > 4) {
-        this.stillT = 0;
+      b.stillT = still ? (b.stillT ?? 0) + dt : 0;
+      if (b.stillT > 4) {
+        b.stillT = 0;
         b.vx = (this.rand() - 0.5) * 0.8;
         b.vy = -0.5;
         sfx.thud();
@@ -812,22 +964,53 @@ export class PinballScene extends BaseScene {
       const m = this.machine;
       // Browser: the results get the screen to themselves (in the headset they float in front).
       m.root.visible = !(this.mode === 'over' && !e.isXR && this.resultData);
-      m.update(dt, this.time, { pull: this.pull, eye: e.camera.getWorldPosition(new THREE.Vector3()) });
-      // Inserts: channels hit with this ball glow, the AI's tip blinks, lanes, multiplier, save.
+      const showing = this.time < (this.showUntil ?? 0);
+      m.update(dt, this.time, { pull: this.pull, eye: e.camera.getWorldPosition(new THREE.Vector3()), hot: showing || this.multi });
+      // Inserts: channels hit with this ball glow, the AI's tip blinks, lanes, funnel, multiplier,
+      // save. Before the launch an attract chase runs over all of them; light shows strobe.
       const blink = 0.5 + 0.5 * Math.sin(this.time * 9);
-      const attract = this.mode === 'intro' || this.mode === 'over';
+      const attract = this.mode === 'intro' || this.mode === 'over' || this.mode === 'ready';
+      const chase = (i, n, speed = 5) => Math.max(0, Math.sin(this.time * speed - (i / n) * Math.PI * 2)) ** 2;
+      const strobe = (i) => (Math.floor(this.time * 12 + i) % 3 === 0 ? 1 : 0.1);
+      m.setGI(showing ? 'show' : attract ? 'attract' : 'normal');
       CHANNELS.forEach((ch, i) => {
         const ins = m.inserts[ch];
-        if (attract) ins.level = 0.5 + 0.5 * Math.sin(this.time * 3 - i * 0.9);
-        else ins.level = this.tip?.channel === ch ? 0.35 + 0.65 * blink : this.chBall?.has(ch) ? 0.75 : 0.08;
+        if (showing) ins.level = strobe(i);
+        else if (attract) ins.level = 0.15 + 0.85 * chase(i, CHANNELS.length);
+        else if (ch === 'branch' && this.funnel?.stage === 2) ins.level = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(this.time * 14));
+        else ins.level = this.tip?.channel === ch ? 0.35 + 0.65 * blink : this.chBall?.has(ch) ? 0.75 : 0.1;
       });
       GROUPS.forEach((g, i) => {
         const ins = m.inserts[`lane${i}`];
-        if (attract) ins.level = 0.5 + 0.5 * Math.sin(this.time * 4 + i);
-        else ins.level = g === this.aud ? 0.55 + 0.45 * blink : this.lanesLit?.has(i) ? 0.7 : 0.1;
+        if (showing) ins.level = strobe(i + 2);
+        else if (attract) ins.level = 0.15 + 0.85 * chase(i, GROUPS.length, 7);
+        else ins.level = g === this.aud ? 0.55 + 0.45 * blink : this.lanesLit?.has(i) ? 0.7 : 0.12;
       });
-      m.inserts.multi.level = attract ? 0.3 : this.mult > 1 ? 0.6 + 0.4 * blink : 0.08;
+      FUNNEL.forEach((f, i) => {
+        const ins = m.inserts[`funnel${i}`];
+        const stage = this.funnel?.stage ?? 0;
+        if (showing) ins.level = Math.floor(this.time * 8 - i) % 3 === 0 ? 1 : 0.2;
+        else if (attract) ins.level = 0.15 + 0.85 * chase(2 - i, 3, 4);
+        else ins.level = i < stage ? 0.85 : i === stage ? 0.25 + 0.4 * blink : 0.1;
+      });
+      m.inserts.multi.level = showing ? strobe(1) : attract ? 0.3 : this.mult > 1 || this.multi ? 0.6 + 0.4 * blink : 0.08;
       m.inserts.save.level = !attract && this.playT < this.saveUntil && (this.mode === 'play' || this.mode === 'ready') ? 0.5 + 0.5 * blink : 0.05;
+      // The studio's monitor: live KPIs (reach over time, clicks per channel, new customers).
+      if (this.kpi) {
+        this.histT += dt;
+        if (this.histT > 4 && this.mode !== 'over') {
+          this.histT = 0;
+          this.kpi.history.push(this.kpi.reach);
+          if (this.kpi.history.length > 46) this.kpi.history.shift();
+          this.kpiDirty = true;
+        }
+        this.kpiT += dt;
+        if (this.kpiDirty && this.kpiT > 0.5) {
+          this.kpiT = 0;
+          this.kpiDirty = false;
+          m.chart.set({ ...this.kpi, history: [...this.kpi.history, this.kpi.reach] });
+        }
+      }
       // Legs to the real floor.
       const at = m.root.getWorldPosition(new THREE.Vector3());
       m.setFloor(m.root.worldToLocal(at.setY(e.floorY)).y);
@@ -835,6 +1018,7 @@ export class PinballScene extends BaseScene {
       this.knob.visible = this.mode === 'ready';
     }
     this.flasher.intensity = Math.max(0, this.flasher.intensity - dt * 6);
+    this.shake = Math.max(0, (this.shake ?? 0) - dt * 2.5);
     for (const s of this.popups) {
       if (s.life <= 0) { s.sp.visible = false; continue; }
       s.life -= dt * 1.1;

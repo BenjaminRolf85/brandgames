@@ -13,6 +13,10 @@
 #   CraneMast, CraneJib, CraneTrolley, CraneHook   a little tower crane in parts
 #   Pallet, Conveyor, Machine, Coin, Bag           delivery: the savings machine with a coin slot
 #                      and a hatch, the belt, the pallet; the shopping bag for spending
+#   Lintel, Quoin      a concrete lintel over an opening, a sandstone corner piece
+#   Truss              a roof truss (rafters, collar tie, joist; origin: middle of the wall tops)
+#   Dormer, Solar      options on the front roof plane (origin like the roof)
+#   Terrace            the garden option (plot coordinates); AnnexRoof: the extension's flat roof
 # Material names are mapped to the --xr-bricks-* tokens at runtime (public/js/bricks-visuals.js);
 # the colors here only matter for the coin art. Ambient occlusion is baked into vertex colors.
 # The house measures must match public/js/bricks-plan.js (L, H, D, COURSES, openings).
@@ -39,7 +43,7 @@ FOUND = 0.014                # foundation slab height
 HZ = -0.03                   # house center on the plot (z)
 RIDGE = 0.15                 # ridge above the wall tops
 EAVE = 0.035                 # roof overhang at the eaves
-FIR = (-0.40, 0.10)          # the little fir tree (public/js/bricks-visuals.js lights it)
+FIR = (-0.40, 0.27)          # the little fir tree (public/js/scenes/bricks.js lights it)
 
 
 def srgb(h):
@@ -85,6 +89,8 @@ MACH = material('Machine', srgb('#6c5cf0'), 0.2, 0.4)
 MACH_T = material('MachineTrim', srgb('#ece8ff'), 0.3, 0.35)
 BAG = material('Bag', srgb('#d8b98a'), 0.0, 0.85)
 BAG_H = material('BagHandle', srgb('#7a5233'), 0.0, 0.7)
+SOLAR = material('SolarCell', srgb('#1d2f5c'), 0.4, 0.15)
+STONE_Q = material('Quoin', srgb('#d9b88a'), 0.0, 0.85)
 
 ASSETS = []  # (object, AO density)
 
@@ -241,7 +247,8 @@ for (y0, h, r) in ((0.025, 0.1, 0.078), (0.085, 0.09, 0.06), (0.14, 0.09, 0.042)
 p.append(blob('firstar', (fx, 0.262, fz), 0.008, LAMP, segs=8, rings=6))
 
 # Evergreen shrubs with red berries along the house and the fence.
-for (x, z, r) in ((-0.31, 0.02, 0.032), (-0.3, -0.12, 0.028), (-0.29, 0.14, 0.03), (0.17, 0.27, 0.026), (-0.17, 0.27, 0.028), (-0.24, 0.3, 0.022), (0.3, 0.33, 0.024)):
+# (the strip left of the house stays free for an extension, the front right for a terrace)
+for (x, z, r) in ((-0.47, -0.24, 0.03), (-0.31, -0.21, 0.026), (-0.29, 0.13, 0.026), (-0.17, 0.27, 0.028), (-0.24, 0.31, 0.022), (0.33, 0.335, 0.022)):
     p.append(blob('shrub', (x, r * 0.75, z), r, LEAF, s=(1.15, 0.95, 1.0), segs=12, rings=8))
     p.append(blob('shrub2', (x + r * 0.5, r * 0.6, z + r * 0.3), r * 0.7, LEAF_D, segs=10, rings=7))
     for i in range(4):
@@ -499,6 +506,89 @@ for sz in (-1, 1):
     q.append(ttorus('handle', (0, 0.06, sz * 0.008), 0.012, 0.0015, BAG_H, axis='z', segs=16, tsegs=5, arc=math.pi))
 merge(q, 'Bag')
 
+# ---------- more building parts: lintel, roof truss, dormer, solar array, terrace, extension roof ----------
+
+q = [tbox('lintel', (0, 0, 0), (L - GAP, H - GAP, D - GAP), CONC, bev=0.0015)]
+for sz in (-1, 1):
+    q.append(tbox('rebar', (0, 0, sz * (D - GAP) / 2), (L - GAP - 0.01, 0.0025, 0.0012), CONC))
+merge(q, 'Lintel')
+tbox('Quoin', (0, 0, 0), (D - GAP, H - GAP, D - GAP), STONE_Q, bev=0.0028, segs=2)
+
+# A roof truss: two rafters from eave to ridge, a collar tie and a ceiling joist (origin: wall top).
+q = []
+EZ_T, EY_T = OZ + EAVE, -EAVE * (RIDGE / OZ)
+for side in (-1, 1):
+    q.append(rod('rafter', (0, EY_T + 0.004, side * EZ_T), (0, RIDGE + 0.004, 0), 0.0045, WOOD, segs=6))
+q.append(rod('joist', (0, 0.006, -OZ + 0.004), (0, 0.006, OZ - 0.004), 0.004, WOOD_D, segs=6))
+q.append(rod('collar', (0, RIDGE * 0.55, -OZ * 0.45), (0, RIDGE * 0.55, OZ * 0.45), 0.0035, WOOD_D, segs=6))
+for side in (-1, 1):
+    q.append(rod('strut', (0, 0.008, side * OZ * 0.5), (0, RIDGE * 0.55, side * OZ * 0.45), 0.003, WOOD_D, segs=6))
+merge(q, 'Truss')
+
+
+def on_roof(z):
+    """Height of the front roof's tile surface above the wall top at depth z (z >= 0)."""
+    return RIDGE - z * (RIDGE / OZ) + 0.012
+
+
+# Dormer on the front roof plane (origin like the roof: middle of the wall tops).
+q = []
+DX, DZ, DW = -0.12, 0.085, 0.09
+yb = on_roof(DZ) - 0.01
+q.append(tbox('dfront', (DX, yb + 0.035, DZ), (DW, 0.07, 0.008), GABLE, bev=0.001))
+for sx in (-1, 1):
+    q.append(prism('dcheek', [(DZ, yb), (DZ, yb + 0.07), (DZ - 0.075, on_roof(max(0.0, DZ - 0.075)) + 0.05)], DX + sx * DW / 2 - 0.004, DX + sx * DW / 2 + 0.004, GABLE, smooth=False))
+for (cx, cy, sx2, sy2) in ((0, 0.026, 0.05, 0.005), (0, -0.016, 0.05, 0.005), (-0.0225, 0.005, 0.005, 0.047), (0.0225, 0.005, 0.005, 0.047)):
+    q.append(tbox('dwf', (DX + cx, yb + 0.03 + cy, DZ + 0.006), (sx2, sy2, 0.006), FRAME))
+q.append(tbox('dglass', (DX, yb + 0.035, DZ + 0.0045), (0.04, 0.038, 0.002), GLASS))
+for side in (-1, 1):
+    a = Vector((DZ + 0.012, yb + 0.07))
+    b = Vector((DZ - 0.07, yb + 0.105))
+    ang = math.atan2(b.y - a.y, b.x - a.x)
+    sl = tbox('droof', (0, 0, 0), (DW / 2 + 0.012, 0.006, (b - a).length), ROOF_D)
+    m = (a + b) / 2
+    sl.matrix_world = Matrix.Translation(P(DX + side * (DW / 4 + 0.004), m.y, m.x)) @ Matrix.Rotation(side * 0.42, 4, 'Z') @ Matrix.Rotation(-ang, 4, 'X') @ sl.matrix_world
+    q.append(sl)
+merge(q, 'Dormer')
+
+# Solar array: 3 x 2 panels on the right half of the front roof plane.
+q = []
+slope = RIDGE / OZ
+ang = math.atan(slope)
+for i in range(3):
+    for j in range(2):
+        cx = 0.05 + i * 0.065
+        cz = 0.035 + j * 0.06
+        pnl = tbox('panel', (0, 0, 0), (0.06, 0.004, 0.055), SOLAR, bev=0.0008)
+        frm = tbox('pframe', (0, -0.0012, 0), (0.063, 0.003, 0.058), METAL)
+        for ob in (pnl, frm):
+            ob.matrix_world = Matrix.Translation(P(cx, on_roof(cz) + 0.006, cz)) @ Matrix.Rotation(ang, 4, 'X') @ ob.matrix_world
+        q += [pnl, frm]
+merge(q, 'Solar')
+
+# Terrace for the garden option: a wooden deck, a bench and two planters (plot coordinates).
+q = []
+for i in range(8):
+    q.append(tbox('deck', (0.215, 0.006, 0.18 + i * 0.016), (0.2, 0.006, 0.014), WOOD, bev=0.0008))
+for sx in (-1, 1):
+    q.append(tbox('benchleg', (0.215 + sx * 0.045, 0.021, 0.26), (0.006, 0.024, 0.026), WOOD_D))
+q.append(tbox('benchseat', (0.215, 0.034, 0.26), (0.11, 0.005, 0.03), WOOD, bev=0.001))
+q.append(tbox('benchback', (0.215, 0.05, 0.249), (0.11, 0.024, 0.005), WOOD, bev=0.001))
+for x in (0.13, 0.3):
+    q.append(tcyl('planter', (x, 0.018, 0.2), 0.016, 0.024, CONC, segs=12, bev=0.001))
+    q.append(blob('plant', (x, 0.04, 0.2), 0.02, LEAF, segs=10, rings=7))
+    for k in range(3):
+        a = k * 2.1
+        q.append(blob('pberry', (x + math.cos(a) * 0.014, 0.05, 0.2 + math.sin(a) * 0.014), 0.004, BERRY, segs=6, rings=4))
+terrace = merge(q, 'Terrace')
+ASSETS.append((terrace, 0.03))
+
+# Flat roof of the extension (origin: middle of its top): slab with a fascia.
+q = [tbox('aslab', (0, 0.006, 0), (2 * L + D + 0.03, 0.012, 2 * L + 2 * D + 0.03), ROOF_D, bev=0.002)]
+q.append(tbox('afascia', (0, 0.015, 0), (2 * L + D + 0.036, 0.006, 2 * L + 2 * D + 0.036), FRAME))
+q.append(tbox('agravel', (0, 0.0125, 0), (2 * L + D + 0.01, 0.002, 2 * L + 2 * D + 0.01), GRAVEL))
+merge(q, 'AnnexRoof')
+
 bake_ao(ASSETS, {'LampGlow'}, distance=0.04, samples=48)
 for ob in bpy.context.scene.objects:
     if ob.type == 'MESH':
@@ -640,7 +730,7 @@ for i in range(40):
     blob('stardot', (fr.uniform(-2.6, 2.6), fr.uniform(0.9, 2.4), fr.uniform(-3.5, -2.2)), fr.uniform(0.006, 0.012), STAR, segs=6, rings=4)
 
 # Hide the loose parts (they stay in the file for the game).
-for name in ('Brick', 'BrickHalf', 'BrickGold', 'Window', 'DoorFrame', 'Door', 'Roof', 'CraneMast', 'CraneJib', 'CraneTrolley', 'CraneHook', 'Pallet', 'Conveyor', 'Machine', 'Coin', 'Bag'):
+for name in ('Brick', 'BrickHalf', 'BrickGold', 'Window', 'DoorFrame', 'Door', 'Roof', 'CraneMast', 'CraneJib', 'CraneTrolley', 'CraneHook', 'Pallet', 'Conveyor', 'Machine', 'Coin', 'Bag', 'Lintel', 'Quoin', 'Truss', 'Dormer', 'Solar', 'Terrace', 'AnnexRoof'):
     bpy.data.objects[name].hide_render = True
 
 # World: a deep winter night gradient from the tokens (violet at the horizon, ink above).

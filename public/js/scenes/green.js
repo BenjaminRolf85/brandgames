@@ -4,8 +4,12 @@
 // plot from weather data (a heat map with hatching where it is unsure), the yield of a project
 // with its 80 % range, and the demand of the town's districts. Then the year runs: weather,
 // spinning rotors, glinting panels, a growing town, and the real yields with weather surprises
-// (a calm, a storm, a sunny summer). Five years, then the score: green power, CO2, quality of
-// life, a good mix and the budget used (at most 5000).
+// (a calm, a storm, a sunny summer). While the year runs the AI warns of live events (storm,
+// heat peak, dark lull, flood) with a calibrated confidence: react in time, or judge it a false
+// alarm. Citizens voice wishes over their districts (louder when ignored, a party when met), and
+// on the uncertain hills the player may bet against the AI's wind forecast (human versus AI).
+// Four years, then the score: green power, CO2, quality of life, mix, budget, warnings judged
+// right and bets won (at most 5000).
 // Controls: headset: point and pull the trigger (or pinch) on a project card and then a plot, or
 // grab a card and drop it on a plot. Desktop: click (keys 1 to 5, Enter, Esc, Backspace). Phones:
 // big thumb buttons for the projects, then tap a plot.
@@ -19,12 +23,15 @@ import { music } from '../music.js';
 import { CHRISTMAS } from '../christmas.js';
 import { makeEnvironment } from '../robot-visuals.js';
 import '../green-text.js';
-import { GreenGame, TYPES, TYPE_KEYS, YEARS, WEATHER, MONTH_WIND, MONTH_SUN, CHEAPEST } from '../green-sim.js';
+import { GreenGame, TYPES, TYPE_KEYS, YEARS, WEATHER, MONTH_WIND, MONTH_SUN, CHEAPEST, LIVE } from '../green-sim.js';
 import { Region, loadGreen } from '../green-visuals.js';
-import { forecastPanel, dashPanel, projectCard, actionTile, toast, fmt, fmtInt, money, pct, typeName } from '../green-ui.js';
+import { forecastPanel, dashPanel, projectCard, actionTile, alertPanel, toast, fmt, fmtInt, money, pct, typeName } from '../green-ui.js';
 
-const PLAN_TIME = [50, 40, 40, 40, 40]; // seconds to plan each year
-const SIM_TIME = 10; // seconds the year takes on the diorama
+const PLAN_TIME = [45, 35, 35, 35]; // seconds to plan each year
+const SIM_TIME = 22; // seconds the year takes on the diorama (with two live events)
+const LEAD = 6; // seconds the AI warns ahead
+const monthAt = (sec) => clamp((sec / (SIM_TIME - 1)) * 12, 0, 12);
+const secAt = (month) => (month / 12) * (SIM_TIME - 1);
 const KEYS = { 1: 'wind', 2: 'solar', 3: 'homes', 4: 'school', 5: 'kita' };
 // When the year's weather surprise shows (month), per weather.
 const SURPRISE = { normal: 7, calm: 4.3, stormy: 9.4, sunny: 6.2, windy: 1.2, dull: 5.6 };
@@ -41,7 +48,7 @@ export class GreenScene extends BaseScene {
     this.pinPlot = null; // last tapped plot (phones)
     this.drag = null; // a card held by a pointer (grab and drop)
     this.game = new GreenGame();
-    this.vis = { wind: 0.55, sun: 1, cloud: 0.35, rain: 0, snowfall: CHRISTMAS ? 0.25 : 0, snow: 0.65, night: 0, storm: 0, month: 2.4, cutout: false };
+    this.vis = { wind: 0.55, sun: 1, cloud: 0.35, rain: 0, snowfall: CHRISTMAS ? 0.25 : 0, snow: 0.65, night: 0, storm: 0, heat: 0, month: 2.4, cutout: false, throttle: false, blackout: false };
     const r = this.engine.renderer;
     // The diorama has its own sun: the room's light a little softer meanwhile.
     this.prevHemi = this.engine.hemi.intensity;
@@ -139,7 +146,7 @@ export class GreenScene extends BaseScene {
       this.fcShape = shape;
       this.fc.removeFromParent();
       this.fc.dispose();
-      const size = { wide: [1.04, 0.42], mini: [0.46, 0.5], tall: [pw, 0.64] }[shape];
+      const size = { wide: [1.04, 0.42], mini: [0.46, 0.5], tall: [pw, 0.74] }[shape];
       this.fc = forecastPanel(size[0], size[1], () => this.fcView(touch), shape);
       this.ui.add(this.fc);
     }
@@ -173,6 +180,11 @@ export class GreenScene extends BaseScene {
     this.toastAt = xr ? new THREE.Vector3(0, eye + 0.06, num('xr-green-table-z') - 0.2)
       : touch && portrait ? new THREE.Vector3(0, eye - 0.2, -1.2)
         : touch ? this.toastAt : new THREE.Vector3(0, eye + 0.34, -1.3);
+    // The live warning: above the diorama (over the AI panel on a phone held upright).
+    this.alert.rotation.set(0, 0, 0);
+    if (xr) { this.alert.position.set(0, eye + 0.02, num('xr-green-table-z') - 0.12); this.alert.scale.setScalar(1); }
+    else if (!touch) { this.alert.position.set(0, eye + 0.36, -1.25); this.alert.scale.setScalar(1.15); }
+    else if (portrait) { this.alert.position.set(0, eye + 0.46, -1.3); this.alert.scale.setScalar(1.48); }
   }
 
   /**
@@ -215,13 +227,17 @@ export class GreenScene extends BaseScene {
     this.fc.scale.setScalar(ps);
     this.fc.position.set(mx(8) + 0.23 * ps, my(6) - 0.25 * ps, z);
     this.toastAt = new THREE.Vector3(this.board.position.x, my(40) - 0.04, -1.25);
+    // The live warning at the top, over the diorama.
+    const as = Math.min(1.25, (x1 - x0) / s / 0.72);
+    this.alert.scale.setScalar(as);
+    this.alert.position.set(this.board.position.x, my(6) - 0.1 * as, -1.25);
   }
 
   buildUI() {
     const pw = num('xr-green-panel-w');
-    this.fc = forecastPanel(pw, 0.64, () => this.fcView(false));
+    this.fc = forecastPanel(pw, 0.74, () => this.fcView(false));
     this.fcShape = 'tall';
-    this.dash = dashPanel(pw, 0.64, () => this.dashView());
+    this.dash = dashPanel(pw, 0.74, () => this.dashView());
     this.ui.add(this.fc, this.dash);
     // Cards (desktop and headset): five projects and the action tile.
     const cards = new THREE.Group();
@@ -243,6 +259,15 @@ export class GreenScene extends BaseScene {
     for (const b of items) { b.position.set(x + b.w / 2, 0, 0); x += b.w + gap; }
     this.cards = cards;
     this.ui.add(cards);
+    // The AI's live warnings while the year runs.
+    // (In a holder: the holder is placed and scaled per screen, the panel pops in inside it.)
+    this.alertPanel = alertPanel(0.72, 0.22, () => this.alertView());
+    this.alertPanel.renderOrder = 31;
+    this.alertPanel.material.depthTest = false;
+    this.alert = new THREE.Group();
+    this.alert.add(this.alertPanel);
+    this.alert.visible = false;
+    this.ui.add(this.alert);
     // Phones in landscape: keeps the lower corners (thumb buttons) free in the camera's framing.
     this.spacer = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.001), new THREE.MeshBasicMaterial({ visible: false }));
     this.ui.add(this.spacer);
@@ -259,7 +284,7 @@ export class GreenScene extends BaseScene {
 
   fcView(touch) {
     const g = this.game;
-    if (this.mode === 'sim') return { mode: 'sim', report: this.report, month: this.month ?? 0, news: this.news };
+    if (this.mode === 'sim') return { mode: 'sim', report: this.report, month: this.month ?? 0, news: this.news, game: g };
     if (this.mode === 'report') return { mode: 'report', report: this.report, game: g };
     const id = this.hoverPlot ?? this.pinPlot;
     return { mode: 'plan', game: g, type: this.sel, plot: id ? g.plot(id) : null, map: this.mapMode, touch: touch || this.engine.touchUI };
@@ -281,6 +306,13 @@ export class GreenScene extends BaseScene {
     return { game: g };
   }
 
+  alertView() {
+    const ev = this.alertEv;
+    if (!ev) return null;
+    const act = t(ev.type === 'dark' && this.game.battery ? 'greenAct_darkBattery' : `greenAct_${ev.type}`);
+    return { ev, secs: ev.tHit - this.simT, lead: LEAD, reacted: ev.reacted, outcome: ev.outcome, act, hint: t(this.engine.isXR ? 'greenActHintXR' : 'greenActHint') };
+  }
+
   /** Share of the year's energy that has come in by now (the months weigh differently). */
   monthFrac() {
     const r = this.report;
@@ -294,6 +326,7 @@ export class GreenScene extends BaseScene {
     const g = this.game;
     const name = t('greenName');
     if (this.engine.touchUI && this.mode !== 'plan') return this.mode === 'sim' ? `${this.report.label} · ${t('greenMonthNames').split(',')[Math.min(11, Math.floor(this.month ?? 0))]}` : t('greenHudReportTouch', { year: this.report.label, gwh: fmt(this.report.energy), qol: fmtInt(g.qol) });
+    if (this.mode === 'sim' && this.alertEv && !this.alertEv.outcome) return `${t('greenHudSim', { name, year: this.report.label, month: t('greenMonthNames').split(',')[Math.min(11, Math.floor(this.month ?? 0))] })} · ${t('greenWarn', { event: t(`greenLive_${this.alertEv.type}`), s: Math.max(0, Math.ceil(this.alertEv.tHit - this.simT)) })}`;
     if (this.mode === 'sim') return t('greenHudSim', { name, year: this.report.label, month: t('greenMonthNames').split(',')[Math.min(11, Math.floor(this.month ?? 0))] });
     if (this.mode === 'report') return t('greenHudReport', { name, year: this.report.label, gwh: fmt(this.report.energy), qol: fmtInt(g.qol) });
     const left = Math.max(0, Math.ceil(this.planT ?? 0));
@@ -304,6 +337,11 @@ export class GreenScene extends BaseScene {
 
   actionState() {
     if (this.mode === 'report') return { label: t(this.game.over ? 'greenFinish' : 'greenNext'), icon: 'greenNext' };
+    if (this.mode === 'sim') {
+      const ev = this.alertEv;
+      if (ev && !ev.outcome && !ev.reacted) return { label: t(ev.type === 'dark' && this.game.battery ? 'greenActShort_darkBattery' : `greenActShort_${ev.type}`), icon: LIVE[ev.type].icon, sub: t('greenWarnConf', { n: fmtInt(ev.conf * 100) }) };
+      return { label: t('greenWait'), icon: 'greenGo', disabled: true };
+    }
     return { label: t('greenStart'), icon: 'greenGo', sub: this.mode === 'plan' ? money(this.game.budget) : null, disabled: this.mode !== 'plan' };
   }
 
@@ -329,7 +367,13 @@ export class GreenScene extends BaseScene {
     this.sel = null;
     this.pinPlot = null;
     this.report = null;
+    this.alertEv = null;
+    this.region.repairTurbines();
+    this.region.setFlood(0);
+    this.region.setSandbags(false);
+    this.region.showMarker(null);
     this.layout();
+    this.updateWishes(false);
     this.refresh();
     sfx.build();
     this.toast(t('greenYearStart', { year: g.yearLabel, budget: money(g.budget) }), null, 'xr-green-energy');
@@ -355,7 +399,10 @@ export class GreenScene extends BaseScene {
     this.month = 0;
     this.news = null;
     this.surprised = false;
-    this.stormed = false;
+    this.liveQueue = this.report.plan.map((e) => ({ ...e, tHit: secAt(e.month), reacted: false, outcome: null }));
+    this.alertEv = null;
+    this.vis.throttle = false;
+    this.vis.blackout = false;
     this.sel = null;
     this.drag = null;
     this.region.hideGhost();
@@ -376,15 +423,105 @@ export class GreenScene extends BaseScene {
     this.mode = 'report';
     this.month = 12;
     music.intensity = 0;
+    this.hideAlert();
+    Object.assign(this.vis, { throttle: false, blackout: false });
+    this.region.setFlood(0);
     sfx.point();
     const r = this.report;
     if (r.energy > 0) this.burst(this.fc.getWorldPosition(new THREE.Vector3()), 'xr-green-energy', 18);
+    if (r.bet) {
+      const P = this.region.plots.get(r.bet.id);
+      if (r.bet.winner === 'player') { sfx.correct(); this.burst(P.group.localToWorld(new THREE.Vector3(0, 0.05, 0)), 'xr-green-up', 24); } else sfx.wrong();
+    }
     this.refresh();
   }
 
-  /** The action button / Enter: run the year, or go on after the report. */
+  // ---------- live events while the year runs ----------
+
+  startAlert(ev) {
+    this.alertEv = ev;
+    ev.started = true;
+    sfx.announce();
+    this.region.showMarker(ev.type);
+    this.alert.visible = true;
+    this.alertPanel.redraw();
+    this.popIn(this.alertPanel);
+    this.refresh();
+  }
+
+  /** The player reacts to the warning (button, key, a tap on the map or on the marker). */
+  react() {
+    const ev = this.alertEv;
+    if (this.mode !== 'sim' || !ev || ev.reacted || ev.outcome) return;
+    ev.reacted = true;
+    sfx.powerup();
+    for (const ptr of this.engine.pointers) this.engine.haptic(ptr, 0.6, 50);
+    this.region.showMarker(ev.type, true);
+    this.alertPanel.redraw();
+    if (ev.type === 'storm') this.vis.throttle = true;
+    if (ev.type === 'flood') this.region.setSandbags(true);
+    this.burst(this.region.marker.getWorldPosition(new THREE.Vector3()), 'xr-green-up', 14);
+    this.refresh();
+  }
+
+  /** The moment of the event: it comes true or it was a false alarm. */
+  resolveAlert(ev) {
+    const out = this.game.resolveLive(ev, ev.reacted);
+    const kind = ev.real ? (ev.reacted ? 'hit' : 'miss') : ev.reacted ? 'wasted' : 'calm';
+    ev.outcome = { good: out.good, text: t(`greenOut_${ev.type}_${kind}`, { n: money(Math.max(0, -out.money)) }) };
+    this.alertPanel.redraw();
+    this.news = ev.outcome.text;
+    if (ev.real && ev.type === 'storm' && !ev.reacted) { this.region.breakTurbines(2); sfx.crash(); }
+    if (ev.real && ev.type === 'storm') sfx.storm();
+    if (ev.real && ev.type === 'flood') this.region.setFlood(ev.reacted ? 0.004 : 0.011);
+    if (ev.real && ev.type === 'dark' && !ev.reacted) this.vis.blackout = true;
+    if (out.good) { sfx.correct(); this.burst(this.alert.getWorldPosition(new THREE.Vector3()), 'xr-green-up', 16); } else sfx.wrong();
+    this.region.showMarker(null);
+    ev.hideAt = this.simT + 3.2;
+    this.refresh();
+  }
+
+  /** After the outcome: the warning goes, the weather settles. */
+  endAlert(ev) {
+    this.hideAlert();
+    if (ev.type === 'storm') this.vis.throttle = false;
+    if (ev.type === 'flood') this.region.setFlood(0);
+    if (ev.type === 'dark') this.vis.blackout = false;
+    this.refresh();
+  }
+
+  hideAlert() {
+    this.alertEv = null;
+    if (this.alert) this.alert.visible = false;
+    this.region?.showMarker(null);
+  }
+
+  // ---------- citizens' wishes ----------
+
+  /** Speech bubbles for the wishes; a wish met by a new project starts a party in its district. */
+  updateWishes(announce = true) {
+    const g = this.game;
+    const list = g.wishes.map((w) => ({ district: w.district, level: w.level, met: g.wishMet(w), text: '' }));
+    for (const w of list) {
+      w.text = w.met ? t('greenWishThanks') : t(`greenWish_${g.wishes.find((x) => x.district === w.district).type}_${w.level}`);
+      const was = this.wishState?.[w.district];
+      if (w.met && was === false && announce) {
+        this.region.celebrate(w.district);
+        sfx.correct();
+        this.delay(0.2, () => { if (!this.disposed) sfx.coin(); });
+        this.toast(t('greenWishMet', { district: t(`greenDistrict_${w.district}`) }), null, 'xr-green-up');
+        const D = this.region.bubbles.get(w.district);
+        if (D) this.burst(D.getWorldPosition(new THREE.Vector3()), 'xr-green-social', 26);
+      }
+    }
+    this.wishState = Object.fromEntries(list.map((w) => [w.district, w.met]));
+    this.region.setWishes(this.mode === 'over' ? null : list);
+  }
+
+  /** The action button / Enter: run the year, react to a warning, or go on after the report. */
   action() {
-    if (this.mode === 'plan') this.runYear();
+    if (this.mode === 'sim') this.react();
+    else if (this.mode === 'plan') this.runYear();
     else if (this.mode === 'report') {
       if (this.game.over) this.finish();
       else this.beginPlan();
@@ -400,19 +537,22 @@ export class GreenScene extends BaseScene {
     this.region?.showMap(null);
     this.region?.setTags(null);
     this.region?.clearSky();
-    Object.assign(this.vis, { cloud: 0, rain: 0, snowfall: 0, storm: 0, night: 0 });
+    this.region?.setWishes(null);
+    this.hideAlert();
+    Object.assign(this.vis, { cloud: 0, rain: 0, snowfall: 0, storm: 0, night: 0, throttle: false, blackout: false });
     this.ui.visible = false;
     this.pad?.show(false);
     this.layout(true);
     const p = (v) => `${fmtInt(v * 100)} %`;
     const learned = [
-      { q: t('greenLearn1Q'), a: t('greenLearn1A') },
       { q: t('greenLearn2Q'), a: t('greenLearn2A', { p: p(sc.projectErr) }) },
-      sc.both && sc.portfolioErr < sc.projectErr ? { q: t('greenLearn3Q'), a: t('greenLearn3AMix', { p: p(sc.portfolioErr), q: p(sc.projectErr) }) } : { q: t('greenLearn3Q'), a: t('greenLearn3A') },
+      { q: t('greenLearn4Q'), a: t('greenLearn4A', { good: sc.liveGood, n: sc.liveTotal }) },
+      g.betLog.length ? { q: t('greenLearn2bQ'), a: t('greenLearn2bA', { p: sc.betWins, a: sc.betAi }) }
+        : sc.both && sc.portfolioErr < sc.projectErr ? { q: t('greenLearn3Q'), a: t('greenLearn3AMix', { p: p(sc.portfolioErr), q: p(sc.projectErr) }) } : { q: t('greenLearn3Q'), a: t('greenLearn3A') },
     ];
     this.results({
       gameKey: 'green', score: sc.total, correct: Math.round(sc.total / 50), total: 100,
-      line: `${t('greenLine', { gwh: fmtInt(g.energyTotal), co2: fmtInt(g.co2Total), qol: fmtInt(g.qol) })}\n${t('greenParts', { e: sc.parts.energy, c: sc.parts.co2, s: sc.parts.social, m: sc.parts.mix, b: sc.parts.budget })}`,
+      line: `${t('greenLine', { gwh: fmtInt(g.energyTotal), co2: fmtInt(g.co2Total), qol: fmtInt(g.qol), vs: t('greenVs', { p: sc.betWins, a: sc.betAi }) })}\n${t('greenParts', { e: sc.parts.energy, c: sc.parts.co2, s: sc.parts.social, m: sc.parts.mix, b: sc.parts.budget, l: sc.parts.live, w: sc.parts.bets })}`,
       learned,
       onAgain: () => this.app.startGame('green'),
     });
@@ -481,9 +621,11 @@ export class GreenScene extends BaseScene {
     R.hit.userData.interactive = true;
     R.hit.userData.label = 'region';
     R.hit.userData.onClick = (p) => {
+      if (this.mode === 'sim') { this.react(); return; }
       const id = this.plotUnderHit(p.pressHit ?? p.hit);
       if (id) this.clickPlot(id);
     };
+    R.markerHit.userData.onClick = () => this.react();
   }
 
   plotUnderHit(hit) {
@@ -494,14 +636,24 @@ export class GreenScene extends BaseScene {
   clickPlot(id) {
     const g = this.game;
     const P = g.plot(id);
+    if (this.mode === 'sim') { this.react(); return; }
     if (!P || this.mode !== 'plan') return;
     this.pinPlot = id;
+    // No project chosen and an uncertain plot: bet against the AI (more wind, less, none).
+    if (!this.sel && g.canBet(id)) {
+      const b = g.cycleBet(id);
+      sfx.tick();
+      this.toast(b ? t('greenBetSet', { plot: t(`greenPlot_${id}`), dir: t(b.dir > 0 ? 'greenBetUp' : 'greenBetDown') }) : t('greenBetOff'), b ? t('greenBetInfo') : null, 'xr-accent', 2.6);
+      this.refresh();
+      return;
+    }
     if (P.built) {
       // Placed this year: take it back (money returns).
-      if (g.pending.includes(id)) {
+      if (g.pending.includes(id) && (!this.sel || this.sel === P.built)) {
         const type = P.built;
         g.undo(id);
         this.region.unbuild(id);
+        this.updateWishes();
         sfx.thud();
         this.toast(t('greenUndone', { type: typeName(type) }), null, 'xr-panel-muted');
       } else sfx.tick();
@@ -523,6 +675,7 @@ export class GreenScene extends BaseScene {
     for (const ptr of this.engine.pointers) this.engine.haptic(ptr, 0.5, 40);
     // Keep the type while there is money and room for another one.
     if (!this.canChoose(type)) this.sel = null;
+    this.updateWishes();
     this.refresh();
   }
 
@@ -531,7 +684,7 @@ export class GreenScene extends BaseScene {
   key(e) {
     if (this.mode === 'intro' || this.mode === 'over') return;
     if (KEYS[e.key]) { e.preventDefault(); this.choose(KEYS[e.key]); return; }
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.action(); return; }
+    if (e.key === 'Enter' || e.key === ' ' || ((e.key === 'r' || e.key === 'R') && this.mode === 'sim')) { e.preventDefault(); this.action(); return; }
     if (e.key === 'Escape') { this.sel = null; this.pinPlot = null; this.refresh(); return; }
     if ((e.key === 'Backspace' || e.key === 'z') && this.mode === 'plan' && this.game.pending.length) {
       e.preventDefault();
@@ -569,11 +722,27 @@ export class GreenScene extends BaseScene {
           token: T.token,
           strong: p.id === this.bestPlot,
         })));
+      } else if (this.mode === 'plan') {
+        // Nothing chosen: the wind map faintly (its hatching marks where the AI is unsure) and
+        // the plots that take a bet against the AI.
+        this.mapMode = 'wind';
+        R.showMap('wind', null, 0.5);
+        this.bestPlot = null;
+        R.setTags(g.plots.filter((p) => g.canBet(p.id)).map((p) => {
+          const b = g.bet?.id === p.id ? g.bet : null;
+          return { id: p.id, text: b ? t(b.dir > 0 ? 'greenBetUp' : 'greenBetDown') : t('greenBetAsk'), sub: null, token: b ? 'xr-accent' : 'xr-panel-border', strong: !!b };
+        }));
       } else if (this.mode === 'report' && this.report) {
         this.mapMode = null;
         R.showMap(null);
         const tags = this.report.projects.map((pr) => ({ id: pr.id, text: pct(pr.actual / pr.forecast - 1), sub: null, token: pr.actual >= pr.forecast ? 'xr-green-up' : 'xr-green-down' }));
         for (const s of this.report.social) tags.push({ id: s.id, text: `+${fmtInt(s.gain)}`, sub: null, token: 'xr-green-qol' });
+        const b = this.report.bet;
+        if (b) {
+          const i = tags.findIndex((x) => x.id === b.id);
+          const tag = { id: b.id, text: `${b.winner === 'player' ? '+' : ''}${b.pts}`, sub: pct(b.d), token: b.winner === 'player' ? 'xr-green-up' : 'xr-green-down', strong: true };
+          if (i >= 0) tags[i] = tag; else tags.push(tag);
+        }
         R.setTags(tags);
       } else {
         this.mapMode = null;
@@ -592,11 +761,13 @@ export class GreenScene extends BaseScene {
         this.padEls?.[i]?.classList.toggle('mtouch__btn--primary', this.sel === k);
       });
       const a = this.actionState();
-      this.pad.relabel(5, a.icon, this.mode === 'report' ? a.label : t('greenStartShort'));
+      this.pad.relabel(5, a.icon, this.mode === 'plan' ? t('greenStartShort') : a.label);
       this.pad.disable(5, !!a.disabled);
-      // "Go" stands out once nothing more fits into the budget (and to go on after the report).
+      // "Go" stands out once nothing more fits into the budget, to go on after the report, and
+      // while a warning waits for an answer.
       const done = this.mode === 'plan' && !TYPE_KEYS.some((k) => this.canChoose(k));
-      this.padEls?.[5]?.classList.toggle('mtouch__btn--primary', this.mode === 'report' || done);
+      const alerting = this.mode === 'sim' && !a.disabled;
+      this.padEls?.[5]?.classList.toggle('mtouch__btn--primary', this.mode === 'report' || done || alerting);
     }
   }
 
@@ -627,53 +798,70 @@ export class GreenScene extends BaseScene {
     const i = Math.min(11, Math.floor(m));
     const winter = 0.5 + 0.5 * Math.cos(((m - 0.5) / 12) * Math.PI * 2);
     let wind = clamp(0.2 + 0.62 * MONTH_WIND[i] * 12 * wx.wind, 0.1, 1.6);
-    const sun = clamp(0.35 + 0.62 * (MONTH_SUN[i] * 12 / 1.55) * wx.sun, 0.2, 1.3);
+    let sun = clamp(0.35 + 0.62 * (MONTH_SUN[i] * 12 / 1.55) * wx.sun, 0.2, 1.3);
     let cloud = clamp(0.75 - 0.45 * sun + 0.25 * (wind - 0.6), 0.05, 1);
     let rain = 0;
     let storm = 0;
-    let cutout = false;
-    if (wx.storm && m > 8.6 && m < 10.6) {
-      storm = Math.sin(((m - 8.6) / 2) * Math.PI);
-      wind = Math.max(wind, 1.1 + 0.5 * storm);
-      cloud = Math.max(cloud, 0.6 + 0.4 * storm);
-      rain = storm;
-      cutout = m > 9.5 && m < 9.85;
-    }
+    let heat = 0;
+    let night = m > 10.9 ? Math.min(0.75, (m - 10.9) * 1.4) : m < 0.6 ? 0.6 - m : 0;
     if (name === 'dull' && m > 4 && m < 8) { cloud = Math.max(cloud, 0.85); rain = Math.max(rain, 0.35); }
     if (name === 'calm' && m > 2.5 && m < 7.5) { wind = Math.min(wind, 0.22); cloud = Math.min(cloud, 0.15); }
     if (name === 'sunny' && m > 4.5 && m < 8.5) cloud = Math.min(cloud, 0.1);
+    // The live events: signs while the warning runs, the full event if it comes true.
+    const lead = monthAt(LEAD);
+    for (const e of this.liveQueue ?? []) {
+      let k = 0;
+      if (m < e.month) k = 0.45 * clamp((m - (e.month - lead)) / lead, 0, 1);
+      else if (e.real) k = Math.max(0, 1 - Math.abs(m - e.month - 0.4) / 1.1);
+      else k = 0.45 * Math.max(0, 1 - (m - e.month) / 0.5);
+      if (k <= 0) continue;
+      if (e.type === 'storm') { wind = Math.max(wind, 0.6 + 0.95 * k); cloud = Math.max(cloud, 0.4 + 0.6 * k); storm = Math.max(storm, k); rain = Math.max(rain, k); }
+      if (e.type === 'heat') { sun = Math.max(sun, 1 + 0.3 * k); cloud *= 1 - k; heat = Math.max(heat, k); }
+      if (e.type === 'dark') { wind = Math.min(wind, 1 - 0.9 * k); sun *= 1 - 0.7 * k; cloud = Math.max(cloud, k); night = Math.max(night, 0.55 * k); }
+      if (e.type === 'flood') { rain = Math.max(rain, k); cloud = Math.max(cloud, k); }
+    }
     const snowfall = winter > 0.8 ? (winter - 0.8) * 4.5 : 0;
-    const night = m > 10.9 ? Math.min(0.75, (m - 10.9) * 1.4) : m < 0.6 ? 0.6 - m : 0;
-    return { wind, sun, cloud, rain, snowfall, snow: clamp((winter - 0.35) * 1.6, 0, 0.95), night, storm, month: m, cutout };
+    return { wind, sun, cloud, rain, snowfall, snow: clamp((winter - 0.35) * 1.6, 0, 0.95), night, storm, heat, month: m, cutout: false };
   }
 
   updateSim(dt) {
     this.simT += dt;
-    const m = clamp((this.simT / (SIM_TIME - 1)) * 12, 0, 12);
+    const m = monthAt(this.simT);
     const prevMonth = Math.floor(this.month ?? 0);
     this.month = m;
     const target = this.simVis(m);
+    if (!this.engine.isXR) target.cloud *= 0.6; // the browser's tilted view: fewer clouds over the map
     for (const k of Object.keys(target)) {
-      if (typeof target[k] === 'number' && k !== 'month') this.vis[k] += (target[k] - this.vis[k]) * Math.min(1, dt * 3);
+      if (typeof target[k] === 'number' && k !== 'month') this.vis[k] = (this.vis[k] ?? 0) + (target[k] - (this.vis[k] ?? 0)) * Math.min(1, dt * 3);
       else this.vis[k] = target[k];
+    }
+    // Warnings: one at a time, LEAD seconds ahead; the event happens at its month.
+    for (const ev of this.liveQueue) {
+      if (!ev.started && !this.alertEv && this.simT >= ev.tHit - LEAD) this.startAlert(ev);
+      if (ev.started && !ev.outcome && this.simT >= ev.tHit) this.resolveAlert(ev);
+      if (ev.outcome && this.alertEv === ev && this.simT >= ev.hideAt) this.endAlert(ev);
     }
     const r = this.report;
     if (!this.surprised && m >= SURPRISE[r.weather]) {
       this.surprised = true;
-      this.news = t(`greenWx_${r.weather}`);
-      if (r.weather !== 'normal') { sfx.announce(); this.toast(this.news, null, r.weather === 'calm' || r.weather === 'dull' ? 'xr-green-down' : 'xr-green-up', 3.2); }
-    }
-    if (WEATHER[r.weather].storm && !this.stormed && m > 9.4) {
-      this.stormed = true;
-      sfx.storm();
+      if (r.weather !== 'normal') {
+        this.news = this.news ?? t(`greenWx_${r.weather}`);
+        // Only as a toast when no warning is on the screen.
+        if (!this.alertEv) { sfx.announce(); this.toast(t(`greenWx_${r.weather}`), null, r.weather === 'calm' || r.weather === 'dull' ? 'xr-green-down' : 'xr-green-up', 3.2); }
+      }
     }
     if (Math.floor(m) !== prevMonth) {
       sfx.tick();
       this.fc.redraw();
       this.dash.redraw();
-      this.refreshHud?.();
     }
-    if (this.simT >= SIM_TIME) this.showReport();
+    if (this.alertEv && Math.floor(this.simT * 4) !== this.alertTick) {
+      this.alertTick = Math.floor(this.simT * 4);
+      this.alertPanel.redraw();
+      this.refreshHud?.();
+      this.actionBtn?.redraw();
+    }
+    if (this.simT >= SIM_TIME && !this.alertEv) this.showReport();
   }
 
   // ---------- frame loop ----------
@@ -695,13 +883,13 @@ export class GreenScene extends BaseScene {
         if (Math.floor(this.time * 2) !== this.hudTick) { this.hudTick = Math.floor(this.time * 2); this.refreshHud?.(); }
       }
       // Calm planning weather (a winter morning at Christmas).
-      const calm = { wind: 0.55, sun: 1, cloud: this.engine.isXR && this.mode !== 'over' ? 0.3 : 0, rain: 0, snowfall: CHRISTMAS && this.mode !== 'over' ? 0.22 : 0, snow: 0.65, night: 0, storm: 0 };
+      const calm = { wind: 0.55, sun: 1, cloud: this.engine.isXR && this.mode !== 'over' ? 0.3 : 0, rain: 0, snowfall: CHRISTMAS && this.mode !== 'over' ? 0.22 : 0, snow: 0.65, night: 0, storm: 0, heat: 0 };
       for (const k of Object.keys(calm)) this.vis[k] += (calm[k] - this.vis[k]) * Math.min(1, dt * 1.5);
       this.vis.month += (2.4 - this.vis.month) * Math.min(1, dt);
       this.vis.cutout = false;
     } else if (this.mode === 'sim') this.updateSim(dt);
     R.update(dt, this.vis);
-    this.pad?.show(this.mode === 'plan' || this.mode === 'report');
+    this.pad?.show(this.mode === 'plan' || this.mode === 'report' || this.mode === 'sim');
     this.updatePointers();
   }
 

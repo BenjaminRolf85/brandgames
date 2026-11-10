@@ -13,12 +13,13 @@
 // z towards the player, y up; the Region's root is placed by the scene.
 import * as THREE from 'three';
 import { hex, num, color, font } from './tokens.js';
+import { drawIcon } from './icons.js';
 import { loadGLTF } from './models.js';
 import { radialTexture } from './robot-visuals.js';
 import { mergeGeometries } from '../vendor/addons/utils/BufferGeometryUtils.js';
 import { CHRISTMAS, makeBulbs } from './christmas.js';
 import { quality } from './quality.js';
-import { PLOTS, TYPES, OUTLINE, DISTRICTS, windAt, sunAt, windConfAt, sunConfAt, inside, coastX } from './green-sim.js';
+import { PLOTS, TYPES, OUTLINE, DISTRICTS, LIVE, windAt, sunAt, windConfAt, sunConfAt, inside, coastX } from './green-sim.js';
 
 export const GREEN_URL = 'assets/models/green.glb';
 export const loadGreen = () => loadGLTF(GREEN_URL);
@@ -273,7 +274,9 @@ export class Region {
     const waterSrc = node('GreenWater');
     if (waterSrc) {
       const water = waterSrc.clone(true);
-      const wmat = patch(new THREE.MeshStandardMaterial({ name: 'GreenWater', color: hex('xr-green-water'), roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.8, envMapIntensity: 1.2 }), this.U, { water: true });
+      // A little light of its own, so the water reads as water from every angle (not only as a
+      // reflection of a dark room).
+      const wmat = patch(new THREE.MeshStandardMaterial({ name: 'GreenWater', color: hex('xr-green-water'), emissive: hex('xr-green-water'), emissiveIntensity: 0.35, roughness: 0.22, metalness: 0.05, transparent: true, opacity: 0.78, envMapIntensity: 0.6 }), this.U, { water: true });
       this.mats.GreenWater = wmat;
       water.traverse((m) => {
         if (!m.isMesh) return;
@@ -283,7 +286,10 @@ export class Region {
         m.receiveShadow = true;
       });
       this.root.add(water);
+      this.water = water;
     }
+    this.flood = 0; // water level offset (a flood at the river)
+    this.floodTarget = 0;
     // Pointer rays hit the coarse copy of the terrain (cheap); it also gives the heights.
     let hitGeo = null;
     node('GreenHit')?.traverse((o) => { if (o.isMesh && !hitGeo) hitGeo = o.geometry; });
@@ -308,6 +314,7 @@ export class Region {
     this.buildWeather();
     this.buildPeople();
     this.buildDecor(node);
+    this.buildLive();
   }
 
   /** A token material for a Blender material name (shared within this region). */
@@ -348,6 +355,7 @@ export class Region {
     this.root.add(key, key.target);
     this.key = key;
     this.keyColor = new THREE.Color(hex('xr-green-key-light'));
+    this.heatColor = new THREE.Color(hex('xr-green-heat-light'));
     this.stormColor = new THREE.Color(hex('xr-green-storm-light'));
     if (!this.lite) {
       renderer.shadowMap.enabled = true;
@@ -438,9 +446,9 @@ export class Region {
    * Shows the AI map: mode 'wind' | 'sun' | 'need' (need: { [district]: 0..1 }) or null to hide.
    * Wind and sun come from the same fields as the forecast (green-sim.js).
    */
-  showMap(mode, need = null) {
+  showMap(mode, need = null, opacity = 1) {
     const key = mode === 'need' ? `need:${JSON.stringify(need)}` : mode;
-    this.overlayTarget = mode ? 1 : 0;
+    this.overlayTarget = mode ? opacity : 0;
     if (!mode || key === this.overlayKey) return;
     this.overlayKey = key;
     this.overlayMode = mode;
@@ -804,8 +812,9 @@ export class Region {
     const s = new THREE.Vector3();
     let n = 0;
     for (const f of this.folk) {
-      f.ph += dt * 9;
-      const hop = Math.abs(Math.sin(f.ph)) * 0.0008;
+      const cheer = this.cheerUntil[f.district ?? this.districtOf(f)] > this.time;
+      f.ph += dt * (cheer ? 16 : 9);
+      const hop = Math.abs(Math.sin(f.ph)) * (cheer ? 0.003 : 0.0008);
       if (f.kind === 'walk') {
         const [[ax, az], [bx, bz]] = f.s;
         const len = Math.hypot(bx - ax, bz - az);
@@ -884,7 +893,7 @@ export class Region {
     const T = this.time;
     this.U.uTime.value = T;
     this.U.uSnow.value += ((CHRISTMAS ? vis.snow : 0) - this.U.uSnow.value) * Math.min(1, dt * 1.5);
-    this.U.uLit.value += (vis.night * 1.2 - this.U.uLit.value) * Math.min(1, dt * 3);
+    this.U.uLit.value += ((vis.blackout ? 0 : vis.night * 1.2) - this.U.uLit.value) * Math.min(1, dt * 3);
     this.U.uGlint.value = 0.15 + 0.85 * Math.max(0, vis.sun - 0.3) * (1 - vis.cloud * 0.6);
     // Up in world space (the diorama may be tilted towards the camera in the browser).
     this.root.updateMatrixWorld();
@@ -892,7 +901,7 @@ export class Region {
     // Light: the sun's strength and a cooler, dimmer light in storms and at night.
     const bright = 0.3 + 1.05 * Math.min(1.2, vis.sun) * (1 - 0.45 * vis.cloud) * (1 - 0.6 * vis.night);
     this.key.intensity += (bright - this.key.intensity) * Math.min(1, dt * 3);
-    this.key.color.copy(this.keyColor).lerp(this.stormColor, Math.min(1, vis.storm * 0.8 + vis.night * 0.6));
+    this.key.color.copy(this.keyColor).lerp(this.stormColor, Math.min(1, vis.storm * 0.8 + vis.night * 0.6)).lerp(this.heatColor, Math.min(1, (vis.heat ?? 0) * 0.6));
     // The sun crosses the sky with the months (higher in summer); hidden behind storms.
     const mk = (vis.month ?? 6) / 12;
     const sx = -0.42 + 0.84 * mk;
@@ -963,7 +972,8 @@ export class Region {
       const r = P.model?.userData.rotor;
       if (!r) continue;
       P.model.rotation.y = this.turbineYaw;
-      const want = vis.cutout ? 0.2 : 1.2 + 6.5 * Math.min(1.6, vis.wind);
+      const broken = P.model.userData.broken;
+      const want = broken ? 0 : vis.cutout || vis.throttle ? 0.25 : 1.2 + 6.5 * Math.min(1.6, vis.wind);
       P.model.userData.spin += (want - P.model.userData.spin) * Math.min(1, dt * 1.2);
       r.rotation.z -= P.model.userData.spin * dt;
     }
@@ -996,8 +1006,10 @@ export class Region {
     const o = this.overlayU.uOpacity;
     o.value += (this.overlayTarget - o.value) * Math.min(1, dt * 5);
     this.overlay.visible = o.value > 0.01;
-    // Decoration.
-    this.bulbs?.userData.tick(T);
+    // Decoration (the lights go out in a power cut).
+    if (vis.blackout) { if (this.bulbs) this.bulbs.visible = false; } else if (this.bulbs) { this.bulbs.visible = true; this.bulbs.userData.tick(T); }
+    for (const f of this.festive.values()) { f.visible = !vis.blackout; if (f.visible) f.userData.tick(T); }
+    this.updateLive(dt, vis);
     if (this.beam) {
       this.beam.rotation.y = T * 1.6;
       this.beamMat.opacity += (Math.min(0.32, vis.night * 0.4 + vis.storm * 0.3) - this.beamMat.opacity) * Math.min(1, dt * 2);
@@ -1008,6 +1020,204 @@ export class Region {
       this.boat.rotation.set(Math.sin(T * 1.7) * 0.06, -a + Math.PI / 2, Math.sin(T * 2.1) * 0.05);
     }
     this.updatePeople(dt);
+  }
+
+  // ---------- live events, wishes, bets ----------
+
+  buildLive() {
+    this.cheerUntil = { old: 0, river: 0, new: 0 };
+    this.festive = new Map(); // district -> fairy lights after a fulfilled wish
+    this.bubbles = new Map(); // district -> speech bubble sprite
+    // The event marker: an icon over the place the warning is about (tap it to react).
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    this.marker = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+    this.marker.renderOrder = 22;
+    this.marker.userData.canvas = c;
+    this.marker.visible = false;
+    this.markerHalo = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTexture(), transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false }));
+    this.markerHalo.renderOrder = 21;
+    this.markerHalo.visible = false;
+    this.markerHit = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), new THREE.MeshBasicMaterial({ visible: false }));
+    this.markerHit.userData.noFit = true;
+    this.markerHit.userData.interactive = false;
+    this.markerHit.userData.label = 'warning';
+    this.root.add(this.marker, this.markerHalo, this.markerHit);
+    // Sandbags along the riverside quarter (a flood warning that was taken seriously).
+    const bagGeo = new THREE.CapsuleGeometry(0.0022, 0.004, 3, 6).rotateZ(Math.PI / 2);
+    const bags = [];
+    for (let i = 0; i < 26; i++) {
+      const x = -0.05 + i * 0.012;
+      bags.push(bagGeo.clone().translate(x, 0.0055, -0.052), bagGeo.clone().translate(x + 0.006, 0.0095, -0.052));
+    }
+    this.sandbags = new THREE.Mesh(mergeGeometries(bags), new THREE.MeshStandardMaterial({ color: hex('xr-green-sand'), roughness: 0.95, envMapIntensity: 0.3 }));
+    this.sandbags.castShadow = true;
+    this.sandbags.visible = false;
+    this.root.add(this.sandbags);
+    // Smoke over damaged turbines.
+    this.smoke = Array.from({ length: 8 }, () => {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTexture(), color: hex('xr-green-smoke'), transparent: true, opacity: 0, depthWrite: false }));
+      sp.userData.noFit = true;
+      sp.userData.t = Math.random();
+      this.root.add(sp);
+      return sp;
+    });
+  }
+
+  /** Where a warning points: over the turbines, the solar parks, the town or the river quarter. */
+  liveSpot(type) {
+    const of = (t) => [...this.plots.values()].filter((P) => P.type === t).map((P) => P.pos);
+    const avg = (list, fallback) => (list.length ? list.reduce((a, b) => a.clone().add(b)).multiplyScalar(1 / list.length) : fallback);
+    if (type === 'storm') return avg(of('wind'), new THREE.Vector3(-0.2, 0.1, -0.2)).add(new THREE.Vector3(0, 0.2, 0));
+    if (type === 'heat') return avg(of('solar'), new THREE.Vector3(-0.25, 0.03, 0.2)).add(new THREE.Vector3(0, 0.12, 0));
+    if (type === 'flood') return new THREE.Vector3(0.07, 0.1, -0.07);
+    return new THREE.Vector3(0.12, 0.13, 0.16);
+  }
+
+  /** Shows the warning's icon over its place (null hides it); done: the player reacted. */
+  showMarker(type, done = false) {
+    const on = !!type;
+    this.marker.visible = on;
+    this.markerHalo.visible = on;
+    this.markerHit.userData.interactive = on && !done;
+    if (!on) return;
+    const pos = this.liveSpot(type);
+    this.marker.position.copy(pos);
+    this.markerHalo.position.copy(pos);
+    this.markerHit.position.copy(pos);
+    this.markerType = type;
+    const c = this.marker.userData.canvas;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, 128, 128);
+    ctx.beginPath();
+    ctx.arc(64, 64, 58, 0, Math.PI * 2);
+    ctx.fillStyle = color('xr-panel-bg');
+    ctx.fill();
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = color(done ? 'xr-green-up' : 'xr-warning');
+    ctx.stroke();
+    drawIcon(ctx, LIVE[type].icon, 64, 64, 70, color(done ? 'xr-green-up' : LIVE[type].token));
+    this.marker.material.map.needsUpdate = true;
+    this.markerHalo.material.color.setHex(hex(done ? 'xr-green-up' : 'xr-warning'));
+  }
+
+  setFlood(level) { this.floodTarget = level; }
+
+  setSandbags(on) { this.sandbags.visible = on; }
+
+  /** A storm hit unthrottled turbines: up to two stop and smoke until the next year. */
+  breakTurbines(n = 2) {
+    const list = [...this.plots.values()].filter((P) => P.type === 'wind' && P.model && !P.model.userData.broken).slice(0, n);
+    for (const P of list) P.model.userData.broken = true;
+    return list.length;
+  }
+
+  repairTurbines() {
+    for (const P of this.plots.values()) if (P.model) P.model.userData.broken = false;
+  }
+
+  /** Citizens' wishes as speech bubbles over the districts: [{ district, text, level, met }]. */
+  setWishes(list) {
+    const want = new Map((list ?? []).map((w) => [w.district, w]));
+    for (const [k, b] of this.bubbles) {
+      if (want.has(k)) continue;
+      b.removeFromParent();
+      b.material.map.dispose();
+      b.material.dispose();
+      this.bubbles.delete(k);
+    }
+    for (const [k, w] of want) {
+      let b = this.bubbles.get(k);
+      if (!b) {
+        const c = document.createElement('canvas');
+        c.width = 360;
+        c.height = 150;
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        b = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+        b.renderOrder = 19;
+        b.userData.canvas = c;
+        b.userData.noFit = true;
+        const D = DISTRICTS[k];
+        b.userData.base = new THREE.Vector3(D.x, TOWN_Y + 0.085, D.z - 0.01);
+        this.root.add(b);
+        this.bubbles.set(k, b);
+      }
+      const key = `${w.text}|${w.level}|${w.met}`;
+      b.userData.level = w.level;
+      b.userData.met = w.met;
+      if (b.userData.key === key) continue;
+      b.userData.key = key;
+      drawBubble(b.userData.canvas, w);
+      b.material.map.needsUpdate = true;
+      const s = 0.17 * (w.met ? 0.8 : 1 + (w.level - 1) * 0.14);
+      b.scale.set(s, (s * 150) / 360, 1);
+    }
+  }
+
+  /** A fulfilled wish: the district celebrates (people cheer, fairy lights stay up). */
+  celebrate(k) {
+    this.cheerUntil[k] = this.time + 6;
+    if (this.festive.has(k)) return;
+    const D = DISTRICTS[k];
+    const pts = [];
+    const n = 30;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const sag = Math.abs(Math.sin(a * 3)) * 0.004;
+      pts.push(new THREE.Vector3(D.x + Math.cos(a) * 0.055, TOWN_Y + 0.03 - sag, D.z + Math.sin(a) * 0.05));
+    }
+    const lights = makeBulbs(pts, { size: 0.0014, halo: 0.012 });
+    this.root.add(lights);
+    this.festive.set(k, lights);
+  }
+
+  districtOf(f) {
+    if (f.kind === 'play') {
+      f.district = Object.entries(DISTRICTS).reduce((a, [k, D]) => (Math.hypot(f.cx - D.x, f.cz - D.z) < a.d ? { k, d: Math.hypot(f.cx - D.x, f.cz - D.z) } : a), { k: 'old', d: Infinity }).k;
+      return f.district;
+    }
+    const [[ax, az], [bx, bz]] = f.s;
+    const x = ax + (bx - ax) * f.t;
+    const z = az + (bz - az) * f.t;
+    let best = 'old';
+    let bd = Infinity;
+    for (const [k, D] of Object.entries(DISTRICTS)) { const d = Math.hypot(x - D.x, z - D.z); if (d < bd) { bd = d; best = k; } }
+    return best;
+  }
+
+  updateLive(dt, vis) {
+    const T = this.time;
+    if (this.marker.visible) {
+      const pulse = 1 + 0.12 * Math.sin(T * 8);
+      this.marker.scale.setScalar(0.07 * pulse);
+      this.markerHalo.scale.setScalar(0.16 * pulse);
+      this.markerHalo.material.opacity = 0.35 + 0.25 * Math.sin(T * 8);
+    }
+    for (const b of this.bubbles.values()) {
+      const lv = b.userData.level ?? 1;
+      const shake = !b.userData.met && lv >= 3 ? Math.sin(T * 30) * 0.002 : 0;
+      b.position.copy(b.userData.base);
+      b.position.x += shake;
+      b.position.y += Math.sin(T * 2 + b.userData.base.x * 20) * 0.003;
+    }
+    // Flood: the water rises over the river banks.
+    this.flood += (this.floodTarget - this.flood) * Math.min(1, dt * 1.5);
+    if (this.water) this.water.position.y = this.flood;
+    // Smoke over broken turbines.
+    const broken = [...this.plots.values()].filter((P) => P.model?.userData.broken);
+    this.smoke.forEach((sp, i) => {
+      const P = broken[i % Math.max(1, broken.length)];
+      if (!P) { sp.material.opacity = 0; return; }
+      sp.userData.t = (sp.userData.t + dt * 0.5) % 1;
+      const u = sp.userData.t;
+      const top = P.pos.clone().add(new THREE.Vector3(0.005 + u * 0.02, (this.hubPos.y + 0.004) * 1.25 + u * 0.05, 0));
+      sp.position.copy(top);
+      sp.scale.setScalar(0.01 + u * 0.03);
+      sp.material.opacity = 0.6 * (1 - u);
+    });
   }
 
   /** Clears the sky at once (clouds, rain, snowfall), e.g. behind the results. */
@@ -1023,6 +1233,46 @@ export class Region {
     renderer.shadowMap.enabled = false;
     this.fieldTex.dispose();
   }
+}
+
+/** A citizen's speech bubble: louder (warmer color, capitals) the longer the wish is ignored. */
+function drawBubble(canvas, { text, level, met }) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  const H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  const tok = met ? 'xr-green-up' : ['xr-green-social', 'xr-warning', 'xr-danger'][Math.min(2, level - 1)];
+  ctx.beginPath();
+  ctx.roundRect(6, 6, W - 12, H - 40, 30);
+  ctx.moveTo(W * 0.42, H - 35);
+  ctx.lineTo(W * 0.36, H - 6);
+  ctx.lineTo(W * 0.54, H - 35);
+  ctx.fillStyle = color(met ? 'xr-panel-bg' : 'xr-green-bubble');
+  ctx.fill();
+  ctx.lineWidth = 6 + (level - 1) * 2;
+  ctx.strokeStyle = color(tok);
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = color(met ? 'xr-green-up' : 'xr-green-bubble-text');
+  // One or two lines, as large as fits.
+  const words = String(text).split(' ');
+  let px = 40;
+  let lines = [text];
+  for (; px >= 22; px -= 2) {
+    ctx.font = font('black', px);
+    if (ctx.measureText(text).width <= W - 40) { lines = [text]; break; }
+    let best = null;
+    for (let k = 1; k < words.length; k++) {
+      const l = [words.slice(0, k).join(' '), words.slice(k).join(' ')];
+      const w = Math.max(...l.map((x) => ctx.measureText(x).width));
+      if (!best || w < best.w) best = { l, w };
+    }
+    if (best && best.w <= W - 40 && px * 2.3 <= H - 46) { lines = best.l; break; }
+  }
+  ctx.font = font('black', px);
+  const cy = (H - 34) / 2 + 3;
+  lines.forEach((l, i) => ctx.fillText(l, W / 2, cy + (i - (lines.length - 1) / 2) * px * 1.1));
 }
 
 /** A value tag over a plot: a pill with the forecast (big) and a unit or note (small). */

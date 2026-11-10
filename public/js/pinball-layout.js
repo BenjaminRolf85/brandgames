@@ -150,7 +150,7 @@ export function buildTable() {
 
   // Branch office: a little house on the right with a saucer in front of its door.
   const house = { x0: 0.214, x1: 0.2445, y0: 0.44, y1: 0.5 };
-  wall([[house.x1, house.y1], [house.x0, house.y1], [house.x0, house.y0], [house.x1, house.y0]], 'wall');
+  wall([[house.x1, house.y1], [house.x0, house.y1], [house.x0, house.y0], [house.x1, house.y0]], 'house', { th: 0.004 });
   wall([[house.x0, house.y1], ramps.right.mouth.l0], 'wall');
   const kick = [-0.75, -0.66];
   const kl = Math.hypot(...kick);
