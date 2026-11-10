@@ -1106,6 +1106,18 @@ export function buildMachine(table, model, { lite = false } = {}) {
     giPulse(k = 1) { gi.pulse = Math.max(gi.pulse, k); },
     /** A flasher strobes (0: left, 1: right). */
     flash(i, k = 1) { const f = flashers[i]; if (f) f.userData.k = Math.max(f.userData.k, k); },
+    /** Frees what the machine made itself (each ball's trail, the effects, textures). Safe twice. */
+    dispose() {
+      for (const v of balls) {
+        v?.trail?.mesh?.geometry?.dispose();
+        v?.trail?.mesh?.material?.dispose();
+        v?.mesh?.geometry?.dispose();
+        v?.blob?.geometry?.dispose();
+      }
+      fx?.dispose?.();
+      for (const o of owned) o?.dispose?.();
+      owned.length = 0;
+    },
     /** Per frame: flippers, plunger, balls, lights and props. */
     update(dt, time, st) {
       for (const [k, f] of Object.entries(table.flippers)) flippers[k].rotation.y = f.angle;

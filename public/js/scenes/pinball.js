@@ -1201,10 +1201,11 @@ export class PinballScene extends BaseScene {
     this.engine.renderer.shadowMap.enabled = false;
     this.engine.scene.environment = this.prevEnvironment ?? null;
     this.envTarget?.dispose();
-    for (const s of this.popups) s.tex.dispose();
-    this.planPanel?.dispose();
-    this.machine?.trail.mesh.geometry.dispose();
-    this.machine?.owned.forEach((o) => o.dispose?.());
+    for (const s of this.popups ?? []) s?.tex?.dispose?.();
+    this.planPanel?.dispose?.();
+    this.machine?.dispose?.(); // every ball's trail, the effects and what the machine made itself
+    this.machine = null;
+    this.timers = [];
     super.dispose();
   }
 }
