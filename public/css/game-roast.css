@@ -2,9 +2,9 @@
 /* Röstmeister / Roast Master: a festive delicatessen counter with a drum roaster (blender/build_roast.py). */
 :root {
   /* the counter: dark walnut, a cream marble top, brass trims, a glass display case */
-  --xr-roast-wood:          #6b4128;
+  --xr-roast-wood:          #5e3a24;
   --xr-roast-wood-dark:     #3d2416;
-  --xr-roast-wood-light:    #a8724a;
+  --xr-roast-wood-light:    #8e5d3b;
   --xr-roast-marble:        #efe5d3;
   --xr-roast-brass:         #d6a74e;
   --xr-roast-glass:         #d8eef2;
