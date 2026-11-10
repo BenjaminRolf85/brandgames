@@ -408,7 +408,10 @@ export class GreenGame {
     const ok = (type) => (type !== 'storm' || has('wind')) && (type !== 'heat' || has('solar')) && !want.some((e) => e.type === type);
     if (main && ok(main)) want.push({ type: main, conf: 0.75 + Math.round(r() * 3) * 0.05 });
     if (this.year === this.floodYear && ok('flood')) want.push({ type: 'flood', conf: 0.6 + Math.round(r() * 4) * 0.05 });
-    const pool = ['storm', 'heat', 'dark'].filter(ok);
+    // The second warning: something else than last year's, if possible.
+    const recent = this.history[this.history.length - 1]?.plan?.map((e) => e.type) ?? [];
+    let pool = ['storm', 'heat', 'dark'].filter(ok);
+    if (pool.some((x) => !recent.includes(x))) pool = pool.filter((x) => !recent.includes(x));
     while (want.length < 2 && pool.length) {
       const type = pool.splice(Math.floor(r() * pool.length), 1)[0];
       if (ok(type)) want.push({ type, conf: 0.5 + Math.round(r() * 5) * 0.05 });
