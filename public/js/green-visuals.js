@@ -276,7 +276,7 @@ export class Region {
       const water = waterSrc.clone(true);
       // A little light of its own, so the water reads as water from every angle (not only as a
       // reflection of a dark room).
-      const wmat = patch(new THREE.MeshStandardMaterial({ name: 'GreenWater', color: hex('xr-green-water'), emissive: hex('xr-green-water'), emissiveIntensity: 0.35, roughness: 0.22, metalness: 0.05, transparent: true, opacity: 0.78, envMapIntensity: 0.6 }), this.U, { water: true });
+      const wmat = patch(new THREE.MeshStandardMaterial({ name: 'GreenWater', color: hex('xr-green-water'), emissive: hex('xr-green-water'), emissiveIntensity: 0.3, roughness: 0.22, metalness: 0.05, transparent: true, opacity: 0.78, envMapIntensity: 0.6, side: THREE.DoubleSide }), this.U, { water: true });
       this.mats.GreenWater = wmat;
       water.traverse((m) => {
         if (!m.isMesh) return;

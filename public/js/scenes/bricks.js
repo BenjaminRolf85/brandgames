@@ -320,7 +320,7 @@ export class BricksScene extends BaseScene {
     root.add(nb.family.group);
     nb.sign = new Panel(num('xr-bricks-sign-w'), 0.11, (ctx, p) => drawSign(ctx, p, { style: nb.style, share: nb.saved / nb.target, done: nb.done }));
     nb.sign.userData.noFit = true;
-    nb.sign.visible = this.engine.isXR;
+    nb.sign.visible = false; // with the start
     this.group.add(nb.sign);
     this.placeNeighborsXR();
   }
@@ -1986,7 +1986,7 @@ export class BricksScene extends BaseScene {
 
   /** Headset placement: messages above the house (above the card while one is open). */
   placeXR() {
-    this.toastHolder.position.set(0, this.eye + (this.cardGroup ? 0.3 : -0.2), -0.8);
+    this.toastHolder.position.set(0, this.eye + (this.cardGroup ? this.cardGroup.userData.h / 2 + 0.08 : -0.2), -0.82);
     this.cardHolder.position.set(0, this.eye - 0.0, -0.85);
   }
 

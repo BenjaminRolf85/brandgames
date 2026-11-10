@@ -473,7 +473,7 @@ export class GreenScene extends BaseScene {
     this.news = ev.outcome.text;
     if (ev.real && ev.type === 'storm' && !ev.reacted) { this.region.breakTurbines(2); sfx.crash(); }
     if (ev.real && ev.type === 'storm') sfx.storm();
-    if (ev.real && ev.type === 'flood') this.region.setFlood(ev.reacted ? 0.004 : 0.011);
+    if (ev.real && ev.type === 'flood') this.region.setFlood(ev.reacted ? 0.007 : 0.0115);
     if (ev.real && ev.type === 'dark' && !ev.reacted) this.vis.blackout = true;
     if (out.good) { sfx.correct(); this.burst(this.alert.getWorldPosition(new THREE.Vector3()), 'xr-green-up', 16); } else sfx.wrong();
     this.region.showMarker(null);

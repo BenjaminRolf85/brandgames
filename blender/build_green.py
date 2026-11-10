@@ -415,6 +415,9 @@ def water():
         x, z = outline_point(2 * math.pi * i / n, 0.0015)
         vs.append(bm.verts.new(P(x, WATER_Y, z)))
     f = bm.faces.new(vs)
+    f.normal_update()
+    if f.normal.z < 0:
+        f.normal_flip()  # the water faces up
     bmesh.ops.triangulate(bm, faces=[f])
     ob = link('water', bm, WATER)
     # The resin side where the sea reaches the edge.
