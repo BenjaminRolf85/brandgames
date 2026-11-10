@@ -19,6 +19,7 @@ export const CARD_ART = {
   bike: 'assets/cards/bike.webp',
   bricks: 'assets/cards/bricks.webp',
   green: 'assets/cards/green.webp',
+  dock: 'assets/cards/dock.webp',
   roast: 'assets/cards/roast.webp',
   pinball: 'assets/cards/pinball.webp',
   summit: 'assets/cards/summit.webp',
