@@ -19,7 +19,7 @@ import { music } from '../music.js';
 import { quality } from '../quality.js';
 import { EVENT } from '../event.js';
 import { CHRISTMAS, makeBulbs } from '../christmas.js';
-import { makeEnvironment, radialTexture } from '../robot-visuals.js';
+import { makeEnvironment } from '../robot-visuals.js';
 import '../dock-text.js';
 import { makeRound, Protein, evaluateFit, PASS } from '../dock-chem.js';
 import {
@@ -36,7 +36,7 @@ const PROT = { y: -0.17, z: -0.8 }; // protein center (y relative to eye height)
 const TRAY = { x: 0.35, z: -0.55, gap: 0.115, lift: 0.07, size: 0.05 };
 const PLATE = new THREE.Vector3(0.45, 0.114, -0.885);
 const INLET = new THREE.Vector3(0.37, 0.116, -0.81);
-const FLASK = { x: -0.47, z: -0.86, r0: 0.056, r1: 0.016, h: 0.14 };
+const FLASK = { x: -0.5, z: -0.58, r0: 0.056, r1: 0.016, h: 0.14 };
 const CAPTURE = 0.06; // the pocket pulls a molecule in within this distance ...
 const TOL = { xr: 42, desk: 48, touch: 58 }; // ... and this angle (degrees) of the right pose
 const IN_POCKET = 0.035;
@@ -81,6 +81,9 @@ export class DockScene extends BaseScene {
     this.tol = THREE.MathUtils.degToRad(this.isXR ? TOL.xr : this.touch ? TOL.touch : TOL.desk);
     this.buildLab();
     this.setupInput();
+    // The round is drawn now, so the first protein can be built in the background during the intro.
+    this.round = makeRound(LEVELS);
+    this.builds = [];
     this.onUpdate((dt) => this.update(dt));
     const hint = t(this.isXR ? 'dockIntroXR' : this.touch ? 'dockIntroTouch' : 'dockIntroScreen');
     this.intro(t('dockName'), `${t('dockIntro')} ${hint}`, () => this.start());
@@ -105,6 +108,7 @@ export class DockScene extends BaseScene {
     // The bench: the Blender model (bench-local: y = 0 is its top).
     const bench = (this.bench = new THREE.Group());
     bench.position.set(0, eye - BENCH_DROP, 0);
+    bench.userData.noFit = this.touch; // phones frame the panels and the protein, the bench is backdrop
     this.world.add(bench);
     this.deck = fallbackDeck(1.28, 0.54);
     this.deck.position.z = BENCH_Z;
@@ -132,8 +136,9 @@ export class DockScene extends BaseScene {
     this.prot.position.set(0, eye + PROT.y, PROT.z);
     this.world.add(this.prot);
     this.protMat = proteinMaterial();
+    // A soft light at the pocket that warms to green as the fit grows (not in Lite effects).
     this.pocketLight = new THREE.PointLight(hex('xr-dock-ai'), 0, 0.6, 2);
-    this.prot.add(this.pocketLight);
+    if (!quality.lite) this.prot.add(this.pocketLight);
 
     // The tray's slots (where candidates wait), the screening stream, the microplate wells.
     this.screening = makeScreening(quality.lite ? 500 : 900);
@@ -143,6 +148,7 @@ export class DockScene extends BaseScene {
     bench.add(this.wells);
     // An invisible box over the tray, so phones frame the candidates too.
     this.trayFit = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.1, 0.1), this.kit.hidden);
+    this.trayFit.visible = false; // placed by layout() on phones
     this.world.add(this.trayFit);
   }
 
@@ -349,6 +355,8 @@ export class DockScene extends BaseScene {
     if (this.active && this.active !== c) this.putBack();
     this.activate(c);
     this.hand = p;
+    this.showRay();
+    if (p.line) { p.line.visible = false; this.rayHidden = p; } // the hand holds it: no ray in the way
     this.unsnap();
     const ctrl = this.ctrlMatrix(p);
     const hand = V().setFromMatrixPosition(ctrl);
@@ -368,8 +376,16 @@ export class DockScene extends BaseScene {
     this.engine.haptic(p, 0.35, 30);
   }
 
+  /** Shows the ray of a hand again (it was hidden while that hand held a molecule). */
+  showRay() {
+    const p = this.rayHidden;
+    if (p?.line) p.line.visible = p.source?.targetRayMode !== 'screen';
+    this.rayHidden = null;
+  }
+
   releaseXR(c, p) {
     if (this.hand === p) this.hand = null;
+    this.showRay();
     if (c !== this.active || c.s !== 'active') return;
     c.pose.pos.copy(c.view.group.position);
     c.pose.quat.copy(c.view.group.quaternion);
@@ -383,7 +399,6 @@ export class DockScene extends BaseScene {
     this.clearLayer();
     this.startMusic(0, 'dock');
     this.app.echo?.suppress(true);
-    this.round = makeRound(LEVELS);
     Object.assign(this, { score: 0, playT: 0, li: -1, solved: 0, tests: 0, tipsTested: 0, tipsHit: 0, levelLog: [] });
     this.refreshHud ??= this.hud(() => this.hudText());
     this.layoutKey = null;
@@ -424,9 +439,10 @@ export class DockScene extends BaseScene {
     this.mode = 'screen';
     this.layoutKey = null;
     this.layout();
-    this.protein = new Protein(L);
-    const geo = this.protein.geometry(L.tint, quality.lite ? 34 : 46);
-    this.protMesh = new THREE.Mesh(geo, this.protMat);
+    const built = this.takeBuild(i);
+    this.builds[i] = null;
+    this.protein = built.protein;
+    this.protMesh = new THREE.Mesh(built.geo, this.protMat);
     this.prot.add(this.protMesh);
     // The pocket frame and its spot markers.
     const F = (this.F = new THREE.Object3D());
@@ -440,7 +456,7 @@ export class DockScene extends BaseScene {
     this.idealPos = V().copy(L.c0).applyMatrix4(this.Fw);
     this.idealQuat = new THREE.Quaternion().setFromRotationMatrix(this.Fw);
     this.pocketOut = V(0, 0, 1).applyQuaternion(this.idealQuat);
-    this.pocketLight.position.copy(V().copy(L.c0).add(V(0, 0, 0.07)).applyMatrix4(this.protein.F));
+    this.pocketLight.position.copy(V().copy(L.c0).add(V(0, 0, 0.17)).applyMatrix4(this.protein.F));
     // Candidates (they land on the tray when the screening is done).
     L.candidates.forEach((c, k) => {
       c.view = new MoleculeView(this.kit, c.mol);
@@ -448,7 +464,7 @@ export class DockScene extends BaseScene {
       c.slot = k;
       c.pose = { pos: this.slotPos(k), quat: new THREE.Quaternion() };
       c.scale = 0.001;
-      c.trayScale = Math.min(0.62, TRAY.size / c.mol.radius);
+      c.trayScale = Math.min(this.touch ? 0.78 : 0.62, (this.touch ? 0.06 : TRAY.size) / c.mol.radius);
       c.spin = Math.random() * Math.PI * 2;
       c.view.group.visible = false;
       c.badge = this.makeBadge(c);
@@ -481,6 +497,40 @@ export class DockScene extends BaseScene {
     this.refreshHud?.();
   }
 
+  // ---------- building proteins in the background ----------
+
+  startBuild(i) {
+    const L = this.round[i];
+    const protein = new Protein(L);
+    return { protein, it: protein.buildSteps(L.tint, quality.lite ? 34 : 46), geo: null };
+  }
+
+  /** Advances the build of the current and the next pocket for at most ms milliseconds. */
+  pumpBuilds(ms) {
+    if (!this.round) return;
+    const t0 = performance.now();
+    const from = Math.max(0, this.li ?? 0);
+    for (let i = from; i <= from + 1 && i < this.round.length; i++) {
+      if (i === this.li && this.protMesh) continue;
+      const b = (this.builds[i] ??= this.startBuild(i));
+      while (b && !b.geo && performance.now() - t0 < ms) {
+        const r = b.it.next();
+        if (r.done) b.geo = r.value;
+      }
+      if (performance.now() - t0 >= ms) return;
+    }
+  }
+
+  /** The finished build of pocket i (whatever is left is done now). */
+  takeBuild(i) {
+    const b = (this.builds[i] ??= this.startBuild(i));
+    while (!b.geo) {
+      const r = b.it.next();
+      if (r.done) b.geo = r.value;
+    }
+    return b;
+  }
+
   runScreening() {
     const from = this.aiPanel ? this.aiPanel.position.clone() : V(-0.8, this.eye, -1);
     const tray = this.level.candidates.map((c, k) => this.slotPos(k));
@@ -496,7 +546,8 @@ export class DockScene extends BaseScene {
     u.uReveal.value = -0.3 + 0.62 * clamp(T / 1.5, 0, 1);
     u.uEdge.value = clamp((1.8 - T) / 0.4, 0, 1);
     const k = clamp(T / 1.7, 0, 1);
-    if (k !== this.screenK) { this.screenK = k; this.redrawAI(); }
+    // The counter runs up (redrawn a dozen times a second: the canvas upload is not free).
+    if (k !== this.screenK && (k === 1 || T - (this.aiDrawT ?? -1) > 0.08)) { this.screenK = k; this.aiDrawT = T; this.redrawAI(); }
     if (T > 1.7) {
       const s = clamp((T - 1.7) / 0.6, 0, 1);
       if (s !== this.shown) { this.shown = s; this.redrawAI(); }
@@ -523,7 +574,7 @@ export class DockScene extends BaseScene {
     const off = (k - 1.5);
     if (this.touch) {
       const port = this.layoutKey === 'port';
-      return V(off * (port ? 0.15 : 0.13), this.eye + PROT.y - (port ? 0.3 : 0.29), PROT.z + 0.08);
+      return V(off * (port ? 0.15 : 0.135), this.eye + PROT.y - 0.29, PROT.z + 0.08);
     }
     return V(TRAY.x + off * TRAY.gap, this.eye - BENCH_DROP + TRAY.lift, TRAY.z);
   }
@@ -573,6 +624,7 @@ export class DockScene extends BaseScene {
     if (!c || c.s !== 'active') return;
     if (this.hand && this.hand.held === c.view.proxy) this.hand.held = null;
     this.hand = null;
+    this.showRay();
     c.s = 'tray';
     c.view.clearGlow();
     if (this.active === c) { this.active = null; this.snapped = false; this.removeGhost(); }
@@ -624,6 +676,7 @@ export class DockScene extends BaseScene {
 
   startLab(c) {
     if (this.hand) { if (this.hand.held === c.view.proxy) this.hand.held = null; this.hand = null; }
+    this.showRay();
     c.pose.pos.copy(c.view.group.position);
     c.pose.quat.copy(c.view.group.quaternion);
     c.fit = Math.round((this.fitOut.fit ?? 0) * 100) / 100;
@@ -740,16 +793,22 @@ export class DockScene extends BaseScene {
     this.screening.visible = false;
     this.cone.visible = false;
     this.toastPanel = null;
+    this.engine.fitEnabled = true;
+    if (!this.isXR) this.engine.camera.rotation.set(0, 0, 0);
     const learned = [
       { q: t('dockLearnQ1'), a: t('dockLearnA1') },
       { q: t('dockLearnQ2'), a: t('dockLearnA2') },
       { q: t('dockLearnQ3'), a: t('dockLearnA3') },
     ];
-    const line = `${this.solved >= LEVELS ? t('dockAllDone') : t('dockTimeUp')} · ${t('dockLine', { solved: this.solved, total: LEVELS, tests: this.tests, hits: this.tipsHit, tips: this.tipsTested })}`;
+    const parts = [t('dockLine', { solved: this.solved, total: LEVELS, tests: this.tests })];
+    if (this.tipsTested) parts.push(t('dockLineAI', { hits: this.tipsHit, tips: this.tipsTested }));
+    if (this.solved < LEVELS) parts.unshift(t('dockTimeUp'));
+    const line = parts.join(' · ');
     this.results({ gameKey: 'dock', score: Math.min(5000, this.score), correct: this.solved, total: LEVELS, line, learned, onAgain: () => this.app.startGame('dock') });
   }
 
   clearCandidates() {
+    this.showRay();
     if (!this.level) return;
     for (const c of this.level.candidates) {
       if (!c.view) continue;
@@ -787,6 +846,16 @@ export class DockScene extends BaseScene {
     this.time += dt;
     this.layout();
     const e = this.engine;
+    // Results stand behind the bench: always draw them on top; the camera frames only them.
+    if (this.mode === 'over') {
+      this.layer.traverse((o) => {
+        if (!o.material || o.userData.onTop) return;
+        o.material.depthTest = false;
+        o.renderOrder = 100;
+        o.userData.onTop = true;
+      });
+      if (!this.isXR) this.bench.visible = false;
+    }
     // The bench column reaches down to the floor (not in AR: the bench floats over the real room).
     if (this.column) {
       const ar = e.isXR && e.xrMode === 'immersive-ar';
@@ -794,6 +863,9 @@ export class DockScene extends BaseScene {
       const topY = this.bench.getWorldPosition(_v).y - 0.04;
       this.column.scale.y = Math.max(0.05, topY - e.floorY);
     }
+    // Phones held upright: the intro panel alone (the bench would only peek in at the bottom).
+    if (this.mode === 'intro' && this.touch) this.bench.visible = window.innerWidth > window.innerHeight;
+    if (this.mode !== 'over' && this.mode !== 'lab') this.pumpBuilds(this.isXR ? 3 : 6);
     if (this.mode === 'screen') this.updateScreen(dt);
     if (this.mode === 'play') {
       this.playT += dt;
@@ -827,7 +899,7 @@ export class DockScene extends BaseScene {
     // Pocket light: violet when empty, warming to green as the fit grows.
     const f = this.near ? this.fitShown : 0;
     this.pocketLight.color.setHex(hex(f >= 0.7 ? 'xr-dock-good' : f >= 0.45 ? 'xr-dock-mid' : 'xr-dock-ai'));
-    this.pocketLight.intensity = this.prot.visible ? 0.25 + f * 0.9 : 0;
+    this.pocketLight.intensity = this.prot.visible ? 0.004 + f * 0.014 : 0;
     // Panels and the status bar (a few times a second).
     const tick = Math.floor(this.time * 8);
     if (tick !== this.panelTick) {
@@ -836,6 +908,7 @@ export class DockScene extends BaseScene {
       if (tick % 2 === 0 && this.mode !== 'intro' && this.mode !== 'over') this.refreshHud?.();
     }
     this.labBtnState();
+    if (!this.isXR && !this.touch) this.deskCamera(dt);
     this.pad?.show(this.mode === 'play' || this.mode === 'lab' || this.mode === 'screen' || this.mode === 'solved' || this.mode === 'switch');
     this.swipe?.show(this.mode === 'play' && !!this.active && !this.swiped);
   }
@@ -977,10 +1050,10 @@ export class DockScene extends BaseScene {
     const lab = c.s === 'lab';
     for (let i = 0; i < c.mol.atoms.length; i++) {
       const st = out.atom?.[i];
-      if (lab) view.setGlow(i, good, 0.25 + 0.2 * Math.sin(this.time * 8 + i));
-      else if (st === 'contact') view.setGlow(i, good, 1);
-      else if (st === 'good') view.setGlow(i, good, 0.35);
-      else if (st === 'bad') view.setGlow(i, bad, flick * (0.6 + 0.4 * (out.pen?.[i] ?? 0)));
+      if (lab) view.setGlow(i, good, 0.15 + 0.12 * Math.sin(this.time * 8 + i));
+      else if (st === 'contact') view.setGlow(i, good, 0.55);
+      else if (st === 'good') view.setGlow(i, good, 0.035);
+      else if (st === 'bad') view.setGlow(i, bad, flick * (0.5 + 0.35 * (out.pen?.[i] ?? 0)));
       else view.setGlow(i, good, 0);
     }
     view.flush();
@@ -1023,7 +1096,7 @@ export class DockScene extends BaseScene {
     [...this.ui.children].forEach((o) => { o.removeFromParent(); disposeOwn(o); });
     const ai = aiPanelSize(compact);
     this.aiPanel = new Panel(ai.w, ai.h, (ctx, c) => drawAIPanel(ctx, c, this.aiState()));
-    const fs = fitPanelSize(compact);
+    const fs = fitPanelSize(compact, key === 'land');
     this.fitPanel = new Panel(fs.w, fs.h, (ctx, c) => drawFitPanel(ctx, c, this.fitState()));
     const ls = labPanelSize();
     this.labPanel = new Panel(ls.w, ls.h, (ctx, c) => drawLabPanel(ctx, c, { cand: this.labCand, k: this.labCand?.tested ? 1 : this.labK ?? 0 }));
@@ -1061,13 +1134,13 @@ export class DockScene extends BaseScene {
     if (key === 'xr') {
       // Left: the AI's ranking; right beside the protein: the fit meter and the lab button,
       // above them the lab result. Everything within reach of a glance while docking.
-      placeOnArc(this.aiPanel, -0.6, eye + 0.02, 1.0);
-      if (this.legend) placeOnArc(this.legend, -0.6, eye + 0.02 - ai.h / 2 - 0.03 - lg.h / 2, 1.0);
+      placeOnArc(this.aiPanel, -0.6, eye + 0.06, 1.0);
+      if (this.legend) placeOnArc(this.legend, -0.6, eye + 0.06 + ai.h / 2 + 0.03 + lg.h / 2, 1.0);
       this.fitPanel.position.set(0.45, eye - 0.06, -0.84);
       this.fitPanel.rotation.y = -0.5;
       this.btnDock.position.set(0.44, eye - 0.06 - fs.h / 2 - 0.03 - this.btnDock.h / 2, -0.83);
       this.btnDock.rotation.y = -0.5;
-      placeOnArc(this.labPanel, 0.62, eye + 0.3, 1.05);
+      placeOnArc(this.labPanel, 0.64, eye + 0.25, 1.05);
     } else if (key === 'desk') {
       this.aiPanel.position.set(-0.76, eye + 0.1, pz);
       this.legend.position.set(-0.76, eye + 0.1 - ai.h / 2 - 0.03 - lg.h / 2, pz);
@@ -1077,14 +1150,18 @@ export class DockScene extends BaseScene {
       this.btnDock.position.set(0.7 + 0.14, by, pz);
       this.labPanel.position.set(0.7, by - 0.055 - 0.03 - ls.h / 2, pz);
     } else if (key === 'land') {
-      this.aiPanel.position.set(-0.68, eye + 0.04, -0.9);
-      this.legend.position.set(-0.68, eye + 0.04 - ai.h / 2 - 0.025 - lg.h / 2, -0.9);
-      this.fitPanel.position.set(0.04, eye + 0.17, -0.9);
+      // Left: fit meter, protein, candidates. Right: the AI's ranking and the legend, ending
+      // above the thumb buttons in the lower right corner.
+      this.fitPanel.position.set(0, eye + 0.17, -0.9);
+      const top = eye + 0.17 + fs.h / 2;
+      this.aiPanel.position.set(0.7, top - ai.h / 2, -0.9);
+      this.legend.position.set(0.7, top - ai.h - 0.025 - lg.h / 2, -0.9);
       this.labPanel.position.set(0, eye - 0.12, -0.55);
     } else {
       this.aiPanel.position.set(0, eye + 0.37, -0.9);
       this.fitPanel.position.set(0, eye + 0.1, -0.9);
-      this.labPanel.position.set(0, eye - 0.16, -0.55);
+      this.labPanel.position.set(0, eye - 0.15, -0.62);
+      this.labPanel.scale.setScalar(0.92);
     }
     // On phones the lab result lies over the protein; it does not change the framing.
     if (compact) {
@@ -1094,13 +1171,59 @@ export class DockScene extends BaseScene {
     }
     // Phones frame panels, protein and the candidates; the bench is only backdrop.
     this.bench.userData.noFit = compact;
-    this.bench.visible = key !== 'port';
+    this.bench.visible = !compact;
     if (this.parts?.DockTray) this.parts.DockTray.visible = !compact;
     const tp = this.slotPos(0).add(this.slotPos(3)).multiplyScalar(0.5);
     this.trayFit.position.copy(tp);
     this.trayFit.scale.set(compact ? 1.25 : 1, 1, 1);
     this.trayFit.visible = compact;
     this.redrawAll();
+  }
+
+  /**
+   * Desktop: a camera a little above the bench looking down at it, pulled back just enough that
+   * the panels, the status bar and the bench fit (found by projecting their corners).
+   */
+  deskCamera(dt) {
+    const e = this.engine;
+    const cam = e.camera;
+    const playing = this.layoutKey === 'desk' && this.mode !== 'intro' && this.mode !== 'over';
+    e.fitEnabled = !playing;
+    if (!playing) return;
+    if (!this.deskView || this.deskView.aspect !== cam.aspect || this.deskView.key !== this.layoutKey) {
+      const box = new THREE.Box3();
+      const pts = [];
+      const add = (o) => {
+        if (!o || !o.visible) return;
+        box.setFromObject(o);
+        if (box.isEmpty()) return;
+        for (let i = 0; i < 8; i++) pts.push(V(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z));
+      };
+      this.ui.children.forEach(add);
+      this.group.children.filter((o) => o.userData.hud).forEach(add);
+      add(this.parts?.DockDeck ?? this.deck);
+      const all = new THREE.Box3().setFromPoints(pts);
+      const center = all.getCenter(V());
+      center.x = this.group.localToWorld(V()).x;
+      const dir = V(0, 0.3, 1).normalize();
+      const saved = { p: cam.position.clone(), q: cam.quaternion.clone() };
+      let lo = 0.4;
+      let hi = 8;
+      for (let i = 0; i < 26; i++) {
+        const d = (lo + hi) / 2;
+        cam.position.copy(center).addScaledVector(dir, d);
+        cam.lookAt(center);
+        cam.updateMatrixWorld();
+        const ok = pts.every((q) => { const v = q.clone().project(cam); return Math.abs(v.x) < 0.96 && Math.abs(v.y) < 0.93 && v.z < 1; });
+        if (ok) hi = d; else lo = d;
+      }
+      cam.position.copy(saved.p);
+      cam.quaternion.copy(saved.q);
+      this.deskView = { aspect: cam.aspect, key: this.layoutKey, pos: center.clone().addScaledVector(dir, hi), target: center };
+      if (!this.deskInit) { this.deskInit = true; cam.position.copy(this.deskView.pos); }
+    }
+    cam.position.lerp(this.deskView.pos, Math.min(1, dt * 5));
+    cam.lookAt(this.deskView.target);
   }
 
   aiState() {
@@ -1113,7 +1236,7 @@ export class DockScene extends BaseScene {
     const compact = this.layoutKey === 'port' || this.layoutKey === 'land';
     let status = t(this.isXR ? 'dockStatusPickXR' : 'dockStatusPick');
     let tok = 'xr-panel-muted';
-    if (c && (c.s === 'active' || c.s === 'lab')) {
+    if (c && c.s === 'done') { status = t('dockLabStrong'); tok = 'xr-dock-good'; } else if (c && (c.s === 'active' || c.s === 'lab')) {
       if (!this.near) status = t('dockStatusTurn');
       else if ((o.clash ?? 0) > 0.3) { status = t('dockStatusClash'); tok = 'xr-dock-bad'; }
       else if (this.snapped) { status = t('dockStatusLocked'); tok = (o.fit ?? 0) >= FIT_MIN ? 'xr-dock-good' : 'xr-dock-mid'; }
@@ -1172,7 +1295,10 @@ export class DockScene extends BaseScene {
 
   dispose() {
     this.mode = 'over';
+    this.showRay();
     this.app.echo?.suppress(false);
+    this.engine.fitEnabled = true;
+    if (!this.isXR) this.engine.camera.rotation.set(0, 0, 0);
     this.engine.scene.environment = this.prevEnvironment ?? null;
     this.envTarget?.dispose();
     super.dispose();

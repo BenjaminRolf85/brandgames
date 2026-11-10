@@ -173,13 +173,13 @@ def build_set():
     parts['DockTubeLiquid'] = merge(liq, 'DockTubeLiquid')
 
     # Beaker with a stirring rod.
-    parts['DockBeaker'] = lathe('DockBeaker', (-0.53, 0, -0.62), [(0.036, 0.0), (0.04, 0.003), (0.04, 0.088), (0.043, 0.092)], GLASS, segs=40, cap_bottom=True)
-    parts['DockBeakerLiquid'] = lathe('DockBeakerLiquid', (-0.53, 0, -0.62), [(0.034, 0.002), (0.0375, 0.006), (0.0375, 0.046)], LIQ[1], segs=36, cap_bottom=True, cap_top=True)
-    rod = tcyl('DockRod', (-0.515, 0.07, -0.615), 0.003, 0.15, GLASS, segs=12, rot=Matrix.Rotation(math.radians(-14), 3, 'Y'))
+    parts['DockBeaker'] = lathe('DockBeaker', (-0.5, 0, -0.88), [(0.036, 0.0), (0.04, 0.003), (0.04, 0.088), (0.043, 0.092)], GLASS, segs=40, cap_bottom=True)
+    parts['DockBeakerLiquid'] = lathe('DockBeakerLiquid', (-0.5, 0, -0.88), [(0.034, 0.002), (0.0375, 0.006), (0.0375, 0.046)], LIQ[1], segs=36, cap_bottom=True, cap_top=True)
+    rod = tcyl('DockRod', (-0.485, 0.07, -0.875), 0.003, 0.15, GLASS, segs=12, rot=Matrix.Rotation(math.radians(-14), 3, 'Y'))
     parts['DockRod'] = rod
 
     # Erlenmeyer flask (a little fir at Christmas: green liquid, a star on top).
-    fx, fz = -0.47, -0.86
+    fx, fz = -0.5, -0.58
     r0, r1, h = 0.056, 0.016, 0.14
     parts['DockFlask'] = lathe('DockFlask', (fx, 0, fz), [(r0 - 0.008, 0.0), (r0, 0.006), (r1, h), (r1, h + 0.04), (r1 + 0.004, h + 0.044)], GLASS, segs=48, cap_bottom=True)
     lh = 0.1
@@ -205,12 +205,13 @@ def coin(scene_json, out_png):
     sc = bpy.context.scene
     sc.render.engine = 'CYCLES'
     sc.cycles.device = 'CPU'
-    sc.cycles.samples = 64
+    sc.cycles.samples = 56
     sc.cycles.use_denoising = True
     sc.render.resolution_x = sc.render.resolution_y = 512
     sc.render.film_transparent = False
-    sc.view_settings.view_transform = 'AgX'
-    sc.view_settings.look = 'AgX - Punchy'
+    sc.view_settings.view_transform = 'Standard'
+    sc.view_settings.look = 'Medium High Contrast'
+    sc.view_settings.exposure = -0.35
 
     def srgb(c):
         return tuple(((x + 0.055) / 1.055) ** 2.4 if x > 0.04045 else x / 12.92 for x in c)
@@ -226,7 +227,7 @@ def coin(scene_json, out_png):
         p.use_smooth = True
     ca = me.color_attributes.new('Col', 'FLOAT_COLOR', 'POINT')
     for i, d in enumerate(ca.data):
-        d.color = (*srgb(pr['col'][i * 3:i * 3 + 3]), 1)
+        d.color = (*pr['col'][i * 3:i * 3 + 3], 1)  # already linear (from the game)
     ob = bpy.data.objects.new('Protein', me)
     sc.collection.objects.link(ob)
     pm = bpy.data.materials.new('ProteinMat')
@@ -235,18 +236,21 @@ def coin(scene_json, out_png):
     bsdf = nt.nodes['Principled BSDF']
     attr = nt.nodes.new('ShaderNodeVertexColor')
     attr.layer_name = 'Col'
-    nt.links.new(attr.outputs['Color'], bsdf.inputs['Base Color'])
-    bsdf.inputs['Roughness'].default_value = 0.42
-    bsdf.inputs['Coat Weight'].default_value = 0.5
-    bsdf.inputs['Sheen Weight'].default_value = 0.6
-    bsdf.inputs['Subsurface Weight'].default_value = 0.15
+    hsv = nt.nodes.new('ShaderNodeHueSaturation')
+    hsv.inputs['Saturation'].default_value = 1.18
+    hsv.inputs['Value'].default_value = 0.86
+    nt.links.new(attr.outputs['Color'], hsv.inputs['Color'])
+    nt.links.new(hsv.outputs['Color'], bsdf.inputs['Base Color'])
+    bsdf.inputs['Roughness'].default_value = 0.45
+    bsdf.inputs['Coat Weight'].default_value = 0.3
+    bsdf.inputs['Sheen Weight'].default_value = 0.25
     me.materials.append(pm)
 
     # The molecule, half docked, glowing where its contacts match.
     mats = {}
 
     def atom_mat(c, glow):
-        key = (tuple(c), glow)
+        key = (tuple(c), tuple(glow) if glow else None)
         if key not in mats:
             m = bpy.data.materials.new('Atom')
             m.use_nodes = True
@@ -256,7 +260,7 @@ def coin(scene_json, out_png):
             b.inputs['Coat Weight'].default_value = 1.0
             if glow:
                 b.inputs['Emission Color'].default_value = (*srgb(glow), 1)
-                b.inputs['Emission Strength'].default_value = 2.2
+                b.inputs['Emission Strength'].default_value = 0.7
             mats[key] = m
         return mats[key]
 
@@ -291,11 +295,12 @@ def coin(scene_json, out_png):
     grad.gradient_type = 'SPHERICAL'
     tc = nt.nodes.new('ShaderNodeTexCoord')
     mp = nt.nodes.new('ShaderNodeMapping')
-    mp.inputs['Scale'].default_value = (0.9, 0.9, 0.9)
+    mp.inputs['Scale'].default_value = (0.62, 0.62, 0.62)
     ramp = nt.nodes.new('ShaderNodeValToRGB')
-    ramp.color_ramp.elements[0].color = (*srgb(data['bg'][0]), 1)
-    ramp.color_ramp.elements[1].color = (*srgb(data['bg'][1]), 1)
-    ramp.color_ramp.elements[1].position = 0.75
+    # Spherical gradient: 1 in the middle, 0 at the rim: a glow behind the protein.
+    ramp.color_ramp.elements[0].color = (*srgb(data['bg'][1]), 1)
+    ramp.color_ramp.elements[1].color = (*srgb(data['bg'][0]), 1)
+    ramp.color_ramp.elements[0].position = 0.25
     nt.links.new(tc.outputs['Object'], mp.inputs['Vector'])
     nt.links.new(mp.outputs['Vector'], grad.inputs['Vector'])
     nt.links.new(grad.outputs['Fac'], ramp.inputs['Fac'])
@@ -303,19 +308,19 @@ def coin(scene_json, out_png):
     em.inputs['Strength'].default_value = 1.0
     nt.links.new(em.outputs['Emission'], out.inputs['Surface'])
     bm = bmesh.new()
-    bmesh.ops.create_circle(bm, cap_ends=True, segments=64, radius=1.2)
+    bmesh.ops.create_circle(bm, cap_ends=True, segments=64, radius=4.0)
     bmesh.ops.rotate(bm, verts=bm.verts, cent=Vector(), matrix=Matrix.Rotation(math.pi / 2, 3, 'X'))
     back = link('Backdrop', bm, bg)
-    back.location = P(0, 0.02, -0.9)
+    back.location = P(0, -0.06, -0.9)
     import random
     rnd = random.Random(7)
-    for i in range(26):
+    for i in range(44):
         m = atom_mat((0, 0, 0), data['bokeh'][i % len(data['bokeh'])])
         bm = bmesh.new()
-        bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=8, radius=0.006 + rnd.random() * 0.01)
+        bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=8, radius=0.009 + rnd.random() * 0.014)
         a = rnd.random() * math.pi * 2
-        r = 0.22 + rnd.random() * 0.3
-        bmesh.ops.translate(bm, vec=P(math.cos(a) * r, math.sin(a) * r * 0.9 + 0.02, -0.35 - rnd.random() * 0.3), verts=bm.verts)
+        r = 0.26 + rnd.random() * 0.34
+        bmesh.ops.translate(bm, vec=P(math.cos(a) * r, math.sin(a) * r * 0.9 + 0.04, -0.3 - rnd.random() * 0.35), verts=bm.verts)
         link('bokeh', bm, m)
 
     # Lights and camera.
@@ -330,19 +335,21 @@ def coin(scene_json, out_png):
         d = Vector((0, 0, 0)) - o.location
         o.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
         return o
-    area('Key', P(-0.6, 0.7, 0.9), 60, 0.6, (1.0, 0.96, 0.9))
-    area('Rim', P(0.7, 0.4, -0.6), 50, 0.5, data['rim'])
-    area('Fill', P(0.6, -0.4, 0.8), 12, 0.8, (0.8, 0.85, 1.0))
+    area('Key', P(-0.6, 0.7, 0.9), 26, 0.7, (1.0, 0.96, 0.9))
+    area('Rim', P(0.7, 0.45, -0.6), 40, 0.5, srgb(data['rim']))
+    area('Rim2', P(-0.7, 0.3, -0.5), 18, 0.5, srgb(data['bokeh'][1]))
+    area('Fill', P(0.6, -0.4, 0.8), 5, 0.8, (0.8, 0.85, 1.0))
     cam = bpy.data.cameras.new('Cam')
     cam.lens = 50
     cam.dof.use_dof = True
-    cam.dof.aperture_fstop = 2.8
+    cam.dof.aperture_fstop = 2.0
     co = bpy.data.objects.new('Cam', cam)
     sc.collection.objects.link(co)
     co.location = P(*data['cam'])
     target = Vector(P(*data['look']))
     co.rotation_euler = (target - co.location).to_track_quat('-Z', 'Y').to_euler()
-    cam.dof.focus_distance = (target - co.location).length
+    focus = Vector(P(*data.get('focus', data['look'])))
+    cam.dof.focus_distance = (focus - co.location).length
     sc.camera = co
     sc.world = bpy.data.worlds.new('W')
     sc.world.color = srgb(data['bg'][1])

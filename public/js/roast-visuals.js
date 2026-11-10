@@ -47,8 +47,8 @@ export function shopMaterials() {
     shopMats[name] = new C({ name, color: hex(token), roughness, metalness, vertexColors: true, ...rest });
   }
   shopMats.RoastGlass = new THREE.MeshPhysicalMaterial({
-    name: 'RoastGlass', color: hex('xr-roast-glass'), roughness: 0.04, metalness: 0, transparent: true, opacity: 0.2,
-    clearcoat: 1, clearcoatRoughness: 0.03, depthWrite: false, envMapIntensity: 1.6,
+    name: 'RoastGlass', color: hex('xr-roast-glass'), roughness: 0.05, metalness: 0, transparent: true, opacity: 0.13,
+    clearcoat: 0.6, clearcoatRoughness: 0.05, depthWrite: false, envMapIntensity: 0.7,
   });
   shopMats.RoastFlameGlow = new THREE.MeshBasicMaterial({ name: 'RoastFlameGlow', color: hex('xr-roast-flame'), toneMapped: false });
   return shopMats;
@@ -117,14 +117,16 @@ const _c = new THREE.Color();
 
 /** Green beans filling a jar (in the jar's local space). */
 function jarBeans(geo, seed) {
-  const n = 46;
+  // packed in layers up to about two thirds of the jar, a little heap on top
+  const n = 96;
   const mesh = new THREE.InstancedMesh(geo, beanMaterial(), n);
   for (let i = 0; i < n; i++) {
     const h = hash(seed * 100 + i);
-    const layer = Math.floor(i / 8);
-    const a = (i % 8) / 8 * Math.PI * 2 + layer * 0.7 + h;
-    const r = 0.012 + 0.03 * hash(seed * 100 + i + 0.5);
-    _v.set(Math.cos(a) * r, 0.014 + layer * 0.019 + 0.006 * h, Math.sin(a) * r);
+    const layer = Math.floor(i / 12);
+    const a = (i % 12) / 12 * Math.PI * 2 + layer * 0.9 + h * 0.5;
+    const r = 0.046 * Math.sqrt(hash(seed * 100 + i + 0.5));
+    const heap = layer === 7 ? 0.012 * (1 - r / 0.046) : 0;
+    _v.set(Math.cos(a) * r, 0.012 + layer * 0.0125 + 0.004 * h + heap, Math.sin(a) * r);
     _q.setFromEuler(_e.set(h * 6, hash(i + 3) * 6, hash(i + 7) * 6));
     mesh.setMatrixAt(i, _m.compose(_v, _q, _s.setScalar(0.021)));
     beanColor(0.02 + 0.06 * hash(i + seed), _c);
@@ -233,10 +235,11 @@ export class Roaster {
   /** Beans carried up the drum wall and falling back onto the pile. */
   tumble(time, r) {
     const n = this.nDrum;
-    const R = 0.148;
+    // a smaller loop than the drum itself, so the beans pass behind the sight glass
+    const R = 0.085;
     for (let i = 0; i < n; i++) {
       const h = hash(i + 0.31);
-      const z = -0.11 + 0.11 * hash(i + 4.7);
+      const z = -0.05 + 0.1 * hash(i + 4.7);
       let x;
       let y;
       if (i < 26) {
@@ -250,21 +253,21 @@ export class Roaster {
           const a0 = -Math.PI / 2 + 1.25;
           const x0 = Math.cos(a0) * R;
           const y0 = Math.sin(a0) * R;
-          const x1 = -0.07;
-          const y1 = -0.125;
+          const x1 = -0.04;
+          const y1 = -0.075;
           x = x0 + (x1 - x0) * k;
           y = y0 + (y1 - y0) * k + 0.05 * Math.sin(k * Math.PI) - 0.04 * k * k;
         }
       } else {
         // The pile at the bottom, shuffling.
         const a = -Math.PI / 2 - 0.7 + 1.3 * h + 0.06 * Math.sin(time * 3 + i);
-        const rr = R - 0.012 - 0.035 * hash(i + 2.2);
+        const rr = R - 0.005 - 0.03 * hash(i + 2.2);
         x = Math.cos(a) * rr;
         y = Math.sin(a) * rr;
       }
       _v.set(x, y, z);
       _q.setFromEuler(_e.set(time * (1 + h * 3) + i, time * 2 * h + i * 0.7, i));
-      this.drumBeans.setMatrixAt(i, _m.compose(_v, _q, _s.setScalar(0.024)));
+      this.drumBeans.setMatrixAt(i, _m.compose(_v, _q, _s.setScalar(0.026)));
       beanColor(clamp(r + (hash(i + 9) - 0.5) * 0.05, 0, 1), _c);
       this.drumBeans.setColorAt(i, _c);
     }
@@ -341,6 +344,8 @@ export function makeCup(gltf) {
   const crema = new THREE.Mesh(new THREE.RingGeometry(0.55, 1, 28).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: hex('xr-roast-crema'), roughness: 0.6, transparent: true, opacity: 0.85 }));
   crema.position.y = 0.0004;
   top.add(crema);
+  top.userData.own = true; // its own geometry and material (the cup's are shared)
+  crema.userData.own = true;
   top.visible = false;
   cup.add(top);
   g.userData.fill = (k) => {
@@ -466,6 +471,10 @@ const GUEST_TOKENS = {
   family: { GSkin: 'xr-roast-skin-3', GHair: 'xr-roast-family-hair', GCoat: 'xr-roast-family-coat', GPants: 'xr-roast-family-pants', GAccent: 'xr-roast-family-acc', GAccent2: 'xr-roast-family-acc2' },
   kid: { GSkin: 'xr-roast-skin-3', GHair: 'xr-roast-family-hair', GCoat: 'xr-roast-kid-coat', GPants: 'xr-roast-family-pants', GAccent: 'xr-roast-kid-acc', GAccent2: 'xr-roast-kid-acc' },
   chef: { GSkin: 'xr-roast-skin-2', GHair: 'xr-roast-chef-hair', GCoat: 'xr-roast-chef-coat', GPants: 'xr-roast-chef-pants', GAccent: 'xr-roast-chef-acc', GAccent2: 'xr-roast-chef-acc2' },
+  // the rush: new guests on the same figures in their own colors
+  biz2: { GSkin: 'xr-roast-skin-2', GHair: 'xr-roast-biz2-hair', GCoat: 'xr-roast-biz2-coat', GPants: 'xr-roast-biz2-pants', GAccent: 'xr-roast-biz2-acc', GAccent2: 'xr-roast-biz2-acc2' },
+  student2: { GSkin: 'xr-roast-skin-3', GHair: 'xr-roast-student2-hair', GCoat: 'xr-roast-student2-coat', GPants: 'xr-roast-student2-pants', GAccent: 'xr-roast-student2-acc', GAccent2: 'xr-roast-student2-acc2' },
+  chef2: { GSkin: 'xr-roast-skin-1', GHair: 'xr-roast-chef2-hair', GCoat: 'xr-roast-chef2-coat', GPants: 'xr-roast-chef2-pants', GAccent: 'xr-roast-chef2-acc', GAccent2: 'xr-roast-chef2-acc2' },
 };
 const COMMON = { GShoe: 'xr-roast-wood-dark', GEye: 'xr-roast-eye', GWhite: 'xr-roast-white', GCheek: 'xr-roast-cheek', GMetal: 'xr-roast-metal' };
 const MODEL = { student: 'GuestStudent', grandma: 'GuestGrandma', business: 'GuestBusiness', family: 'GuestFamily', kid: 'GuestKid', chef: 'GuestChef' };
@@ -473,12 +482,12 @@ const HEAD_R = { kid: 0.14 };
 
 /** One figure (body, head with face, arms) from the guests model. */
 class Figure {
-  constructor(gltf, model) {
+  constructor(gltf, model, look = model) {
     const src = gltf.scene.getObjectByName(MODEL[model]);
     this.root = src ? src.clone(true) : new THREE.Group();
     this.root.position.set(0, 0, 0);
     this.mats = [];
-    const tokens = { ...COMMON, ...GUEST_TOKENS[model] };
+    const tokens = { ...COMMON, ...(GUEST_TOKENS[look] ?? GUEST_TOKENS[model]) };
     const cache = {};
     this.root.traverse((o) => {
       if (!o.isMesh) return;
@@ -553,15 +562,34 @@ class Figure {
  * talk(on), drink(k 0..1), react(mood) with a little hop, a shake or a tilt.
  */
 export class Guest {
-  constructor(gltf, model) {
+  constructor(gltf, model, look = model) {
     this.group = new THREE.Group();
-    this.main = new Figure(gltf, model);
+    this.main = new Figure(gltf, model, look);
     this.group.add(this.main.root);
     this.figures = [this.main];
     if (model === 'family') {
+      // the child stands on a little wooden step stool to see over the display case
+      const STEP = 0.44;
+      const stool = new THREE.Group();
+      const M = shopMaterials();
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.04, 0.28), M.RoastWoodLight);
+      seat.position.y = STEP - 0.02;
+      stool.add(seat);
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.035, STEP - 0.04, 0.035), M.RoastWood);
+          leg.position.set(sx * 0.14, (STEP - 0.04) / 2, sz * 0.11);
+          stool.add(leg);
+        }
+      }
+      stool.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.userData.own = true; } });
+      stool.position.set(0.36, 0, 0.06);
+      this.group.add(stool);
+      this.stool = stool;
       const kid = new Figure(gltf, 'kid');
-      kid.root.position.set(0.36, 0, 0.12);
+      kid.root.position.set(0.36, 0, 0.06);
       kid.root.rotation.y = -0.15;
+      kid.lift = STEP;
       this.group.add(kid.root);
       this.figures.push(kid);
     }
@@ -596,7 +624,7 @@ export class Guest {
       // Breathing and a slow sway; walking bobs and swings the arms.
       const walk = this.walking;
       const step = Math.sin(t * 9 + s);
-      f.root.position.y = walk * Math.abs(step) * 0.025 + 0.004 * Math.sin(t * 1.8 + s);
+      f.root.position.y = (f.lift ?? 0) + walk * Math.abs(step) * 0.025 + 0.004 * Math.sin(t * 1.8 + s);
       f.root.rotation.z = walk * step * 0.04 + 0.012 * Math.sin(t * 0.9 + s);
       f.armL.rotation.x = walk * step * 0.45;
       f.armR.rotation.x = -walk * step * 0.45;
@@ -618,6 +646,8 @@ export class Guest {
       } else if (i === 0 && f.mouths.talk.visible && f.mood !== 'talk') f.setMood(f.mood);
     });
     const f = this.main;
+    // Waited too long: the head hangs (and the walk out is slow).
+    if (this.slump) this.figures.forEach((g) => { g.head.rotation.x += 0.32; g.armL.rotation.x *= 0.4; g.armR.rotation.x *= 0.4; });
     // Drinking: the right arm brings the cup up, the head tilts back.
     if (this.drinkK > 0) {
       const k = smooth(clamp(this.drinkK, 0, 1));
@@ -646,6 +676,7 @@ export class Guest {
 
   dispose() {
     this.figures.forEach((f) => f.dispose());
+    this.stool?.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
   }
 }
 

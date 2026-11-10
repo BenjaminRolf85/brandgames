@@ -94,10 +94,13 @@ export function flavorIcon(ctx, key, x, y, s, col) {
 
 // ---------- speech bubble ----------
 
-/** The guest's speech bubble (cream with a tail at the bottom). stars: 0 = none. */
-export function bubblePanel({ name, body, sub = null, stars: n = 0, w = 0.66 }) {
+/**
+ * The guest's speech bubble (cream with a tail at the bottom). stars: 0 = none. active: the guest
+ * you prepare for now (a thick warm border). tail: 'left' (bubble beside the head) or 'center'.
+ */
+export function bubblePanel({ name, body, sub = null, stars: n = 0, w = 0.66, active = false, tail: tailAt = 'left', bodySize = 'xr-text-md' }) {
   const pad = 0.035;
-  const blocks = [{ text: name, size: 'xr-text-sm', weight: 'bold', gap: 0.012 }, { text: body, size: 'xr-text-md', weight: 'bold', gap: 0.012 }];
+  const blocks = [{ text: name, size: 'xr-text-sm', weight: 'bold', gap: 0.012 }, { text: body, size: bodySize, weight: 'bold', gap: 0.012 }];
   if (sub) blocks.push({ text: sub, size: 'xr-text-sm', gap: 0.012 });
   const starH = n ? 0.065 : 0;
   const tail = 0.045;
@@ -105,19 +108,27 @@ export function bubblePanel({ name, body, sub = null, stars: n = 0, w = 0.66 }) 
   const p = new Panel(w, h, (ctx, c) => {
     const W = c.canvas.width;
     const H = c.canvas.height - c.m(tail);
-    roundRect(ctx, c.m(0.004), c.m(0.004), W - c.m(0.008), H - c.m(0.008), c.m(0.04));
+    const bw = active ? 0.009 : 0;
+    roundRect(ctx, c.m(0.004 + bw / 2), c.m(0.004 + bw / 2), W - c.m(0.008 + bw), H - c.m(0.008 + bw), c.m(0.04));
     ctx.fillStyle = color('xr-roast-bubble');
     ctx.fill();
-    // the tail points down to the left, towards the guest's head
+    if (active) {
+      ctx.lineWidth = c.m(bw);
+      ctx.strokeStyle = color('xr-roast-active');
+      ctx.stroke();
+    }
+    // the tail points down to the guest's head (left: the bubble sits beside it)
+    const tx = tailAt === 'center' ? W / 2 : c.m(0.07);
     ctx.beginPath();
-    ctx.moveTo(c.m(0.07), H - c.m(0.01));
-    ctx.lineTo(c.m(0.012), H + c.m(tail) - c.m(0.004));
-    ctx.lineTo(c.m(0.16), H - c.m(0.01));
+    ctx.moveTo(tx - c.m(0.04), H - c.m(0.012));
+    ctx.lineTo(tailAt === 'center' ? tx : c.m(0.012), H + c.m(tail) - c.m(0.004));
+    ctx.lineTo(tx + c.m(0.05), H - c.m(0.012));
     ctx.closePath();
+    ctx.fillStyle = color(active ? 'xr-roast-active' : 'xr-roast-bubble');
     ctx.fill();
     let y = pad;
     y = para(ctx, c, name, pad, y, w - pad * 2, { size: 'xr-text-sm', weight: 'bold', col: 'xr-roast-bubble-muted' }) + 0.012;
-    y = para(ctx, c, body, pad, y, w - pad * 2, { size: 'xr-text-md', weight: 'bold', col: 'xr-roast-bubble-ink' }) + 0.012;
+    y = para(ctx, c, body, pad, y, w - pad * 2, { size: bodySize, weight: 'bold', col: 'xr-roast-bubble-ink' }) + 0.012;
     if (sub) y = para(ctx, c, sub, pad, y, w - pad * 2, { size: 'xr-text-sm', col: 'xr-roast-bubble-muted' }) + 0.012;
     if (n) stars(ctx, c, n, pad + 0.03, y + 0.03, 0.026, 0.065);
   });
@@ -131,7 +142,7 @@ export function jarTag(i) {
   const w = 0.215;
   const h = 0.185;
   const p = new Panel(w, h, (ctx, c) => {
-    const { selected, hover, order } = c.state;
+    const { selected, hover } = c.state;
     const W = c.canvas.width;
     const H = c.canvas.height;
     roundRect(ctx, c.m(0.004), c.m(0.004), W - c.m(0.008), H - c.m(0.008), c.m(0.02));
@@ -145,7 +156,13 @@ export function jarTag(i) {
     ctx.arc(W / 2, c.m(0.016), c.m(0.006), 0, Math.PI * 2);
     ctx.fillStyle = color('xr-roast-tag-edge');
     ctx.fill();
-    text(ctx, c, `${i + 1}  ${beanName(i)}`, 0.016, 0.045, { size: 'xr-text-min', weight: 'black', col: 'xr-roast-tag-ink', max: w - 0.032 });
+    // the number (its key on a keyboard) in a circle, green when chosen, then the name
+    ctx.beginPath();
+    ctx.arc(c.m(0.03), c.m(0.046), c.m(0.016), 0, Math.PI * 2);
+    ctx.fillStyle = color(selected ? 'xr-roast-tag-pick' : 'xr-roast-tag-edge');
+    ctx.fill();
+    text(ctx, c, String(i + 1), 0.03, 0.047, { size: 'xr-text-min', weight: 'black', col: selected ? 'xr-on-primary' : 'xr-roast-tag', align: 'center' });
+    text(ctx, c, beanName(i), 0.054, 0.046, { size: 'xr-text-min', weight: 'black', col: 'xr-roast-tag-ink', max: w - 0.066 });
     // four bars: icon + filled bar
     const flav = BEANS[i].flavor;
     FLAVORS.forEach((f, k) => {
@@ -160,13 +177,6 @@ export function jarTag(i) {
       ctx.fillStyle = color(FLAVOR_INK[f]);
       ctx.fill();
     });
-    if (selected) {
-      ctx.beginPath();
-      ctx.arc(W - c.m(0.026), c.m(0.03), c.m(0.019), 0, Math.PI * 2);
-      ctx.fillStyle = color('xr-roast-tag-pick');
-      ctx.fill();
-      text(ctx, c, String(order), w - 0.026, 0.031, { size: 'xr-text-min', weight: 'black', col: 'xr-on-primary', align: 'center' });
-    }
   });
   p.userData.interactive = true;
   p.userData.setHover = (v) => p.set({ hover: v });
@@ -175,8 +185,8 @@ export function jarTag(i) {
 
 /** A small label under a gift basket item. */
 export function itemTag(label, n) {
-  const w = 0.17;
-  const h = 0.06;
+  const w = 0.185;
+  const h = 0.062;
   const p = new Panel(w, h, (ctx, c) => {
     const { selected, hover, n } = c.state;
     roundRect(ctx, c.m(0.003), c.m(0.003), c.canvas.width - c.m(0.006), c.canvas.height - c.m(0.006), c.m(0.018));
@@ -185,7 +195,13 @@ export function itemTag(label, n) {
     ctx.lineWidth = c.m(selected ? 0.008 : hover ? 0.005 : 0.0025);
     ctx.strokeStyle = color(selected ? 'xr-roast-tag-pick' : 'xr-roast-tag-edge');
     ctx.stroke();
-    text(ctx, c, `${n}  ${label}`, w / 2, h / 2, { size: 'xr-text-min', weight: 'bold', col: 'xr-roast-tag-ink', align: 'center', max: w - 0.02 });
+    // the number (its key on a keyboard) in a small circle, then the name
+    ctx.beginPath();
+    ctx.arc(c.m(0.024), c.m(h / 2), c.m(0.015), 0, Math.PI * 2);
+    ctx.fillStyle = color(selected ? 'xr-roast-tag-pick' : 'xr-roast-tag-edge');
+    ctx.fill();
+    text(ctx, c, String(n), 0.024, h / 2 + 0.001, { size: 'xr-text-min', weight: 'black', col: selected ? 'xr-on-primary' : 'xr-roast-tag', align: 'center' });
+    text(ctx, c, label, 0.047, h / 2, { size: 'xr-text-min', weight: 'bold', col: 'xr-roast-tag-ink', max: w - 0.058 });
   });
   p.state.n = n;
   p.redraw();
@@ -220,7 +236,7 @@ export class AiPanel extends Panel {
     const { h } = this;
     // Wide panels (phones held upright): text on the left, the taste map on the right.
     const wide = this.w > this.h * 1.4;
-    const w = wide ? this.w * 0.56 : this.w;
+    const w = wide ? this.w * 0.6 : this.w;
     const pad = 0.032;
     this.surface({ stroke: color('xr-roast-ai') });
     // glow flash after learning
@@ -242,9 +258,10 @@ export class AiPanel extends Panel {
     if (v.cues?.length) {
       ctx.font = font('bold', this.m(sz('xr-text-min')));
       let x = pad;
-      text(ctx, this, t('roastAiHears', { cues: '' }).trim(), x, y + 0.022, { size: 'xr-text-min', col: 'xr-panel-muted' });
+      const lead = t(v.cueLabel ?? 'roastAiHears', { cues: '' }).trim();
+      text(ctx, this, lead, x, y + 0.022, { size: 'xr-text-min', col: 'xr-panel-muted' });
       ctx.font = font('regular', this.m(sz('xr-text-min')));
-      x += ctx.measureText(t('roastAiHears', { cues: '' }).trim()).width / this.px + 0.012;
+      x += ctx.measureText(lead).width / this.px + 0.012;
       ctx.font = font('bold', this.m(sz('xr-text-min')));
       for (const cue of v.cues) {
         const cw = ctx.measureText(cue).width / this.px + 0.024;
@@ -371,10 +388,10 @@ export function blendPanel() {
   const w = 0.62;
   const h = 0.16;
   const p = new Panel(w, h, (ctx, c) => {
-    const { a = null, b = null, share = 0.5, hover } = c.state;
-    c.surface({ stroke: color(hover ? 'xr-accent' : 'xr-panel-border') });
+    const { a = null, b = null, share = 0.5, hover, who = null } = c.state;
+    c.surface({ stroke: color(who ? 'xr-roast-active' : hover ? 'xr-accent' : 'xr-panel-border') });
     const pad = 0.03;
-    text(ctx, c, t('roastBlend'), pad, 0.034, { size: 'xr-text-min', weight: 'bold', col: 'xr-panel-muted' });
+    text(ctx, c, who ? t('roastBlendFor', { name: who }) : t('roastBlend'), pad, 0.034, { size: 'xr-text-min', weight: 'bold', col: who ? 'xr-roast-active' : 'xr-panel-muted', max: w - pad * 2 });
     const bx = pad;
     const by = 0.062;
     const bw = w - pad * 2;
@@ -383,7 +400,7 @@ export function blendPanel() {
       roundRect(ctx, c.m(bx), c.m(by), c.m(bw), c.m(bh), c.m(0.02));
       ctx.fillStyle = color('xr-button-bg');
       ctx.fill();
-      text(ctx, c, t(a === null ? 'roastPickTwo' : 'roastPickOne'), w / 2, by + bh / 2, { size: 'xr-text-sm', weight: 'bold', col: 'xr-panel-muted', align: 'center' });
+      text(ctx, c, t(!who ? 'roastNobody' : a === null ? 'roastPickTwo' : 'roastPickOne'), w / 2, by + bh / 2, { size: 'xr-text-sm', weight: 'bold', col: 'xr-panel-muted', align: 'center', max: bw - 0.02 });
       return;
     }
     const split = bw * share;
@@ -418,16 +435,18 @@ export const ratioIndex = (share) => RATIOS.reduce((best, r, i) => (Math.abs(r -
 /** Roast progress: the stage strip with the cracks, the AI's mark and a needle. */
 export function gaugePanel() {
   const w = 0.62;
-  const h = 0.2;
+  const h = 0.22;
   const p = new Panel(w, h, (ctx, c) => {
-    const { r = 0, aiStop = null, done = false } = c.state;
-    c.surface({ stroke: color(STAGE_TOKEN[stageOf(r).key] === 'xr-roast-bean-burnt' ? 'xr-danger' : 'xr-panel-border') });
+    const { r = 0, aiStop = null, done = false, who = null, next = null, idle = false } = c.state;
+    const roasting = !idle && !done;
+    c.surface({ stroke: color(roasting ? 'xr-roast-active' : STAGE_TOKEN[stageOf(r).key] === 'xr-roast-bean-burnt' ? 'xr-danger' : 'xr-panel-border') });
     const pad = 0.03;
-    text(ctx, c, t('roastRoasting'), pad, 0.036, { size: 'xr-text-min', weight: 'bold', col: 'xr-panel-muted' });
+    text(ctx, c, idle ? t('roastDrumFree') : who ? t('roastRoastFor', { name: who }) : t('roastRoasting'), pad, 0.036, { size: 'xr-text-min', weight: 'bold', col: roasting ? 'xr-roast-active' : 'xr-panel-muted', max: w * 0.62 });
     const st = stageOf(r);
-    text(ctx, c, t(`roastStage_${st.key}`), w - pad, 0.038, { size: 'xr-text-md', weight: 'black', col: st.key === 'burnt' ? 'xr-danger' : st.key === 'green' ? 'xr-roast-bean-green' : st.key === 'yellow' ? 'xr-roast-bean-yellow' : 'xr-roast-bean-cinnamon', align: 'right' });
+    if (!idle) text(ctx, c, t(`roastStage_${st.key}`), w - pad, 0.038, { size: 'xr-text-md', weight: 'black', col: st.key === 'burnt' ? 'xr-danger' : st.key === 'green' ? 'xr-roast-bean-green' : st.key === 'yellow' ? 'xr-roast-bean-yellow' : 'xr-roast-bean-cinnamon', align: 'right' });
+    if (next) text(ctx, c, t('roastNext', { name: next }), w - pad, h - 0.03, { size: 'xr-text-min', weight: 'bold', col: 'xr-accent', align: 'right' });
     const bx = pad;
-    const by = 0.075;
+    const by = 0.094;
     const bw = w - pad * 2;
     const bh = 0.045;
     ctx.save();

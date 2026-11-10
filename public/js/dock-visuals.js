@@ -60,10 +60,12 @@ export function makeKit() {
     cyl: new THREE.CylinderGeometry(1, 1, 1, 12, 1, true),
     torus: new THREE.TorusGeometry(B * 0.6, 0.0028, 8, 40),
     proxy: new THREE.SphereGeometry(1, 12, 8),
-    atomMat: new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.26, metalness: 0.02, clearcoat: 1, clearcoatRoughness: 0.12 }),
-    bondMat: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.15 }),
+    // White base materials: the per-atom and per-bond colors come from the tokens (instance colors).
+    atomMat: new THREE.MeshPhysicalMaterial({ roughness: 0.26, metalness: 0.02, clearcoat: 1, clearcoatRoughness: 0.12 }),
+    bondMat: new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.15 }),
     ringMat: new THREE.MeshStandardMaterial({ color: hex('xr-dock-bond'), roughness: 0.3, metalness: 0.3, emissive: hex('xr-dock-bond'), emissiveIntensity: 0.15 }),
-    glowMat: new THREE.ShaderMaterial({ uniforms: { uBoost: { value: 1 } }, vertexShader: GLOW_VS, fragmentShader: GLOW_FS, ...additive }),
+    // Glow shows through the protein: a clashing atom sits inside the wall.
+    glowMat: new THREE.ShaderMaterial({ uniforms: { uBoost: { value: 1 } }, vertexShader: GLOW_VS, fragmentShader: GLOW_FS, ...additive, depthTest: false }),
     ghostMat: new THREE.ShaderMaterial({ uniforms: { uBoost: { value: 0.6 } }, vertexShader: GLOW_VS, fragmentShader: GLOW_FS, ...additive }),
     hidden: new THREE.MeshBasicMaterial({ visible: false }),
   };
@@ -90,7 +92,7 @@ export class MoleculeView {
     const g = (this.group = new THREE.Group());
     g.userData.noFit = true; // instanced unit geometry would confuse the camera framing
     const n = mol.atoms.length;
-    const white = new THREE.Color(0xffffff);
+    const light = col('xr-dock-bond');
     if (!ghost) {
       this.atoms = new THREE.InstancedMesh(kit.sphere, kit.atomMat, n);
       mol.atoms.forEach((a, i) => {
@@ -109,7 +111,7 @@ export class MoleculeView {
           const d = mid.clone().sub(from);
           _q.setFromUnitVectors(UP, d.clone().normalize());
           this.bonds.setMatrixAt(k, _m.compose(from, _q, _s.set(0.0048, d.length(), 0.0048)));
-          this.bonds.setColorAt(k, _c.setHex(hex(ELEMENTS[el].token)).lerp(white, 0.42));
+          this.bonds.setColorAt(k, _c.setHex(hex(ELEMENTS[el].token)).lerp(light, 0.42));
           k += 1;
         }
       }
@@ -129,7 +131,7 @@ export class MoleculeView {
     // Glow shells: black is invisible (additive); colored for contacts and clashes.
     this.glow = new THREE.InstancedMesh(kit.sphereLo, ghost ? kit.ghostMat : kit.glowMat, n);
     mol.atoms.forEach((a, i) => {
-      this.glow.setMatrixAt(i, _m.compose(a.p, _q.identity(), _s.setScalar(ELEMENTS[a.el].r * (ghost ? 1.05 : 1.6))));
+      this.glow.setMatrixAt(i, _m.compose(a.p, _q.identity(), _s.setScalar(ELEMENTS[a.el].r * (ghost ? 1.05 : 1.4))));
       this.glow.setColorAt(i, ghost ? col('xr-dock-ghost') : _c.setRGB(0, 0, 0));
     });
     this.glow.renderOrder = 2;
@@ -172,8 +174,8 @@ export class MoleculeView {
  */
 export function proteinMaterial() {
   const mat = new THREE.MeshPhysicalMaterial({
-    color: 0xffffff, vertexColors: true, roughness: 0.46, metalness: 0, clearcoat: 0.35, clearcoatRoughness: 0.35,
-    sheen: 0.35, sheenRoughness: 0.5, sheenColor: col('xr-dock-protein-sheen'),
+    vertexColors: true, roughness: 0.5, metalness: 0, clearcoat: 0.3, clearcoatRoughness: 0.4,
+    sheen: 0.25, sheenRoughness: 0.55, sheenColor: col('xr-dock-protein-sheen'), envMapIntensity: 0.55,
   });
   const u = { uRim: { value: col('xr-dock-protein-rim') }, uRimK: { value: 0.35 }, uReveal: { value: 1 }, uEdge: { value: 0 } };
   mat.userData.u = u;
@@ -323,7 +325,7 @@ export function makeScreening(count = 900) {
 /** 8 x 12 wells of liquid on the microplate (plate top center at the origin). */
 export function makeWells() {
   const geo = new THREE.CylinderGeometry(0.0034, 0.0034, 0.0016, 12);
-  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+  const mat = new THREE.MeshBasicMaterial({ toneMapped: false });
   const wells = new THREE.InstancedMesh(geo, mat, 96);
   const empty = col('xr-dock-well');
   for (let r = 0; r < 8; r++) {
@@ -381,7 +383,10 @@ export function loadBench() {
         else if (m.name === 'DockGlass') out = new THREE.MeshPhysicalMaterial({ name: m.name, color: hex('xr-dock-glass'), roughness: 0.06, metalness: 0, transparent: true, opacity: 0.32, clearcoat: 1, depthWrite: false });
         else if (MAT_TOKENS[m.name]) {
           out = new THREE.MeshStandardMaterial({ name: m.name, color: hex(MAT_TOKENS[m.name]), roughness: m.roughness ?? 0.5, metalness: m.metalness ?? 0, vertexColors: vc });
-          if (m.name.startsWith('DockLiquid')) Object.assign(out, { emissive: hex(MAT_TOKENS[m.name]), emissiveIntensity: 0.35, transparent: true, opacity: 0.88 });
+          if (m.name.startsWith('DockLiquid') || m.name === 'DockNeedle') {
+            out.emissive.setHex(hex(MAT_TOKENS[m.name]));
+            Object.assign(out, { emissiveIntensity: 0.3, roughness: 0.15, transparent: true, opacity: 0.9 });
+          }
           if (m.name === 'DockScreen') Object.assign(out, { roughness: 0.15, metalness: 0.4 });
         }
         mats.set(m.name, out);
@@ -484,7 +489,8 @@ export function drawAIPanel(ctx, c, st) {
   text(ctx, c, t('dockScreening'), pad, compact ? 0.045 : 0.05, { size: 'xr-text-md', weight: 'black', fill: color('xr-dock-ai') });
   const lib = L.lib.toLocaleString(st.locale);
   const screening = st.screenK < 1;
-  const sub = screening ? t('dockScreeningRun', { n: Math.round(L.lib * st.screenK).toLocaleString(st.locale) }) : t('dockScreened', { n: lib, s: st.locale === 'de-DE' ? L.secs.replace('.', ',') : L.secs });
+  const secs = st.locale === 'de-DE' ? L.secs.replace('.', ',') : L.secs;
+  const sub = screening ? t('dockScreeningRun', { n: Math.round(L.lib * st.screenK).toLocaleString(st.locale) }) : t(compact ? 'dockScreenedShort' : 'dockScreened', { n: lib, s: secs });
   if (compact) {
     text(ctx, c, sub, w - pad, 0.045, { size: 'xr-text-min', weight: 'regular', fill: color('xr-panel-muted'), align: 'right', maxW: w * 0.5 });
   } else {
@@ -548,8 +554,8 @@ export function drawAIPanel(ctx, c, st) {
 }
 
 /** Fit meter: a ring gauge with the percent, bars for shape and contacts, and a status line. */
-export function fitPanelSize(compact) {
-  return compact ? { w: 0.74, h: 0.13 } : { w: 0.54, h: 0.25 };
+export function fitPanelSize(compact, narrow = false) {
+  return compact ? { w: narrow ? 0.6 : 0.74, h: 0.13 } : { w: 0.6, h: 0.25 };
 }
 
 export function drawFitPanel(ctx, c, st) {
@@ -576,9 +582,20 @@ export function drawFitPanel(ctx, c, st) {
   if (!compact) text(ctx, c, '%', gx, gy + 0.036, { size: 'xr-text-min', weight: 'bold', fill: color('xr-panel-muted'), align: 'center' });
   const x0 = compact ? 0.14 : 0.215;
   const bw = c.w - x0 - 0.03;
+  const dots = (y) => {
+    const n = st.special ?? 0;
+    for (let i = 0; i < n; i++) {
+      const x = c.w - 0.04 - (n - 1 - i) * 0.035;
+      ctx.beginPath();
+      ctx.arc(c.m(x), c.m(y), c.m(0.012), 0, Math.PI * 2);
+      ctx.fillStyle = i < (st.good ?? 0) ? color('xr-dock-good') : i < (st.good ?? 0) + (st.bad ?? 0) ? color('xr-dock-bad') : color('xr-dock-ai-track');
+      ctx.fill();
+    }
+  };
   if (compact) {
-    text(ctx, c, `${t('dockFit')} ${Math.round(f * 100)} %`, x0, 0.04, { size: 'xr-text-sm', weight: 'black' });
-    text(ctx, c, t('dockContacts', { n: st.good ?? 0, total: st.special ?? 0 }), c.w - 0.03, 0.04, { size: 'xr-text-min', weight: 'bold', fill: color('xr-dock-good'), align: 'right' });
+    // One line: fit and the contact spots as dots; below it the status.
+    text(ctx, c, `${t('dockFit')} ${Math.round(f * 100)} %`, x0, 0.04, { size: 'xr-text-sm', weight: 'black', maxW: c.w - x0 - 0.16 });
+    dots(0.04);
     text(ctx, c, st.status ?? '', x0, 0.092, { size: 'xr-text-min', weight: 'bold', fill: st.statusColor ?? color('xr-panel-muted'), maxW: bw });
     return;
   }
@@ -586,14 +603,7 @@ export function drawFitPanel(ctx, c, st) {
   text(ctx, c, t('dockShape'), x0, 0.09, { size: 'xr-text-min', weight: 'bold', fill: color('xr-panel-muted') });
   bar(ctx, c, x0 + 0.12, 0.09, bw - 0.12, 0.016, st.shape ?? 0, fitColor(st.shape ?? 0));
   text(ctx, c, t('dockContacts', { n: st.good ?? 0, total: st.special ?? 0 }), x0, 0.135, { size: 'xr-text-min', weight: 'bold', fill: color('xr-panel-muted') });
-  const dots = st.special ?? 0;
-  for (let i = 0; i < dots; i++) {
-    const x = c.w - 0.04 - (dots - 1 - i) * 0.035;
-    ctx.beginPath();
-    ctx.arc(c.m(x), c.m(0.135), c.m(0.012), 0, Math.PI * 2);
-    ctx.fillStyle = i < (st.good ?? 0) ? color('xr-dock-good') : i < (st.good ?? 0) + (st.bad ?? 0) ? color('xr-dock-bad') : color('xr-dock-ai-track');
-    ctx.fill();
-  }
+  dots(0.135);
   ctx.font = font('bold', c.m(S('xr-text-min')));
   const lines = wrap(ctx, st.status ?? '', c.m(c.w - x0 - 0.03));
   lines.slice(0, 2).forEach((ln, i) => text(ctx, c, ln, x0, 0.185 + i * 0.038, { size: 'xr-text-min', weight: 'bold', fill: st.statusColor ?? color('xr-panel-muted') }));
@@ -614,8 +624,9 @@ export function drawLabPanel(ctx, c, st) {
     wrap(ctx, t('dockLabIdle'), c.m(c.w - 0.06)).slice(0, 5).forEach((ln, i) => text(ctx, c, ln, 0.03, 0.11 + i * 0.045, { size: 'xr-text-sm', weight: 'regular', fill: color('xr-panel-muted') }));
     return;
   }
-  const done = st.k >= 1;
-  const ok = cand.lab >= 70;
+  const done = !!cand.tested; // the result is in (the curve can be complete a moment earlier)
+  const value = done ? cand.lab : cand.truth;
+  const ok = done && value >= 70;
   c.surface({ stroke: done ? color(ok ? 'xr-dock-good' : 'xr-dock-bad') : color('xr-dock-lab') });
   const pad = 0.03;
   text(ctx, c, t('dockLabTitle', { c: cand.letter }), pad, 0.045, { size: 'xr-text-sm', weight: 'black', fill: color('xr-dock-lab') });
@@ -639,11 +650,12 @@ export function drawLabPanel(ctx, c, st) {
   ctx.lineTo(c.m(x0 + cw), c.m(yAI));
   ctx.stroke();
   ctx.setLineDash([]);
-  text(ctx, c, 'KI', x0 + cw - 0.005, yAI - 0.016, { size: 'xr-text-min', weight: 'black', fill: color('xr-dock-ai'), align: 'right' });
-  const val = cand.lab / 100;
+  text(ctx, c, t('dockChartAI'), x0 + cw - 0.005, yAI - 0.016, { size: 'xr-text-min', weight: 'black', fill: color('xr-dock-ai'), align: 'right' });
+  const val = value / 100;
+  const k = done ? 1 : Math.min(1, st.k);
   ctx.beginPath();
   const steps = 40;
-  const upto = Math.max(1, Math.round(steps * Math.min(1, st.k)));
+  const upto = Math.max(1, Math.round(steps * k));
   for (let i = 0; i <= upto; i++) {
     const u = i / steps;
     const resp = val / (1 + Math.exp(-(u - 0.45) / 0.09));
@@ -658,13 +670,13 @@ export function drawLabPanel(ctx, c, st) {
   ctx.stroke();
   // Values on the right.
   const rx = x0 + cw + 0.035;
-  const shownLab = Math.round(cand.lab * Math.min(1, st.k));
-  text(ctx, c, done ? t('dockLabValue', { n: cand.lab }) : t('dockLabRun'), rx, 0.105, { size: done ? 'xr-text-md' : 'xr-text-min', weight: 'black', fill: done ? color(ok ? 'xr-dock-good' : 'xr-dock-bad') : color('xr-dock-lab'), maxW: c.w - rx - pad });
-  if (!done) text(ctx, c, `${shownLab} %`, rx, 0.15, { size: 'xr-text-md', weight: 'black', fill: color('xr-dock-lab') });
+  const shown = Math.round(value * k);
+  text(ctx, c, done ? t('dockLabValue', { n: value }) : t('dockLabRun'), rx, 0.105, { size: done ? 'xr-text-md' : 'xr-text-min', weight: 'black', fill: done ? color(ok ? 'xr-dock-good' : 'xr-dock-bad') : color('xr-dock-lab'), maxW: c.w - rx - pad });
+  if (!done) text(ctx, c, `${shown} %`, rx, 0.15, { size: 'xr-text-md', weight: 'black', fill: color('xr-dock-lab') });
   else text(ctx, c, t('dockLabAI', { n: cand.ai }), rx, 0.15, { size: 'xr-text-min', weight: 'bold', fill: color('xr-dock-ai'), maxW: c.w - rx - pad });
   if (done && cand.fit != null) text(ctx, c, t('dockLabYou', { n: Math.round(cand.fit * 100) }), rx, 0.19, { size: 'xr-text-min', weight: 'bold', fill: color('xr-dock-you'), maxW: c.w - rx - pad });
   if (!done) return;
-  const verdict = ok ? t('dockLabStrong') : cand.lab >= 34 ? t('dockLabWeak') : t('dockLabNone');
+  const verdict = ok ? t('dockLabStrong') : value >= 34 ? t('dockLabWeak') : t('dockLabNone');
   text(ctx, c, verdict, pad, 0.255, { size: 'xr-text-sm', weight: 'black', fill: color(ok ? 'xr-dock-good' : 'xr-dock-bad'), maxW: c.w - pad * 2 });
   ctx.font = font('regular', c.m(S('xr-text-min')));
   const lines = wrap(ctx, t(cand.why), c.m(c.w - pad * 2));

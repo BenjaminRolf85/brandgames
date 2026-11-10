@@ -20,7 +20,9 @@
 #   GreenHomes, GreenCloud, GreenBoat.
 # Materials are named Green* so the runtime colors them from the --xr-green-* tokens; ambient
 # occlusion is baked into the vertex colors ('Col').
-# Usage: blender -b -P build_green.py -- <out.glb> <out.blend> [coin.png] [preview-folder]
+# Usage: blender -b -P build_green.py -- <out.glb> <out.blend> [coin.png|-] [preview-folder]
+# The coin picture (512 x 512, Cycles 64 samples): GREEN_COIN_CAM=-0.62,0.78,0.98 GREEN_COIN_LENS=36,
+# then PIL: Image.open(coin.png).convert('RGB').save('public/assets/cards/green.webp', quality=82, method=6)
 import os, sys, math, random
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bpy, bmesh
@@ -413,6 +415,9 @@ def water():
         x, z = outline_point(2 * math.pi * i / n, 0.0015)
         vs.append(bm.verts.new(P(x, WATER_Y, z)))
     f = bm.faces.new(vs)
+    f.normal_update()
+    if f.normal.z < 0:
+        f.normal_flip()  # the water faces up
     bmesh.ops.triangulate(bm, faces=[f])
     ob = link('water', bm, WATER)
     # The resin side where the sea reaches the edge.
@@ -824,22 +829,22 @@ bpy.context.scene.collection.objects.link(e)
 # ---------- projects (clone sources at the origin) ----------
 
 HUB_Y = 0.104
-HUB_Z = 0.0105
+HUB_Z = 0.0118
 
 
 def turbine():
     p = [tcyl('found', (0, 0.0015, 0), 0.011, 0.003, CONC, segs=20)]
-    p.append(tcyl('tower', (0, 0.003 + (HUB_Y - 0.003) / 2, 0), 0.0042, HUB_Y - 0.003, TURB, segs=16, r2=0.0024))
+    p.append(tcyl('tower', (0, 0.003 + (HUB_Y - 0.003) / 2, 0), 0.0052, HUB_Y - 0.003, TURB, segs=16, r2=0.003))
     p.append(tcyl('door', (0, 0.0065, 0.0038), 0.0012, 0.004, WINDOW, axis='z', segs=8))
     bm = bmesh.new()
-    nac = blob('nac', (0, HUB_Y + 0.0006, -0.002), 0.0062, TURB, s=(0.75, 0.68, 1.85), segs=16, rings=10)
+    nac = blob('nac', (0, HUB_Y + 0.0006, -0.002), 0.007, TURB, s=(0.75, 0.68, 1.85), segs=16, rings=10)
     p.append(nac)
-    p.append(tbox('stripe', (0, HUB_Y + 0.0006, -0.002), (0.0094, 0.0012, 0.018), MARK))
+    p.append(tbox('stripe', (0, HUB_Y + 0.0006, -0.002), (0.0106, 0.0013, 0.02), MARK))
     return merge(p, 'GreenTurbine')
 
 
 def rotor():
-    p = [blob('spinner', (0, 0, 0.002), 0.0042, TURB, s=(1, 1, 1.5), segs=16, rings=10)]
+    p = [blob('spinner', (0, 0, 0.003), 0.0048, TURB, s=(1, 1, 1.5), segs=16, rings=10)]
     for k in range(3):
         a = k * 2 * math.pi / 3
         bm = bmesh.new()
@@ -849,7 +854,7 @@ def rotor():
         for i in range(9):
             t = i / 8
             r = 0.003 + t * L
-            chord = 0.0055 * (1 - t) ** 0.7 + 0.0012 if t > 0.12 else 0.0045 + t * 0.008
+            chord = 0.0068 * (1 - t) ** 0.7 + 0.0015 if t > 0.12 else 0.0055 + t * 0.01
             tw = 0.35 * (1 - t)
             th = 0.0012 * (1 - t) + 0.0004
             pts = [(-chord * 0.3, -th), (chord * 0.7, 0), (-chord * 0.3, th)]
@@ -1076,10 +1081,12 @@ if PREVIEW or COIN:
     for o in projects:
         o.hide_render = True
     hub.hide_render = True
-    for pid in ('L1', 'L4', 'L2'):
-        t = place('GreenTurbine', pid)
+    TS = 1.25 if not COIN else 1.4  # the app shows turbines a little larger than true to scale
+    for k, pid in enumerate(('L1', 'L4', 'L2', 'L3')):
+        t = place('GreenTurbine', pid, -0.35)
+        t.matrix_world = t.matrix_world @ Matrix.Scale(TS, 4)
         r = place('GreenRotor', pid)
-        r.matrix_world = t.matrix_world @ Matrix.Translation(P(0, HUB_Y + 0.0006, HUB_Z)) @ Matrix.Rotation(0.4, 4, 'Y')
+        r.matrix_world = t.matrix_world @ Matrix.Translation(P(0, HUB_Y + 0.0006, HUB_Z)) @ Matrix.Rotation(0.4 + k, 4, 'Y')
     for pid in ('L6', 'L7', 'L8'):
         place('GreenSolar', pid)
     place('GreenSchool', 'T3')
@@ -1104,7 +1111,18 @@ if PREVIEW:
         bpy.ops.render.render(write_still=True)
 
 if COIN:
-    sc = setup_render((512, 512), int(os.environ.get('GREEN_SAMPLES', '64')))
+    res = int(os.environ.get('GREEN_COIN_RES', '512'))
+    sc = setup_render((res, res), int(os.environ.get('GREEN_SAMPLES', '64')))
+    # Snow caps on the hill tops (the Christmas look of the game).
+    snowm = mat('CoinSnow', (0.95, 0.97, 1.0), rough=0.8)
+    for poly in ground.data.polygons:
+        if poly.material_index == ground.data.materials.find('GreenHill') and poly.center.z > 0.075:
+            poly.material_index = ground.data.materials.find('CoinSnow') if 'CoinSnow' in ground.data.materials else poly.material_index
+    if 'CoinSnow' not in ground.data.materials:
+        ground.data.materials.append(snowm)
+        for poly in ground.data.polygons:
+            if poly.material_index == ground.data.materials.find('GreenHill') and poly.center.z > 0.075:
+                poly.material_index = ground.data.materials.find('CoinSnow')
     # Rich background: a gradient sky from the token colors (deep teal to violet).
     nt = sc.world.node_tree
     bg = nt.nodes['Background']
@@ -1120,8 +1138,34 @@ if COIN:
     ramp.color_ramp.elements[0].color = (0.05, 0.09, 0.22, 1)
     ramp.color_ramp.elements[1].color = (0.12, 0.42, 0.5, 1)
     bg.inputs['Strength'].default_value = 1.0
-    cam.data.lens = 50
-    look(cam, (-0.06, 0.42, 0.62), (-0.04, 0.02, -0.02))
+    sc.render.film_transparent = True  # the background is painted in when the picture becomes a WebP
+    sc.render.image_settings.color_mode = 'RGBA'
+    cam.data.lens = float(os.environ.get('GREEN_COIN_LENS', '42'))
+    cx, cy, cz = [float(v) for v in os.environ.get('GREEN_COIN_CAM', '-0.5,0.62,0.78').split(',')]
+    look(cam, (cx, cy, cz), (-0.02, 0.0, -0.04))
     sc.render.filepath = COIN
     bpy.ops.render.render(write_still=True)
+    # Background for the menu coin: a radial gradient from the game's tokens (--xr-green-heat-wind-mid,
+    # --xr-green-water-deep, a deep dusk blue), soft falling snow and a shadow under the diorama.
+    import numpy as np
+    img = bpy.data.images.load(COIN)
+    W, H = img.size
+    px = np.array(img.pixels[:], dtype=np.float32).reshape(H, W, 4)  # rows from the bottom
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    yt = (H - 1 - yy)  # rows from the top
+    hx = lambda h: np.array([int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)], dtype=np.float32)
+    inner, mid, outer = hx('#19b6c2'), hx('#1d5f8f'), hx('#1f1d5c')
+    r = np.minimum(1, np.hypot(xx - W * 0.5, yt - H * 0.42) / (W * 0.62))[..., None]
+    bg = np.where(r < 0.62, inner + (mid - inner) * np.minimum(1, r * 1.6), mid + (outer - mid) * (r - 0.62) / 0.38)
+    rs = random.Random(5)
+    for _ in range(70):
+        cx, cy, rr = rs.uniform(0, W), rs.uniform(0, H * 0.7), rs.uniform(1.2, 3.4) * W / 512
+        a = np.clip(1 - np.hypot(xx - cx, yt - cy) / (rr + 1), 0, 1)[..., None] * rs.uniform(0.35, 0.8)
+        bg = bg * (1 - a) + a
+    e = np.hypot((xx - W * 0.5) / (W * 0.38), (yt - H * 0.76) / (H * 0.11))[..., None]
+    bg = bg * (1 - 0.45 * np.clip(1 - e, 0, 1) ** 1.5)
+    al = px[..., 3:4]
+    out = np.concatenate([px[..., :3] * al + bg * (1 - al), np.ones_like(al)], axis=2)
+    img.pixels[:] = out.ravel()
+    img.save()
 print('DONE')

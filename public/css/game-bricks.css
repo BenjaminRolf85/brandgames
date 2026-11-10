@@ -4,16 +4,19 @@
   --xr-bricks-clay:           #c2643f;   /* clay bricks (each one varies a little) */
   --xr-bricks-gold:           #f0b43c;   /* golden interest bricks */
   --xr-bricks-gold-glow:      #ffd970;
-  --xr-bricks-concrete:       #b9b3a8;   /* foundation, sills, chimney cap */
+  --xr-bricks-concrete:       #8f8a82;   /* foundation, sills, lintels, chimney cap */
+  --xr-bricks-quoin:          #d9b88a;   /* sandstone corner pieces */
+  --xr-bricks-solar:          #1d2f5c;   /* solar cells (roof option) */
   /* the plan: ghost outline, free places, the place a brick would snap to */
   --xr-bricks-ghost:          #5fe1ff;
   --xr-bricks-ghost-dim:      #10394a;
   --xr-bricks-ghost-hot:      #b8f6ff;
   --xr-bricks-ghost-line:     #6fd8ff;
+  --xr-bricks-ghost-warn:     #ffb347;   /* a place where the piece would wobble (statics) */
   --xr-bricks-reject:         var(--xr-danger);
   /* garden */
-  --xr-bricks-grass:          #6fae5a;
-  --xr-bricks-grass-dark:     #4b8a46;
+  --xr-bricks-grass:          #5a954b;
+  --xr-bricks-grass-dark:     #417a3d;
   --xr-bricks-soil:           #7d5338;
   --xr-bricks-soil-dark:      #5b3a27;
   --xr-bricks-stone:          #cfc5b5;
@@ -64,12 +67,29 @@
   --xr-bricks-chart-spend:    var(--xr-danger);
   --xr-bricks-chart-gold:     #ffd970;
   --xr-bricks-chart-now:      rgb(255 255 255 / 0.5);
-  /* the temptation card */
-  --xr-bricks-tempt:          #ff8a6b;
+  --xr-bricks-chart-snow:     rgb(170 210 255 / 0.12);   /* months after the first snow */
+  --xr-bricks-snow-icon:      #bfe3ff;
+  /* life events */
+  --xr-bricks-card-bg:        #0d1222;   /* the decision card (opaque) */
+  --xr-bricks-event:          #ff9fc3;
+  --xr-bricks-opt-1:          #ffd27a;
+  --xr-bricks-opt-2:          #8fe0ff;
+  /* the neighbors (their bricks, their line in the chart, the family) */
+  --xr-bricks-neighbor:       #ffa25c;
+  --xr-bricks-neighbor-clay:  #d9a45a;
+  --xr-bricks-family-1:       #3f7bd6;
+  --xr-bricks-family-2:       #d94f6b;
+  --xr-bricks-family-3:       #53b36b;
+  --xr-bricks-family-pants:   #3a3f52;
+  --xr-bricks-family-hat-1:   #e0343c;
+  --xr-bricks-family-hat-2:   #2f8f5a;
+  --xr-bricks-family-skin-1:  #f1c6a0;
+  --xr-bricks-family-skin-2:  #c98d64;
   /* sizes (meters) */
-  --xr-bricks-chart-w:        0.62;
-  --xr-bricks-chart-h:        0.44;
-  --xr-bricks-chart-h-narrow: 0.36;
+  --xr-bricks-chart-w:        0.7;
+  --xr-bricks-chart-h:        0.72;
+  --xr-bricks-chart-h-narrow: 0.58;
+  --xr-bricks-sign-w:         0.5;
   --xr-bricks-snap:           0.075;     /* a held brick snaps to a free place this close (headset) */
   --xr-bricks-grab:           0.085;     /* a hand this close to a brick grabs it directly */
 }

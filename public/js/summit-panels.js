@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { Panel, roundRect, measureBlocks, wrap } from './ui3d.js';
 import { color, num, font } from './tokens.js';
 import { t, L } from './i18n.js';
-import { drawAvatar } from './summit-visuals.js';
+import { drawAvatar } from './summit-customer.js';
 import { STAGES, MOODS, TYPES } from './summit-talks.js';
 
 const OPTION_TOKENS = ['xr-summit-hold-1', 'xr-summit-hold-2', 'xr-summit-hold-3'];
@@ -82,12 +82,13 @@ export function makeBubble() {
   const pad = 0.045;
   const quoteSize = num('xr-text-md');
   const state = { customer: null, text: '', hits: [], tail: 'up', reveal: 1 };
-  const measure = (text) => {
+  const TAIL = 0.05;
+  const measure = (text, w) => {
     const ctx = document.createElement('canvas').getContext('2d');
     const ppm = num('xr-px-per-meter');
     ctx.font = font('bold', quoteSize * ppm);
-    const lines = richLines(ctx, text, (BUBBLE_W - pad * 2) * ppm);
-    return 0.09 + lines.length * quoteSize * 1.25 + pad * 2 + 0.05;
+    const lines = richLines(ctx, text, (w - pad * 2) * ppm);
+    return 0.09 + lines.length * quoteSize * 1.25 + pad * 2 + 0.03;
   };
   let panel = null;
   const draw = (ctx, p) => {
@@ -96,9 +97,10 @@ export function makeBubble() {
     const tail = p.m(0.05);
     const top = state.tail === 'up' ? tail : 0;
     const right = state.tail === 'right' ? tail : 0;
+    const left = state.tail === 'left' ? tail : 0;
     // Bubble with a tail towards the summit (up) or the customer (right).
     ctx.beginPath();
-    roundRect(ctx, p.m(0.006), top + p.m(0.006), W - right - p.m(0.012), H - top - p.m(0.012), p.m(0.05));
+    roundRect(ctx, left + p.m(0.006), top + p.m(0.006), W - right - left - p.m(0.012), H - top - p.m(0.012), p.m(0.05));
     ctx.fillStyle = color('xr-summit-bubble');
     ctx.fill();
     ctx.lineWidth = p.m(0.005);
@@ -109,6 +111,10 @@ export function makeBubble() {
       ctx.moveTo(W * 0.62, top + p.m(0.008));
       ctx.lineTo(W * 0.7, 0);
       ctx.lineTo(W * 0.7 + p.m(0.07), top + p.m(0.008));
+    } else if (state.tail === 'left') {
+      ctx.moveTo(left + p.m(0.008), H * 0.32);
+      ctx.lineTo(0, H * 0.42);
+      ctx.lineTo(left + p.m(0.008), H * 0.32 + p.m(0.07));
     } else {
       ctx.moveTo(W - right - p.m(0.008), H * 0.35);
       ctx.lineTo(W, H * 0.3);
@@ -119,21 +125,23 @@ export function makeBubble() {
     ctx.fill();
     const c = state.customer;
     if (!c) return;
-    const x0 = p.m(pad);
+    const x0 = left + p.m(pad);
     let y = top + p.m(pad * 0.8);
     const r = p.m(0.036);
-    drawAvatar(ctx, x0 + r, y + r, r, c.look);
+    // Next to the 3D portrait the little avatar is not needed.
+    const ax = state.tail === 'left' ? 0 : r * 2 + p.m(0.02);
+    if (ax) drawAvatar(ctx, x0 + r, y + r, r, c);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = color('xr-summit-bubble-text');
     ctx.font = font('black', px(p, num('xr-text-sm')));
-    ctx.fillText(L(c.name), x0 + r * 2 + p.m(0.02), y + r * 0.55, W - right - x0 - r * 2 - p.m(0.07));
+    ctx.fillText(L(c.name), x0 + ax, y + r * 0.55, W - right - x0 - ax - p.m(0.05));
     ctx.fillStyle = color('xr-summit-bubble-muted');
     ctx.font = font('regular', px(p, num('xr-text-min')));
-    ctx.fillText(`${L(c.role)} · ${c.market}`, x0 + r * 2 + p.m(0.02), y + r * 1.5, W - right - x0 - r * 2 - p.m(0.07));
+    ctx.fillText(`${L(c.role)} · ${c.market}`, x0 + ax, y + r * 1.5, W - right - x0 - ax - p.m(0.05));
     y += r * 2 + p.m(0.02);
     ctx.font = font('bold', p.m(quoteSize));
-    const lines = richLines(ctx, state.text, W - right - x0 * 2);
+    const lines = richLines(ctx, state.text, W - right - left - p.m(pad) * 2);
     const hits = state.reveal >= 1 ? state.hits : state.hits.filter((h, i) => i / Math.max(1, state.hits.length) < state.reveal);
     drawRich(ctx, lines, hits, x0, y, p.m(quoteSize * 1.25), color('xr-summit-bubble-text'));
   };
@@ -141,10 +149,14 @@ export function makeBubble() {
     /** Shows a line; returns the new panel (height fits the text). */
     show(customer, text, hits, tail = 'up') {
       Object.assign(state, { customer, text, hits, tail, reveal: 0 });
-      const h = measure(text);
-      if (!panel || Math.abs(panel.h - h) > 0.001) {
+      // Next to the customer (tail to the right) the bubble is narrower.
+      const body = tail === 'right' ? BUBBLE_W * 0.82 : tail === 'left' ? BUBBLE_W * 0.86 : BUBBLE_W;
+      const w = body + (tail === 'up' ? 0 : TAIL);
+      const h = measure(text, body) + (tail === 'up' ? TAIL : 0);
+      if (!panel || Math.abs(panel.h - h) > 0.001 || Math.abs(panel.w - w) > 0.001) {
         panel?.dispose();
-        panel = new Panel(BUBBLE_W + (tail === 'right' ? 0.05 : 0), h, draw);
+        panel = new Panel(w, h, draw);
+        panel.renderOrder = 12;
       } else panel.redraw();
       return panel;
     },
@@ -283,14 +295,15 @@ function drawCoach(ctx, c, s) {
       const v = e ? e.p : 0;
       const best = list && list[0].key === key;
       const scan = s.phase === 'reading' ? 0.15 + 0.12 * Math.sin(s.time * 9 + i * 1.3) : v * k;
-      bar(ctx, c, pad, y, bw, bh, scan, tokenOf(key), nameOf(key), s.phase === 'shown' ? `${Math.round(v * 100 * k)} %` : '', best && s.phase === 'shown');
+      bar(ctx, c, pad, y, bw, bh, scan, tokenOf(key), nameOf(key), s.phase === 'shown' && list ? `${Math.round(v * 100 * k)} %` : '', best && s.phase === 'shown');
       y += bh + gap;
     });
     y += c.m(0.012);
   };
   section(t('summitCoachMood'), s.mood, MOODS, moodToken, (key) => t(`summitMood_${key}`));
   section(t('summitCoachType'), s.type, TYPES, typeToken, (key) => t(`summitType_${key}`));
-  // Signal words as chips.
+  // Signal words as chips (not at the summit, where only the customer type is left).
+  if (s.phase === 'shown' && !s.mood) return;
   ctx.textAlign = 'left';
   ctx.font = font('bold', c.m(num('xr-text-min')));
   ctx.fillStyle = color('xr-panel-muted');
@@ -366,7 +379,7 @@ function drawStatus(ctx, c, s) {
   const cust = s.customer;
   const r = c.m(0.055);
   if (cust) {
-    drawAvatar(ctx, pad + r, y + r, r, cust.look);
+    drawAvatar(ctx, pad + r, y + r, r, cust);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     const x = pad + r * 2 + c.m(0.02);
@@ -444,7 +457,7 @@ function drawStatus(ctx, c, s) {
     y += bh + c.m(0.025);
   };
   meter(t('summitTrust'), s.trust, 'xr-summit-trust');
-  meter(t('summitStamina'), s.stamina, s.stamina < 30 && Math.sin(s.time * 10) > 0 ? 'xr-summit-stamina-low' : s.stamina < 30 ? 'xr-summit-stamina-low' : 'xr-summit-stamina');
+  meter(t('summitStamina'), s.stamina, s.stamina < 30 ? 'xr-summit-stamina-low' : 'xr-summit-stamina');
   ctx.textAlign = 'left';
   ctx.font = font('bold', c.m(num('xr-text-min')));
   ctx.fillStyle = color('xr-panel-muted');

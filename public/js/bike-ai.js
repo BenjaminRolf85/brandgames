@@ -104,15 +104,41 @@ export function planScans(rnd) {
 const PIDX = { low: 0, mid: 1, high: 2 };
 
 /**
+ * The live re-scan when the weather turns mid-section: a new reading near the new surface (clear,
+ * about 75 to 90 %), or in fog a reading halfway towards a wet surface (unsure, about 50 %)
+ * while the ground did not change. Returns { reading, probs, top, conf, before }.
+ */
+export function liveScan(from, to, rnd) {
+  const p = PROTO[from];
+  let base;
+  let noise = 0.02;
+  if (to) base = PROTO[to];
+  else {
+    const q = PROTO[from === 'mud' ? 'snow' : 'mud'];
+    base = p.map((v, j) => v + (q[j] - v) * 0.53);
+    noise = 0.005;
+  }
+  let reading;
+  let probs;
+  for (let tries = 0; tries < 40; tries++) {
+    reading = base.map((v) => Math.min(1, Math.max(0, v + (rnd() * 2 - 1) * noise)));
+    probs = classify(reading);
+    const ok = to ? probs[0].key === to && probs[0].p > 0.72 : probs[0].p < 0.62;
+    if (ok) break;
+  }
+  return { reading, probs, top: probs[0].key, conf: Math.round(probs[0].p * 100), before: p };
+}
+
+/**
  * How well a choice suits a terrain: grip 0..1 and the parts of it, plus the points for the
- * choice (tire 150, pressure 100, one step off 40).
+ * choice (tire 120, pressure 80, one step off 32).
  */
 export function rate(terrain, tire, pressure) {
   const best = BEST[terrain];
   const tireGrip = TIRE_GRIP[tire][terrain];
   const off = Math.abs(PIDX[pressure] - PIDX[best.pressure]);
   const pressGrip = [1, 0.84, 0.7][off];
-  const points = (tire === best.tire ? 150 : 0) + (off === 0 ? 100 : off === 1 ? 40 : 0);
+  const points = (tire === best.tire ? 120 : 0) + (off === 0 ? 80 : off === 1 ? 32 : 0);
   return {
     grip: tireGrip * pressGrip,
     tireOk: tire === best.tire,

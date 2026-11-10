@@ -15,6 +15,15 @@ export const CARD_ART = {
   dataflight: 'assets/cards/dataflight.webp',
   fight: 'assets/cards/fight.webp',
   quiz: 'assets/cards/quiz.webp',
+  // Games for our clients (rendered in Blender by their build scripts)
+  clients: 'assets/cards/clients.webp', // the gift coin that opens them (blender/build_clients_coin.py)
+  bike: 'assets/cards/bike.webp',
+  bricks: 'assets/cards/bricks.webp',
+  green: 'assets/cards/green.webp',
+  dock: 'assets/cards/dock.webp',
+  roast: 'assets/cards/roast.webp',
+  pinball: 'assets/cards/pinball.webp',
+  summit: 'assets/cards/summit.webp',
 };
 
 let promise = null;

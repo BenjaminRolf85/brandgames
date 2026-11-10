@@ -22,6 +22,8 @@
 #     empties <name>_Mouth (on the head), <name>_Hand (in the right hand)
 # Materials are named Roast* / G* so the app recolors them from the --xr-roast-* tokens.
 # Usage: blender -b -P build_roast.py -- <out.glb> <out.blend> [<guests.glb> <guests.blend>]
+#   e.g. -- public/assets/models/roast.glb blender/roast.blend public/assets/models/roast-guests.glb blender/roast-guests.blend
+#   then: bash blender/compress.sh public/assets/models/roast.glb public/assets/models/roast-guests.glb
 import os, sys, math, random
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bpy, bmesh

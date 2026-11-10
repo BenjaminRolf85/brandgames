@@ -12,6 +12,8 @@
 //   sensors   lines the ball rolls over (lanes), ramp mouths, saucers (capture holes)
 //   ramps     3D paths above the playfield: the ball rides along them with real gravity (up the
 //             ramp it slows down; too slow and it rolls back out of the mouth)
+// Several balls can be in play (multiball); they also collide with each other. Every event names
+// the ball it happened to (info.ball).
 // No three.js here: the module also runs in node for tests.
 
 export const H = 1 / 1000; // sub-step (s)
@@ -126,7 +128,7 @@ export class Ramp {
 
 export class World {
   constructor({ ballR = 0.0145, gravity = 1.3, gUp = 9.7, drainY = 0.03 } = {}) {
-    this.ball = new Ball(ballR);
+    this.balls = [new Ball(ballR)];
     this.g = gravity; // along the slope (m/s^2)
     this.gUp = gUp; // across the playfield (for ramps)
     this.drainY = drainY;
@@ -143,9 +145,28 @@ export class World {
     this.paused = false;
   }
 
+  /** The first ball (the only one outside multiball). */
+  get ball() { return this.balls[0]; }
+
+  /** Another ball for multiball (placed by the caller). */
+  addBall() {
+    const b = new Ball(this.balls[0].r);
+    this.balls.push(b);
+    return b;
+  }
+
+  /** Takes a ball out of play (the last one always stays, as the "gone" ball). */
+  removeBall(b) {
+    const i = this.balls.indexOf(b);
+    if (i >= 0 && this.balls.length > 1) this.balls.splice(i, 1);
+  }
+
   on(fn) { this.listeners.push(fn); }
 
-  emit(type, obj, info) { for (const fn of this.listeners) fn(type, obj, info); }
+  emit(type, obj, info) {
+    info.ball = this.cur;
+    for (const fn of this.listeners) fn(type, obj, info);
+  }
 
   addSegment(ax, ay, bx, by, opts = {}) {
     const dx = bx - ax;
@@ -215,10 +236,15 @@ export class World {
   sub(h) {
     this.time += h;
     for (const f of this.flippers) f.step(h);
-    const b = this.ball;
     for (const s of this.segments) if (s.cool > 0) s.cool -= h;
     for (const c of this.circles) if (c.cool > 0) c.cool -= h;
     for (const s of this.saucers) if (s.cool > 0) s.cool -= h;
+    for (const b of this.balls) this.subBall(b, h);
+    if (this.balls.length > 1) this.ballContacts();
+  }
+
+  subBall(b, h) {
+    this.cur = b;
     if (b.mode === 'ramp') { this.rideRamp(b, h); return; }
     if (b.mode === 'held') { this.holdBall(b, h); return; }
     if (b.mode !== 'field') return;
@@ -244,6 +270,37 @@ export class World {
     if (b.y < this.drainY && b.mode === 'field') {
       b.mode = 'gone';
       this.emit('drain', null, {});
+    }
+  }
+
+  /** Balls on the playfield bounce off each other (equal masses). */
+  ballContacts() {
+    const list = this.balls.filter((b) => b.mode === 'field');
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i];
+        const b = list[j];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const rr = a.r + b.r;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= rr * rr || d2 < 1e-12) continue;
+        const d = Math.sqrt(d2);
+        const nx = dx / d;
+        const ny = dy / d;
+        const push = (rr - d) / 2;
+        a.x -= nx * push;
+        a.y -= ny * push;
+        b.x += nx * push;
+        b.y += ny * push;
+        const vn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+        if (vn >= 0) continue;
+        const j2 = (-(1 + 0.9) * vn) / 2;
+        a.vx -= nx * j2;
+        a.vy -= ny * j2;
+        b.vx += nx * j2;
+        b.vy += ny * j2;
+      }
     }
   }
 
@@ -439,12 +496,13 @@ export class World {
   }
 
   catchSaucer(b, s) {
-    if (s.cool > 0) return;
+    if (s.cool > 0 || s.busy) return;
     const dx = b.x - s.x;
     const dy = b.y - s.y;
     if (dx * dx + dy * dy > s.r * s.r) return;
     if (b.speed > s.vCap) return; // too fast: it rolls over the hole
     b.mode = 'held';
+    s.busy = true;
     b.hold = { saucer: s, t: 0, x0: b.x, y0: b.y };
     b.vx = 0;
     b.vy = 0;
@@ -468,6 +526,7 @@ export class World {
       b.vx = s.kx * s.kick;
       b.vy = s.ky * s.kick;
       s.cool = 0.6;
+      s.busy = false;
       this.emit('kickout', s, {});
     }
   }

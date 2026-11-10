@@ -5,7 +5,9 @@
 import { getStore } from '@netlify/blobs';
 
 const TYPES = ['session', 'guest', 'start', 'finish'];
-const MODES = ['-', 'quiz', 'review', 'robot', 'parkour', 'parkour2', 'pong', 'arch', 'fight', 'factmyth', 'sort', 'timeline', 'parkour3', 'dataflight'];
+const MODES = ['-', 'quiz', 'review', 'robot', 'parkour', 'parkour2', 'pong', 'arch', 'fight', 'factmyth', 'sort', 'timeline', 'parkour3', 'dataflight',
+  // games for our clients
+  'bike', 'roast', 'bricks', 'green', 'dock', 'pinball', 'summit'];
 const MAX_DAYS = 60;
 
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'cache-control': 'no-store' } });

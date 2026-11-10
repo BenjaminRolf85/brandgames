@@ -1,17 +1,17 @@
-// "Stein auf Stein": the 3D parts and drawings. The Blender model (blender/build_bricks.py,
-// assets/models/bricks.glb) recolored from the --xr-bricks-* tokens; the bricks of the house as
-// instanced meshes; the ghost plan (blueprint lines, glowing free places, the place a held brick
-// snaps to); the tower crane; mortar puffs and chimney smoke; the AI chart; the temptation card;
-// a few sounds of its own (place click, crane motor, door).
+// "Stein auf Stein": the 3D parts. The Blender model (blender/build_bricks.py,
+// assets/models/bricks.glb) recolored from the --xr-bricks-* tokens; the pieces of a house
+// (instanced bricks, half bricks and sandstone corners; frames, lintels and roof trusses as single
+// models) with wobbling and skewed pieces; the ghost plan (blueprint lines, glowing places for the
+// item in hand, amber where it would wobble, the place it snaps to); the tower crane; mortar puffs
+// and chimney smoke; the neighbor family; a few sounds of its own. The 2D drawings (chart, cards)
+// are in bricks-panels.js.
 import * as THREE from 'three';
 import { loadGLTF } from './models.js';
 import { hex, color, num, font } from './tokens.js';
-import { Panel, wrap, measureBlocks } from './ui3d.js';
-import { t } from './i18n.js';
 import { radialTexture } from './robot-visuals.js';
 import { audioContext } from './sfx.js';
 import { winterize } from './snow.js';
-import { L, H, D, GAP, TOP, OX, OZ, RIDGE, EAVE, WALLS } from './bricks-plan.js';
+import { L, H, D, GAP, TOP, OX, OZ, RIDGE, EAVE, WALLS, ANNEX_COURSES, XA, ZA } from './bricks-plan.js';
 
 export const BRICKS_URL = 'assets/models/bricks.glb';
 
@@ -51,6 +51,8 @@ const MATS = {
   MachineTrim: ['xr-bricks-machine-trim', 0.35, 0.3],
   Bag: ['xr-bricks-bag', 0.85, 0],
   BagHandle: ['xr-bricks-bag-handle', 0.7, 0],
+  Quoin: ['xr-bricks-quoin', 0.85, 0],
+  SolarCell: ['xr-bricks-solar', 0.15, 0.4],
 };
 // Materials that get snow in winter (everything facing up in the garden, and the roof).
 const SNOWY = ['Grass', 'GrassDark', 'Leaf', 'LeafDark', 'Fence', 'Stone', 'Sand', 'Soil', 'Roof', 'RoofDark', 'Mailbox', 'Bark'];
@@ -97,7 +99,7 @@ export async function loadBricks() {
   const mats = bricksMaterials();
   try {
     const gltf = await loadGLTF(BRICKS_URL);
-    const geo = { brick: meshGeo(gltf, 'Brick'), half: meshGeo(gltf, 'BrickHalf'), gold: meshGeo(gltf, 'BrickGold') };
+    const geo = { brick: meshGeo(gltf, 'Brick'), half: meshGeo(gltf, 'BrickHalf'), gold: meshGeo(gltf, 'BrickGold'), quoin: meshGeo(gltf, 'Quoin') ?? meshGeo(gltf, 'BrickHalf') };
     if (!geo.brick || !geo.half || !geo.gold) throw new Error('bricks.glb incomplete');
     return { mats, geo, make: (name) => part(gltf, name, mats) };
   } catch (e) {
@@ -108,6 +110,7 @@ export async function loadBricks() {
         brick: new THREE.BoxGeometry(L - GAP, H - GAP, D - GAP),
         half: new THREE.BoxGeometry(L / 2 - GAP, H - GAP, D - GAP),
         gold: new THREE.BoxGeometry(L - GAP, H - GAP, D - GAP),
+        quoin: new THREE.BoxGeometry(D - GAP, H - GAP, D - GAP),
       },
       make: () => null,
     };
@@ -126,106 +129,176 @@ export function plainPlot(mats) {
   return g;
 }
 
-// ---------- the bricks of the house (instanced) ----------
+// ---------- the pieces of a house ----------
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
+const _q2 = new THREE.Quaternion();
 const _s = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
+const AX = new THREE.Vector3(1, 0, 0);
+const AZ = new THREE.Vector3(0, 0, 1);
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 
-/** Every built piece of the house: clay bricks, golden bricks, half bats and corner posts. */
+function instanced(geo, mat, n, vary) {
+  const m = new THREE.InstancedMesh(geo, mat, Math.max(1, n));
+  m.castShadow = true;
+  m.receiveShadow = true;
+  m.frustumCulled = false;
+  const c = new THREE.Color();
+  for (let i = 0; i < m.count; i++) {
+    m.setMatrixAt(i, ZERO);
+    // Every clay brick a little different (lighter, darker, warmer).
+    const k = vary ? 0.84 + Math.random() * 0.24 : 1;
+    const warm = vary ? (Math.random() - 0.5) * 0.08 : 0;
+    m.setColorAt(i, c.setRGB(k * (1 + warm), k, k * (1 - warm)));
+  }
+  m.instanceMatrix.needsUpdate = true;
+  m.instanceColor.needsUpdate = true;
+  return m;
+}
+
+/**
+ * Every piece of a house: clay bricks, golden bricks, half bricks and sandstone corners (instanced),
+ * window and door frames, lintels and roof trusses (single models). Pieces can wobble (statics)
+ * or sit skewed.
+ */
 export class BrickField {
-  constructor(parent, plan, M) {
+  constructor(parent, plan, M, { clay = M.mats.BrickClay, quoin = M.mats.Quoin } = {}) {
     this.plan = plan;
-    const nFull = plan.full.length;
-    const nHalf = plan.pieces.length - nFull;
-    this.clay = new THREE.InstancedMesh(M.geo.brick, M.mats.BrickClay, nFull);
-    this.gold = new THREE.InstancedMesh(M.geo.gold, M.mats.BrickGold, nFull);
-    this.half = new THREE.InstancedMesh(M.geo.half, M.mats.BrickClay, nHalf);
-    this.slot = new Map(); // piece id -> index in its mesh
-    let f = 0;
-    let h = 0;
-    for (const p of plan.pieces) this.slot.set(p.id, p.kind === 'full' ? f++ : h++);
-    const c = new THREE.Color();
-    for (const m of [this.clay, this.gold, this.half]) {
-      m.castShadow = true;
-      m.receiveShadow = true;
-      m.frustumCulled = false;
-      for (let i = 0; i < m.count; i++) {
-        m.setMatrixAt(i, ZERO);
-        // Every clay brick a little different (lighter, darker, warmer); gold stays gold.
-        const k = m === this.gold ? 1 : 0.84 + Math.random() * 0.24;
-        const warm = m === this.gold ? 0 : (Math.random() - 0.5) * 0.08;
-        m.setColorAt(i, c.setRGB(k * (1 + warm), k, k * (1 - warm)));
-      }
-      m.instanceMatrix.needsUpdate = true;
-      m.instanceColor.needsUpdate = true;
-      parent.add(m);
+    const by = { full: [], half: [], post: [] };
+    for (const p of plan.pieces) by[p.kind]?.push(p);
+    this.inst = {
+      clay: instanced(M.geo.brick, clay, by.full.length, true),
+      gold: instanced(M.geo.gold, M.mats.BrickGold, by.full.length, false),
+      half: instanced(M.geo.half, clay, by.half.length, true),
+      post: instanced(M.geo.quoin, quoin, by.post.length, true),
+    };
+    Object.values(this.inst).forEach((m) => parent.add(m));
+    this.slot = new Map();
+    for (const k of ['full', 'half', 'post']) by[k].forEach((p, i) => this.slot.set(p.id, i));
+    this.single = new Map();
+    for (const p of plan.pieces) {
+      let o = null;
+      if (p.kind === 'frame') o = M.make(p.frame === 'door' ? 'DoorFrame' : 'Window');
+      else if (p.kind === 'lintel') o = M.make('Lintel');
+      else if (p.kind === 'truss') o = M.make('Truss');
+      if (!o) continue;
+      o.position.set(p.x, p.y, p.z);
+      o.rotation.y = p.kind === 'frame' ? p.face : p.kind === 'truss' ? 0 : p.yaw;
+      o.visible = false;
+      parent.add(o);
+      this.single.set(p.id, o);
     }
+    this.tilts = new Map(); // id -> { wobble, lean, yaw, phase }
+    this.gold = new Set();
     this.anims = [];
   }
 
-  meshOf(p, gold) { return p.kind === 'full' ? (gold ? this.gold : this.clay) : this.half; }
+  meshOf(p, gold) { return p.kind === 'full' ? (gold ? this.inst.gold : this.inst.clay) : p.kind === 'half' ? this.inst.half : this.inst.post; }
 
-  matrix(p, lift = 0, scale = 1) {
-    _q.setFromAxisAngle(UP, p.kind === 'post' ? 0 : p.yaw);
-    // Posts are half bats turned by 90 degrees every second course (they interlock).
-    if (p.kind === 'post' && p.course % 2) _q.setFromAxisAngle(UP, Math.PI / 2);
+  matrix(p, lift = 0, scale = 1, time = 0) {
+    _q.setFromAxisAngle(UP, p.kind === 'post' ? (p.course % 2 ? Math.PI / 2 : 0) : p.yaw);
+    const tl = this.tilts.get(p.id);
+    if (tl) {
+      // Lean across the wall (and a little twist when skewed); wobbling pieces rock.
+      const lean = tl.lean + tl.wobble * 0.12 * Math.sin(time * 11 + tl.phase);
+      _q.multiply(_q2.setFromAxisAngle(UP, tl.yaw)).multiply(_q2.setFromAxisAngle(AX, lean));
+    }
     _s.setScalar(scale);
     return _m.compose(_p.set(p.x, p.y + lift, p.z), _q, _s);
   }
 
-  /** Shows (or hides) a piece; pop > 0: drops in with a little bounce after that delay. */
+  /** Shows (or hides) a piece; pop >= 0: drops in with a little bounce after that delay. */
   set(p, on, gold = false, pop = -1) {
-    const i = this.slot.get(p.id);
-    const mesh = this.meshOf(p, gold);
-    const other = p.kind === 'full' ? (gold ? this.clay : this.gold) : null;
-    other?.setMatrixAt(i, ZERO);
+    const single = this.single.get(p.id);
     this.anims = this.anims.filter((a) => a.p !== p);
+    if (!on) this.tilts.delete(p.id);
+    if (single) {
+      single.visible = on;
+      single.scale.setScalar(1);
+      if (on && pop >= 0) { single.scale.setScalar(0.001); this.anims.push({ p, single, t: -pop }); }
+      return;
+    }
+    if (!this.slot.has(p.id)) return;
+    const i = this.slot.get(p.id);
+    if (gold) this.gold.add(p.id); else this.gold.delete(p.id);
+    const mesh = this.meshOf(p, gold);
+    if (p.kind === 'full') {
+      const other = gold ? this.inst.clay : this.inst.gold;
+      other.setMatrixAt(i, ZERO);
+      other.instanceMatrix.needsUpdate = true;
+    }
     if (on && pop >= 0) {
       mesh.setMatrixAt(i, ZERO);
       this.anims.push({ p, mesh, i, t: -pop });
     } else mesh.setMatrixAt(i, on ? this.matrix(p) : ZERO);
     mesh.instanceMatrix.needsUpdate = true;
-    if (other) other.instanceMatrix.needsUpdate = true;
   }
 
-  update(dt) {
-    if (!this.anims.length) return;
-    this.anims = this.anims.filter((a) => {
-      a.t += dt;
-      if (a.t < 0) return true;
-      const k = Math.min(1, a.t / 0.2);
-      const back = 1 + 2.4 * (k - 1) ** 3 + 1.4 * (k - 1) ** 2; // ease out back
-      a.mesh.setMatrixAt(a.i, this.matrix(a.p, (1 - k) * 0.02, 0.55 + 0.45 * back));
-      a.mesh.instanceMatrix.needsUpdate = true;
-      return k < 1;
-    });
+  /** Statics: { wobble: 0..1, lean, yaw } or null (straight). */
+  setTilt(p, tilt) {
+    if (tilt) this.tilts.set(p.id, { wobble: 0, lean: 0, yaw: 0, phase: Math.random() * 6, ...tilt });
+    else this.tilts.delete(p.id);
+    if (this.plan.isFilled(p.id) && this.slot.has(p.id)) {
+      const mesh = this.meshOf(p, this.gold.has(p.id));
+      mesh.setMatrixAt(this.slot.get(p.id), this.matrix(p));
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  update(dt, time) {
+    if (this.anims.length) {
+      this.anims = this.anims.filter((a) => {
+        a.t += dt;
+        if (a.t < 0) return true;
+        const k = Math.min(1, a.t / 0.2);
+        const back = 1 + 2.4 * (k - 1) ** 3 + 1.4 * (k - 1) ** 2; // ease out back
+        if (a.single) a.single.scale.setScalar(Math.max(0.001, 0.55 + 0.45 * back));
+        else {
+          a.mesh.setMatrixAt(a.i, this.matrix(a.p, (1 - k) * 0.02, 0.55 + 0.45 * back, time));
+          a.mesh.instanceMatrix.needsUpdate = true;
+        }
+        return k < 1;
+      });
+    }
+    for (const [id, tl] of this.tilts) {
+      if (!tl.wobble) continue;
+      const p = this.plan.pieces[id];
+      if (!this.plan.isFilled(id) || !this.slot.has(id)) continue;
+      const mesh = this.meshOf(p, this.gold.has(id));
+      mesh.setMatrixAt(this.slot.get(id), this.matrix(p, 0, 1, time));
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  /** All built pieces at once (after a plan change). */
+  showAll() {
+    for (const [id, info] of this.plan.filled) this.set(this.plan.pieces[id], true, info.gold);
   }
 }
 
 // ---------- the ghost plan ----------
 
-/** Blueprint lines of the whole house (walls, openings, courses, roof) in house space. */
-function blueprint() {
+/** Blueprint lines of the house (walls, openings, courses, roof; the extension if planned). */
+function blueprint(plan) {
   const main = [];
   const fine = [];
   const seg = (arr, a, b) => arr.push(new THREE.Vector3(...a), new THREE.Vector3(...b));
-  WALLS.forEach((w) => {
-    // the wall's outer face: u along the wall, n outwards
+  const walls = WALLS.slice(0, plan.opts.annex ? 7 : 4);
+  walls.forEach((w, wi) => {
+    const top = w.courses * H;
     const face = (u, y) => {
       const [x, z] = w.at(u);
-      const ox = Math.sin(w.face) * (D / 2 + 0.002);
-      const oz = Math.cos(w.face) * (D / 2 + 0.002);
-      return [x + ox, y, z + oz];
+      return [x + Math.sin(w.face) * (D / 2 + 0.002), y, z + Math.cos(w.face) * (D / 2 + 0.002)];
     };
-    seg(main, face(-D / L, TOP), face(w.len + D / L, TOP));
-    for (let c = 1; c < 7; c++) seg(fine, face(-D / L, c * H), face(w.len + D / L, c * H));
+    const ext = wi < 4 ? D / L : 0;
+    seg(main, face(-ext, top), face(w.len + (wi < 4 || wi === 5 ? D / L : 0), top));
+    for (let c = 1; c < w.courses; c++) seg(fine, face(-ext, c * H), face(w.len + ext, c * H));
     for (const o of w.openings) {
       const y0 = o.c0 * H;
-      const y1 = (o.c1 + 1) * H;
+      const y1 = o.c1 * H;
       seg(main, face(o.u0, y0), face(o.u0, y1));
       seg(main, face(o.u1, y0), face(o.u1, y1));
       seg(main, face(o.u0, y1), face(o.u1, y1));
@@ -233,7 +306,12 @@ function blueprint() {
     }
   });
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) seg(main, [sx * OX, 0, sz * OZ], [sx * OX, TOP, sz * OZ]);
-  // the roof: gables, ridge, eaves
+  if (plan.opts.annex) {
+    const ax = XA - D / 2;
+    const az = ZA + D / 2;
+    for (const sz of [-1, 1]) seg(main, [ax, 0, sz * az], [ax, ANNEX_COURSES * H, sz * az]);
+    seg(fine, [ax, ANNEX_COURSES * H + 0.012, -az], [ax, ANNEX_COURSES * H + 0.012, az]);
+  }
   const RX = OX + 0.03;
   const EZ = OZ + EAVE;
   const EY = TOP - (EAVE * RIDGE) / OZ;
@@ -249,9 +327,30 @@ function blueprint() {
   return { main, fine };
 }
 
+/** Box of a piece or a target (center, size, yaw) for the ghost. */
+export function ghostBox(g) {
+  const k = g.kind ?? g.pieces?.[0]?.kind;
+  const p = g.pieces?.[0] ?? g;
+  if (p.kind === 'frame') return { x: g.x, y: g.y, z: g.z, sx: L - 0.006, sy: (p.opening.c1 - p.opening.c0) * H - 0.006, sz: D * 0.55, yaw: p.yaw };
+  if (p.kind === 'truss') return { x: g.x, y: g.y + RIDGE * 0.45, z: g.z, sx: 0.01, sy: RIDGE * 0.9, sz: 2 * OZ, yaw: 0 };
+  if (p.kind === 'post') return { x: g.x, y: g.y, z: g.z, sx: D - GAP, sy: H - GAP, sz: D - GAP, yaw: 0 };
+  const len = g.pieces ? g.pieces.reduce((s, q) => s + q.len, 0) : p.len;
+  return { x: g.x, y: g.y, z: g.z, sx: len - GAP, sy: H - GAP, sz: D - GAP, yaw: p.yaw, kind: k };
+}
+
+const BOX_EDGES = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+const CORNER = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
+
+function boxMatrix(b, pad = 0) {
+  _q.setFromAxisAngle(UP, b.yaw);
+  _s.set(b.sx + pad, b.sy + pad, b.sz + pad);
+  return _m.compose(_p.set(b.x, b.y, b.z), _q, _s);
+}
+
 /**
- * The plan as a hologram: blueprint lines of the house, ghost bricks where the next courses go
- * (bright and pulsing where a brick can go now), and the highlight for a held brick.
+ * The plan as a hologram: blueprint lines; faint boxes where the next courses go; bright boxes
+ * with outlines for the places the item in hand (or anything on the pallet) can go, amber where it
+ * would wobble; the snap highlight; a red flash for a refused place.
  */
 export class GhostPlan {
   constructor(parent, plan) {
@@ -259,75 +358,144 @@ export class GhostPlan {
     this.group = new THREE.Group();
     this.group.userData.noFit = true;
     parent.add(this.group);
-    const lines = blueprint();
+    const lines = blueprint(plan);
     const lineMat = (opacity) => new THREE.LineBasicMaterial({ color: hex('xr-bricks-ghost-line'), transparent: true, opacity, depthWrite: false, toneMapped: false });
     this.lineMain = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(lines.main), lineMat(0.55));
     this.lineFine = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(lines.fine), lineMat(0.2));
     this.group.add(this.lineMain, this.lineFine);
     const box = new THREE.BoxGeometry(1, 1, 1);
-    this.boxes = new THREE.InstancedMesh(box, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), plan.pieces.length);
-    this.boxes.frustumCulled = false;
-    this.boxes.renderOrder = 3;
-    this.group.add(this.boxes);
-    const c = new THREE.Color();
-    plan.pieces.forEach((p, i) => this.boxes.setColorAt(i, c.setRGB(0, 0, 0)));
+    const mat = (token, opacity) => new THREE.MeshBasicMaterial({ color: hex(token), transparent: true, opacity, depthWrite: false, toneMapped: false });
+    const n = plan.pieces.length + plan.pairs.length;
+    this.rest = new THREE.InstancedMesh(box, mat('xr-bricks-ghost', 0.12), plan.pieces.length);
+    this.solid = new THREE.InstancedMesh(box, mat('xr-bricks-ghost', 0.45), n);
+    this.warn = new THREE.InstancedMesh(box, mat('xr-bricks-ghost-warn', 0.4), n);
+    for (const m of [this.rest, this.solid, this.warn]) {
+      m.frustumCulled = false;
+      m.renderOrder = 3;
+      m.count = 0;
+      this.group.add(m);
+    }
+    this.edges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false }));
+    this.edges.frustumCulled = false;
+    this.edges.renderOrder = 4;
+    this.group.add(this.edges);
     this.cBright = new THREE.Color(hex('xr-bricks-ghost'));
-    this.cDim = new THREE.Color(hex('xr-bricks-ghost-dim'));
     this.cHot = new THREE.Color(hex('xr-bricks-ghost-hot'));
-    this.cReject = new THREE.Color(hex('xr-bricks-reject'));
-    // The highlight: a glowing brick with a bright edge.
-    const hb = new THREE.BoxGeometry(L - GAP + 0.004, H - GAP + 0.004, D - GAP + 0.004);
-    this.hiMat = new THREE.MeshBasicMaterial({ color: this.cHot, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-    this.hi = new THREE.Mesh(hb, this.hiMat);
-    this.hiEdge = new THREE.LineSegments(new THREE.EdgesGeometry(hb), new THREE.LineBasicMaterial({ color: this.cHot, transparent: true, depthWrite: false, toneMapped: false }));
-    this.hi.add(this.hiEdge);
+    this.cWarn = new THREE.Color(hex('xr-bricks-ghost-warn'));
+    this.hiMat = new THREE.MeshBasicMaterial({ color: this.cHot, transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false });
+    this.hi = new THREE.Mesh(box, this.hiMat);
     this.hi.visible = false;
     this.hi.renderOrder = 4;
     this.group.add(this.hi);
-    this.flash = null; // { p, t } red flash of a refused place
+    // A roof truss place glows as a triangle.
+    const EZ = OZ + EAVE;
+    const EY = TOP - (EAVE * RIDGE) / OZ;
+    const tri = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, EY, -EZ), new THREE.Vector3(0, TOP + RIDGE, 0), new THREE.Vector3(0, EY, EZ)]);
+    tri.computeVertexNormals();
+    this.hiTri = new THREE.Mesh(tri, new THREE.MeshBasicMaterial({ color: this.cHot, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
+    this.hiTri.visible = false;
+    this.hiTri.renderOrder = 4;
+    this.group.add(this.hiTri);
+    this.noMat = new THREE.MeshBasicMaterial({ color: hex('xr-bricks-reject'), transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+    this.no = new THREE.Mesh(box, this.noMat);
+    this.no.visible = false;
+    this.no.renderOrder = 4;
+    this.group.add(this.no);
+    this.flash = null;
+    this.key = '';
     this.dirty = true;
     this.fade = 1;
   }
 
-  /** Call after the built pieces changed. */
   refresh() { this.dirty = true; }
 
   reject(p) { this.flash = { p, t: 0 }; }
 
-  update(dt, time, { available, hover, strong = false }) {
+  dispose() {
+    this.group.removeFromParent();
+    this.group.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+  }
+
+  update(dt, time, { show = [], hover = null }) {
     const plan = this.plan;
-    const avail = new Set(available.map((p) => p.id));
-    let top = -1;
-    for (const id of plan.filled.keys()) top = Math.max(top, plan.pieces[id].course);
-    const c = new THREE.Color();
-    const pulse = 0.55 + 0.3 * Math.sin(time * 4.2);
-    plan.pieces.forEach((p, i) => {
-      const show = !plan.isFilled(p.id) && p.course <= top + 1;
-      if (this.dirty) {
-        if (show) {
-          _q.setFromAxisAngle(UP, p.kind === 'post' ? 0 : p.yaw);
-          _s.set(p.kind === 'post' ? D - GAP : p.len - GAP, H - GAP, D - GAP);
-          this.boxes.setMatrixAt(i, _m.compose(_p.set(p.x, p.y, p.z), _q, _s));
-        } else this.boxes.setMatrixAt(i, ZERO);
+    const key = show.map((g) => `${g.pieces.map((p) => p.id).join('+')}${g.state[0]}`).join(',');
+    if (this.dirty || key !== this.key) {
+      this.key = key;
+      let top = -1;
+      for (const id of plan.filled.keys()) if (plan.pieces[id].kind !== 'truss') top = Math.max(top, plan.pieces[id].course);
+      let n = 0;
+      for (const p of plan.pieces) {
+        if (plan.isFilled(p.id) || p.kind === 'truss' || p.course > top + 1) continue;
+        this.rest.setMatrixAt(n++, boxMatrix(ghostBox(p)));
       }
-      if (!show) return;
-      if (avail.has(p.id)) c.copy(this.cBright).multiplyScalar((strong ? 0.85 : 0.5) * (pulse + 0.15 * Math.sin(time * 3 + i)));
-      else c.copy(this.cDim).multiplyScalar(p.kind === 'full' ? 1 : 0.6);
-      if (this.flash?.p === p) c.lerp(this.cReject, Math.max(0, 1 - this.flash.t / 0.8));
-      this.boxes.setColorAt(i, c.multiplyScalar(this.fade));
-    });
-    if (this.dirty) this.boxes.instanceMatrix.needsUpdate = true;
-    this.boxes.instanceColor.needsUpdate = true;
-    this.dirty = false;
-    if (this.flash && (this.flash.t += dt) > 0.8) this.flash = null;
+      this.rest.count = n;
+      let ns = 0;
+      let nw = 0;
+      const pts = [];
+      const cols = [];
+      const EZ = OZ + EAVE;
+      const EY = TOP - (EAVE * RIDGE) / OZ;
+      for (const g of show) {
+        if (g.pieces[0].kind === 'truss') {
+          // Trusses: a triangle with the joist, no box.
+          const x = g.x;
+          const v = [[x, EY, -EZ], [x, TOP + RIDGE, 0], [x, EY, EZ], [x, TOP + 0.006, -OZ], [x, TOP + 0.006, OZ]].map((a) => new THREE.Vector3(...a));
+          for (const [a, e] of [[0, 1], [1, 2], [3, 4]]) { pts.push(v[a], v[e]); cols.push(this.cHot.r, this.cHot.g, this.cHot.b, this.cHot.r, this.cHot.g, this.cHot.b); }
+          continue;
+        }
+        const b = ghostBox(g);
+        const warn = g.state === 'wobbly';
+        (warn ? this.warn : this.solid).setMatrixAt(warn ? nw++ : ns++, boxMatrix(b));
+        const c = warn ? this.cWarn : this.cHot;
+        const cs = Math.cos(b.yaw);
+        const sn = Math.sin(b.yaw);
+        const v = CORNER.map(([x, y, z]) => {
+          const hx = (x * (b.sx + 0.002)) / 2;
+          const hz = (z * (b.sz + 0.002)) / 2;
+          return new THREE.Vector3(b.x + hx * cs + hz * sn, b.y + (y * (b.sy + 0.002)) / 2, b.z - hx * sn + hz * cs);
+        });
+        for (const [a, e] of BOX_EDGES) { pts.push(v[a], v[e]); cols.push(c.r, c.g, c.b, c.r, c.g, c.b); }
+      }
+      this.solid.count = ns;
+      this.warn.count = nw;
+      for (const m of [this.rest, this.solid, this.warn]) m.instanceMatrix.needsUpdate = true;
+      this.edges.geometry.dispose();
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+      this.edges.geometry = geo;
+      this.dirty = false;
+    }
+    const pulse = 0.5 + 0.5 * Math.sin(time * 4.2);
+    this.solid.material.color.copy(this.cBright).lerp(this.cHot, pulse * 0.6);
+    this.solid.material.opacity = (0.32 + 0.2 * pulse) * this.fade;
+    this.warn.material.opacity = (0.22 + 0.15 * pulse) * this.fade;
+    this.edges.material.opacity = (0.45 + 0.5 * pulse) * this.fade;
+    this.rest.material.opacity = 0.12 * this.fade;
     this.lineMain.material.opacity = 0.55 * this.fade;
     this.lineFine.material.opacity = 0.2 * this.fade;
     this.group.visible = this.fade > 0.01;
-    this.hi.visible = !!hover;
-    if (hover) {
-      this.hi.position.set(hover.x, hover.y, hover.z);
-      this.hi.rotation.set(0, hover.yaw, 0);
-      this.hiMat.opacity = 0.32 + 0.18 * Math.sin(time * 10);
+    const triHover = hover?.pieces?.[0]?.kind === 'truss';
+    this.hiTri.visible = triHover;
+    if (triHover) {
+      this.hiTri.position.x = hover.x;
+      this.hiTri.material.opacity = 0.3 + 0.2 * Math.sin(time * 10);
+    }
+    this.hi.visible = !!hover && !triHover;
+    if (hover && !triHover) {
+      const b = ghostBox(hover);
+      this.hi.matrix.copy(boxMatrix(b, 0.004));
+      this.hi.matrixAutoUpdate = false;
+      this.hiMat.color.copy(hover.state === 'wobbly' ? this.cWarn : this.cHot);
+      this.hiMat.opacity = 0.45 + 0.2 * Math.sin(time * 10);
+    }
+    const f = this.flash;
+    this.no.visible = !!f;
+    if (f) {
+      f.t += dt;
+      this.no.matrix.copy(boxMatrix(ghostBox(f.p), 0.004));
+      this.no.matrixAutoUpdate = false;
+      this.noMat.opacity = 0.7 * Math.max(0, 1 - f.t / 0.9) * (0.6 + 0.4 * Math.sin(f.t * 30));
+      if (f.t > 0.9) this.flash = null;
     }
   }
 }
@@ -526,66 +694,17 @@ export const bsfx = {
   lights: play((a) => { [1568, 1760, 2093, 2349, 2637].forEach((f, i) => tone(a, f, i * 0.07, 0.18, 'sine', 0.025)); }),
   // Spending: bricks fly away.
   spend: play((a) => { [660, 520, 400, 300].forEach((f, i) => tone(a, f, i * 0.08, 0.14, 'triangle', 0.04)); }),
+  // A wobbling wall: a creak and a rattle.
+  wobble: play((a) => { tone(a, 140, 0, 0.35, 'sawtooth', 0.03, 110); hiss(a, 0.05, 0.2, 700, 0.03, 2); tone(a, 520, 0.12, 0.08, 'square', 0.02); }),
+  // It settles: a firm knock.
+  settle: play((a) => { tone(a, 240, 0, 0.08, 'sine', 0.1, 160); tone(a, 1600, 0.02, 0.03, 'square', 0.02); }),
+  // A life event: a soft chime.
+  event: play((a) => { [523, 659, 784].forEach((f, i) => tone(a, f, i * 0.09, 0.3, 'sine', 0.05)); }),
+  // The neighbors cheer.
+  cheer: play((a) => { [784, 988, 1175].forEach((f, i) => tone(a, f, i * 0.06, 0.12, 'triangle', 0.03)); hiss(a, 0, 0.4, 3000, 0.012, 0.6); }),
+  // Snow begins: a cold shimmer.
+  snow: play((a) => { [2093, 2637, 3136, 2349].forEach((f, i) => tone(a, f, i * 0.12, 0.4, 'sine', 0.018)); }),
 };
-
-// ---------- pictograms for the temptation card (24 x 24 line art like icons.js) ----------
-
-const PICTO = {
-  phone: 'M8 2.5h8a1.5 1.5 0 0 1 1.5 1.5v16a1.5 1.5 0 0 1-1.5 1.5H8A1.5 1.5 0 0 1 6.5 20V4A1.5 1.5 0 0 1 8 2.5zM10.5 5h3M11 18.5h2',
-  plane: 'M12 2.5c1 0 1.5 1.2 1.5 2.5v5l7.5 4.5v2l-7.5-2.3V18l2 1.6v1.6L12 20.3l-3.5.9v-1.6l2-1.6v-3.8L3 16.5v-2l7.5-4.5V5c0-1.3.5-2.5 1.5-2.5z',
-  tv: 'M3 5.5h18v12H3zM8.5 21h7M12 17.5V21M6.5 8.5l2.5 2.5',
-  shoe: 'M3 17.5V9.5l4.5-.5 3 3h4l5.7 2.4a1.5 1.5 0 0 1 .8 1.3v1.8zM3 20h18.5M9 12l1.5-1.8M11.6 12.6l1.4-1.8',
-  ticket: 'M3 7h18v3.2a1.8 1.8 0 0 0 0 3.6V17H3v-3.2a1.8 1.8 0 0 0 0-3.6zM15 7.5v2M15 11.2v1.6M15 14.5v2',
-  mug: 'M5 9h11v7a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4zM16 11h1.5a2.5 2.5 0 0 1 0 5H16M8.5 3.5c-1 1.5 1 2.5 0 4M12.5 3.5c-1 1.5 1 2.5 0 4',
-  watch: 'M8 7h8v10H8zM9 7l1-4h4l1 4M9 17l1 4h4l1-4M12 9.5V12l1.8 1.2',
-};
-const pictoCache = new Map();
-
-function drawPicto(ctx, key, x, y, size, stroke) {
-  const d = PICTO[key];
-  if (!d) return;
-  if (!pictoCache.has(key)) pictoCache.set(key, new Path2D(d));
-  ctx.save();
-  ctx.translate(x - size / 2, y - size / 2);
-  ctx.scale(size / 24, size / 24);
-  ctx.lineWidth = 1.7;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = stroke;
-  ctx.stroke(pictoCache.get(key));
-  ctx.restore();
-}
-
-/** The temptation card's text panel: pictogram, question, a line of temptation, the cost. */
-export function temptPanel(tempt, w = 0.62) {
-  const pad = num('xr-padding');
-  const ic = 0.13;
-  const sm = num('xr-text-sm');
-  const cost = tempt.bricks ? t('bricksCostBricks', { n: tempt.bricks }) : t('bricksCostMonths', { n: tempt.months });
-  const blocks = [
-    { text: t('bricksTempt').toUpperCase(), size: 'xr-text-sm', weight: 'black', color: color('xr-bricks-tempt'), gap: 0.006 },
-    { text: t(`bricksTempt_${tempt.key}`), size: 'xr-text-lg', weight: 'black', gap: 0.008, lineHeight: 1.15 },
-    { text: t(`bricksTemptSub_${tempt.key}`), size: 'xr-text-sm', color: color('xr-panel-muted'), gap: 0.012 },
-    { text: cost, size: 'xr-text-sm', weight: 'bold', color: color('xr-danger') },
-  ];
-  const col = w - ic - pad * 0.6;
-  const h = Math.max(measureBlocks(blocks, col, pad), ic + pad * 2);
-  const panel = new Panel(w, h, (ctx2, p) => {
-    p.surface({ stroke: color('xr-bricks-tempt'), strokeWidth: num('xr-border-width') * 1.6, stripe: false });
-    const cx = p.m(pad + ic / 2);
-    const cy = p.m(pad + ic / 2 + 0.01);
-    ctx2.save();
-    ctx2.globalAlpha = 0.18;
-    ctx2.fillStyle = color('xr-bricks-tempt');
-    ctx2.beginPath();
-    ctx2.arc(cx, cy, p.m(ic / 2), 0, Math.PI * 2);
-    ctx2.fill();
-    ctx2.restore();
-    drawPicto(ctx2, tempt.icon, cx, cy, p.m(ic * 0.66), color('xr-bricks-tempt'));
-    p.blocks(blocks, { x: ic + pad * 0.6, w: col, align: 'left', valign: 'center' });
-  });
-  return panel;
-}
 
 // ---------- the month display on the savings machine ----------
 
@@ -613,173 +732,115 @@ export function drawMonthDisplay(ctx, p, { month, vacation, flash }) {
   ctx.fillText(vacation ? '–' : String(month), x0 + s + (W - x0 - s) / 2, Hh * 0.54);
 }
 
-// ---------- the AI forecast chart ----------
 
-/**
- * Draws the forecast panel. s: { month, saved, target, history: [saved at the end of month i],
- * pred: { median, lo, hi, mu }, path(h) -> { mid, lo, hi }, marks: [{ m, kind }], note, done,
- * doneMonth, early: { lo, hi } }
- */
-export function drawChart(ctx, p, s) {
-  p.surface({ stroke: color('xr-bricks-chart-band-edge'), stripe: false });
-  const W = p.canvas.width;
-  const Hc = p.canvas.height;
-  const pad = p.m(0.03);
-  const sm = p.m(num('xr-text-sm'));
-  const md = p.m(num('xr-text-md'));
-  const lg = p.m(num('xr-text-lg'));
-  ctx.textBaseline = 'top';
-  // title and month
-  ctx.textAlign = 'left';
-  ctx.fillStyle = color('xr-panel-text');
-  ctx.font = font('black', md);
-  ctx.fillText(t('bricksChartTitle'), pad, pad);
-  ctx.textAlign = 'right';
-  ctx.fillStyle = color('xr-panel-muted');
-  ctx.font = font('bold', sm);
-  ctx.fillText(t('bricksMonth', { n: s.month }), W - pad, pad + (md - sm) * 0.6);
-  let y = pad + md * 1.35;
-  // headline: the forecast month (or the result)
-  ctx.textAlign = 'left';
-  const pr = s.pred;
-  const ready = s.done || (pr && Number.isFinite(pr.median) && s.history.length > 2);
-  let head;
-  let sub;
-  if (s.done) {
-    head = t('bricksChartDone', { m: s.doneMonth });
-    sub = s.early ? t(s.early.hit ? 'bricksChartHit' : 'bricksChartMiss') : '';
-  } else if (ready) {
-    head = t('bricksChartAt', { m: Math.ceil(pr.median) });
-    sub = Number.isFinite(pr.hi) ? t('bricksChartRange', { lo: Math.ceil(pr.lo), hi: Math.ceil(pr.hi) }) : t('bricksChartOpen', { lo: Math.ceil(pr.lo) });
-  } else {
-    head = t('bricksChartQ');
-    sub = t('bricksChartWait');
-  }
-  ctx.fillStyle = color(s.done ? 'xr-success' : ready ? 'xr-bricks-chart-forecast' : 'xr-panel-text');
-  ctx.font = font('black', lg);
-  ctx.fillText(head, pad, y);
-  y += lg * 1.2;
-  ctx.fillStyle = color('xr-panel-muted');
-  ctx.font = font('bold', sm);
-  ctx.fillText(sub, pad, y);
-  y += sm * 1.45;
-  // the note at the bottom (what the AI just learned)
-  ctx.font = font('regular', sm);
-  const noteLines = s.note ? wrap(ctx, s.note, W - pad * 2).slice(0, 2) : [];
-  const noteH = noteLines.length * sm * 1.22;
-  const axisH = sm * 1.3;
-  // plot area
-  const x0 = pad + sm * 1.6;
-  const x1 = W - pad;
-  const yTop = y + sm * 0.3;
-  const yBot = Hc - pad - noteH - axisH - (noteLines.length ? sm * 0.35 : 0);
-  if (yBot - yTop < sm * 2) return;
-  const maxM = Math.max(24, Math.ceil(((pr && Number.isFinite(pr.hi) ? pr.hi : 0) + 2) / 6) * 6, Math.ceil((s.month + 4) / 6) * 6);
-  const maxM2 = Math.min(maxM, 60);
-  const maxS = s.target * 1.12;
-  const X = (m) => x0 + (Math.min(m, maxM2) / maxM2) * (x1 - x0);
-  const Y = (v) => yBot - (Math.max(0, Math.min(v, maxS)) / maxS) * (yBot - yTop);
-  // grid
-  ctx.strokeStyle = color('xr-bricks-chart-grid');
-  ctx.lineWidth = p.m(0.0015);
-  for (let m = 6; m < maxM2; m += 6) { ctx.beginPath(); ctx.moveTo(X(m), yTop); ctx.lineTo(X(m), yBot); ctx.stroke(); }
-  ctx.strokeStyle = color('xr-bricks-chart-axis');
-  ctx.lineWidth = p.m(0.002);
-  ctx.beginPath();
-  ctx.moveTo(x0, yTop);
-  ctx.lineTo(x0, yBot);
-  ctx.lineTo(x1, yBot);
-  ctx.stroke();
-  // axis labels: months below, 0 and the target at the left
-  ctx.fillStyle = color('xr-panel-muted');
-  ctx.font = font('regular', sm * 0.95);
-  ctx.textAlign = 'center';
-  for (let m = 0; m <= maxM2; m += 12) ctx.fillText(String(m), Math.min(X(m), x1 - sm), yBot + sm * 0.2);
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(String(s.target), x0 - sm * 0.25, Y(s.target));
-  ctx.fillText('0', x0 - sm * 0.25, yBot - sm * 0.3);
-  ctx.textBaseline = 'top';
-  // target line
-  ctx.strokeStyle = color('xr-bricks-chart-target');
-  ctx.lineWidth = p.m(0.003);
-  ctx.setLineDash([p.m(0.012), p.m(0.008)]);
-  ctx.beginPath();
-  ctx.moveTo(x0, Y(s.target));
-  ctx.lineTo(x1, Y(s.target));
-  ctx.stroke();
-  ctx.setLineDash([]);
-  // forecast band and line, from now
-  const now = s.month - 1 + (s.frac ?? 0);
-  if (pr && !s.done && s.path) {
-    const end = Math.min(maxM2, Number.isFinite(pr.hi) ? pr.hi + 1 : maxM2);
-    const steps = 40;
-    const up = [];
-    const lo = [];
-    for (let i = 0; i <= steps; i++) {
-      const m = now + ((end - now) * i) / steps;
-      const q = s.path(m - now);
-      up.push([X(m), Y(q.hi)]);
-      lo.push([X(m), Y(q.lo)]);
-    }
-    ctx.fillStyle = color('xr-bricks-chart-band');
+// ---------- statics warning ----------
+
+let warnTex = null;
+/** A warning sign (amber triangle with an exclamation mark) for wobbling parts. */
+export function warnSprite() {
+  if (!warnTex) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 96;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = color('xr-bricks-ghost-warn');
+    ctx.strokeStyle = color('xr-bricks-dark');
+    ctx.lineWidth = 6;
+    ctx.lineJoin = 'round';
     ctx.beginPath();
-    up.forEach(([x, yy], i) => (i ? ctx.lineTo(x, yy) : ctx.moveTo(x, yy)));
-    for (let i = lo.length - 1; i >= 0; i--) ctx.lineTo(lo[i][0], lo[i][1]);
+    ctx.moveTo(48, 8);
+    ctx.lineTo(90, 84);
+    ctx.lineTo(6, 84);
     ctx.closePath();
     ctx.fill();
-    if (Number.isFinite(pr.median)) {
-      ctx.strokeStyle = color('xr-bricks-chart-forecast');
-      ctx.lineWidth = p.m(0.0035);
-      ctx.setLineDash([p.m(0.01), p.m(0.007)]);
-      ctx.beginPath();
-      ctx.moveTo(X(now), Y(s.saved));
-      ctx.lineTo(X(pr.median), Y(s.target));
-      ctx.stroke();
-      ctx.setLineDash([]);
-      // the forecast range on the target line
-      ctx.strokeStyle = color('xr-bricks-chart-band-edge');
-      ctx.lineWidth = p.m(0.008);
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(X(pr.lo), Y(s.target));
-      ctx.lineTo(X(Number.isFinite(pr.hi) ? pr.hi : maxM2), Y(s.target));
-      ctx.stroke();
-      ctx.lineCap = 'butt';
-      ctx.fillStyle = color('xr-bricks-chart-forecast');
-      ctx.beginPath();
-      ctx.arc(X(pr.median), Y(s.target), p.m(0.009), 0, Math.PI * 2);
-      ctx.fill();
-    }
+    ctx.stroke();
+    ctx.fillStyle = color('xr-bricks-dark');
+    ctx.fillRect(43, 32, 10, 30);
+    ctx.fillRect(43, 68, 10, 9);
+    warnTex = new THREE.CanvasTexture(c);
+    warnTex.colorSpace = THREE.SRGBColorSpace;
   }
-  // what was saved, month by month, and now
-  ctx.strokeStyle = color('xr-bricks-chart-saved');
-  ctx.lineWidth = p.m(0.004);
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  s.history.forEach((v, m) => (m ? ctx.lineTo(X(m), Y(v)) : ctx.moveTo(X(m), Y(v))));
-  if (!s.done) ctx.lineTo(X(now), Y(s.saved));
-  ctx.stroke();
-  for (const mk of s.marks) {
-    ctx.fillStyle = color(mk.kind === 'spend' ? 'xr-bricks-chart-spend' : mk.kind === 'gold' ? 'xr-bricks-chart-gold' : 'xr-bricks-chart-saved');
-    ctx.beginPath();
-    ctx.arc(X(mk.m), Y(mk.v), p.m(mk.kind === 'spend' ? 0.008 : 0.006), 0, Math.PI * 2);
-    ctx.fill();
-  }
-  if (!s.done) {
-    ctx.fillStyle = color('xr-panel-text');
-    ctx.beginPath();
-    ctx.arc(X(now), Y(s.saved), p.m(0.007), 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // legend dot labels next to the lines: "saved" near now, target label at the right
-  ctx.font = font('bold', sm * 0.95);
-  ctx.textAlign = 'right';
-  ctx.fillStyle = color('xr-bricks-chart-target');
-  ctx.fillText(t('bricksChartTarget', { n: s.target }), x1, Y(s.target) - sm * 1.15);
-  // note
-  ctx.textAlign = 'left';
-  ctx.fillStyle = color('xr-panel-text');
-  ctx.font = font('regular', sm);
-  noteLines.forEach((ln, i) => ctx.fillText(ln, pad, Hc - pad - noteH + i * sm * 1.22));
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: warnTex, transparent: true, depthTest: false, toneMapped: false }));
+  sp.scale.setScalar(0.035);
+  sp.renderOrder = 6;
+  sp.userData.noFit = true;
+  return sp;
+}
+
+// ---------- the neighbor family ----------
+
+/** A little figure (meters in its own space): legs, body, head, a winter hat, arms that move. */
+function person({ h, shirt, pants, hat, skin }) {
+  const g = new THREE.Group();
+  const std = (token, rough = 0.8) => new THREE.MeshStandardMaterial({ color: hex(token), roughness: rough });
+  const r = h * 0.13;
+  const legs = new THREE.Mesh(new THREE.CapsuleGeometry(r * 0.75, h * 0.22, 4, 10), std(pants));
+  legs.position.y = h * 0.2;
+  legs.scale.set(1.25, 1, 0.9);
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(r, h * 0.22, 4, 12), std(shirt));
+  body.position.y = h * 0.5;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(r * 1.05, 14, 10), std(skin, 0.6));
+  head.position.y = h * 0.8;
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(r * 1.0, r * 1.5, 12), std(hat, 0.9));
+  cap.position.set(0, h * 0.8 + r * 1.05, -r * 0.1);
+  cap.rotation.x = -0.25;
+  const pom = new THREE.Mesh(new THREE.SphereGeometry(r * 0.32, 8, 6), std('xr-bricks-fence', 1));
+  pom.position.set(0, h * 0.8 + r * 1.75, -r * 0.3);
+  g.add(legs, body, head, cap, pom);
+  const arms = [-1, 1].map((sx) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(sx * r * 1.05, h * 0.62, 0);
+    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(r * 0.32, h * 0.2, 3, 8), std(shirt));
+    arm.position.y = -h * 0.13;
+    pivot.add(arm);
+    pivot.rotation.z = sx * 0.15;
+    g.add(pivot);
+    return pivot;
+  });
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  return { g, arms, h };
+}
+
+/**
+ * The neighbor family (two grown-ups and a child) for their front garden. tick(dt, time);
+ * wave() one of them waves, cheer() all jump with their arms up, clap() a short applause.
+ */
+export function makeFamily() {
+  const group = new THREE.Group();
+  group.userData.noFit = true;
+  const ppl = [
+    person({ h: 0.17, shirt: 'xr-bricks-family-1', pants: 'xr-bricks-family-pants', hat: 'xr-bricks-family-hat-1', skin: 'xr-bricks-family-skin-1' }),
+    person({ h: 0.16, shirt: 'xr-bricks-family-2', pants: 'xr-bricks-family-pants', hat: 'xr-bricks-family-hat-2', skin: 'xr-bricks-family-skin-2' }),
+    person({ h: 0.11, shirt: 'xr-bricks-family-3', pants: 'xr-bricks-family-pants', hat: 'xr-bricks-family-hat-1', skin: 'xr-bricks-family-skin-1' }),
+  ];
+  [[-0.05, 0.02], [0.06, 0], [0.005, 0.05]].forEach(([x, z], i) => { ppl[i].g.position.set(x, 0, z); ppl[i].g.rotation.y = (i - 1) * -0.2; group.add(ppl[i].g); });
+  let mood = null; // { kind, t, who }
+  return {
+    group,
+    wave() { if (!mood) mood = { kind: 'wave', t: 0, who: Math.floor(Math.random() * 3) }; },
+    cheer() { mood = { kind: 'cheer', t: 0 }; },
+    clap() { mood = { kind: 'clap', t: 0 }; },
+    tick(dt, time) {
+      if (mood) { mood.t += dt; if (mood.t > (mood.kind === 'wave' ? 2.2 : 2.6)) mood = null; }
+      ppl.forEach((pp, i) => {
+        let y = Math.max(0, Math.sin(time * 2 + i * 1.7)) * 0.002;
+        let la = 0.15;
+        let ra = -0.15;
+        if (mood?.kind === 'wave' && mood.who === i) ra = -2.6 + Math.sin(mood.t * 12) * 0.35;
+        if (mood?.kind === 'cheer') {
+          y = Math.abs(Math.sin(mood.t * 6 + i)) * pp.h * 0.25;
+          la = 2.7 + Math.sin(mood.t * 10 + i) * 0.2;
+          ra = -2.7 - Math.sin(mood.t * 10 + i) * 0.2;
+        }
+        if (mood?.kind === 'clap') {
+          const c = Math.abs(Math.sin(mood.t * 14 + i));
+          la = 1.1 + c * 0.35;
+          ra = -1.1 - c * 0.35;
+          y = Math.abs(Math.sin(mood.t * 5 + i)) * pp.h * 0.06;
+        }
+        pp.g.position.y = y;
+        pp.arms[0].rotation.z += (-la - pp.arms[0].rotation.z) * Math.min(1, dt * 14);
+        pp.arms[1].rotation.z += (-ra - pp.arms[1].rotation.z) * Math.min(1, dt * 14);
+      });
+    },
+  };
 }

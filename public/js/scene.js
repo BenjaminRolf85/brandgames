@@ -211,7 +211,8 @@ export class BaseScene {
       { text: t('score'), size: 'xr-text-md', weight: 'bold', gap: 0.03 },
       { text: this.resultData.line ?? t('correctOf', { n: correct, total }), size: 'xr-text-md', gap: 0.02 },
       { text: isNew ? t('newBest') : `${t('best')}: ${best}`, size: 'xr-text-md', weight: 'bold', color: color(isNew ? 'xr-warning' : 'xr-accent'), gap: 0.03 },
-      ...(this.house ? [
+      // The quizzes' knowledge house (only an object with a rating; other games may use the name).
+      ...(typeof this.house?.rating === 'function' ? [
         { text: t('houseName'), size: 'xr-text-sm', color: color('xr-panel-muted'), gap: 0.005 },
         { text: t(this.house.rating()), size: 'xr-text-md', weight: 'bold', color: color('xr-success') },
       ] : []),

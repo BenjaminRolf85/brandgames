@@ -25,11 +25,14 @@
 #   Drone, DroneRotor     the AI terrain scanner (rotor at the origin, the app places four)
 #   Arch                  the finish arch (BkArchBanner face gets the app's text panel)
 #   ArchGarland           its Christmas garland with gold bows (the app adds fairy lights)
+# public/assets/models/bike-jumps.glb (jumps and the pit stop):
+#   HzRamp, HzDriftRamp   kickers (lip at z -0.8, 0.45 high); HzLog, HzBranch, HzTrench lie
+#                         across the whole trail and can only be jumped; PitGantry, PitRack
 # Material names start with Bk; the app recolors them from the --xr-bike-* tokens
 # (public/js/bike-models.js). Ambient occlusion is baked into the vertex colors.
 #
 # Usage:
-#   blender -b -P build_bike.py -- models <bike.glb> <bike-world.glb> <bike.blend>
+#   blender -b -P build_bike.py -- models <bike.glb> <bike-world.glb> <bike.blend> <bike-jumps.glb>
 #   blender -b -P build_bike.py -- coin <bike.blend> <echo.blend> <out.png>
 import os, sys, math, random
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -394,13 +397,13 @@ def build_fork():
     # Steerer spacers, stem, handlebar (riser, swept back) with grips and brake levers.
     p.append(tube('spacer', (0, 0.823, -0.31), (0, 0.848, -0.302), 0.026, DARK, 14))
     p.append(sweep('stem', [(0, 0.84, -0.304), (0, 0.85, -0.36), (0, 0.855, -0.395)], 0.02, DARK, 12))
-    bar = [(-0.3, 0.88, -0.33), (-0.22, 0.875, -0.36), (-0.12, 0.862, -0.39), (-0.05, 0.856, -0.398), (0.05, 0.856, -0.398), (0.12, 0.862, -0.39), (0.22, 0.875, -0.36), (0.3, 0.88, -0.33)]
+    bar = [(-0.31, 0.9, -0.24), (-0.25, 0.892, -0.3), (-0.16, 0.874, -0.37), (-0.06, 0.858, -0.398), (0.06, 0.858, -0.398), (0.16, 0.874, -0.37), (0.25, 0.892, -0.3), (0.31, 0.9, -0.24)]
     p.append(sweep('bar', bar, 0.012, METAL, 10))
     for s in (-1, 1):
-        p.append(sweep('grip', [(s * 0.21, 0.874, -0.363), (s * 0.255, 0.878, -0.347), (s * 0.302, 0.88, -0.329)], 0.019, DARK, 12))
-        p.append(tube('gripEnd', (s * 0.302, 0.88, -0.329), (s * 0.31, 0.88, -0.326), 0.021, ACCENT, 12))
-        p.append(sweep('lever', [(s * 0.19, 0.87, -0.37), (s * 0.21, 0.865, -0.4), (s * 0.27, 0.86, -0.395)], 0.006, METAL, 6))
-        p.append(box('leverBody', (s * 0.185, 0.87, -0.37), (0.035, 0.022, 0.03), DARK, bev=0.006))
+        p.append(sweep('grip', [(s * 0.245, 0.891, -0.305), (s * 0.28, 0.896, -0.27), (s * 0.312, 0.9, -0.236)], 0.019, DARK, 12))
+        p.append(tube('gripEnd', (s * 0.312, 0.9, -0.236), (s * 0.317, 0.9, -0.229), 0.021, ACCENT, 12))
+        p.append(sweep('lever', [(s * 0.2, 0.882, -0.34), (s * 0.235, 0.876, -0.36), (s * 0.28, 0.872, -0.33)], 0.006, METAL, 6))
+        p.append(box('leverBody', (s * 0.19, 0.884, -0.343), (0.035, 0.022, 0.03), DARK, bev=0.006))
     # Front rotor caliper on the fork.
     p.append(tube('rotorF', (-0.058, 0.35, -0.52), (-0.054, 0.35, -0.52), 0.07, METAL, 32))
     p.append(box('caliperF', (-0.066, 0.39, -0.47), (0.018, 0.04, 0.05), DARK, bev=0.005))
@@ -704,6 +707,10 @@ W = {
     'archBanner': mat('BkArchBanner', (0.1, 0.1, 0.15), 0.0, 0.5),
     'archPost': mat('BkArchPost', (0.2, 0.2, 0.25), 0.6, 0.4),
     'garland': mat('BkGarland', (0.1, 0.45, 0.25), 0.0, 0.8),
+    'rampStripe': mat('BkRampStripe', (1.0, 0.75, 0.1), 0.0, 0.5),
+    'cone': mat('BkCone', (1.0, 0.4, 0.05), 0.0, 0.45),
+    'pitSign': mat('BkPitSign', (0.1, 0.1, 0.15), 0.0, 0.5),
+    'pitGlow': mat('BkPitGlow', (0, 0, 0), emit=(1.0, 0.75, 0.1)),
 }
 
 
@@ -1230,6 +1237,157 @@ def arch():
     return [main, group('ArchGarland', p)]
 
 
+
+# ---------------------------------------------------------------- jumps and the pit stop
+# (bike-jumps.glb) Ramps rise towards -z (the riding direction): origin at the ramp's middle on
+# the ground, the lip at z = -0.8, 0.45 high. Obstacles across the trail span x -3.3 .. 3.3.
+
+def hz_ramp():
+    p = []
+    w, L, H = 0.7, 0.8, 0.45
+    # the wedge: deck from the ground (z +L) up to the lip (z -L)
+    verts = [(-w, 0, L), (w, 0, L), (w, H, -L), (-w, H, -L), (-w, 0, -L), (w, 0, -L)]
+    faces = [[0, 1, 2, 3], [4, 5, 1, 0], [3, 2, 5, 4], [0, 3, 4], [1, 5, 2]]
+    p.append(mesh_obj('wedge', verts, faces, W['woodDark'], smooth=False))
+    # deck planks across, following the slope
+    n = 8
+    for i in range(n):
+        k = (i + 0.5) / n
+        z = L - 2 * L * k
+        y = H * k + 0.012
+        p.append(box('plank', (0, y, z), (2 * w + 0.06, 0.03, 2 * L / n * 0.9), W['wood'], bev=0.006, rot=(math.atan2(H, 2 * L), 0, 0)))
+    # yellow warning stripe on the lip and chevrons on the deck
+    p.append(box('lipStripe', (0, H + 0.02, -L + 0.06), (2 * w + 0.07, 0.035, 0.12), W['rampStripe'], rot=(math.atan2(H, 2 * L), 0, 0)))
+    for k, x in ((0.35, -0.3), (0.35, 0.3), (0.6, 0)):
+        z = L - 2 * L * k
+        y = H * k + 0.03
+        p.append(box('chevron', (x, y, z), (0.32, 0.012, 0.07), W['rampStripe'], rot=(math.atan2(H, 2 * L), 0.0, 0.5 if x <= 0 else -0.5)))
+    # side braces and posts
+    for sx in (-1, 1):
+        p.append(tube('post', (sx * (w + 0.03), 0, -L + 0.05), (sx * (w + 0.03), H, -L + 0.05), 0.035, W['woodDark'], 8))
+        p.append(tube('brace', (sx * (w + 0.03), 0, 0.2), (sx * (w + 0.03), H * 0.8, -L + 0.1), 0.025, W['woodDark'], 8))
+    return group('HzRamp', p)
+
+
+def hz_drift_ramp():
+    """A snow drift shaped like a kicker (same footprint as the ramp)."""
+    p = []
+    w, L, H = 0.75, 0.85, 0.42
+    bm = bmesh.new()
+    nx, nz = 10, 12
+    rows = []
+    rr = random.Random(31)
+    for j in range(nz + 1):
+        k = j / nz  # 0 at the start, 1 at the lip
+        z = L - 2 * L * k
+        row = []
+        for i in range(nx + 1):
+            u = i / nx
+            x = -w + 2 * w * u
+            edge = math.sin(math.pi * u) ** 0.6
+            h = H * (k ** 1.3) * edge * (1 - 0.6 * max(0, k - 0.88) / 0.12) + rr.uniform(0, 0.015)
+            row.append(bm.verts.new(P(x * (1 + 0.1 * math.sin(k * 6)), max(0.0, h), z)))
+        rows.append(row)
+    for j in range(nz):
+        for i in range(nx):
+            bm.faces.new((rows[j][i], rows[j][i + 1], rows[j + 1][i + 1], rows[j + 1][i]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    ob = link('drift', bm, W['snow'])
+    smooth_all(ob)
+    fix_up(ob)
+    p.append(ob)
+    p.append(lump('lipDrift', (0, 0.25, -L - 0.12), 0.32, W['snow'], s=(2.2, 0.75, 0.6), amp=0.1, seed=4, subdiv=2))
+    return group('HzDriftRamp', p)
+
+
+def hz_log():
+    p = []
+    rr = random.Random(41)
+    pts = [(-3.35 + i * 0.67, 0.21 + 0.02 * math.sin(i), 0.03 * math.sin(i * 1.7)) for i in range(11)]
+    p.append(sweep('trunk', pts, 0.21, W['trunk'], 14, radii=[0.2 + 0.03 * math.sin(i * 0.9) for i in range(11)]))
+    for x in (-3.36, 3.36):
+        p.append(tube('cut', (x - 0.01 * (1 if x > 0 else -1), 0.21, 0), (x + 0.012 * (1 if x > 0 else -1), 0.21, 0), 0.19, W['wood'], 14))
+    for i in range(6):
+        x = -2.6 + i * 1.0 + rr.uniform(-0.2, 0.2)
+        a = rr.uniform(-0.9, 0.9)
+        base = (x, 0.3, 0.0)
+        tip = (x + rr.uniform(-0.1, 0.1), 0.3 + math.cos(a) * 0.35, math.sin(a) * 0.35)
+        p.append(tube('stub', base, tip, 0.05, W['trunk'], 7, r2=0.02))
+    for i in range(5):
+        p.append(sphere('moss', (-2.8 + i * 1.3, 0.38, rr.uniform(-0.08, 0.08)), 0.12, W['leafDark'], s=(1.6, 0.45, 1.0), segs=10, rings=6))
+    # bark rings
+    for i in range(12):
+        x = -3.1 + i * 0.55
+        p.append(tube('barkRing', (x - 0.015, 0.21, 0), (x + 0.015, 0.21, 0), 0.215, W['woodDark'], 12))
+    return group('HzLog', p)
+
+
+def hz_branch():
+    p = []
+    rr = random.Random(51)
+    pts = [(-3.35 + i * 0.6, 0.11 + 0.05 * math.sin(i * 1.3), 0.12 * math.sin(i * 0.8)) for i in range(12)]
+    p.append(sweep('branch', pts, 0.1, W['trunk'], 10, radii=[0.12 - 0.003 * i for i in range(12)]))
+    for i in range(1, 11):
+        b = pts[i]
+        for k in range(2):
+            a = rr.uniform(0, math.pi)
+            tip = (b[0] + rr.uniform(-0.25, 0.25), b[1] + math.sin(a) * 0.35, b[2] + math.cos(a) * 0.4)
+            p.append(tube('twig', b, tip, 0.03, W['trunk'], 6, r2=0.008))
+            if rr.random() < 0.6:
+                p.append(sphere('leaf', tip, 0.07, W['autumn'] if rr.random() < 0.5 else W['leaf'], s=(1.4, 0.35, 0.9), segs=8, rings=5))
+    return group('HzBranch', p)
+
+
+def hz_trench():
+    """A deep pothole running across the whole trail, with broken edges and warning cones."""
+    p = []
+    out = []
+    n = 40
+    for i in range(n):
+        a = TAU * i / n
+        x = math.cos(a) * 3.4
+        z = math.sin(a) * (0.55 + 0.08 * math.sin(a * 7))
+        out.append((x * (1 + 0.02 * math.sin(a * 11)), z))
+    p.append(disc_mesh('trenchDark', out, 0.004, W['hole']))
+    p.append(disc_mesh('trenchWater', [(x * 0.92, z * 0.6) for x, z in out], 0.008, W['water']))
+    rr = random.Random(61)
+    for i, (x, z) in enumerate(out):
+        if i % 2:
+            continue
+        p.append(lump('edge', (x * 1.02, 0.02, z * 1.12), 0.07 + rr.uniform(0, 0.05), W['chunk'], s=(1.3, 0.5, 1.0), amp=0.3, seed=i, subdiv=1))
+    for sx in (-1, 1):
+        c = (sx * 3.05, 0, 0.75)
+        p.append(tube('coneBase', c, (c[0], 0.04, c[2]), 0.14, W['postDark'], 4))
+        p.append(tube('cone', (c[0], 0.04, c[2]), (c[0], 0.62, c[2]), 0.11, W['cone'], 16, r2=0.02))
+        p.append(tube('coneBand', (c[0], 0.3, c[2]), (c[0], 0.38, c[2]), 0.07, W['post'], 16, r2=0.058))
+    return group('HzTrench', p)
+
+
+def pit_gantry():
+    """The pit stop: a gantry over the right half of the trail with a sign box (the app puts a
+    text panel on its face, BkPitSign) and lamps; origin on the trail's middle line."""
+    p = []
+    for x in (0.25, 2.75):
+        p.append(box('postFoot', (x, 0.06, 0), (0.3, 0.12, 0.3), W['archPost'], bev=0.02))
+        p.append(tube('post', (x, 0.1, 0), (x, 2.5, 0), 0.07, W['archPost'], 12))
+    p.append(box('beam', (1.5, 2.5, 0), (2.8, 0.14, 0.14), W['archPost'], bev=0.02))
+    p.append(box('signBox', (1.5, 2.15, 0), (1.9, 0.55, 0.1), W['pitSign'], bev=0.02))
+    for x in (0.7, 1.5, 2.3):
+        p.append(box('lamp', (x, 2.42, 0.08), (0.18, 0.06, 0.06), W['pitGlow']))
+    return group('PitGantry', p)
+
+
+def pit_rack():
+    """Spare tires stacked flat beside the pit, with a pump bottle on top."""
+    p = []
+    for i in range(4):
+        y = 0.07 + i * 0.13
+        p.append(ring('spare', (0, y, 0), 0.27, 0.06, 0.06, W['coal'], segs=40, tsegs=10, axis='y', expo=2.6))
+        p.append(ring('spareStripe', (0, y + 0.061, 0), 0.27, 0.004, 0.012, W['rampStripe'] if i % 2 else W['flag'], segs=40, tsegs=4, axis='y'))
+    p.append(tube('cartridge', (0.0, 0.6, 0.0), (0.0, 0.78, 0.0), 0.05, W['cart'], 14))
+    return group('PitRack', p)
+
+
 # ================================================================ build / export
 
 def export_sel(objs, path):
@@ -1241,28 +1399,27 @@ def export_sel(objs, path):
                               export_vertex_color='ACTIVE', export_active_vertex_color_when_no_material=True)
 
 
-def build_models(out_bike, out_world, out_blend):
+def build_models(out_bike, out_world, out_blend, out_jumps=None):
     bike = [build_frame(), build_fork(), build_wheel(), build_cranks()] + build_tires() + [build_helmet()] + build_pump()
     world = [hz_glass(), hz_nails(), hz_thorns(), hz_pothole(), hz_roots(), hz_ice(), hz_puddle(),
              it_star(), it_cartridge(), it_shield(),
              pr_lamp(), pr_post(), pr_bush(), pr_sign(), pr_tree(), pr_fence(), pr_rock(), pr_grass(), pr_hay(),
              pine('PrPine'), pr_stump(), pr_fern(), pr_mushroom(), pine('PrPineSnow', True), pr_rock_snow(), pr_lantern(),
              pr_snowman(), pr_manhole(), pr_pebbles(), pr_leaves(), pr_drift(), pr_flag()] + swallow() + drone() + arch()
+    jumps = [hz_ramp(), hz_drift_ramp(), hz_log(), hz_branch(), hz_trench(), pit_gantry(), pit_rack()]
     # Ambient occlusion in the vertex colors (glowing parts stay white).
-    glow = {'BkLightGlow', 'BkBandGlow', 'BkShieldGlow', 'BkLampGlow', 'BkReflectGlow', 'BkLensGlow'}
+    glow = {'BkLightGlow', 'BkBandGlow', 'BkShieldGlow', 'BkLampGlow', 'BkReflectGlow', 'BkLensGlow', 'BkPitGlow'}
     dens = {'BikeFrame': 0.05, 'BikeFork': 0.05, 'BikeWheel': 0.08, 'BikeCranks': 0.05, 'TireSlick': 0.06, 'TireAllround': 0.06,
             'TireKnobby': 0.06, 'TireSpikes': 0.06, 'EchoHelmet': 0.1, 'PumpBody': 0.08, 'PumpHandle': 0.1}
-    if os.environ.get('NOBAKE'):
-        bake_ao = lambda assets, *a, **k: None  # quick previews while modeling
-    else:
-        from bhelpers import bake_ao
-    bake_ao([(o, dens.get(o.name, 0.12)) for o in bike], glow, distance=0.12, samples=24)
-    wdens = {'Arch': 0.4, 'PrTree': 0.25, 'PrPine': 0.25, 'PrPineSnow': 0.25, 'PrLamp': 0.3, 'PrHay': 0.2, 'PrFence': 0.25, 'PrSnowman': 0.15, 'PrBush': 0.15}
-    bake_ao([(o, wdens.get(o.name, 0.1)) for o in world], glow, distance=0.4, samples=20)
-    for o in bike + world:
+    dens.update({'Arch': 0.4, 'ArchGarland': 0.3, 'PrTree': 0.25, 'PrPine': 0.25, 'PrPineSnow': 0.25, 'PrLamp': 0.3, 'PrHay': 0.2, 'PrFence': 0.25, 'PrSnowman': 0.15, 'PrBush': 0.15})
+    if not os.environ.get('NOBAKE'):  # NOBAKE=1: quick previews while modeling
+        bake_ao([(o, dens.get(o.name, 0.1)) for o in bike + world + jumps], glow, distance=0.2, samples=20)
+    for o in bike + world + jumps:
         print('faces', o.name, len(o.data.polygons))
     export_sel(bike, out_bike)
     export_sel(world, out_world)
+    if out_jumps:
+        export_sel(jumps, out_jumps)
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=out_blend, compress=True)
     print('DONE')
@@ -1270,35 +1427,28 @@ def build_models(out_bike, out_world, out_blend):
 
 # ---------------------------------------------------------------- coin art
 
-def coin_render(bike_blend, echo_blend, out_png):
+def coin_render(bike_blend, echo_blend, out_png, size=512, samples=64):
     """Renders the game coin picture: Echo on the bike with knobby tires and the glowing band,
-    the swallow ahead, on a rich violet-to-cyan background (colors as in the tokens)."""
+    riding towards the viewer, the swallow ahead and a star, on a violet-to-cyan background."""
     bpy.ops.wm.open_mainfile(filepath=bike_blend)
     sc = bpy.context.scene
-    keep = {'BikeFrame', 'BikeFork', 'BikeWheel', 'BikeCranks', 'TireKnobby', 'TireBand', 'Swallow', 'SwallowWingL', 'SwallowWingR', 'ItStar'}
+    keep = {'BikeFrame', 'BikeFork', 'BikeWheel', 'BikeCranks', 'TireKnobby', 'TireBand', 'Swallow', 'SwallowWingL', 'SwallowWingR', 'ItStar', 'EchoHelmet'}
     for o in list(sc.objects):
         if o.name not in keep:
             bpy.data.objects.remove(o, do_unlink=True)
-    # Second wheel and tire.
+
     def dup(name, loc):
         o = bpy.data.objects[name]
         c = o.copy()
-        c.data = o.data
         sc.collection.objects.link(c)
         c.location = loc
         return c
-    wr = bpy.data.objects['BikeWheel']
-    wr.location = P(*RA)
-    wf = dup('BikeWheel', P(*FA))
-    tr = bpy.data.objects['TireKnobby']
-    tr.location = P(*RA)
-    tf = dup('TireKnobby', P(*FA))
-    br = bpy.data.objects['TireBand']
-    br.location = P(*RA)
-    dup('TireBand', P(*FA))
-    # Echo from its own file, on the saddle, facing forward (-z), wings to the bars.
+    for name in ('BikeWheel', 'TireKnobby', 'TireBand'):
+        bpy.data.objects[name].location = P(*RA)
+        dup(name, P(*FA))
+    # Echo from its own file, on the saddle, facing forward, wings folded to the grips.
     with bpy.data.libraries.load(echo_blend, link=False) as (src, dst):
-        dst.objects = [n for n in src.objects]
+        dst.objects = list(src.objects)
     echo_root = bpy.data.objects.new('EchoRoot', None)
     sc.collection.objects.link(echo_root)
     for o in dst.objects:
@@ -1307,110 +1457,119 @@ def coin_render(bike_blend, echo_blend, out_png):
         sc.collection.objects.link(o)
         if o.parent is None:
             o.parent = echo_root
-    for name in ('WingL', 'WingR'):
-        w = bpy.data.objects.get(name)
-        if w:
-            s = 1 if name == 'WingR' else -1
-            w.rotation_euler = (0, 0, 0)
-            w.rotation_euler.rotate(Matrix.Rotation(s * -1.0, 3, 'Z'))
-            w.rotation_euler.rotate(Matrix.Rotation(s * 0.25, 3, 'Y'))
-    for name in ('MouthOpen',):
-        o = bpy.data.objects.get(name)
-        if o:
+        if o.name in ('MouthOpen', 'LidL', 'LidR', 'LidLowL', 'LidLowR'):
             o.hide_render = True
-    for name in ('LidL', 'LidR', 'LidLowL', 'LidLowR'):
-        o = bpy.data.objects.get(name)
-        if o:
-            o.hide_render = True
-    echo_root.scale = (0.62, 0.62, 0.62)
-    echo_root.location = P(0, 1.13, 0.17)
-    echo_root.rotation_euler = (0, 0, math.pi + 0.0)
-    # Bike: turned 3/4 towards the camera, leaning a little.
+    helmet = bpy.data.objects['EchoHelmet']
+    helmet.parent = echo_root
+    bpy.data.objects['WingR'].rotation_euler = (0, 0.55, -1.25)
+    bpy.data.objects['WingL'].rotation_euler = (0, -0.55, 1.25)
+    echo_root.scale = (0.6, 0.6, 0.6)
+    echo_root.location = P(0, 1.08, 0.1)
+    echo_root.rotation_euler = (-0.12, 0, math.pi)
+    # The bike turned three quarters towards the camera.
     rig = bpy.data.objects.new('Rig', None)
     sc.collection.objects.link(rig)
-    for o in sc.objects:
-        if o.parent is None and o is not rig and o.type in ('MESH', 'EMPTY') and not o.name.startswith(('Swallow', 'ItStar')):
+    for o in list(sc.objects):
+        if o.parent is None and o is not rig and not o.name.startswith(('Swallow', 'ItStar')):
             o.parent = rig
-    rig.rotation_euler = (0, 0.06, math.radians(-128))
-    # Swallow up front.
-    for n in ('Swallow', 'SwallowWingL', 'SwallowWingR'):
-        o = bpy.data.objects[n]
-        o.parent = None
+    rig.rotation_euler = (0, 0.05, math.radians(-38))
+    # The swallow up front, wings raised, and a star.
     sw = bpy.data.objects.new('SwRig', None)
     sc.collection.objects.link(sw)
     for n in ('Swallow', 'SwallowWingL', 'SwallowWingR'):
         bpy.data.objects[n].parent = sw
-    bpy.data.objects['SwallowWingL'].rotation_euler = (0, -0.5, 0)
-    bpy.data.objects['SwallowWingR'].rotation_euler = (0, 0.5, 0)
-    sw.location = P(-0.55, 1.75, -0.2)
-    sw.rotation_euler = (0.15, 0.2, math.radians(-150))
-    sw.scale = (1.15, 1.15, 1.15)
+    bpy.data.objects['SwallowWingL'].rotation_euler = (0, 1.0, 0)
+    bpy.data.objects['SwallowWingR'].rotation_euler = (0, -1.0, 0)
+    sw.location = (-0.26, 0.6, 1.6)
+    sw.rotation_euler = (0.15, -0.25, math.radians(-30))
+    sw.scale = (1.35, 1.35, 1.35)
     st = bpy.data.objects['ItStar']
-    st.location = P(0.62, 1.62, -0.1)
-    st.rotation_euler = (0.3, 0.0, 0.4)
-    st.scale = (0.7, 0.7, 0.7)
-    # Background: a gradient world (violet to cyan), soft key and rim lights.
+    st.location = (0.6, 0.3, 1.5)
+    st.rotation_euler = (0.1, 0.25, 0.35)
+    st.scale = (0.9, 0.9, 0.9)
+    # The token colors of the game (game-bike.css) instead of the preview colors.
+    def lin3(h):
+        c = [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        return tuple(x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c)
+    for name, h in (('BkFrame', '#7c3aed'), ('BkAccent', '#22d3ee'), ('BkTireAccent', '#ff8a3d'), ('BkHelmet', '#ffb02e'), ('BkBottle', '#22d3ee'), ('BkSwallowBack', '#1f2d70'), ('BkSwallowFace', '#cf5a2c'), ('BkGold', '#ffc43d')):
+        m = bpy.data.materials.get(name)
+        if m:
+            m.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (*lin3(h), 1)
+    band = bpy.data.materials.get('BkBandGlow')
+    if band:
+        bsdf = band.node_tree.nodes['Principled BSDF']
+        bsdf.inputs['Emission Color'].default_value = (*lin3('#34f5c5'), 1)
+        bsdf.inputs['Emission Strength'].default_value = 4.0
+    # Background: a violet-to-cyan gradient (the app's token colors).
     world = bpy.data.worlds.new('CoinWorld')
     sc.world = world
     world.use_nodes = True
     nt = world.node_tree
     bg = nt.nodes['Background']
-    grad = nt.nodes.new('ShaderNodeTexGradient')
     tc = nt.nodes.new('ShaderNodeTexCoord')
     mapn = nt.nodes.new('ShaderNodeMapping')
+    grad = nt.nodes.new('ShaderNodeTexGradient')
     ramp = nt.nodes.new('ShaderNodeValToRGB')
+    light_path = nt.nodes.new('ShaderNodeLightPath')
+    mix = nt.nodes.new('ShaderNodeMixShader')
+    bg2 = nt.nodes.new('ShaderNodeBackground')
+
     def lin(h):
         c = [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
         return tuple(x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c) + (1,)
-    ramp.color_ramp.elements[0].color = lin('#2a1062')
-    ramp.color_ramp.elements[1].color = lin('#0e7c93')
+    ramp.color_ramp.elements[0].color = lin('#3a1a8a')
+    ramp.color_ramp.elements[1].color = lin('#0d8fa8')
     nt.links.new(tc.outputs['Window'], mapn.inputs['Vector'])
-    mapn.inputs['Rotation'].default_value = (0, 0, math.radians(-50))
+    mapn.inputs['Rotation'].default_value = (0, 0, math.radians(-45))
+    mapn.inputs['Location'].default_value = (-0.2, 0.5, 0)
     nt.links.new(mapn.outputs['Vector'], grad.inputs['Vector'])
     nt.links.new(grad.outputs['Fac'], ramp.inputs['Fac'])
     nt.links.new(ramp.outputs['Color'], bg.inputs['Color'])
-    bg.inputs['Strength'].default_value = 1.0
-    # A floor disc that catches the shadow (snowy ground).
+    bg2.inputs['Color'].default_value = (0.6, 0.62, 0.75, 1)
+    bg2.inputs['Strength'].default_value = 0.3
+    # The camera sees the gradient, the objects are lit by a soft neutral world.
+    nt.links.new(light_path.outputs['Is Camera Ray'], mix.inputs['Fac'])
+    nt.links.new(bg2.outputs['Background'], mix.inputs[1])
+    nt.links.new(bg.outputs['Background'], mix.inputs[2])
+    nt.links.new(mix.outputs['Shader'], nt.nodes['World Output'].inputs['Surface'])
+    # A snowy floor that only catches the shadow.
     bm = bmesh.new()
-    bmesh.ops.create_circle(bm, cap_ends=True, segments=48, radius=1.6)
+    bmesh.ops.create_circle(bm, cap_ends=True, segments=48, radius=2.5)
     floor = link('Floor', bm, material('CoinFloor', (0.85, 0.9, 1.0), 0.0, 0.7))
-    floor.location = (0, 0, 0)
     floor.is_shadow_catcher = True
-    def light(name, kind, loc, energy, color=(1, 1, 1), size=1.0):
-        d = bpy.data.lights.new(name, kind)
+
+    def light(name, loc, energy, color, size):
+        d = bpy.data.lights.new(name, 'AREA')
         d.energy = energy
         d.color = color
-        if kind == 'AREA':
-            d.size = size
+        d.size = size
         o = bpy.data.objects.new(name, d)
         sc.collection.objects.link(o)
         o.location = loc
-        o.rotation_euler = (0, 0, 0)
-        tr_ = o.constraints.new('TRACK_TO')
-        tr_.target = rig
+        tr = o.constraints.new('TRACK_TO')
+        tr.target = rig
         return o
-    light('Key', 'AREA', (2.5, 2.5, 3.5), 900, (1.0, 0.95, 0.9), 2.5)
-    light('Rim', 'AREA', (-2.0, -2.5, 2.5), 700, (0.5, 0.9, 1.0), 2.0)
-    light('Fill', 'AREA', (-2.5, 2.5, 1.0), 250, (0.8, 0.6, 1.0), 2.0)
+    light('Key', (2.6, 3.0, 3.6), 420, (1.0, 0.95, 0.9), 2.5)
+    light('Rim', (-2.4, -2.6, 2.6), 420, (0.45, 0.9, 1.0), 2.0)
+    light('Fill', (-3.0, 2.6, 1.2), 140, (0.85, 0.65, 1.0), 2.5)
     cam_d = bpy.data.cameras.new('Cam')
-    cam_d.lens = 70
+    cam_d.lens = 78
     cam = bpy.data.objects.new('Cam', cam_d)
     sc.collection.objects.link(cam)
     sc.camera = cam
-    cam.location = (0.15, 3.4, 1.55)
+    cam.location = (0.35, 5.6, 1.75)
     target = bpy.data.objects.new('Target', None)
     sc.collection.objects.link(target)
-    target.location = (0.0, 0.0, 0.88)
+    target.location = (0.0, 0.0, 0.98)
     tc2 = cam.constraints.new('TRACK_TO')
     tc2.target = target
     sc.render.engine = 'CYCLES'
     sc.cycles.device = 'CPU'
-    sc.cycles.samples = 64
+    sc.cycles.samples = samples
     sc.cycles.use_denoising = True
-    sc.render.resolution_x = 512
-    sc.render.resolution_y = 512
-    sc.render.film_transparent = False
-    sc.view_settings.view_transform = 'AgX' if 'AgX' in [i.identifier for i in sc.view_settings.bl_rna.properties['view_transform'].enum_items] else 'Filmic'
+    sc.render.resolution_x = size
+    sc.render.resolution_y = size
+    sc.view_settings.view_transform = 'Standard'
     sc.view_settings.look = 'None'
     sc.render.filepath = out_png
     bpy.ops.render.render(write_still=True)
@@ -1418,6 +1577,6 @@ def coin_render(bike_blend, echo_blend, out_png):
 
 
 if MODE == 'models':
-    build_models(ARGS[1], ARGS[2], ARGS[3])
+    build_models(*ARGS[1:5])
 elif MODE == 'coin':
-    coin_render(ARGS[1], ARGS[2], ARGS[3])
+    coin_render(ARGS[1], ARGS[2], ARGS[3], *(int(x) for x in ARGS[4:6]))
