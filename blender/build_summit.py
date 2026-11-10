@@ -476,19 +476,31 @@ tie.parent = harness
 
 # ---------- the customer (summit-customer.glb) ----------
 
+# The customers: six stylized characters (toy-like proportions, about 3 heads tall, height 1, feet
+# at y = 0, facing +z). Every one is a root empty Cust_<key> with the nodes <key>_Body,
+# <key>_Head (pivot at the neck) with <key>_LidL/R (eyelids, scaled by the app to blink),
+# <key>_BrowL/R and the mouths <key>_MouthNeutral/Smile/Open/Skeptic/Talk (one shown at a time),
+# <key>_ArmL/R (pivot at the shoulder; R is the figure's right hand, at -x) with <key>_ForeL/R
+# (pivot at the elbow, forearm and hand with fingers). Materials Cust* are recolored per customer.
 SUIT = material('CustSuit', (0.12, 0.18, 0.35), 0.0, 0.6)
+TRIM = material('CustTrim', (0.08, 0.12, 0.25), 0.0, 0.6)
 SHIRT = material('CustShirt', (0.95, 0.95, 0.97), 0.0, 0.55)
 SKIN = material('CustSkin', (0.95, 0.75, 0.62), 0.0, 0.5)
 HAIR = material('CustHair', (0.25, 0.15, 0.08), 0.0, 0.55)
 PANTS = material('CustPants', (0.1, 0.1, 0.14), 0.0, 0.65)
 SHOE = material('CustShoe', (0.05, 0.04, 0.04), 0.1, 0.3)
 EYE = material('CustEye', (0.03, 0.03, 0.05), 0.0, 0.1)
-EYEL = material('CustEyeLight', (1, 1, 1), 0.0, 0.2)
-MOUTH = material('CustMouth', (0.45, 0.12, 0.15), 0.0, 0.5)
+IRIS = material('CustIris', (0.3, 0.2, 0.1), 0.0, 0.2)
+WHITE = material('CustWhite', (0.97, 0.97, 0.98), 0.0, 0.3)
+SHINE = material('CustShine', (1, 1, 1), 0.0, 0.2)
+MOUTH = material('CustMouth', (0.35, 0.08, 0.1), 0.0, 0.5)
+LIPS = material('CustLips', (0.75, 0.3, 0.35), 0.0, 0.45)
+TONGUE = material('CustTongue', (0.9, 0.45, 0.45), 0.0, 0.5)
 CHEEK = material('CustCheek', (0.95, 0.5, 0.5), 0.0, 0.6)
-TIEM = material('CustTie', (0.7, 0.1, 0.15), 0.0, 0.45)
-GLASS = material('CustGlass', (0.08, 0.08, 0.1), 0.6, 0.3)
+LINE = material('CustLine', (0.7, 0.45, 0.35), 0.0, 0.6)
 ACC = material('CustAccent', (0.3, 0.7, 0.6), 0.0, 0.6)
+GLASS = material('CustGlass', (0.08, 0.08, 0.1), 0.6, 0.3)
+GOLD = material('CustGold', (1.0, 0.75, 0.3), 1.0, 0.25)
 
 
 def pivot(ob, p):
@@ -551,109 +563,7 @@ def cut_shell(name, c, r, s, keep, mat, segs=32, rings=20, thick=0.012):
     return smooth(link(name, bm, mat))
 
 
-cust = []
-# Body: shoes, legs, torso (blazer with the shirt in a V and lapels), neck.
-body = []
-for s in (-1, 1):
-    body.append(blob('shoe', (s * 0.07, 0.03, 0.025), 0.05, SHOE, s=(1.0, 0.7, 1.6), segs=18, rings=10))
-    body.append(tcyl('leg', (s * 0.068, 0.2, 0), 0.05, 0.32, PANTS, segs=16, r2=0.056))
-body.append(lathe('torso', [(0.0, 0.33), (0.115, 0.335), (0.138, 0.4), (0.142, 0.5), (0.136, 0.58), (0.115, 0.645), (0.07, 0.675), (0.0, 0.68)], SUIT, sz=0.78))
-body.append(blob('shirtV', (0, 0.6, 0.085), 0.06, SHIRT, s=(0.75, 1.15, 0.45), segs=16, rings=10))
-for s in (-1, 1):
-    body.append(blob('lapel', (s * 0.045, 0.585, 0.098), 0.05, SUIT, s=(0.45, 1.2, 0.25), segs=14, rings=8, rot=Matrix.Rotation(s * 0.35, 3, 'Y')))
-    body.append(blob('button', (0, 0.47 + 0.05 * (s + 1) / 2, 0.11), 0.009, SHIRT, segs=10, rings=6))
-body.append(tcyl('neck', (0, 0.69, 0), 0.042, 0.05, SKIN, segs=16))
-body.append(blob('collar', (0, 0.665, 0.03), 0.06, SHIRT, s=(1.0, 0.35, 0.8), segs=16, rings=8))
-cbody = merge(body, 'CustBody')
-cust.append(cbody)
-tie_ob = merge([blob('knot', (0, 0.645, 0.1), 0.015, TIEM, s=(1, 0.9, 0.7), segs=10, rings=8),
-                blob('blade', (0, 0.57, 0.108), 0.022, TIEM, s=(0.85, 3.0, 0.3), segs=12, rings=10)], 'CustTie')
-scarf = merge([ttorus('scarf', (0, 0.665, 0.0), 0.075, 0.024, ACC, axis='y', segs=28, tsegs=10),
-               blob('tail', (0.03, 0.6, 0.09), 0.03, ACC, s=(0.8, 1.8, 0.4), segs=12, rings=8)], 'CustScarf')
-apron = merge([blob('apron', (0, 0.43, 0.095), 0.12, ACC, s=(0.95, 1.5, 0.22), segs=20, rings=12)], 'CustApron')
-
-# Head (pivot at the top of the neck).
-NECK = (0, 0.7, 0)
-HC = (0, 0.84, 0.005)
-head = [blob('head', HC, 0.15, SKIN, s=(1.0, 1.04, 0.95), segs=32, rings=22)]
-for s in (-1, 1):
-    head.append(blob('ear', (s * 0.148, 0.835, -0.01), 0.032, SKIN, s=(0.45, 1.0, 0.8), segs=12, rings=8))
-    head.append(blob('eye', (s * 0.052, 0.855, 0.136), 0.024, EYE, s=(0.85, 1.15, 0.45), segs=16, rings=10))
-    head.append(blob('glint', (s * 0.052 + 0.008, 0.866, 0.146), 0.007, EYEL, segs=8, rings=6))
-    head.append(blob('cheek', (s * 0.088, 0.81, 0.118), 0.026, CHEEK, s=(1.0, 0.7, 0.35), segs=12, rings=8))
-head.append(blob('nose', (0, 0.825, 0.15), 0.02, SKIN, s=(0.9, 0.9, 0.8), segs=12, rings=8))
-chead = merge(head, 'CustHead')
-pivot(chead, NECK)
-brows = []
-for s, tag in ((-1, 'L'), (1, 'R')):
-    b = tbox(f'CustBrow{tag}', (s * 0.052, 0.9, 0.137), (0.045, 0.01, 0.012), HAIR, bev=0.004)
-    pivot(b, (s * 0.052, 0.9, 0.137))
-    b.parent = chead
-    b.location = Vector(b.location) - Vector(chead.location)
-    brows.append(b)
-smile = [(u * 0.042, 0.787 + 0.013 * u * u, 0.141 - 0.012 * u * u) for u in [-1 + 2 * i / 10 for i in range(11)]]
-mouth = tube('CustMouth', smile, [0.004, 0.006, 0.007, 0.008, 0.008, 0.008, 0.008, 0.008, 0.007, 0.006, 0.004], MOUTH, sides=8)
-pivot(mouth, (0, 0.79, 0.14))
-mouth.parent = chead
-mouth.location = Vector(mouth.location) - Vector(chead.location)
-
-
-def head_child(ob):
-    ob.parent = chead
-    ob.matrix_parent_inverse = Matrix.Translation(chead.location).inverted()
-    return ob
-
-
-hx, hy, hz = HC
-top_back = lambda x, y, z: (y > 0.0 and z < 0.06) or (y > 0.035) or (z < -0.03 and y > -0.08)
-hair_short = merge([cut_shell('hs', HC, 0.158, (1.0, 1.04, 0.97), lambda x, y, z: (y > 0.04 or (z < -0.02 and y > -0.07)) and not (z > 0.11 and y < 0.1), HAIR),
-                    blob('fringe', (0.03, 0.955, 0.08), 0.09, HAIR, s=(1.25, 0.45, 0.65), segs=16, rings=10, rot=Matrix.Rotation(0.25, 3, 'Y'))], 'CustHairShort')
-hair_bun = merge([cut_shell('hb', HC, 0.158, (1.0, 1.04, 0.97), lambda x, y, z: (y > 0.03 or (z < -0.02 and y > -0.06)) and not (z > 0.12 and y < 0.09), HAIR),
-                  blob('bun', (0, 0.98, -0.1), 0.06, HAIR, segs=18, rings=12),
-                  blob('part', (-0.04, 0.96, 0.085), 0.08, HAIR, s=(1.2, 0.4, 0.6), segs=14, rings=8, rot=Matrix.Rotation(-0.3, 3, 'Y'))], 'CustHairBun')
-curls = [cut_shell('hc', HC, 0.156, (1.0, 1.04, 0.97), lambda x, y, z: (y > 0.03 or (z < -0.02 and y > -0.05)) and not (z > 0.12 and y < 0.1), HAIR)]
-rng = random.Random(3)
-for i in range(46):
-    a = rng.uniform(0, 2 * math.pi)
-    e = rng.uniform(0.15, 1.35)
-    d = Vector((math.cos(a) * math.cos(e), math.sin(e), math.sin(a) * math.cos(e)))
-    if d.z > 0.45 and d.y < 0.55:
-        continue
-    p = (hx + d.x * 0.162, hy + d.y * 0.168, hz + d.z * 0.155)
-    curls.append(blob('curl', p, 0.034 + rng.random() * 0.012, HAIR, segs=10, rings=7))
-hair_curly = merge(curls, 'CustHairCurly')
-hair_long = merge([cut_shell('hl', HC, 0.16, (1.02, 1.05, 0.98), lambda x, y, z: (y > 0.02 or z < 0.0) and not (z > 0.11 and y < 0.1), HAIR),
-                   blob('back', (0, 0.74, -0.08), 0.13, HAIR, s=(1.05, 1.15, 0.55), segs=20, rings=12),
-                   blob('sideL', (-0.13, 0.78, 0.02), 0.06, HAIR, s=(0.6, 1.5, 0.8), segs=12, rings=8),
-                   blob('sideR', (0.13, 0.78, 0.02), 0.06, HAIR, s=(0.6, 1.5, 0.8), segs=12, rings=8)], 'CustHairLong')
-beard = merge([cut_shell('bd', HC, 0.157, (1.0, 1.04, 0.98), lambda x, y, z: y < -0.02 and z > -0.02 and abs(x) < 0.15 and not (y > -0.075 and abs(x) < 0.035), HAIR, thick=0.02),
-               blob('stache', (0, 0.8, 0.148), 0.03, HAIR, s=(1.6, 0.45, 0.5), segs=12, rings=8)], 'CustBeard')
-glasses = []
-for s in (-1, 1):
-    glasses.append(ttorus('rim', (s * 0.052, 0.857, 0.15), 0.032, 0.005, GLASS, axis='z', segs=24, tsegs=6))
-    glasses.append(tbox('temple', (s * 0.12, 0.862, 0.075), (0.008, 0.008, 0.15), GLASS))
-glasses.append(tbox('bridge', (0, 0.865, 0.152), (0.04, 0.007, 0.007), GLASS))
-glasses = merge(glasses, 'CustGlasses')
-for ob in (hair_short, hair_bun, hair_curly, hair_long, beard, glasses):
-    head_child(ob)
-
-# Arms (pivot at the shoulder): sleeve, shirt cuff and a mitten hand.
-arms = []
-for s, tag in ((-1, 'L'), (1, 'R')):
-    sh = (s * 0.13, 0.63, 0.0)
-    parts = [tube('sleeve', [sh, (s * 0.165, 0.53, 0.01), (s * 0.18, 0.43, 0.02)], [0.045, 0.042, 0.04], SUIT),
-             blob('shoulder', sh, 0.048, SUIT, segs=14, rings=10),
-             tcyl('cuff', (s * 0.182, 0.415, 0.022), 0.036, 0.02, SHIRT, segs=14),
-             blob('hand', (s * 0.185, 0.38, 0.026), 0.034, SKIN, s=(0.85, 1.1, 0.9), segs=14, rings=10)]
-    arm = merge(parts, f'CustArm{tag}')
-    pivot(arm, sh)
-    arms.append(arm)
-
-customer = bpy.data.objects.new('SummitCustomer', None)
-bpy.context.scene.collection.objects.link(customer)
-for ob in [cbody, tie_ob, scarf, apron, chead, *arms]:
-    ob.parent = customer
-cust_meshes = [cbody, tie_ob, scarf, apron, chead, *arms, *brows, mouth, hair_short, hair_bun, hair_curly, hair_long, beard, glasses]
+#@@CUSTOMERS@@
 
 # ---------- coin picture (no export) ----------
 
