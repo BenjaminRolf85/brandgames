@@ -797,6 +797,22 @@ export class GreenScene extends BaseScene {
       const done = this.mode === 'plan' && !TYPE_KEYS.some((k) => this.canChoose(k));
       const alerting = this.mode === 'sim' && !a.disabled;
       this.padEls?.[5]?.classList.toggle('mtouch__btn--primary', this.mode === 'report' || done || alerting);
+      this.stylePad();
+    }
+  }
+
+  /**
+   * Phones: the thumb buttons get an opaque face. Translucent (and dimmed, disabled) buttons over
+   * the WebGL view showed ghost letters of other labels in the browser's compositing; disabled
+   * buttons show muted colors instead of transparency.
+   */
+  stylePad() {
+    for (const b of this.padEls ?? []) {
+      const primary = b.classList.contains('mtouch__btn--primary');
+      b.style.background = primary ? '' : 'var(--xr-green-alert-bg)';
+      b.style.opacity = '1';
+      b.style.color = b.disabled ? 'var(--xr-panel-muted)' : '';
+      b.style.borderColor = b.disabled ? 'var(--xr-button-bg)' : '';
     }
   }
 

@@ -1018,6 +1018,8 @@ export class BricksScene extends BaseScene {
 
   openCard(ev) {
     if (!this.building() || this.card || this.mode !== 'play') return;
+    this.clearToast();
+    this.toastWaiting = null;
     this.card = { ev };
     bsfx.event();
     const g = new THREE.Group();
@@ -1036,7 +1038,7 @@ export class BricksScene extends BaseScene {
       btns[1].position.set(0.175, by, 0);
       g.add(...btns);
       h += 0.025 + bh;
-      btns.forEach((b, i) => this.popIn(b, 0.1 + i * 0.05));
+
     } else {
       this.cardPad = this.touchButtons(ev.options.map((o, i) => ({ icon: i ? 'bricks' : 'gift', label: `${i + 1} ${t(`bricksOptShort_${o.key}`)}`, primary: !i, onPress: () => this.choose(i) })));
       this.cardPad?.show(true);
@@ -1044,7 +1046,9 @@ export class BricksScene extends BaseScene {
     g.children.forEach((o) => { o.position.y += h / 2 - panel.h / 2; });
     g.userData.h = h;
     this.cardHolder.add(g);
-    this.popIn(panel);
+    // Pops in by size only (no fading), so it is opaque from the first frame.
+    g.scale.setScalar(0.85);
+    this.tween(0.25, (k) => g.scale.setScalar(0.85 + 0.15 * k));
     this.cardGroup = g;
     if (this.engine.isXR) this.placeXR();
   }
@@ -1083,6 +1087,10 @@ export class BricksScene extends BaseScene {
     this.ai.target = this.target;
     this.marks.push({ m: this.elapsed(), v: this.plan.saved, kind: opt.remove ? 'spend' : 'event' });
     this.toast(t('bricksChose', { name: t(`bricksOpt_${opt.key}`) }), 'xr-bricks-event', 2.2);
+    // A message that came in while the card was open follows the decision (if still current).
+    const waiting = this.toastWaiting;
+    this.toastWaiting = null;
+    if (waiting) this.delay(2.4, () => { if (!this.card && this.building()) this.toast(waiting.text, waiting.token, waiting.dur); });
     this.setNote(opt.note ?? 'steady');
     this.refreshForecast('event');
     this.dispatch();
@@ -1225,7 +1233,18 @@ export class BricksScene extends BaseScene {
 
   // ---------- messages ----------
 
+  /** Removes the message on screen at once. */
+  clearToast() {
+    if (!this.toastPanel) return;
+    this.toastPanel.removeFromParent();
+    this.toastPanel.dispose();
+    this.toastPanel = null;
+    this.hinting = false;
+  }
+
   toast(text, token = 'xr-panel-text', dur = 2.2) {
+    // While a decision card is open nothing else shows; the latest message waits for the decision.
+    if (this.card) { this.toastWaiting = { text, token, dur }; return; }
     this.toastPanel?.removeFromParent();
     this.toastPanel?.dispose();
     const p = textPanel(0.62, 0.08, [{ text, size: 'xr-text-md', weight: 'black', color: color(token) }], { surface: { stroke: color(token), stripe: false } });
@@ -2000,7 +2019,11 @@ export class BricksScene extends BaseScene {
       let area = { x: lay.plot.x, w: lay.plot.w + (lay.pip.x > lay.plot.x ? lay.pip.w : 0), y0: lay.plot.y };
       let bottom2 = bottom;
       if (lay.touch && lay.portrait) area = { x: 0, w: lay.W, y0: lay.chart.y };
-      else if (lay.touch && btns) { area = { x: 0, w: btns.getBoundingClientRect().left - 10, y0: lay.chart.y }; bottom2 = 10; }
+      else if (lay.touch && btns) {
+        // The buttons float in the lower right corner: the card goes left of them.
+        const left = Math.min(...[...btns.querySelectorAll('.mtouch__btn')].map((el) => el.getBoundingClientRect().left));
+        if (left > 260) { area = { x: 0, w: left - 10, y0: lay.chart.y }; bottom2 = 10; }
+      }
       const ch = this.cardGroup.userData.h + 0.02;
       const cppm = Math.min(lay.touch ? 900 : ppm * 1.05, (area.w - 20) / 0.72, (lay.Hh - area.y0 - bottom2 - 16) / ch);
       const cyc = (area.y0 + lay.Hh - bottom2) / 2;

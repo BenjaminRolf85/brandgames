@@ -70,6 +70,7 @@
   --xr-bricks-chart-snow:     rgb(170 210 255 / 0.12);   /* months after the first snow */
   --xr-bricks-snow-icon:      #bfe3ff;
   /* life events */
+  --xr-bricks-card-bg:        #0d1222;   /* the decision card (opaque) */
   --xr-bricks-event:          #ff9fc3;
   --xr-bricks-opt-1:          #ffd27a;
   --xr-bricks-opt-2:          #8fe0ff;

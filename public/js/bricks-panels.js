@@ -51,7 +51,8 @@ export function eventPanel(ev, w = 0.68) {
   const col = w - ic - pad * 0.6;
   const h = Math.max(measureBlocks(blocks, col, pad), ic + pad * 2);
   return new Panel(w, h, (ctx, p) => {
-    p.surface({ stroke: color('xr-bricks-event'), strokeWidth: num('xr-border-width') * 1.6, stripe: false });
+    // Fully opaque: nothing behind the card shows through.
+    p.surface({ fill: color('xr-bricks-card-bg'), stroke: color('xr-bricks-event'), strokeWidth: num('xr-border-width') * 1.6, stripe: false });
     const cx = p.m(pad + ic / 2);
     const cy = p.m(pad + ic / 2 + 0.01);
     ctx.save();
