@@ -237,6 +237,7 @@ export class Region {
     this.root = new THREE.Group();
     this.root.name = 'GreenRegion';
     this.cloudY = 0.27; // clouds float this high (lower in the browser's tilted view)
+    this.turbineYaw = -0.35; // rotors face the player (a phone held upright turns the map)
     this.showSun = true;
     this.time = 0;
     this.lite = quality.lite;
@@ -399,16 +400,18 @@ export class Region {
           vec2 uv = (vP.xz - uBounds.xy) / (uBounds.zw - uBounds.xy);
           vec4 f = texture2D(uField, uv);
           float v = f.r; float conf = f.g; float mask = f.b;
-          vec3 col = v < 0.5 ? mix(uLo, uMid, v * 2.0) : mix(uMid, uHi, v * 2.0 - 1.0);
+          float vc = pow(v, 1.45);
+          vec3 col = vc < 0.5 ? mix(uLo, uMid, vc * 2.0) : mix(uMid, uHi, vc * 2.0 - 1.0);
           // Contour lines (like a weather map).
           float lv = v * 7.0;
           float w = fwidth(lv);
           float line = 1.0 - smoothstep(0.0, w * 1.4, abs(fract(lv) - 0.5) * 2.0 - (1.0 - w * 2.5));
           col = mix(col, uLine, line * 0.45);
-          // Hatching where the AI is unsure: diagonal stripes that let the terrain through.
+          // Hatching where the AI is unsure: dark diagonal stripes.
           float unsure = smoothstep(0.85, 0.45, conf);
-          float stripe = step(0.5, fract((vP.x + vP.z) * 70.0 + uTime * 0.15));
-          float a = uOpacity * mask * (0.86 - 0.36 * unsure * stripe);
+          float stripe = smoothstep(0.42, 0.5, abs(fract((vP.x + vP.z) * 60.0) - 0.5) * 2.0 * 0.5 + 0.25);
+          col = mix(col, uLine, unsure * stripe * 0.55);
+          float a = uOpacity * mask * 0.84;
           gl_FragColor = vec4(col, a);
           #include <colorspace_fragment>
         }`,
@@ -594,7 +597,8 @@ export class Region {
     let h = 0.04;
     if (type === 'wind') {
       // Turned towards the prevailing wind from the south-west (the rotor faces the player).
-      g.rotation.y = -0.35;
+      g.rotation.y = this.turbineYaw;
+      g.userData.turbine = true;
       const rotor = this.src.GreenRotor ? this.skin(this.src.GreenRotor.clone(true)) : new THREE.Group();
       rotor.position.copy(this.hubPos);
       rotor.rotation.set(0, 0, Math.random() * 6);
@@ -959,6 +963,7 @@ export class Region {
     for (const P of this.plots.values()) {
       const r = P.model?.userData.rotor;
       if (!r) continue;
+      P.model.rotation.y = this.turbineYaw;
       const want = vis.cutout ? 0.2 : 1.2 + 6.5 * Math.min(1.6, vis.wind);
       P.model.userData.spin += (want - P.model.userData.spin) * Math.min(1, dt * 1.2);
       r.rotation.z -= P.model.userData.spin * dt;

@@ -89,6 +89,7 @@ export class GreenScene extends BaseScene {
     if (this.region) {
       this.region.cloudY = xr ? 0.27 : 0.16;
       this.region.showSun = xr;
+      this.region.turbineYaw = -0.35 - (touch && portrait && !intro && !over ? Math.PI / 2 : 0);
     }
     if (xr) {
       board.position.set(0, eye - num('xr-green-table-drop') - (over ? 0.16 : 0), num('xr-green-table-z'));
@@ -107,9 +108,11 @@ export class GreenScene extends BaseScene {
       board.rotation.set(tilt, 0, 0);
       board.scale.setScalar(1.08);
     } else if (portrait) {
-      board.position.set(0, eye - 0.3, -1.4);
-      board.rotation.set(tilt, 0, 0);
-      board.scale.setScalar(1);
+      // Phone held upright: the map turns a quarter (sea at the top, fields below) and is
+      // seen a little more from above, so it fills the tall screen and the plots get bigger.
+      board.position.set(0, eye - 0.42, -1.4);
+      board.rotation.set(tilt + 0.14, Math.PI / 2, 0);
+      board.scale.setScalar(1.32);
     } else {
       board.position.set(0.3, eye - 0.06, -1.4);
       board.rotation.set(tilt, 0, 0);
@@ -155,14 +158,14 @@ export class GreenScene extends BaseScene {
       this.cards.position.set(0, eye - 0.57, -1.4);
       this.cards.rotation.set(0, 0, 0);
     } else if (portrait) {
-      this.fc.position.set(0, eye + 0.24, -1.4);
+      this.fc.position.set(0, eye + 0.5, -1.4);
     } else {
       this.fc.scale.setScalar(1.08);
       this.fc.position.set(-0.6, eye + 0.06, -1.4);
       this.spacer.position.set(0.3, eye - 0.52, -1.4);
     }
     this.toastAt = xr ? new THREE.Vector3(0, eye + 0.06, num('xr-green-table-z') - 0.2)
-      : touch && portrait ? new THREE.Vector3(0, eye - 0.12, -1.25)
+      : touch && portrait ? new THREE.Vector3(0, eye - 0.2, -1.2)
         : touch ? new THREE.Vector3(0.3, eye + 0.12, -1.25) : new THREE.Vector3(0, eye + 0.36, -1.3);
   }
 
@@ -242,10 +245,13 @@ export class GreenScene extends BaseScene {
   hudText() {
     const g = this.game;
     const name = t('greenName');
+    if (this.engine.touchUI && this.mode !== 'plan') return this.mode === 'sim' ? `${this.report.label} · ${t('greenMonthNames').split(',')[Math.min(11, Math.floor(this.month ?? 0))]}` : t('greenHudReportTouch', { year: this.report.label, gwh: fmt(this.report.energy), qol: fmtInt(g.qol) });
     if (this.mode === 'sim') return t('greenHudSim', { name, year: this.report.label, month: t('greenMonthNames').split(',')[Math.min(11, Math.floor(this.month ?? 0))] });
     if (this.mode === 'report') return t('greenHudReport', { name, year: this.report.label, gwh: fmt(this.report.energy), qol: fmtInt(g.qol) });
     const left = Math.max(0, Math.ceil(this.planT ?? 0));
-    return t('greenHud', { name, year: g.yearLabel, n: g.year + 1, total: YEARS, budget: money(g.budget), time: `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` });
+    const time = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    if (this.engine.touchUI) return t('greenHudTouch', { year: g.yearLabel, n: g.year + 1, total: YEARS, budget: money(g.budget), time });
+    return t('greenHud', { name, year: g.yearLabel, n: g.year + 1, total: YEARS, budget: money(g.budget), time });
   }
 
   actionState() {

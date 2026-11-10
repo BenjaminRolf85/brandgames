@@ -11,6 +11,7 @@ import { EchoFace } from './echo-face.js';
 import { winterize } from './snow.js';
 import { CHRISTMAS, makeBulbs, makeTree } from './christmas.js';
 import { drawIcon } from './icons.js';
+import { quality } from './quality.js';
 
 export const SUMMIT_URL = 'assets/models/summit.glb';
 export const CUSTOMER_URL = 'assets/models/summit-customer.glb';
@@ -36,7 +37,7 @@ export const cutUniform = { value: -100 };
  * Patches a standard material: fragments below the cloud line are dropped (the wall and the
  * peaks rise out of the sea of clouds) and, with grain, a fine rock texture from object space.
  */
-function patchRock(mat, grain = 0) {
+function patchRock(mat, grain = 0, bump = 0) {
   const prev = mat.onBeforeCompile;
   mat.onBeforeCompile = (shader, r) => {
     prev?.call(mat, shader, r);
@@ -62,6 +63,15 @@ function patchRock(mat, grain = 0) {
                      mix(mix(grainHash(i + vec3(0, 0, 1)), grainHash(i + vec3(1, 0, 1)), f.x), mix(grainHash(i + vec3(0, 1, 1)), grainHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
         }`)
       .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (vCutY < uCutY) discard;')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        ${bump > 0 ? `{
+          // Rough rock: the normal follows a noise relief (object space, good enough for a bump).
+          vec3 bp = vGrainP * 30.0;
+          float b0 = grainNoise(bp);
+          vec3 bg = vec3(grainNoise(bp + vec3(0.12, 0.0, 0.0)), grainNoise(bp + vec3(0.0, 0.12, 0.0)), grainNoise(bp + vec3(0.0, 0.0, 0.12))) - b0;
+          bg = (viewMatrix * vec4(bg, 0.0)).xyz;
+          normal = normalize(normal - ${bump.toFixed(2)} * (bg - dot(bg, normal) * normal) / 0.12);
+        }` : ''}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         ${grain > 0 ? `{
           float g = grainNoise(vGrainP * 38.0) * 0.6 + grainNoise(vGrainP * 110.0) * 0.4;
@@ -69,7 +79,7 @@ function patchRock(mat, grain = 0) {
           diffuseColor.rgb *= 1.0 - ${grain.toFixed(2)} * (0.55 - g) - 0.06 * strata;
         }` : ''}`);
   };
-  mat.customProgramCacheKey = () => `summit-rock|${grain}`;
+  mat.customProgramCacheKey = () => `summit-rock|${grain}|${bump}`;
   mat.needsUpdate = true;
   return mat;
 }
@@ -78,8 +88,9 @@ const std = (token, roughness, metalness = 0, extra = {}) => new THREE.MeshStand
 
 /** Token materials for summit.glb (fresh set per call). */
 function wallMaterials() {
-  const rock = patchRock(std('xr-summit-rock', 0.93), 0.35);
-  const rockAlt = patchRock(std('xr-summit-rock-alt', 0.93), 0.35);
+  const bump = quality.lite ? 0 : 0.22;
+  const rock = patchRock(std('xr-summit-rock', 0.93), 0.35, bump);
+  const rockAlt = patchRock(std('xr-summit-rock-alt', 0.93), 0.35, bump);
   const snow = patchRock(std('xr-summit-snow', 0.75));
   // Christmas: snow catches on every ledge and bump (snow.js); the snow pillows stay as they are.
   winterize(rock);

@@ -316,14 +316,14 @@ export function forecastPanel(w, h, view) {
     drawIcon(ctx, 'greenAI', pen.x + c.m(0.02), pen.y + c.m(0.022), c.m(0.04), color('xr-accent'));
     const full = { x: pen.x, w: pen.w };
     pen.x += c.m(0.05);
-    pen.w = (wide ? full.w * 0.46 : full.w) - c.m(0.05);
+    pen.w = full.w - c.m(0.05);
     const title = v.mode === 'sim' ? t('greenYearRuns', { year: v.report.label }) : v.mode === 'report' ? t('greenReportTitle', { year: v.report.label }) : t('greenAITitle');
     pen.line(title, { size: num('xr-text-md'), weight: 'black', col: color('xr-accent'), gap: 0.002 });
     pen.x = full.x;
-    pen.w = wide ? full.w * 0.46 : full.w;
+    pen.w = wide ? full.w * 0.47 : full.w;
     if (wide) {
-      // Two columns: the left one starts below the title, the right one at the top.
-      pen.right = { x: full.x + full.w * 0.5, w: full.w * 0.5, top: c.m(0.025) };
+      // Two columns below the title.
+      pen.right = { x: full.x + full.w * 0.52, w: full.w * 0.48, top: pen.y };
     }
     if (v.mode === 'plan') drawPlan(pen, v);
     else if (v.mode === 'sim') drawSim(pen, v);

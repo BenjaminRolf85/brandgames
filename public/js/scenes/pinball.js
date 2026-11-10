@@ -6,7 +6,7 @@
 // respond. The AI campaign planner, a multi-armed bandit with Thompson sampling, learns the
 // response rates from these hits, shows its estimates with their uncertainty on a panel and
 // lights up the channel it recommends next; following its tip pays a bonus when it was right.
-// All six channels with one ball: campaign complete, reach x2 (then x3). 3 balls, ball save at
+// All six channels with one ball: campaign complete, reach x2 for that ball. 3 balls, ball save at
 // the start of each ball, 3 minutes. Own 2D physics (pinball-physics.js) with 1 ms sub-steps.
 import * as THREE from 'three';
 import { BaseScene } from '../scene.js';
@@ -440,7 +440,7 @@ export class PinballScene extends BaseScene {
 
   campaignComplete() {
     this.campaigns += 1;
-    this.mult = Math.min(3, this.mult + 1);
+    this.mult = 2; // reach x2 for the rest of this ball
     this.addPoints(150);
     this.chBall.clear();
     sfx.finish();
