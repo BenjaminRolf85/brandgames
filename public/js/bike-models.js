@@ -286,7 +286,7 @@ const ECHO_SIZE = 0.6; // Echo's body width on the bike (meters at bike scale)
 export class EchoRider {
   constructor(parent, kit) {
     this.group = new THREE.Group();
-    this.group.position.set(0, 1.12, 0.17);
+    this.group.position.set(0, 1.08, 0.1);
     this.group.userData.noFit = true;
     parent.add(this.group);
     this.body = new THREE.Group();
@@ -327,15 +327,15 @@ export class EchoRider {
     // Pedaling bob and a little sway, leaning into the steering.
     const bob = Math.abs(Math.sin(pedal)) * 0.025 * Math.min(1, speed / 2);
     this.body.position.set(Math.sin(pedal) * 0.012, bob + this.cheerT * 0.08 * Math.abs(Math.sin(t * 6)), 0);
-    this.body.rotation.set(-0.12 * Math.min(1, speed / 3), this.turn * 2.4 - steer * 0.5, -steer * 0.6 + Math.sin(t * 30) * 0.2 * this.hurtT);
+    this.body.rotation.set(-0.1 - 0.12 * Math.min(1, speed / 3), this.turn * 0.9 - steer * 0.5, -steer * 0.6 + Math.sin(t * 30) * 0.2 * this.hurtT);
     if (this.wings) {
       // Wings folded forward to the grips; raised and waving when cheering.
       const cheer = Math.min(1, this.cheerT * 2);
       for (const w of this.wings) {
-        const fold = 1.15 * (1 - cheer) + this.turn * -0.4;
-        const a = -0.38 * (1 - cheer) + cheer * (0.9 + Math.sin(t * 14) * 0.35);
+        const fold = 1.4 * (1 - cheer) - this.turn * 0.3;
+        const a = -0.55 * (1 - cheer) + cheer * (0.9 + Math.sin(t * 14) * 0.35);
         w.node.rotation.set(0, -w.side * fold, w.side * a);
-        bendWing(w, a * 0.4 + 0.25);
+        bendWing(w, cheer ? a * 0.5 : -0.25);
       }
       this.face?.update(dt, lookWorld);
     }

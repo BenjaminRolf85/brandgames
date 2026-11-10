@@ -225,18 +225,24 @@
 .summit-answer--3 { --xr-summit-num: var(--xr-summit-hold-3); }
 .summit-answer.is-good { border-color: var(--xr-summit-hold-good); background: var(--xr-success-soft); }
 .summit-answer.is-ok { border-color: var(--xr-summit-hold-ok); }
-.summit-answer.is-bad { border-color: var(--xr-summit-hold-bad); background: var(--xr-danger-soft); text-decoration: line-through; }
-.summit-answer__tip { grid-column: 2; display: block; font-weight: var(--font-weight-regular); font-size: var(--text-xs); color: var(--xr-panel-muted); text-decoration: none; }
+.summit-answer.is-bad { border-color: var(--xr-summit-hold-bad); background: var(--xr-danger-soft); }
+.summit-answer.is-bad:disabled { opacity: 0.9; }
+.summit-answer.is-bad .summit-answer__text { text-decoration: line-through; }
+.summit-answer__tip { grid-column: 2; display: block; font-weight: var(--font-weight-regular); font-size: var(--text-xs); color: var(--xr-panel-text); }
+/* The one button to go on (e.g. next customer). */
+.summit-answer--plain { grid-template-columns: 1fr; text-align: center; background: var(--xr-primary); border-color: var(--xr-primary-hover); color: var(--xr-on-primary); }
 /* Landscape: the talk sits on the right, the wall on the left. */
 @media (orientation: landscape) {
   .summit-talk {
     left: auto;
     top: calc(max(var(--space-3), env(safe-area-inset-top)) + var(--tap-min) + var(--space-2));
-    width: min(48%, var(--xr-summit-talk-max));
+    width: min(56%, var(--xr-summit-talk-max));
     max-width: none;
     margin: 0;
     align-content: end;
     overflow: auto;
   }
   .summit-answer { padding-top: var(--space-1); padding-bottom: var(--space-1); }
+  .summit-talk { gap: var(--space-1); }
+  .summit-talk__quote { padding: var(--space-1) var(--space-2); }
 }

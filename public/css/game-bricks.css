@@ -4,7 +4,7 @@
   --xr-bricks-clay:           #c2643f;   /* clay bricks (each one varies a little) */
   --xr-bricks-gold:           #f0b43c;   /* golden interest bricks */
   --xr-bricks-gold-glow:      #ffd970;
-  --xr-bricks-concrete:       #b9b3a8;   /* foundation, sills, chimney cap */
+  --xr-bricks-concrete:       #8f8a82;   /* foundation, sills, chimney cap */
   /* the plan: ghost outline, free places, the place a brick would snap to */
   --xr-bricks-ghost:          #5fe1ff;
   --xr-bricks-ghost-dim:      #10394a;

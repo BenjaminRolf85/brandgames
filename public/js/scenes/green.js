@@ -114,9 +114,8 @@ export class GreenScene extends BaseScene {
       board.rotation.set(tilt + 0.14, Math.PI / 2, 0);
       board.scale.setScalar(1.32);
     } else {
-      board.position.set(0.3, eye - 0.06, -1.4);
+      // Phones held sideways: placed by landFrame() between the thumb buttons.
       board.rotation.set(tilt, 0, 0);
-      board.scale.setScalar(1);
     }
     // The diorama counts for the browser camera's framing except behind the results.
     if (this.region) this.region.root.userData.noFit = over;
@@ -133,19 +132,21 @@ export class GreenScene extends BaseScene {
     const { eye } = this;
     const pw = num('xr-green-panel-w');
     // The AI panel: wide and short above the diorama on a phone held upright.
-    const shape = touch && portrait ? 'wide' : 'tall';
+    // Sideways: a small corner panel with the key numbers (the thumb buttons take the corners).
+    const shape = touch ? (portrait ? 'wide' : 'mini') : 'tall';
     if (this.fcShape !== shape) {
       this.fcShape = shape;
       this.fc.removeFromParent();
       this.fc.dispose();
-      this.fc = shape === 'wide' ? forecastPanel(1.04, 0.4, () => this.fcView(true)) : forecastPanel(pw, 0.64, () => this.fcView(false));
+      const size = { wide: [1.04, 0.42], mini: [0.46, 0.5], tall: [pw, 0.64] }[shape];
+      this.fc = forecastPanel(size[0], size[1], () => this.fcView(touch), shape);
       this.ui.add(this.fc);
     }
     this.fc.rotation.set(0, 0, 0);
     this.fc.scale.setScalar(1);
     this.dash.visible = !touch;
     this.cards.visible = !touch;
-    this.spacer.visible = touch && !portrait;
+    this.spacer.visible = false;
     if (xr) {
       placeOnArc(this.fc, -0.74, eye - 0.08, 1.0);
       placeOnArc(this.dash, 0.74, eye - 0.08, 1.0);
@@ -159,14 +160,52 @@ export class GreenScene extends BaseScene {
       this.cards.rotation.set(0, 0, 0);
     } else if (portrait) {
       this.fc.position.set(0, eye + 0.5, -1.4);
-    } else {
-      this.fc.scale.setScalar(1.08);
-      this.fc.position.set(-0.6, eye + 0.06, -1.4);
-      this.spacer.position.set(0.3, eye - 0.52, -1.4);
-    }
+    } else this.landFrame();
     this.toastAt = xr ? new THREE.Vector3(0, eye + 0.06, num('xr-green-table-z') - 0.2)
       : touch && portrait ? new THREE.Vector3(0, eye - 0.2, -1.2)
-        : touch ? new THREE.Vector3(0.3, eye + 0.12, -1.25) : new THREE.Vector3(0, eye + 0.36, -1.3);
+        : touch ? this.toastAt : new THREE.Vector3(0, eye + 0.36, -1.3);
+  }
+
+  /**
+   * Phones held sideways: the thumb buttons float in the lower corners. An invisible frame with
+   * the screen's shape makes the camera framing predictable, so the diorama fills the middle
+   * between the button clusters and the AI panel sits in the free corner above the left ones.
+   */
+  landFrame() {
+    const ins = this.engine.insets();
+    const sw = window.innerWidth;
+    const sh = Math.max(100, window.innerHeight - ins.top);
+    // The browser camera never comes closer than 1.6 m to this depth (engine._autoFit): a frame of
+    // this height fills the free screen exactly.
+    const H = (2 * 1.6 * Math.tan(THREE.MathUtils.degToRad(this.engine.camera.fov / 2)) * (sh / window.innerHeight)) / 1.02;
+    const s = sh / H / 1.02; // px per meter at the content's depth
+    const z = -1.4;
+    const fy = this.eye - 0.12;
+    this.spacer.visible = true;
+    this.spacer.scale.set((H * sw) / sh, H, 1);
+    this.spacer.position.set(0, fy, z);
+    const rect = (side) => {
+      const r = document.querySelector(`#stage .mtouch--grid .mtouch__group--${side}`)?.getBoundingClientRect();
+      if (r && r.width) this[`clusterRect_${side}`] = { left: r.left, right: r.right, top: r.top };
+      return this[`clusterRect_${side}`] ?? (side === 'left' ? { left: 0, right: sw * 0.23, top: ins.top + sh * 0.6 } : { left: sw * 0.77, right: sw, top: ins.top + sh * 0.6 });
+    };
+    const L = rect('left');
+    const R = rect('right');
+    const mx = (px) => (px - sw / 2) / s;
+    const my = (py) => fy + (sh / 2 - py) / s; // py: from the top of the free area
+    // The diorama between the clusters, as large as the height allows.
+    const x0 = L.right + 4;
+    const x1 = R.left - 4;
+    const k = Math.min((x1 - x0) / s / 1.06, (sh - 10) / s / 0.92);
+    this.board.scale.setScalar(k);
+    this.board.position.set(mx((x0 + x1) / 2), my(sh / 2) - 0.03 * k, z);
+    // The AI panel in the free corner above the left buttons.
+    const cw = L.right - 12;
+    const ch = L.top - ins.top - 14;
+    const ps = Math.max(0.3, Math.min(cw / s / 0.46, ch / s / 0.5));
+    this.fc.scale.setScalar(ps);
+    this.fc.position.set(mx(8) + 0.23 * ps, my(6) - 0.25 * ps, z);
+    this.toastAt = new THREE.Vector3(this.board.position.x, my(40) - 0.04, -1.25);
   }
 
   buildUI() {
@@ -196,7 +235,7 @@ export class GreenScene extends BaseScene {
     this.cards = cards;
     this.ui.add(cards);
     // Phones in landscape: keeps the lower corners (thumb buttons) free in the camera's framing.
-    this.spacer = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.28, 0.01), new THREE.MeshBasicMaterial({ visible: false }));
+    this.spacer = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.001), new THREE.MeshBasicMaterial({ visible: false }));
     this.ui.add(this.spacer);
     // Phones: big thumb buttons (projects left and right, the action bottom right).
     const groups = { wind: 'left', solar: 'left', homes: 'left', school: 'right', kita: 'right' };
@@ -514,7 +553,7 @@ export class GreenScene extends BaseScene {
         R.setTags(vals.map(({ p, f }) => ({
           id: p.id,
           text: T.kind === 'energy' ? fmt(f.value) : `+${fmtInt(f.value)}`,
-          sub: T.kind === 'energy' ? 'GWh' : null,
+          sub: T.kind === 'energy' ? `±${fmt((f.hi - f.lo) / 2)}` : null,
           token: T.token,
           strong: p.id === this.bestPlot,
         })));
@@ -630,6 +669,10 @@ export class GreenScene extends BaseScene {
     const R = this.region;
     if (this.waitStart && R) this.start();
     this.layout();
+    if (this.engine.touchUI && !this.portrait && this.fcShape === 'mini' && Math.floor(this.time * 2) !== this.frameTick) {
+      this.frameTick = Math.floor(this.time * 2);
+      this.landFrame();
+    }
     if (!R) return;
     if (this.mode === 'plan' || this.mode === 'report' || this.mode === 'intro' || this.mode === 'over') {
       if (this.mode === 'plan') {
@@ -638,7 +681,7 @@ export class GreenScene extends BaseScene {
         if (Math.floor(this.time * 2) !== this.hudTick) { this.hudTick = Math.floor(this.time * 2); this.refreshHud?.(); }
       }
       // Calm planning weather (a winter morning at Christmas).
-      const calm = { wind: 0.55, sun: 1, cloud: 0.3, rain: 0, snowfall: CHRISTMAS ? 0.22 : 0, snow: 0.65, night: 0, storm: 0 };
+      const calm = { wind: 0.55, sun: 1, cloud: this.engine.isXR ? 0.3 : 0, rain: 0, snowfall: CHRISTMAS ? 0.22 : 0, snow: 0.65, night: 0, storm: 0 };
       for (const k of Object.keys(calm)) this.vis[k] += (calm[k] - this.vis[k]) * Math.min(1, dt * 1.5);
       this.vis.month += (2.4 - this.vis.month) * Math.min(1, dt);
       this.vis.cutout = false;

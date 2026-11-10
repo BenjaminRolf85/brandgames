@@ -305,13 +305,14 @@ function monthChart(pen, months, upto, { h = 0.09, forecast = null } = {}) {
  *   { mode: 'sim', report, month, news }             the running year
  *   { mode: 'report', report, game }                 forecast versus result
  */
-export function forecastPanel(w, h, view) {
-  const wide = w / h > 2;
+export function forecastPanel(w, h, view, kind = 'tall') {
+  const wide = kind === 'wide';
   const panel = new Panel(w, h, (ctx, c) => {
     c.surface({ stroke: color('xr-accent') });
     const v = view();
+    if (kind === 'mini') { drawMini(ctx, c, v); return; }
     const pen = new Pen(ctx, c, wide ? 0.025 : 0.03);
-    if (wide) pen.k = 1.12; // phones held upright: a little larger letters
+    if (wide) pen.k = 1.25; // phones held upright: larger letters
     // Title row with the AI icon.
     drawIcon(ctx, 'greenAI', pen.x + c.m(0.02), pen.y + c.m(0.022), c.m(0.04), color('xr-accent'));
     const full = { x: pen.x, w: pen.w };
@@ -330,6 +331,83 @@ export function forecastPanel(w, h, view) {
     else drawReport(pen, v);
   });
   return panel;
+}
+
+/** Phones held sideways: a small corner panel with only the key numbers, in large letters. */
+function drawMini(ctx, c, v) {
+  const pen = new Pen(ctx, c, 0.026);
+  const S = num('xr-text-md');
+  const M = num('xr-text-sm') * 1.15;
+  if (v.mode === 'sim') {
+    const r = v.report;
+    pen.line(`${r.label} · ${t('greenMonthNames').split(',')[Math.min(11, Math.floor(v.month))]}`, { size: S, weight: 'black', col: color('xr-accent') });
+    const k = Math.min(12, v.month);
+    let w = 0;
+    let s = 0;
+    let wf = 0;
+    let sf = 0;
+    for (let i = 0; i < 12; i++) {
+      const f = Math.max(0, Math.min(1, k - i));
+      w += r.months[i].wind * f;
+      s += r.months[i].sun * f;
+      wf += r.windFc * MONTH_WIND[i] * f;
+      sf += r.sunFc * MONTH_SUN[i] * f;
+    }
+    if (r.windFc > 0) pen.line(`${t('greenRepWind')} ${fmt(w)} GWh ${pct(w / wf - 1)}`, { size: M, weight: 'bold', col: color('xr-green-wind') });
+    if (r.sunFc > 0) pen.line(`${t('greenRepSun')} ${fmt(s)} GWh ${pct(s / sf - 1)}`, { size: M, weight: 'bold', col: color('xr-green-sun') });
+    if (v.news) pen.para(v.news, { size: num('xr-text-sm'), weight: 'bold', col: color('xr-warning'), maxLines: 4 });
+    return;
+  }
+  if (v.mode === 'report') {
+    const r = v.report;
+    pen.line(t('greenReportTitle', { year: r.label }), { size: S, weight: 'black', col: color('xr-accent') });
+    const rows = [];
+    if (r.windFc > 0) rows.push([t('greenRepWind'), r.windSum / r.windFc - 1, 'xr-green-wind']);
+    if (r.sunFc > 0) rows.push([t('greenRepSun'), r.sunSum / r.sunFc - 1, 'xr-green-sun']);
+    if (rows.length) rows.push([t('greenRepTotal'), r.energy / r.forecastEnergy - 1, 'xr-green-energy']);
+    for (const [label, d, token] of rows) {
+      ctx.font = font('bold', c.m(M));
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = color(token);
+      ctx.fillText(label, pen.x, pen.y + c.m(M * 0.62));
+      ctx.textAlign = 'right';
+      ctx.fillStyle = color(d >= 0 ? 'xr-green-up' : 'xr-green-down');
+      ctx.fillText(pct(d), pen.x + pen.w, pen.y + c.m(M * 0.62));
+      pen.y += c.m(M * 1.3);
+    }
+    const dq = r.qol - r.qolBefore;
+    pen.line(`${t('greenQol')} ${dq >= 0 ? '+' : '−'}${fmtInt(Math.abs(dq))}`, { size: M, weight: 'bold', col: color('xr-green-qol') });
+    if (!rows.length) pen.para(t('greenRepNone'), { size: num('xr-text-sm'), maxLines: 4 });
+    return;
+  }
+  const { game, type, plot } = v;
+  const T = type ? TYPES[type] : null;
+  pen.line(t('greenAITitle'), { size: S, weight: 'black', col: color('xr-accent') });
+  if (T && plot && !plot.built && plot.area === T.area) {
+    const f = game.forecast(type, plot.id);
+    pen.line(plotName(plot), { size: M, weight: 'bold', gap: 0.004 });
+    const big = T.kind === 'energy' ? `${fmt(f.value)} GWh` : `+${fmtInt(f.value)}`;
+    pen.line(big, { size: 0.066, weight: 'black', col: color(T.token), gap: 0.004 });
+    const r = T.kind === 'energy' ? `${fmt(f.lo)} – ${fmt(f.hi)}` : `+${fmtInt(f.lo)} – +${fmtInt(f.hi)}`;
+    pen.line(`80 %: ${r}`, { size: M, weight: 'bold', gap: 0.004 });
+    pen.line(t('greenConf', { n: fmtInt(f.conf * 100) }), { size: M, col: color('xr-panel-muted') });
+  } else if (T && plot && plot.area !== T.area && !plot.built) {
+    pen.para(t(`greenWrong_${T.area}`), { size: num('xr-text-sm'), weight: 'bold', col: color('xr-warning'), maxLines: 5 });
+  } else if (T) {
+    const best = game.plots.filter((p) => !p.built && p.area === T.area).map((p) => ({ p, f: game.forecast(type, p.id) })).sort((a, b) => b.f.value - a.f.value)[0];
+    if (best) {
+      pen.line(`Top: ${plotName(best.p)}`, { size: M, weight: 'bold', gap: 0.004 });
+      pen.line(T.kind === 'energy' ? `${fmt(best.f.value)} GWh` : `+${fmtInt(best.f.value)}`, { size: 0.06, weight: 'black', col: color(T.token), gap: 0.004 });
+      pen.line(`80 %: ${T.kind === 'energy' ? `${fmt(best.f.lo)} – ${fmt(best.f.hi)}` : `+${fmtInt(best.f.lo)} – +${fmtInt(best.f.hi)}`}`, { size: M, gap: 0.004 });
+      pen.line(t('greenConf', { n: fmtInt(best.f.conf * 100) }), { size: M, col: color('xr-panel-muted') });
+    } else pen.para(t('greenTaken'), { size: num('xr-text-sm'), col: color('xr-warning') });
+  } else if (plot?.built) {
+    pen.line(typeName(plot.built), { size: M, weight: 'bold', col: color(TYPES[plot.built].token) });
+    pen.line(plotName(plot), { size: M, col: color('xr-panel-muted') });
+  } else {
+    pen.para(t('greenIntroTouch'), { size: num('xr-text-sm'), col: color('xr-panel-text'), maxLines: 5 });
+  }
 }
 
 /** Wide panels: continue in the right column (once). */
@@ -395,15 +473,16 @@ function drawPlan(pen, v) {
     for (const { p, f } of list) {
       const val = T.kind === 'energy' ? `${fmt(f.value)} GWh` : `+${fmtInt(f.value)}`;
       const { ctx, c } = pen;
-      ctx.font = font('bold', c.m(num('xr-text-min')));
+      const kk = pen.k ?? 1;
+      ctx.font = font('bold', c.m(num('xr-text-min') * kk));
       ctx.fillStyle = color('xr-panel-text');
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(plotName(p), pen.x, pen.y + c.m(0.012));
+      ctx.fillText(plotName(p), pen.x, pen.y + c.m(0.013 * kk));
       ctx.textAlign = 'right';
       ctx.fillStyle = color(T.token);
-      ctx.fillText(val, pen.x + pen.w, pen.y + c.m(0.012));
-      pen.y += c.m(0.028);
+      ctx.fillText(val, pen.x + pen.w, pen.y + c.m(0.013 * kk));
+      pen.y += c.m(0.03 * kk);
       bar(pen, { lo: f.lo / top, hi: f.hi / top, mark: f.value / top, token: T.token, h: 0.01, gap: 0.01 });
     }
     if (!list.length) pen.para(t('greenTaken'), { col: color('xr-warning') });

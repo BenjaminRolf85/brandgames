@@ -344,6 +344,8 @@ export function makeCup(gltf) {
   const crema = new THREE.Mesh(new THREE.RingGeometry(0.55, 1, 28).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: hex('xr-roast-crema'), roughness: 0.6, transparent: true, opacity: 0.85 }));
   crema.position.y = 0.0004;
   top.add(crema);
+  top.userData.own = true; // its own geometry and material (the cup's are shared)
+  crema.userData.own = true;
   top.visible = false;
   cup.add(top);
   g.userData.fill = (k) => {

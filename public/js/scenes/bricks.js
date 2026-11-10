@@ -31,7 +31,7 @@ const MONTH = 4.0; // seconds per month
 const MAX_MONTHS = 48; // then the allotment comes anyway
 const RAISE_MONTH = 9; // pay rise: an extra brick every second month from here
 const TEMPT_MONTHS = [5, 11, 17, 23];
-const INTEREST_EVERY = 6; // a golden brick for every 6 bricks set
+const INTEREST_EVERY = 6; // a golden brick for every 6 bricks saved
 const SPOTS = 4; // bricks the pallet holds
 const BELT_TIME = 1.1;
 const PTS = { place: 30, clean: 10, gold: 60, resist: 150, allot: 300, speed: 1500 };
@@ -515,7 +515,7 @@ export class BricksScene extends BaseScene {
     this.hudHome = this.hudObjs.map((o) => ({ o, pos: o.position.clone() }));
     if (!this.engine.isXR) this.app.echo?.suppress(true);
     Object.assign(this, {
-      month: 1, monthT: 0, score: 0, placed: 0, clean: 0, goldPlaced: 0, ever: 0, interestPaid: 0,
+      month: 1, monthT: 0, score: 0, placed: 0, clean: 0, goldPlaced: 0, maxSaved: 0, interestPaid: 0,
       missed: 0, resisted: 0, spent: 0, shown: 0, vacation: 0, raised: false, card: null, monthFlash: 0,
       nextQueue: 0, noteKey: 'bricksNote_prior', noteUntil: 0, early: null, firstWidth: null, lastWidth: null,
     });
@@ -667,15 +667,18 @@ export class BricksScene extends BaseScene {
     if (b.holder) this.engine.haptic(b.holder, 0.7, 45);
     this.placed += 1;
     if (!b.rejected) this.clean += 1;
-    this.score += PTS.place + (b.rejected ? 0 : PTS.clean) + (b.gold ? PTS.gold : 0);
+    // Points for new savings only (bricks set again after spending count no more).
+    const fresh = this.plan.saved > this.maxSaved;
+    this.maxSaved = Math.max(this.maxSaved, this.plan.saved);
+    if (fresh) this.score += PTS.place + (b.rejected ? 0 : PTS.clean);
+    if (b.gold) this.score += PTS.gold;
     if (b.gold) {
       this.goldPlaced += 1;
       this.marks.push({ m: this.elapsed(), v: this.plan.saved, kind: 'gold' });
       this.burst(this.plotRoot.localToWorld(at.clone()), 'xr-bricks-gold-glow', 18);
     }
-    // Interest: a golden brick for every INTEREST_EVERY bricks set.
-    this.ever += 1;
-    if (Math.floor(this.ever / INTEREST_EVERY) > this.interestPaid) {
+    // Interest: a golden brick for every INTEREST_EVERY bricks saved (on the highest balance).
+    if (Math.floor(this.maxSaved / INTEREST_EVERY) > this.interestPaid) {
       this.interestPaid += 1;
       this.queue.push({ gold: true });
       this.toast(t('bricksInterest'), 'xr-bricks-gold', 2.2);
@@ -1314,6 +1317,7 @@ export class BricksScene extends BaseScene {
         if (p.hovered === this.pad) { const b = this.pickBrick(p); if (b) b.hover = true; }
       } else if (p.kind === 'xr' && this.engine.isXR) {
         const a = this.anchor(p);
+        if (!a) continue;
         let near = null;
         let bd = num('xr-bricks-grab');
         for (const b of this.bricks) {
@@ -1407,7 +1411,7 @@ export class BricksScene extends BaseScene {
     const R = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
     const Ri = R.clone().invert();
     // Content box (plot space): the plot with the house; with the crane in the finale.
-    const box = [[-0.5, 0.62], [-0.04, finale ? 0.72 : 0.26], [-0.4, 0.4]];
+    const box = [[lay.portrait ? -0.3 : -0.5, 0.62], [-0.04, finale ? 0.72 : 0.26], [lay.portrait ? -0.3 : -0.4, 0.4]];
     const C = new THREE.Vector3((box[0][0] + box[0][1]) / 2, 0.06, 0);
     this.plotRoot.updateMatrixWorld(true);
     const Cw = this.plotRoot.localToWorld(C.clone());
@@ -1443,8 +1447,9 @@ export class BricksScene extends BaseScene {
     const ppm = Math.min(lay.plot.w / 0.8, lay.Hh / 1.0, 900);
     this.pin(this.toastHolder, lay.plot.x + lay.plot.w / 2, lay.plot.y + 0.07 * ppm + 6, ppm, 0.42);
     if (this.cardGroup) {
-      const ins = this.engine.insets();
-      const bottom = lay.touch ? ins.bottom : 0;
+      // Phones: the card stays above the thumb buttons (they float in a corner in landscape).
+      const btns = lay.touch ? document.querySelector('#stage .mtouch:not([hidden])') : null;
+      const bottom = btns ? lay.Hh - btns.getBoundingClientRect().top + 6 : 0;
       const cppm = Math.min(ppm * 1.05, (lay.plot.w - 20) / 0.66, (lay.Hh - lay.plot.y - bottom - 20) / (this.cardGroup.userData.h + 0.02));
       const cyc = lay.touch ? Math.min(lay.plot.y + lay.plot.h / 2, lay.Hh - bottom - 10 - (this.cardGroup.userData.h * cppm) / 2) : lay.plot.y + lay.plot.h / 2;
       this.pin(this.cardHolder, cx, cyc, cppm, 0.4);

@@ -577,7 +577,7 @@ for side in (-1, 1):
         nrm = -nrm
     E = Vector((EZ * side, EY)) + nrm * 0.012
     R = Vector((0, RIDGE)) + nrm * 0.006
-    a, b = E + nrm * 0.0, R
+    a, b = R + (E - R) * 0.62, R
     prof = [tuple(a), tuple(b), tuple(b + nrm * 0.012), tuple(a + nrm * 0.009)]
     if side < 0:
         prof = list(reversed(prof))
@@ -596,13 +596,13 @@ for i in range(22):
     u = (i + 0.5) / 22
     s = (u * 3) % 1
     x = -RX + 2 * RX * u
-    blob('bulb', (x, y0 + TOP + EY - 0.016 - 0.03 * 4 * s * (1 - s), HZ + EZ + 0.01), 0.0045, LIGHTS[i % 5], segs=8, rings=6)
+    blob('bulb', (x, y0 + TOP + EY - 0.016 - 0.03 * 4 * s * (1 - s), HZ + EZ + 0.01), 0.0065, LIGHTS[i % 5], segs=8, rings=6)
 for i in range(16):
     u = (i + 0.5) / 16
     yy = 0.04 + u * 0.19
     a = u * math.pi * 2 * 2.6
     rr = 0.08 * (0.26 - yy) / 0.23 + 0.01
-    blob('firbulb', (FIR[0] + math.cos(a) * rr, yy, FIR[1] + math.sin(a) * rr), 0.0042, LIGHTS[i % 5], segs=8, rings=6)
+    blob('firbulb', (FIR[0] + math.cos(a) * rr, yy, FIR[1] + math.sin(a) * rr), 0.0055, LIGHTS[i % 5], segs=8, rings=6)
 # warm light behind the windows
 LAMP.node_tree.nodes['Principled BSDF'].inputs['Emission Strength'].default_value = 3.0
 GLASS.node_tree.nodes['Principled BSDF'].inputs['Emission Color'].default_value = (*srgb('#ffbf5e'), 1)
@@ -615,18 +615,29 @@ ob = bpy.data.objects.new('inner', inner)
 ob.location = P(0, y0 + 0.12, HZ)
 sc.collection.objects.link(ob)
 # the golden brick, floating in front with a glow
-gb = place('BrickGold', 0.2, 0.2, 0.3, -0.5, 2.6)
-gb.rotation_euler = (0.35, -0.25, 0.75)
+GB = (0.17, 0.085, 0.3)
+gb = place('BrickGold', *GB, 0.0, 2.3)
+gb.rotation_euler = (0.55, -0.35, 0.35)
 glow = bpy.data.lights.new('goldglow', 'POINT')
-glow.energy = 1.4
+glow.energy = 1.6
 glow.color = srgb('#ffd36b')
 ob = bpy.data.objects.new('goldglow', glow)
-ob.location = P(0.2, 0.2, 0.36)
+ob.location = P(GB[0] + 0.03, GB[1] + 0.06, GB[2] + 0.08)
 sc.collection.objects.link(ob)
 SPARK = material('Spark', (0, 0, 0), emit=srgb('#fff1b8'))
 SPARK.node_tree.nodes['Principled BSDF'].inputs['Emission Strength'].default_value = 8.0
-for (x, yy, zz, rr) in ((0.13, 0.28, 0.33, 0.006), (0.29, 0.25, 0.3, 0.005), (0.25, 0.13, 0.36, 0.004), (0.12, 0.15, 0.36, 0.0035), (0.31, 0.33, 0.27, 0.004)):
-    blob('spark', (x, yy, zz), rr, SPARK, segs=8, rings=6)
+for (dx, dy, dz, rr) in ((-0.07, 0.07, 0.0, 0.006), (0.08, 0.05, -0.02, 0.005), (0.05, -0.05, 0.04, 0.004), (-0.08, -0.03, 0.03, 0.0035), (0.1, 0.11, -0.05, 0.004)):
+    blob('spark', (GB[0] + dx, GB[1] + dy, GB[2] + dz), rr, SPARK, segs=8, rings=6)
+# snowflakes in the air and a few stars far behind
+FLAKE = material('Flake', (0, 0, 0), emit=srgb('#f4f8ff'))
+FLAKE.node_tree.nodes['Principled BSDF'].inputs['Emission Strength'].default_value = 1.6
+fr = random.Random(5)
+for i in range(70):
+    blob('flake', (fr.uniform(-0.75, 0.75), fr.uniform(0.05, 0.75), fr.uniform(-0.5, 0.55)), fr.uniform(0.0025, 0.0045), FLAKE, segs=6, rings=4)
+STAR = material('StarDot', (0, 0, 0), emit=srgb('#fff4d6'))
+STAR.node_tree.nodes['Principled BSDF'].inputs['Emission Strength'].default_value = 4.0
+for i in range(40):
+    blob('stardot', (fr.uniform(-2.6, 2.6), fr.uniform(0.9, 2.4), fr.uniform(-3.5, -2.2)), fr.uniform(0.006, 0.012), STAR, segs=6, rings=4)
 
 # Hide the loose parts (they stay in the file for the game).
 for name in ('Brick', 'BrickHalf', 'BrickGold', 'Window', 'DoorFrame', 'Door', 'Roof', 'CraneMast', 'CraneJib', 'CraneTrolley', 'CraneHook', 'Pallet', 'Conveyor', 'Machine', 'Coin', 'Bag'):
@@ -683,8 +694,8 @@ cam = bpy.data.objects.new('cam', bpy.data.cameras.new('cam'))
 cam.data.lens = 50
 sc.collection.objects.link(cam)
 sc.camera = cam
-cam.location = P(0.62, 0.62, 1.32)
-cam.rotation_euler = (cam.location - P(-0.02, 0.15, -0.02)).to_track_quat('Z', 'Y').to_euler()
+cam.location = P(-0.24, 0.44, 1.18)
+cam.rotation_euler = (cam.location - P(0.0, 0.135, 0.03)).to_track_quat('Z', 'Y').to_euler()
 sc.render.engine = 'CYCLES'
 sc.cycles.device = 'CPU'
 sc.cycles.samples = 64

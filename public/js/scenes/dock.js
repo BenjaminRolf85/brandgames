@@ -448,7 +448,7 @@ export class DockScene extends BaseScene {
       c.slot = k;
       c.pose = { pos: this.slotPos(k), quat: new THREE.Quaternion() };
       c.scale = 0.001;
-      c.trayScale = Math.min(0.62, TRAY.size / c.mol.radius);
+      c.trayScale = Math.min(this.touch ? 0.78 : 0.62, (this.touch ? 0.06 : TRAY.size) / c.mol.radius);
       c.spin = Math.random() * Math.PI * 2;
       c.view.group.visible = false;
       c.badge = this.makeBadge(c);
@@ -523,7 +523,7 @@ export class DockScene extends BaseScene {
     const off = (k - 1.5);
     if (this.touch) {
       const port = this.layoutKey === 'port';
-      return V(off * (port ? 0.15 : 0.13), this.eye + PROT.y - (port ? 0.3 : 0.29), PROT.z + 0.08);
+      return V(off * (port ? 0.15 : 0.135), this.eye + PROT.y - 0.29, PROT.z + 0.08);
     }
     return V(TRAY.x + off * TRAY.gap, this.eye - BENCH_DROP + TRAY.lift, TRAY.z);
   }
@@ -792,6 +792,16 @@ export class DockScene extends BaseScene {
     this.time += dt;
     this.layout();
     const e = this.engine;
+    // Results stand behind the bench: always draw them on top; the camera frames only them.
+    if (this.mode === 'over') {
+      this.layer.traverse((o) => {
+        if (!o.material || o.userData.onTop) return;
+        o.material.depthTest = false;
+        o.renderOrder = 100;
+        o.userData.onTop = true;
+      });
+      if (!this.isXR) this.bench.visible = false;
+    }
     // The bench column reaches down to the floor (not in AR: the bench floats over the real room).
     if (this.column) {
       const ar = e.isXR && e.xrMode === 'immersive-ar';
@@ -1029,7 +1039,7 @@ export class DockScene extends BaseScene {
     [...this.ui.children].forEach((o) => { o.removeFromParent(); disposeOwn(o); });
     const ai = aiPanelSize(compact);
     this.aiPanel = new Panel(ai.w, ai.h, (ctx, c) => drawAIPanel(ctx, c, this.aiState()));
-    const fs = fitPanelSize(compact);
+    const fs = fitPanelSize(compact, key === 'land');
     this.fitPanel = new Panel(fs.w, fs.h, (ctx, c) => drawFitPanel(ctx, c, this.fitState()));
     const ls = labPanelSize();
     this.labPanel = new Panel(ls.w, ls.h, (ctx, c) => drawLabPanel(ctx, c, { cand: this.labCand, k: this.labCand?.tested ? 1 : this.labK ?? 0 }));
@@ -1083,9 +1093,12 @@ export class DockScene extends BaseScene {
       this.btnDock.position.set(0.7 + 0.14, by, pz);
       this.labPanel.position.set(0.7, by - 0.055 - 0.03 - ls.h / 2, pz);
     } else if (key === 'land') {
-      this.aiPanel.position.set(-0.68, eye + 0.04, -0.9);
-      this.legend.position.set(-0.68, eye + 0.04 - ai.h / 2 - 0.025 - lg.h / 2, -0.9);
-      this.fitPanel.position.set(0.04, eye + 0.17, -0.9);
+      // Left: fit meter, protein, candidates. Right: the AI's ranking and the legend, ending
+      // above the thumb buttons in the lower right corner.
+      this.fitPanel.position.set(0, eye + 0.17, -0.9);
+      const top = eye + 0.17 + fs.h / 2;
+      this.aiPanel.position.set(0.7, top - ai.h / 2, -0.9);
+      this.legend.position.set(0.7, top - ai.h - 0.025 - lg.h / 2, -0.9);
       this.labPanel.position.set(0, eye - 0.12, -0.55);
     } else {
       this.aiPanel.position.set(0, eye + 0.37, -0.9);
@@ -1100,7 +1113,7 @@ export class DockScene extends BaseScene {
     }
     // Phones frame panels, protein and the candidates; the bench is only backdrop.
     this.bench.userData.noFit = compact;
-    this.bench.visible = key !== 'port';
+    this.bench.visible = !compact;
     if (this.parts?.DockTray) this.parts.DockTray.visible = !compact;
     const tp = this.slotPos(0).add(this.slotPos(3)).multiplyScalar(0.5);
     this.trayFit.position.copy(tp);

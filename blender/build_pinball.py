@@ -465,16 +465,17 @@ def place(ob, x, y, rot=0.0, s=1.0):
 
 
 sc = bpy.context.scene
+POSTER.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (1.0, 0.55, 0.1, 1)
 FIELD = material('CoinField', (0.02, 0.04, 0.13), 0.0, 0.35)
 bm = bmesh.new()
 bmesh.ops.create_grid(bm, x_segments=1, y_segments=1, size=1.0)
 field = link('field', bm, FIELD)
 field.location = P(0, 0, -0.3)
-INSERTS = [((1.0, 0.69, 0.18), (0.0, 0.30)), ((1.0, 0.37, 0.64), (-0.06, 0.24)), ((0.25, 0.82, 1.0), (0.06, 0.24)),
-           ((0.65, 0.55, 1.0), (-0.1, 0.17)), ((1.0, 0.25, 0.25), (0.1, 0.17)), ((0.26, 0.88, 0.54), (0.0, 0.2))]
+INSERTS = [((1.0, 0.69, 0.18), (0.035, 0.155)), ((1.0, 0.37, 0.64), (-0.035, 0.16)), ((0.25, 0.82, 1.0), (0.075, 0.13)),
+           ((0.65, 0.55, 1.0), (-0.085, 0.125)), ((1.0, 0.25, 0.25), (0.1, 0.165)), ((0.26, 0.88, 0.54), (0.0, 0.19))]
 for col, (x, y) in INSERTS:
     m = material('ins%d' % len(bpy.data.materials), (0, 0, 0), emit=col)
-    m.node_tree.nodes['Principled BSDF'].inputs['Emission Strength'].default_value = 3.0
+    m.node_tree.nodes['Principled BSDF'].inputs['Emission Strength'].default_value = 2.2
     bm = bmesh.new()
     pts = [(0, 0.022), (0.014, -0.006), (0.007, -0.006), (0.007, -0.02), (-0.007, -0.02), (-0.007, -0.006), (-0.014, -0.006)]
     vs = [bm.verts.new(P(x + px, 0.0006, -(y + py))) for px, py in pts]
@@ -482,11 +483,13 @@ for col, (x, y) in INSERTS:
     link('arrow', bm, m)
 # Ball (chrome), flipper with the ball on it, a bumper and the column behind.
 ball = blob('ball', (0, 0, 0), 0.0145, CHROME, segs=48, rings=32)
-place(ball, -0.02, 0.121)
+place(ball, -0.02, 0.106)
 ball.location.z = 0.0145
-place(parts['flipper'], -0.045, 0.085, rot=math.radians(22))
-place(parts['bumper'], 0.045, 0.2, s=1.15)
-place(parts['column'], -0.05, 0.2, s=1.1)
+place(parts['flipper'], -0.055, 0.07, rot=math.radians(18))
+place(parts['bumper'], 0.055, 0.215, s=1.1)
+b2 = bumper()
+place(b2, -0.005, 0.29)
+place(parts['column'], -0.07, 0.205, s=1.05)
 place(parts['plunger'], 9, 9)
 parts['plunger'].hide_render = True
 # Fairy lights in the background (soft bokeh).
@@ -496,15 +499,15 @@ for i in range(26):
     x = -0.16 + 0.32 * a
     y = 0.36 + 0.03 * math.sin(a * math.pi * 3) ** 2
     m = material('bulb%d' % i, (0, 0, 0), emit=cols[i % 5])
-    m.node_tree.nodes['Principled BSDF'].inputs['Emission Strength'].default_value = 6.0
+    m.node_tree.nodes['Principled BSDF'].inputs['Emission Strength'].default_value = 3.0
     blob('bulb', (x, 0.07 + 0.02 * math.sin(a * 9), -y), 0.004, m, segs=10, rings=6)
 # World: deep blue with a warm red glow on one side.
 wd = bpy.data.worlds.new('W')
 sc.world = wd
 wd.use_nodes = True
 bg = wd.node_tree.nodes['Background']
-bg.inputs['Color'].default_value = (0.02, 0.03, 0.1, 1)
-bg.inputs['Strength'].default_value = 0.6
+bg.inputs['Color'].default_value = (0.03, 0.05, 0.16, 1)
+bg.inputs['Strength'].default_value = 0.9
 for (loc, col, en) in ((P(0.15, 0.3, 0.2), (1.0, 0.85, 0.75), 6.0), (P(-0.25, 0.15, 0.05), (0.35, 0.6, 1.0), 4.0), (P(0.2, 0.1, -0.35), (1.0, 0.2, 0.25), 5.0)):
     ld = bpy.data.lights.new('L', 'AREA')
     ld.energy = en
@@ -515,15 +518,15 @@ for (loc, col, en) in ((P(0.15, 0.3, 0.2), (1.0, 0.85, 0.75), 6.0), (P(-0.25, 0.
     lo.rotation_euler = (Vector((0, 0, 0)) - loc).to_track_quat('-Z', 'Y').to_euler()
     sc.collection.objects.link(lo)
 cam_d = bpy.data.cameras.new('Cam')
-cam_d.lens = 50
+cam_d.lens = 40
 cam_d.dof.use_dof = True
-cam_d.dof.aperture_fstop = 2.2
+cam_d.dof.aperture_fstop = 5.0
 cam = bpy.data.objects.new('Cam', cam_d)
 sc.collection.objects.link(cam)
-cam.location = P(0.0, 0.085, 0.1)
-target = P(0.0, 0.025, -0.15)
+cam.location = P(0.0, 0.105, 0.13)
+target = P(-0.005, 0.022, -0.16)
 cam.rotation_euler = (target - cam.location).to_track_quat('-Z', 'Y').to_euler()
-cam_d.dof.focus_distance = (P(-0.02, 0.0145, -0.121) - cam.location).length
+cam_d.dof.focus_distance = (P(-0.02, 0.0145, -0.106) - cam.location).length
 sc.camera = cam
 sc.render.engine = 'CYCLES'
 sc.cycles.device = 'CPU'
@@ -532,7 +535,9 @@ sc.cycles.use_denoising = True
 sc.render.resolution_x = 512
 sc.render.resolution_y = 512
 sc.render.film_transparent = False
-sc.view_settings.view_transform = 'AgX'
+sc.view_settings.view_transform = 'Standard'
+sc.view_settings.look = 'Medium High Contrast'
+sc.view_settings.exposure = -0.3
 sc.render.image_settings.file_format = 'PNG'
 sc.render.filepath = OUT_PNG
 bpy.ops.render.render(write_still=True)

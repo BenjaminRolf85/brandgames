@@ -10,8 +10,8 @@
 // the start of each ball, 3 minutes. Own 2D physics (pinball-physics.js) with 1 ms sub-steps.
 import * as THREE from 'three';
 import { BaseScene } from '../scene.js';
-import { Panel, Button, textPanel, placeOnArc } from '../ui3d.js';
-import { color, num, font } from '../tokens.js';
+import { Panel, Button, textPanel, placeOnArc, wrap } from '../ui3d.js';
+import { color, hex, num, font } from '../tokens.js';
 import { t, L } from '../i18n.js';
 import '../pinball-text.js';
 import { sfx } from '../sfx.js';
@@ -29,11 +29,12 @@ const BALLS = 3;
 const DURATION = EVENT ? 120 : 180; // seconds of campaign time
 const SAVE_TIME = 10; // ball save after each launch
 const MAX_SCORE = 5000;
-const DROP = 0.66; // playfield front below eye height (table height)
+const DROP = 0.72; // playfield front below eye height (table height)
 const FRONT_Z = -0.4; // playfield front edge in front of the player
 const AUTO_LAUNCH = 12; // seconds in the shooter lane before the ball launches by itself
 const REPLAN = 15; // seconds before the planner gives a new tip if its tip was not followed
 const PULL_TIME = 0.9; // seconds to pull the plunger all the way
+const PULL = 0.62; // intro and results: the UI layer is pulled towards the eyes by this factor
 const clamp = THREE.MathUtils.clamp;
 const KEYS = {
   ArrowLeft: 'left', KeyA: 'left', ShiftLeft: 'left', KeyY: 'left', KeyZ: 'left',
@@ -76,7 +77,7 @@ export class PinballScene extends BaseScene {
   // ---------- world ----------
 
   setupLights() {
-    const key = (this.key = new THREE.DirectionalLight(0xffffff, 1.15));
+    const key = (this.key = new THREE.DirectionalLight(hex('xr-pinball-light'), 1.15));
     key.position.set(0.35, this.eye + 1.2, -0.2);
     key.target.position.set(0, this.eye - DROP, FRONT_Z - 0.5);
     this.group.add(key, key.target);
@@ -92,7 +93,7 @@ export class PinballScene extends BaseScene {
       key.shadow.normalBias = 0.006;
     }
     // A flasher that lights up where something happens (in the channel's color).
-    this.flasher = new THREE.PointLight(0xffffff, 0, 0.5, 2);
+    this.flasher = new THREE.PointLight(hex('xr-pinball-light'), 0, 0.5, 2);
     this.group.add(this.flasher);
   }
 
@@ -123,18 +124,58 @@ export class PinballScene extends BaseScene {
     this.placePanels();
     m.dmd.show(t('pinballName').toUpperCase());
     m.setFloor(-10);
-    if (this.mode === 'intro') this.machineDown(true, true);
   }
 
-  /** The AI planner's panel: estimates per channel with uncertainty, its tip, explore/exploit. */
+  /**
+   * The left column: the AI planner's panel (estimates per channel with uncertainty, its tip,
+   * explore / exploit) and, in the headset and on desktops, the status and the menu button above
+   * it (phones have the status bar on the screen).
+   */
   buildPlanPanel() {
+    if (!this.column) {
+      this.column = new THREE.Group();
+      this.group.add(this.column);
+    }
     this.planPanel?.removeFromParent();
     this.planPanel?.dispose();
     const compact = this.layoutMode === 'portrait';
-    const p = (this.planPanel = compact ? new Panel(0.78, 0.36, (ctx, c) => this.drawPlanCompact(ctx, c)) : new Panel(0.66, 0.62, (ctx, c) => this.drawPlan(ctx, c)));
+    const p = (this.planPanel = compact ? new Panel(0.78, 0.36, (ctx, c) => this.drawPlanCompact(ctx, c)) : new Panel(0.66, 0.74, (ctx, c) => this.drawPlan(ctx, c)));
     p.userData.noFit = true;
-    this.group.add(p);
+    this.column.add(p);
     this.planKey = '';
+    if (!this.engine.touchUI && !this.status) {
+      this.status = textPanel(0.5, 0.2, () => [
+        { text: t('pinballStatus1', { score: this.shownScore() }), size: 'xr-text-md', weight: 'black', color: color('xr-pinball-dmd'), gap: 0.006 },
+        { text: this.statusLine(), size: 'xr-text-sm', weight: 'bold', gap: 0.004 },
+        { text: t('pinballStatus3', { ch: this.chBall?.size ?? 0 }), size: 'xr-text-sm', weight: 'bold', color: color('xr-panel-muted') },
+      ], { grow: false, layout: { align: 'left', pad: 0.03 } });
+      this.menuBtn = new Button(0.15, 0.2, { label: t('menu'), labelSize: 'xr-text-sm', grow: false, onClick: () => this.menuPressed() });
+      this.column.add(this.status, this.menuBtn);
+    }
+    if (this.status) {
+      const y = p.h / 2 + 0.02 + 0.1;
+      this.status.position.set(-0.08, y, 0);
+      this.menuBtn.position.set(0.255, y, 0);
+    }
+  }
+
+  /** In the headset a stray pinch must not end the game: during play the menu asks once more. */
+  menuPressed() {
+    const live = this.mode === 'play' || this.mode === 'ready' || this.mode === 'drain';
+    if (this.engine.isXR && live && !(this.menuArmed > this.time)) {
+      this.menuArmed = this.time + 3;
+      this.menuBtn.opts.label = t('pinballMenuSure');
+      this.menuBtn.redraw();
+      this.after(3, () => { if (this.menuBtn && !(this.menuArmed > this.time)) { this.menuBtn.opts.label = t('menu'); this.menuBtn.redraw(); } });
+      return;
+    }
+    this.app.showMenu();
+  }
+
+  statusLine() {
+    const left = Math.max(0, Math.ceil(DURATION - (this.playT ?? 0)));
+    const time = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    return t('pinballStatus2', { ball: Math.min(BALLS, this.ballNo ?? 1), balls: BALLS, time });
   }
 
   // ---------- input ----------
@@ -180,6 +221,17 @@ export class PinballScene extends BaseScene {
 
   onXR(source, kind, on) {
     if (!source || !this.engine.isXR) return;
+    // A hand at the plunger knob grabs it (pull back and let go); it does not flip then.
+    const ptr = this.engine.pointers.find((q) => q.kind === 'xr' && q.source === source);
+    if (on && this.mode === 'ready' && !this.grab && ptr?.controller && this.knob) {
+      const hand = new THREE.Vector3().setFromMatrixPosition(ptr.controller.matrixWorld);
+      if (hand.distanceTo(this.knob.getWorldPosition(new THREE.Vector3())) < 0.11) {
+        this.grabPlunger(ptr);
+        this.grab.hand = source;
+        return;
+      }
+    }
+    if (!on && this.grab?.hand === source) { this.releasePlunger(); return; }
     const st = this.xrHeld.get(source) ?? { select: false, squeeze: false };
     st[kind] = on;
     this.xrHeld.set(source, st);
@@ -208,7 +260,7 @@ export class PinballScene extends BaseScene {
   }
 
   grabPlunger(p) {
-    if (this.mode !== 'ready') return;
+    if (this.mode !== 'ready' || this.grab) return;
     const pos = p.kind === 'xr' && p.controller ? new THREE.Vector3().setFromMatrixPosition(p.controller.matrixWorld) : null;
     this.grab = { p, start: pos };
     sfx.grab();
@@ -266,23 +318,13 @@ export class PinballScene extends BaseScene {
     this.popIn(go, 0.1);
     this.app.host?.introduce(this, 'pinball', panel);
     this.prepareMusic();
-    if (this.machine) this.machineDown(true);
-  }
-
-  /** The machine sinks a little behind the intro and results, and rises for the game. */
-  machineDown(down, instant = false) {
-    const m = this.machine;
-    if (!m) return;
-    const to = this.machineY - (down ? 0.32 : 0);
-    const from = m.root.position.y;
-    if (instant || Math.abs(to - from) < 1e-4) { m.root.position.y = to; return; }
-    this.tween(0.9, (k) => { m.root.position.y = from + (to - from) * k; });
   }
 
   start() {
     this.clearLayer();
-    this.refreshHud ??= this.hud(() => this.hudText());
-    this.placeHud();
+    // Phones: the status bar on the screen; headset and desktop: the panel in the left column.
+    if (this.engine.touchUI) this.refreshHud ??= this.hud(() => this.hudText());
+    else this.refreshHud = () => this.status?.redraw();
     this.app.echo?.suppress(true);
     this.startMusic(1);
     const r = rng();
@@ -292,7 +334,6 @@ export class PinballScene extends BaseScene {
       chBall: new Set(), lanesLit: new Set(), aud: GROUPS[Math.floor(r() * GROUPS.length)],
       tip: null, tipSince: 0, msg: null, hurried: false, saveUntil: 0, idle: 0,
     });
-    this.machineDown(false);
     this.buildPlanPanel();
     this.placePanels();
     this.mode = 'drain';
@@ -348,6 +389,7 @@ export class PinballScene extends BaseScene {
         const i = obj.index;
         if (this.machine) this.machine.bumpers[i].flash = 1;
         sfx.boing();
+        for (const q of this.engine.pointers) if (q.kind === 'xr' && q.active) this.engine.haptic(q, 0.15, 12);
         this.channelHit('social', obj.x, obj.y);
         break;
       }
@@ -478,6 +520,7 @@ export class PinballScene extends BaseScene {
   drained() {
     if (this.mode !== 'play' && this.mode !== 'ready') return;
     if (this.playT < this.saveUntil) {
+      this.saveUntil = 0; // one save per ball
       this.mode = 'drain';
       this.message(t('pinballDmdSave'), '', 1.6);
       sfx.appear();
@@ -505,6 +548,7 @@ export class PinballScene extends BaseScene {
     for (const f of Object.values(this.table.flippers)) f.pressed = false;
     this.machine?.tip.point(null);
     this.message(t(key), String(this.shownScore()), 3);
+    this.refreshHud?.();
     sfx.finish();
     this.pad?.show(false);
     this.after(1.8, () => { if (!this.disposed) this.finish(); });
@@ -512,8 +556,6 @@ export class PinballScene extends BaseScene {
 
   finish() {
     this.app.echo?.suppress(false);
-    this.machineDown(true);
-    this.planPanel.visible = false;
     const score = this.shownScore();
     const P = this.planner;
     // What the planner learned: the group with the most data, its best-known channel.
@@ -613,29 +655,18 @@ export class PinballScene extends BaseScene {
       this.layoutMode = mode;
       if (this.planPanel) this.buildPlanPanel();
     }
-    const p = this.planPanel;
+    const p = this.column;
     if (!p || !this.machine) return;
     if (mode === 'portrait') {
       const top = this.machineY + 0.92 * this.S;
       p.rotation.set(-(this.pitch ?? 0.98), 0, 0);
       p.position.set(0, top + 0.12, FRONT_Z - 1.12 * this.S);
     } else if (mode === 'xr') {
-      placeOnArc(p, -0.62, this.eye - 0.12, 1.08);
+      placeOnArc(p, -0.62, this.eye - 0.3, 1.05);
     } else {
       // Browser: left of the machine, facing the camera.
       p.rotation.set(-(this.pitch ?? 0.78), 0, 0);
-      p.position.set(-0.66, this.eye - 0.36, FRONT_Z - 0.62);
-    }
-  }
-
-  /** The 3D status bar and its menu button: above the machine's head. */
-  placeHud() {
-    if (this.engine.touchUI) return;
-    const parts = this.group.children.filter((o) => o.userData.hud);
-    const y = this.machineY + 1.0 * this.S;
-    for (const o of parts) {
-      o.position.y = y;
-      o.position.z = FRONT_Z - 1.17 * this.S;
+      p.position.set(-0.66, this.eye - 0.42, FRONT_Z - 0.62);
     }
   }
 
@@ -664,25 +695,33 @@ export class PinballScene extends BaseScene {
   framePoints() {
     const m = this.machine;
     const pts = [];
-    const field = [[-0.27, -0.03], [0.32, -0.03], [-0.27, 1.07], [0.32, 1.07]];
-    for (const [x, y] of field) pts.push(m.world(x, y, 0), m.world(x, y, 0.07));
-    const head = m.root;
-    const top = new THREE.Vector3(0, 0.86, -1.08);
-    for (const x of [-0.29, 0.34]) pts.push(head.localToWorld(top.clone().setX(x)));
-    pts.push(head.localToWorld(new THREE.Vector3(0.025, -0.05, 0.15))); // plunger knob, lockdown
     const add = (o) => {
       if (!o?.visible) return;
       const hw = (o.w ?? 0.5) / 2;
       const hh = (o.h ?? 0.3) / 2;
       for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) pts.push(o.localToWorld(new THREE.Vector3(sx * hw, sy * hh, 0)));
     };
+    // Phones held sideways: the intro text needs the whole height.
+    if (this.mode === 'intro' && this.engine.touchUI && window.innerWidth > window.innerHeight) {
+      for (const o of this.layer.children) if (o.w && o.h) add(o);
+      if (pts.length) return pts;
+    }
+    const field = [[-0.27, -0.03], [0.32, -0.03], [-0.27, 1.07], [0.32, 1.07]];
+    for (const [x, y] of field) pts.push(m.world(x, y, 0), m.world(x, y, 0.07));
+    const head = m.root;
+    // Phones held sideways frame the playfield (the head may be cut off at the top).
+    const tight = this.engine.touchUI && window.innerWidth > window.innerHeight;
+    const top = new THREE.Vector3(0, tight ? 0.3 : 0.86, -1.08);
+    for (const x of [-0.29, 0.34]) pts.push(head.localToWorld(top.clone().setX(x)));
+    pts.push(head.localToWorld(new THREE.Vector3(0.025, -0.05, 0.15))); // plunger knob, lockdown
     if (this.mode !== 'intro' && this.planPanel?.visible) {
       add(this.planPanel);
+      add(this.status);
+      add(this.menuBtn);
       // Keep the machine in the middle of the screen: mirror the panel's outer edge.
       if (this.layoutMode === 'wide') pts.push(this.planPanel.localToWorld(new THREE.Vector3(-this.planPanel.w / 2, 0, 0)).multiply(new THREE.Vector3(-1, 1, 1)));
     }
-    if (this.mode === 'intro') { add(this.introPanel); add(this.introGo); }
-    if (!this.engine.touchUI && this.mode !== 'intro') for (const o of this.group.children) if (o.userData.hud) add(o);
+    if (this.mode === 'intro') for (const o of this.layer.children) if (o.w && o.h) add(o); // incl. Echo's bubble
     return pts;
   }
 
@@ -691,11 +730,10 @@ export class PinballScene extends BaseScene {
     if (!this.machine || this.mode === 'over') return false;
     const portrait = cam.aspect < 0.85;
     const intro = this.mode === 'intro';
-    const pitch = intro ? 0.3 : portrait ? 0.98 : 0.78;
+    const pitch = intro ? 0.3 : portrait ? 0.98 : this.engine.touchUI ? 0.9 : 0.78;
     this.pitch = pitch;
     // Panels face the camera, so they read without distortion.
-    if (intro) for (const o of [this.introPanel, this.introGo]) if (o) o.rotation.x = -pitch;
-    if (!this.engine.touchUI) for (const o of this.group.children) if (o.userData.hud) o.rotation.x = -pitch;
+    if (intro) for (const o of this.layer.children) o.rotation.x = -pitch; // incl. Echo's bubble
     this.group.updateMatrixWorld(true);
     const { pos, quat } = this.fitCamera(cam, pitch, this.framePoints(), ins, portrait ? 1.02 : 1.05);
     const k = this.camInit ? Math.min(1, dt * 4) : 1;
@@ -749,6 +787,17 @@ export class PinballScene extends BaseScene {
     // The gate swings when the ball leaves the shooter lane.
     const b = T.world.ball;
     if (this.machine && b.mode === 'field' && b.x > 0.245 && b.y > 0.78 && b.y < 0.86 && b.vy > 0) this.machine.gate.rotation.x = Math.min(1.2, b.vy * 0.6);
+    if (this.mode === 'play') {
+      // Ball search: a ball resting somewhere away from the flippers gets a little nudge.
+      const still = b.mode === 'field' && b.speed < 0.03 && b.y > 0.28 && !inShooterLane(b);
+      this.stillT = still ? (this.stillT ?? 0) + dt : 0;
+      if (this.stillT > 4) {
+        this.stillT = 0;
+        b.vx = (this.rand() - 0.5) * 0.8;
+        b.vy = -0.5;
+        sfx.thud();
+      }
+    }
     if (playing) {
       if (this.tip && this.playT - this.tipSince > REPLAN) this.replan();
       if (!this.hurried && DURATION - this.playT < 30) {
@@ -761,7 +810,9 @@ export class PinballScene extends BaseScene {
     this.pad?.show(this.mode === 'ready' || this.mode === 'play' || this.mode === 'drain');
     if (this.machine) {
       const m = this.machine;
-      m.update(dt, this.time, { pull: this.pull });
+      // Browser: the results get the screen to themselves (in the headset they float in front).
+      m.root.visible = !(this.mode === 'over' && !e.isXR && this.resultData);
+      m.update(dt, this.time, { pull: this.pull, eye: e.camera.getWorldPosition(new THREE.Vector3()) });
       // Inserts: channels hit with this ball glow, the AI's tip blinks, lanes, multiplier, save.
       const blink = 0.5 + 0.5 * Math.sin(this.time * 9);
       const attract = this.mode === 'intro' || this.mode === 'over';
@@ -793,6 +844,7 @@ export class PinballScene extends BaseScene {
     }
     if (this.snow) {
       const floor = e.floorY - e.root.position.y;
+      this.cover.mesh.visible = e.isXR; // the snow cover belongs on a real floor
       this.snow.setGround(floor);
       this.cover.setGround(floor);
       this.snow.update(dt);
@@ -806,7 +858,11 @@ export class PinballScene extends BaseScene {
       this.hudTick = Math.floor(this.time * 4);
       if (this.refreshHud && this.mode !== 'intro' && this.mode !== 'over') this.refreshHud();
     }
-    // Results stand in front of the machine: draw them on top.
+    // Intro and results stand in front of the machine: the whole layer is pulled towards the
+    // eyes (same apparent size, but closer than the machine's head).
+    const k = this.mode === 'over' || this.mode === 'intro' ? PULL : 1;
+    this.layer.scale.setScalar(k);
+    this.layer.position.set(0, this.eye * (1 - k), 0);
     if (this.mode === 'over' || this.mode === 'intro') {
       this.layer.traverse((o) => {
         if (!o.material || o.userData.onTop) return;
@@ -832,7 +888,7 @@ export class PinballScene extends BaseScene {
   updatePlan() {
     const p = this.planPanel;
     if (!p || !this.planner) return;
-    p.visible = this.mode !== 'over' && this.mode !== 'intro';
+    if (this.column) this.column.visible = this.mode !== 'over' && this.mode !== 'intro';
     const key = `${this.planner.version}|${this.aud}|${this.tip?.channel}|${this.layoutMode}`;
     if (key === this.planKey) return;
     this.planKey = key;
@@ -895,16 +951,16 @@ export class PinballScene extends BaseScene {
     const any = CHANNELS.some((ch) => P.hits[this.aud][ch] > 0);
     if (this.tip) {
       const name = t(`pinballCh_${this.tip.channel}`);
-      const txt = !any ? t('pinballAiStart') : t(this.tip.explore ? 'pinballAiExplore' : 'pinballAiExploit', { ch: name });
+      const others = GROUPS.some((g) => g !== this.aud && CHANNELS.some((c) => P.hits[g][c] > 0));
+      const txt = !any ? t(others ? 'pinballAiBorrow' : 'pinballAiStart') : t(this.tip.explore ? 'pinballAiExplore' : 'pinballAiExploit', { ch: name });
       ctx.fillStyle = color(this.tip.explore ? 'xr-pinball-explore' : 'xr-pinball-exploit');
       ctx.font = font('black', sm);
-      fitText(ctx, txt, W - 2 * pad, sm, 'black');
-      ctx.fillText(txt, pad, yT);
+      wrap(ctx, txt, W - 2 * pad).slice(0, 2).forEach((ln, i) => ctx.fillText(ln, pad, yT + i * sm * 1.2));
     }
+    const mn = c.m(num('xr-text-min'));
     ctx.fillStyle = color('xr-panel-muted');
-    ctx.font = font('regular', c.m(num('xr-text-min')));
-    fitText(ctx, t('pinballAiLegend'), W - 2 * pad, c.m(num('xr-text-min')), 'regular');
-    ctx.fillText(t('pinballAiLegend'), pad, yT + c.m(0.05));
+    ctx.font = font('regular', mn);
+    wrap(ctx, t('pinballAiLegend'), W - 2 * pad).slice(0, 2).forEach((ln, i) => ctx.fillText(ln, pad, yT + sm * 2.55 + i * mn * 1.2));
   }
 
   /** Phones held upright: six columns of bars under a one-line header. */
@@ -972,7 +1028,8 @@ export class PinballScene extends BaseScene {
 /** Shrinks the current font until text fits maxW. */
 function fitText(ctx, text, maxW, px, weight) {
   let p = px;
-  while (ctx.measureText(text).width > maxW && p > px * 0.6) {
+  const min = (px / num('xr-text-sm')) * num('xr-text-min'); // never below the design minimum
+  while (ctx.measureText(text).width > maxW && p > min) {
     p -= 1;
     ctx.font = font(weight, p);
   }

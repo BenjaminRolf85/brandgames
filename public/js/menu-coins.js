@@ -15,6 +15,8 @@ export const CARD_ART = {
   dataflight: 'assets/cards/dataflight.webp',
   fight: 'assets/cards/fight.webp',
   quiz: 'assets/cards/quiz.webp',
+  // Games for our clients (rendered in Blender by their build scripts)
+  roast: 'assets/cards/roast.webp',
 };
 
 let promise = null;

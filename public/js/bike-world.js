@@ -21,6 +21,7 @@ export const STOP_GAP = 2.8; // the bike stops this far before a section for the
 export const HALF = 1.85; // half width of the trail
 export const EDGE = 3.0; // beyond this you cannot ride
 const RUNOUT = 36;
+const MAX_STARS = 10; // per section (40 stars at most: the score stays below 5000)
 
 /** Hazards: model, effect class and lateral reach (half width). */
 export const HZ = {
@@ -67,6 +68,7 @@ const PROPS = {
     { n: 'PrDrift', density: 0.3, v: [2.3, 6.5] },
     { n: 'PrRockSnow', density: 0.1, v: [2.8, 7] },
     { n: 'PrLantern', every: 17, v: [2.55, 2.65], both: true, align: true },
+    { n: 'PrPost', every: 9, v: [2.3, 2.4], both: true, align: true },
     { n: 'PrSnowman', every: 55, v: [3.5, 4.0], yaw: 0 },
   ],
 };
@@ -124,13 +126,12 @@ export function makeCourse(rnd) {
       if (p < 0.3 || wide) {
         const v = wide ? pick([-1, 1]) * rr(0.6, 1.0) : rr(-1.2, 1.2);
         addHz(ty, s, v);
-        if (rnd() < 0.5) { items.push({ type: 'star', s, v: clamp(-Math.sign(v) * rr(0.8, 1.3), -1.4, 1.4) }); stars += 1; }
+        if (rnd() < 0.5 && stars < MAX_STARS) { items.push({ type: 'star', s, v: clamp(-Math.sign(v) * rr(0.8, 1.3), -1.4, 1.4) }); stars += 1; }
       } else if (p < 0.55) {
         // Gate: both sides blocked, the middle free (with a star as a reward).
         addHz(ty, s, -1.25);
         addHz(pick(types.filter((t) => HZ[t].r < 0.8)), s + rr(-0.4, 0.4), 1.25);
-        items.push({ type: 'star', s, v: 0 });
-        stars += 1;
+        if (stars < MAX_STARS) { items.push({ type: 'star', s, v: 0 }); stars += 1; }
       } else if (p < 0.8) {
         // One side blocked by two hazards: ride the other side.
         const side = rnd() < 0.5 ? -1 : 1;
@@ -143,9 +144,11 @@ export function makeCourse(rnd) {
           const t2 = pick(types.filter((t) => HZ[t].r < 0.8));
           addHz(t2, s + k * 3.4, side * (k % 2 ? -0.75 : 0.75));
         }
-        items.push({ type: 'star', s: s + 1.7, v: -side * 0.75 });
-        items.push({ type: 'star', s: s + 5.1, v: side * 0.75 });
-        stars += 2;
+        if (stars < MAX_STARS - 1) {
+          items.push({ type: 'star', s: s + 1.7, v: -side * 0.75 });
+          items.push({ type: 'star', s: s + 5.1, v: side * 0.75 });
+          stars += 2;
+        }
         s += 6.8;
       }
       s += gap + rnd() * 2.6;
@@ -228,7 +231,9 @@ export function makeCourse(rnd) {
   for (const it of items) {
     const i = Math.round(it.s / STEP);
     if (i < 0 || i >= N) continue;
-    for (let j = 0; j < L; j++) if (Math.abs(lanes[j] - it.v) < 0.3) cost[i * L + j] -= it.type === 'star' ? 0.8 : 1.2;
+    for (let k = Math.max(0, i - 1); k <= Math.min(N - 1, i + 1); k++) {
+      for (let j = 0; j < L; j++) if (Math.abs(lanes[j] - it.v) < 0.4) cost[k * L + j] -= it.type === 'star' ? 1.4 : 2;
+    }
   }
   const acc = new Float32Array(N * L);
   const from = new Int16Array(N * L);
@@ -418,10 +423,22 @@ const TRAIL_PAINT = {
     ctx.fillStyle = color('xr-bike-snow');
     ctx.fillRect(0, 0, w, h);
     blobs(ctx, w, h, rnd, 50, 10, 34, [color('xr-bike-snow-shade')], 0.3, false, 1.5);
-    // a compacted track with tire prints in the middle
-    ctx.globalAlpha = 0.85;
+    // darker, trodden edges and a compacted track with tire prints in the middle
+    for (const [x0, x1] of [[0, w * 0.1], [w * 0.9, w]]) {
+      const g = ctx.createLinearGradient(x0, 0, x1, 0);
+      const dark = color('xr-bike-snow-shade');
+      g.addColorStop(x0 === 0 ? 0 : 1, dark);
+      g.addColorStop(x0 === 0 ? 1 : 0, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x0, 0, x1 - x0, h);
+    }
+    ctx.globalAlpha = 1;
     ctx.fillStyle = color('xr-bike-snow-track');
-    ctx.fillRect(w * 0.3, 0, w * 0.4, h);
+    ctx.fillRect(w * 0.18, 0, w * 0.64, h);
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = color('xr-bike-snow-shade');
+    ctx.fillRect(w * 0.18, 0, w * 0.015, h);
+    ctx.fillRect(w * 0.805, 0, w * 0.015, h);
     ctx.globalAlpha = 0.6;
     ctx.fillStyle = color('xr-bike-snow-shade');
     for (const u of [0.42, 0.58]) for (let y = 0; y < h; y += 9) ctx.fillRect(w * u - 5, y, 10, 4);
@@ -599,6 +616,7 @@ export class Scatter {
     }
     for (const mesh of this.meshes) {
       mesh.count = n;
+      mesh.visible = n > 0;
       mesh.instanceMatrix.needsUpdate = true;
     }
   }
@@ -778,7 +796,7 @@ export function makeScanFx(course) {
 
 /** The swallow's light dots on the best line ahead. set(course, s, n). */
 export function makeGuideDots(n = 9) {
-  const geo = new THREE.PlaneGeometry(0.34, 0.34).rotateX(-Math.PI / 2);
+  const geo = new THREE.PlaneGeometry(0.5, 0.5).rotateX(-Math.PI / 2);
   const mat = new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-bike-guide'), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
   const mesh = new THREE.InstancedMesh(geo, mat, n);
   mesh.frustumCulled = false;
@@ -798,7 +816,7 @@ export function makeGuideDots(n = 9) {
       mesh.setMatrixAt(i, m);
     }
     mesh.instanceMatrix.needsUpdate = true;
-    mat.opacity = 0.85 * alpha;
+    mat.opacity = alpha;
     mesh.visible = alpha > 0.01;
   };
   return mesh;
@@ -871,4 +889,47 @@ export function makeMist(count = 9) {
   };
   g.userData.dispose = () => mats.forEach((m) => m.dispose());
   return g;
+}
+
+/** Small sparks in course units (hits, stars, confetti), driven by update(dt). emit(pos, token, n). */
+export function makeSparks(max = 160) {
+  const geo = new THREE.IcosahedronGeometry(0.07, 0);
+  const mat = new THREE.MeshBasicMaterial({ toneMapped: false });
+  const mesh = new THREE.InstancedMesh(geo, mat, max);
+  mesh.frustumCulled = false;
+  mesh.userData.noFit = true;
+  mesh.count = 0;
+  const parts = [];
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const sc = new THREE.Vector3();
+  const c = new THREE.Color();
+  mesh.userData.emit = (pos, token, n = 14, speed = 2.2, gravity = 4) => {
+    c.setHex(hex(token));
+    for (let i = 0; i < n; i++) {
+      if (parts.length >= max) parts.shift();
+      const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.9 + 0.2, Math.random() - 0.5).normalize();
+      parts.push({ p: pos.clone(), v: dir.multiplyScalar(speed * (0.5 + Math.random() * 0.7)), life: 0, max: 0.5 + Math.random() * 0.45, g: gravity, color: c.clone(), size: 0.7 + Math.random() * 0.6 });
+    }
+  };
+  mesh.userData.update = (dt) => {
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i];
+      p.life += dt;
+      if (p.life >= p.max) { parts.splice(i, 1); continue; }
+      p.v.y -= p.g * dt;
+      p.p.addScaledVector(p.v, dt);
+    }
+    parts.forEach((p, i) => {
+      sc.setScalar(p.size * (1 - p.life / p.max) + 0.001);
+      m.compose(p.p, q, sc);
+      mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, p.color);
+    });
+    mesh.count = parts.length;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  };
+  mesh.userData.clear = () => { parts.length = 0; mesh.count = 0; };
+  return mesh;
 }

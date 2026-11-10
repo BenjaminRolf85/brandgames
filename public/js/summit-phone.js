@@ -28,7 +28,7 @@ export function phoneTalk({ onPick, onNext }) {
   const button = (n, text, onPress) => {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = `summit-answer${n ? ` summit-answer--${n}` : ''}`;
+    b.className = `summit-answer ${n ? `summit-answer--${n}` : 'summit-answer--plain'}`;
     if (n) {
       const num = Object.assign(document.createElement('span'), { className: 'summit-answer__num', textContent: String(n) });
       b.append(num);

@@ -292,18 +292,19 @@ export class SummitScene extends BaseScene {
     this.laidOutXR = xr;
     const { eye } = this;
     if (xr) {
-      this.coachHolder.position.set(-0.64, eye - 0.04, -0.86);
-      this.coachHolder.rotation.y = 0.62;
-      this.statusHolder.position.set(0.64, eye - 0.04, -0.86);
-      this.statusHolder.rotation.y = -0.62;
+      // Larger in the headset: the text stays above the minimum size at about one meter.
+      this.coachHolder.position.set(-0.7, eye - 0.08, -0.8);
+      this.coachHolder.rotation.y = 0.66;
+      this.statusHolder.position.set(0.7, eye - 0.08, -0.8);
+      this.statusHolder.rotation.y = -0.66;
     } else {
       this.coachHolder.position.set(-0.68, eye - 0.06, -0.6);
       this.coachHolder.rotation.y = 0;
       this.statusHolder.position.set(0.68, eye - 0.06, -0.6);
       this.statusHolder.rotation.y = 0;
     }
-    const s = 0.6;
-    const sb = 0.45;
+    const s = xr ? 0.76 : 0.6;
+    const sb = xr ? 0.55 : 0.45;
     this.coachHolder.scale.setScalar(s);
     this.statusHolder.scale.setScalar(s);
     // Menu button below the status panel (the base HUD's text bar is not needed here).
@@ -433,7 +434,7 @@ export class SummitScene extends BaseScene {
     if (tail === 'up') this.bubbleHolder.position.set(0, this.eye + 0.08 + (panel.h * bs) / 2, -0.6);
     else {
       // Next to the customer's head, in front of the summit (it covers the cross).
-      const head = this.HOLD_Y - FOCUS[this.stepIndex] + PLATEAU_Y + 0.27;
+      const head = Math.min(this.eye + 0.24, this.HOLD_Y - FOCUS[this.stepIndex] + PLATEAU_Y + 0.27);
       this.bubbleHolder.position.set(0.1 - (panel.w * bs) / 2, head - (panel.h * bs) * 0.2, WALL_Z + 0.2);
     }
     this.bubbleHolder.visible = true;
@@ -938,7 +939,11 @@ export class SummitScene extends BaseScene {
     if (cam.fov !== 60 || cam.rotation.x !== 0) { cam.fov = 60; cam.updateProjectionMatrix(); }
     const { eye } = this;
     const top = this.mode === 'meet' || this.mode === 'summit' || this.mode === 'approach';
-    const box = top ? { x0: -0.42, x1: 0.48, y0: eye - 0.16, y1: eye + 0.46, z: -0.62 } : { x0: -0.42, x1: 0.42, y0: eye - 0.5, y1: eye + 0.0, z: -0.62 };
+    // The last two stages: the customer at the summit is in the picture too.
+    const late = (this.stepIndex ?? 0) >= 3 && this.mode !== 'fall';
+    const box = top ? { x0: -0.42, x1: 0.48, y0: eye - 0.16, y1: eye + 0.46, z: -0.62 }
+      : late ? { x0: -0.42, x1: 0.42, y0: eye - 0.52, y1: eye + 0.3, z: -0.62 }
+        : { x0: -0.42, x1: 0.42, y0: eye - 0.5, y1: eye + 0.0, z: -0.62 };
     this.frame(cam, dt, box, ins);
     return true;
   }

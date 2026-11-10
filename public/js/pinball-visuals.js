@@ -868,7 +868,7 @@ function drawBackglass() {
     ctx.fillRect(lx - 4, ground - 20, 8, 110);
     const g = ctx.createRadialGradient(lx, ground - 28, 2, lx, ground - 28, 60);
     g.addColorStop(0, color('xr-pinball-lamp'));
-    g.addColorStop(1, 'rgba(0,0,0,0)');
+    g.addColorStop(1, color('xr-pinball-lamp-clear'));
     ctx.fillStyle = g;
     ctx.globalAlpha = 0.7;
     ctx.fillRect(lx - 60, ground - 88, 120, 120);
@@ -971,7 +971,7 @@ export class Dmd {
     this.key = key;
     const s = this.sctx;
     s.clearRect(0, 0, DW, DH);
-    s.fillStyle = '#fff';
+    s.fillStyle = color('xr-pinball-dmd'); // only the alpha of this mask is read
     s.textAlign = 'center';
     s.textBaseline = 'middle';
     const fit = (text, px, maxW) => {
@@ -1051,7 +1051,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
   // The playfield board with its art (a little self-lit, so it reads well in a dark room).
   const pfTex = drawPlayfield(table);
   const board = new THREE.Mesh(new THREE.PlaneGeometry(PF.w, PF.h), new THREE.MeshStandardMaterial({
-    map: pfTex, emissiveMap: pfTex, emissive: 0xffffff, emissiveIntensity: 0.32, roughness: 0.32, metalness: 0.05,
+    map: pfTex, emissiveMap: pfTex, emissive: hex('xr-pinball-white'), emissiveIntensity: 0.32, roughness: 0.32, metalness: 0.05,
   }));
   owned.push(board.material, pfTex);
   board.rotation.x = -Math.PI / 2;
@@ -1077,8 +1077,6 @@ export function buildMachine(table, model, { lite = false } = {}) {
     m.receiveShadow = k !== 'wallTop';
     field.add(m);
   }
-  // Posts.
-  const postGeo = [];
   const placePart = (name, x, y, opts = {}) => {
     const p = parts[name].clone(true);
     p.position.copy(fp(x, y, opts.h ?? 0));
@@ -1088,15 +1086,16 @@ export function buildMachine(table, model, { lite = false } = {}) {
     field.add(p);
     return p;
   };
-  for (const pt of table.posts) postGeo.push(placePart('PinPost', pt.x, pt.y, { scale: pt.r / 0.0065 }));
-  // Slingshots with posts at the corners.
+  // Slingshots; all posts (lane guides, outlanes, sling corners) as one instanced set.
+  const posts = table.posts.map((pt) => [pt.x, pt.y, pt.r / 0.0065]);
   const slings = table.slings.map((sl) => {
     const g = makeSling(sl, mats);
     field.add(g);
     owned.push(g.userData.flash);
-    for (const P of [sl.A, sl.B, sl.C]) placePart('PinPost', P[0], P[1], { scale: 0.006 / 0.0065 });
+    for (const P of [sl.A, sl.B, sl.C]) posts.push([P[0], P[1], 0.006 / 0.0065]);
     return g;
   });
+  field.add(instanced(parts.PinPost, posts));
   // Flippers.
   const flippers = {};
   for (const [k, f] of Object.entries(table.flippers)) flippers[k] = placePart('PinFlipper', f.x, f.y, { rot: f.angle });
@@ -1136,10 +1135,10 @@ export function buildMachine(table, model, { lite = false } = {}) {
   // Apron with its two instruction cards.
   const ap = apronShape();
   const apTex = apronTexture();
-  const apTop = new THREE.MeshStandardMaterial({ map: apTex, roughness: 0.45, emissiveMap: apTex, emissive: 0xffffff, emissiveIntensity: 0.25 });
+  const apTop = new THREE.MeshStandardMaterial({ map: apTex, roughness: 0.45, emissiveMap: apTex, emissive: hex('xr-pinball-white'), emissiveIntensity: 0.25 });
   const apSide = new THREE.MeshStandardMaterial({ color: hex('xr-pinball-apron'), roughness: 0.4 });
   owned.push(apTop, apSide, apTex);
-  const apGeo = new THREE.ExtrudeGeometry(ap, { depth: 0.014, bevelEnabled: false, curveSegments: 24 });
+  const apGeo = new THREE.ExtrudeGeometry(ap, { depth: 0.035, bevelEnabled: false, curveSegments: 24 }); // above the walls' ends
   apGeo.rotateX(-Math.PI / 2);
   const apron = new THREE.Mesh(apGeo, [apTop, apSide]);
   apron.castShadow = true;
@@ -1188,20 +1187,21 @@ export function buildMachine(table, model, { lite = false } = {}) {
   field.add(tip.group);
   owned.push(...tip.owned);
   // The ball: chrome, with a soft halo (it is the message) and a trail.
-  const ball = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 32, 20), new THREE.MeshStandardMaterial({ color: hex('xr-pinball-ball'), metalness: 1, roughness: 0.08, envMapIntensity: 1.3 }));
+  // Chrome, with a little light of its own so it never reads as a dark dot on the playfield.
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 32, 20), new THREE.MeshStandardMaterial({ color: hex('xr-pinball-ball'), metalness: 0.9, roughness: 0.1, envMapIntensity: 1.6, emissive: hex('xr-pinball-ball'), emissiveIntensity: 0.22 }));
   ball.castShadow = true;
   ball.userData.noFit = true;
   owned.push(ball.material);
   field.add(ball);
-  const ballGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: halo, color: hex('xr-pinball-ball-glow'), ...additive, opacity: 0.35 }));
-  ballGlow.scale.setScalar(BALL_R * 4.5);
+  const ballGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: halo, color: hex('xr-pinball-ball-glow'), ...additive, opacity: 0.5 }));
+  ballGlow.scale.setScalar(BALL_R * 6);
   owned.push(ballGlow.material);
   ball.add(ballGlow);
   const trail = new RibbonTrail(field, 14, BALL_R * 0.55);
   const trailColor = col('xr-pinball-ball-glow');
   let shadowBlob = null;
   if (lite) {
-    shadowBlob = new THREE.Mesh(new THREE.PlaneGeometry(BALL_R * 3, BALL_R * 3).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: halo, color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false }));
+    shadowBlob = new THREE.Mesh(new THREE.PlaneGeometry(BALL_R * 3, BALL_R * 3).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: halo, color: hex('xr-pinball-dark'), transparent: true, opacity: 0.5, depthWrite: false }));
     owned.push(shadowBlob.material);
     field.add(shadowBlob);
   }
@@ -1261,7 +1261,9 @@ export function buildMachine(table, model, { lite = false } = {}) {
       const show = b.mode !== 'gone';
       ball.visible = show;
       if (show) {
+        const was = ball.position.clone();
         ball.position.copy(fp(b.x, b.y, b.z + BALL_R));
+        if (was.distanceTo(ball.position) > 0.08) trail.reset(ball.position); // served or saved
         ball.rotation.x -= (b.vy * dt) / BALL_R;
         ball.rotation.z -= (b.vx * dt) / BALL_R;
       }
@@ -1288,7 +1290,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
         ins.mat.opacity = ins.level * 0.85;
         ins.gm.opacity = ins.level * 0.55;
       }
-      tip.update(dt, time);
+      tip.update(dt, time, st.eye && field.worldToLocal(st.eye.clone()));
       bgBulbs?.userData.tick(time);
       railBulbs?.userData.tick(time + 1.3);
     },
@@ -1298,6 +1300,28 @@ export function buildMachine(table, model, { lite = false } = {}) {
     },
   };
   return state;
+}
+
+/** Many copies of a part as instanced meshes (one draw call per material): [x, y, scale]. */
+function instanced(part, list) {
+  const g = new THREE.Group();
+  g.userData.noFit = true;
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  part.updateMatrixWorld(true);
+  part.traverse((o) => {
+    if (!o.isMesh) return;
+    const inst = new THREE.InstancedMesh(o.geometry, o.material, list.length);
+    list.forEach(([x, y, sc], i) => {
+      m.compose(fp(x, y, 0), q, new THREE.Vector3(sc, sc, sc)).multiply(o.matrixWorld);
+      inst.setMatrixAt(i, m);
+    });
+    inst.castShadow = true;
+    inst.receiveShadow = true;
+    inst.userData.noFit = true;
+    g.add(inst);
+  });
+  return g;
 }
 
 /** The AI's tip marker: a bobbing chevron over the target, a beam down to it, a ring around it. */
@@ -1319,6 +1343,10 @@ function makeTipArrow() {
   const arrow = new THREE.Mesh(geo, mat);
   const spin = new THREE.Group();
   spin.add(arrow);
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTexture(), color: hex('xr-pinball-ai'), ...additive, opacity: 0.6 }));
+  glow.scale.setScalar(0.09);
+  glow.position.y = 0.026;
+  spin.add(glow);
   group.add(spin);
   const beamMat = new THREE.MeshBasicMaterial({ color: hex('xr-pinball-ai'), ...additive, opacity: 0.22, side: THREE.DoubleSide });
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.012, 1, 12, 1, true), beamMat);
@@ -1331,22 +1359,24 @@ function makeTipArrow() {
   let on = 0;
   let want = 0;
   const api = {
-    group, owned: [mat, beamMat, ringMat],
+    group, owned: [mat, beamMat, ringMat, glow.material],
     /** Points at a channel ([x, y, height, ring radius]), or hides with null. */
     point(t) {
       if (!t) { want = 0; return; }
       [target.x, target.y, target.h, target.r] = t;
       want = 1;
     },
-    update(dt, time) {
+    update(dt, time, eye) {
       on += (want - on) * Math.min(1, dt * 6);
       group.visible = on > 0.02;
       if (!group.visible) return;
       const bob = Math.sin(time * 4) * 0.008;
       group.position.copy(fp(target.x, target.y, 0));
       spin.position.y = target.h + bob;
-      spin.rotation.y = time * 2.2;
-      spin.scale.setScalar(on);
+      // Turned towards the viewer (field space), with a little wobble.
+      spin.rotation.y = (eye ? Math.atan2(eye.x - group.position.x, eye.z - group.position.z) : 0) + Math.sin(time * 3) * 0.35;
+      spin.scale.setScalar(on * 1.7);
+      glow.material.opacity = on * (0.55 + 0.25 * Math.sin(time * 6));
       beam.scale.set(1, target.h, 1);
       beam.position.y = target.h / 2;
       const pulse = 0.5 + 0.5 * Math.sin(time * 6);

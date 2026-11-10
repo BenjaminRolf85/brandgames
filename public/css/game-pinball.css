@@ -19,7 +19,6 @@
   --xr-pinball-street-line:    #4a63b8;
   --xr-pinball-park:           #164a4a;
   --xr-pinball-field-text:     #e8ecf6;
-  --xr-pinball-field-muted:    #8fa0d6;
   --xr-pinball-danger:         #ff4d5e;   /* outlanes */
   --xr-pinball-wall:           #23347a;
   --xr-pinball-wall-top:       #e3262f;
@@ -85,8 +84,13 @@
   --xr-pinball-tree-light:     #2fa860;
   --xr-pinball-trunk:          #5c3a24;
   --xr-pinball-lamp:           #ffd27a;
+  --xr-pinball-lamp-clear:     rgb(255 210 122 / 0);
   --xr-pinball-title:          #ffffff;
   --xr-pinball-title-glow:     #ff5a4f;
+
+  /* lights */
+  --xr-pinball-light:          #fff6ea;   /* key light over the machine, flasher */
+  --xr-pinball-white:          #ffffff;   /* self-light of the playfield and apron art (multiplies the art) */
 
   /* scale of the machine in the headset (1 = a real 21 inch playfield) */
   --xr-pinball-scale: 0.9;

@@ -225,7 +225,7 @@ export class AiPanel extends Panel {
     const { h } = this;
     // Wide panels (phones held upright): text on the left, the taste map on the right.
     const wide = this.w > this.h * 1.4;
-    const w = wide ? this.w * 0.56 : this.w;
+    const w = wide ? this.w * 0.6 : this.w;
     const pad = 0.032;
     this.surface({ stroke: color('xr-roast-ai') });
     // glow flash after learning

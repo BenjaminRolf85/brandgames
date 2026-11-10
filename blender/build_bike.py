@@ -394,13 +394,13 @@ def build_fork():
     # Steerer spacers, stem, handlebar (riser, swept back) with grips and brake levers.
     p.append(tube('spacer', (0, 0.823, -0.31), (0, 0.848, -0.302), 0.026, DARK, 14))
     p.append(sweep('stem', [(0, 0.84, -0.304), (0, 0.85, -0.36), (0, 0.855, -0.395)], 0.02, DARK, 12))
-    bar = [(-0.3, 0.88, -0.33), (-0.22, 0.875, -0.36), (-0.12, 0.862, -0.39), (-0.05, 0.856, -0.398), (0.05, 0.856, -0.398), (0.12, 0.862, -0.39), (0.22, 0.875, -0.36), (0.3, 0.88, -0.33)]
+    bar = [(-0.31, 0.9, -0.24), (-0.25, 0.892, -0.3), (-0.16, 0.874, -0.37), (-0.06, 0.858, -0.398), (0.06, 0.858, -0.398), (0.16, 0.874, -0.37), (0.25, 0.892, -0.3), (0.31, 0.9, -0.24)]
     p.append(sweep('bar', bar, 0.012, METAL, 10))
     for s in (-1, 1):
-        p.append(sweep('grip', [(s * 0.21, 0.874, -0.363), (s * 0.255, 0.878, -0.347), (s * 0.302, 0.88, -0.329)], 0.019, DARK, 12))
-        p.append(tube('gripEnd', (s * 0.302, 0.88, -0.329), (s * 0.31, 0.88, -0.326), 0.021, ACCENT, 12))
-        p.append(sweep('lever', [(s * 0.19, 0.87, -0.37), (s * 0.21, 0.865, -0.4), (s * 0.27, 0.86, -0.395)], 0.006, METAL, 6))
-        p.append(box('leverBody', (s * 0.185, 0.87, -0.37), (0.035, 0.022, 0.03), DARK, bev=0.006))
+        p.append(sweep('grip', [(s * 0.245, 0.891, -0.305), (s * 0.28, 0.896, -0.27), (s * 0.312, 0.9, -0.236)], 0.019, DARK, 12))
+        p.append(tube('gripEnd', (s * 0.312, 0.9, -0.236), (s * 0.317, 0.9, -0.229), 0.021, ACCENT, 12))
+        p.append(sweep('lever', [(s * 0.2, 0.882, -0.34), (s * 0.235, 0.876, -0.36), (s * 0.28, 0.872, -0.33)], 0.006, METAL, 6))
+        p.append(box('leverBody', (s * 0.19, 0.884, -0.343), (0.035, 0.022, 0.03), DARK, bev=0.006))
     # Front rotor caliper on the fork.
     p.append(tube('rotorF', (-0.058, 0.35, -0.52), (-0.054, 0.35, -0.52), 0.07, METAL, 32))
     p.append(box('caliperF', (-0.066, 0.39, -0.47), (0.018, 0.04, 0.05), DARK, bev=0.005))
@@ -1266,35 +1266,28 @@ def build_models(out_bike, out_world, out_blend):
 
 # ---------------------------------------------------------------- coin art
 
-def coin_render(bike_blend, echo_blend, out_png):
+def coin_render(bike_blend, echo_blend, out_png, size=512, samples=64):
     """Renders the game coin picture: Echo on the bike with knobby tires and the glowing band,
-    the swallow ahead, on a rich violet-to-cyan background (colors as in the tokens)."""
+    riding towards the viewer, the swallow ahead and a star, on a violet-to-cyan background."""
     bpy.ops.wm.open_mainfile(filepath=bike_blend)
     sc = bpy.context.scene
-    keep = {'BikeFrame', 'BikeFork', 'BikeWheel', 'BikeCranks', 'TireKnobby', 'TireBand', 'Swallow', 'SwallowWingL', 'SwallowWingR', 'ItStar'}
+    keep = {'BikeFrame', 'BikeFork', 'BikeWheel', 'BikeCranks', 'TireKnobby', 'TireBand', 'Swallow', 'SwallowWingL', 'SwallowWingR', 'ItStar', 'EchoHelmet'}
     for o in list(sc.objects):
         if o.name not in keep:
             bpy.data.objects.remove(o, do_unlink=True)
-    # Second wheel and tire.
+
     def dup(name, loc):
         o = bpy.data.objects[name]
         c = o.copy()
-        c.data = o.data
         sc.collection.objects.link(c)
         c.location = loc
         return c
-    wr = bpy.data.objects['BikeWheel']
-    wr.location = P(*RA)
-    wf = dup('BikeWheel', P(*FA))
-    tr = bpy.data.objects['TireKnobby']
-    tr.location = P(*RA)
-    tf = dup('TireKnobby', P(*FA))
-    br = bpy.data.objects['TireBand']
-    br.location = P(*RA)
-    dup('TireBand', P(*FA))
-    # Echo from its own file, on the saddle, facing forward (-z), wings to the bars.
+    for name in ('BikeWheel', 'TireKnobby', 'TireBand'):
+        bpy.data.objects[name].location = P(*RA)
+        dup(name, P(*FA))
+    # Echo from its own file, on the saddle, facing forward, wings folded to the grips.
     with bpy.data.libraries.load(echo_blend, link=False) as (src, dst):
-        dst.objects = [n for n in src.objects]
+        dst.objects = list(src.objects)
     echo_root = bpy.data.objects.new('EchoRoot', None)
     sc.collection.objects.link(echo_root)
     for o in dst.objects:
@@ -1303,110 +1296,119 @@ def coin_render(bike_blend, echo_blend, out_png):
         sc.collection.objects.link(o)
         if o.parent is None:
             o.parent = echo_root
-    for name in ('WingL', 'WingR'):
-        w = bpy.data.objects.get(name)
-        if w:
-            s = 1 if name == 'WingR' else -1
-            w.rotation_euler = (0, 0, 0)
-            w.rotation_euler.rotate(Matrix.Rotation(s * -1.0, 3, 'Z'))
-            w.rotation_euler.rotate(Matrix.Rotation(s * 0.25, 3, 'Y'))
-    for name in ('MouthOpen',):
-        o = bpy.data.objects.get(name)
-        if o:
+        if o.name in ('MouthOpen', 'LidL', 'LidR', 'LidLowL', 'LidLowR'):
             o.hide_render = True
-    for name in ('LidL', 'LidR', 'LidLowL', 'LidLowR'):
-        o = bpy.data.objects.get(name)
-        if o:
-            o.hide_render = True
-    echo_root.scale = (0.62, 0.62, 0.62)
-    echo_root.location = P(0, 1.13, 0.17)
-    echo_root.rotation_euler = (0, 0, math.pi + 0.0)
-    # Bike: turned 3/4 towards the camera, leaning a little.
+    helmet = bpy.data.objects['EchoHelmet']
+    helmet.parent = echo_root
+    bpy.data.objects['WingR'].rotation_euler = (0, 0.55, -1.25)
+    bpy.data.objects['WingL'].rotation_euler = (0, -0.55, 1.25)
+    echo_root.scale = (0.6, 0.6, 0.6)
+    echo_root.location = P(0, 1.08, 0.1)
+    echo_root.rotation_euler = (-0.12, 0, math.pi)
+    # The bike turned three quarters towards the camera.
     rig = bpy.data.objects.new('Rig', None)
     sc.collection.objects.link(rig)
-    for o in sc.objects:
-        if o.parent is None and o is not rig and o.type in ('MESH', 'EMPTY') and not o.name.startswith(('Swallow', 'ItStar')):
+    for o in list(sc.objects):
+        if o.parent is None and o is not rig and not o.name.startswith(('Swallow', 'ItStar')):
             o.parent = rig
-    rig.rotation_euler = (0, 0.06, math.radians(-128))
-    # Swallow up front.
-    for n in ('Swallow', 'SwallowWingL', 'SwallowWingR'):
-        o = bpy.data.objects[n]
-        o.parent = None
+    rig.rotation_euler = (0, 0.05, math.radians(-38))
+    # The swallow up front, wings raised, and a star.
     sw = bpy.data.objects.new('SwRig', None)
     sc.collection.objects.link(sw)
     for n in ('Swallow', 'SwallowWingL', 'SwallowWingR'):
         bpy.data.objects[n].parent = sw
-    bpy.data.objects['SwallowWingL'].rotation_euler = (0, -0.5, 0)
-    bpy.data.objects['SwallowWingR'].rotation_euler = (0, 0.5, 0)
-    sw.location = P(-0.55, 1.75, -0.2)
-    sw.rotation_euler = (0.15, 0.2, math.radians(-150))
-    sw.scale = (1.15, 1.15, 1.15)
+    bpy.data.objects['SwallowWingL'].rotation_euler = (0, 1.0, 0)
+    bpy.data.objects['SwallowWingR'].rotation_euler = (0, -1.0, 0)
+    sw.location = (-0.26, 0.6, 1.6)
+    sw.rotation_euler = (0.15, -0.25, math.radians(-30))
+    sw.scale = (1.35, 1.35, 1.35)
     st = bpy.data.objects['ItStar']
-    st.location = P(0.62, 1.62, -0.1)
-    st.rotation_euler = (0.3, 0.0, 0.4)
-    st.scale = (0.7, 0.7, 0.7)
-    # Background: a gradient world (violet to cyan), soft key and rim lights.
+    st.location = (0.6, 0.3, 1.5)
+    st.rotation_euler = (0.1, 0.25, 0.35)
+    st.scale = (0.9, 0.9, 0.9)
+    # The token colors of the game (game-bike.css) instead of the preview colors.
+    def lin3(h):
+        c = [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        return tuple(x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c)
+    for name, h in (('BkFrame', '#7c3aed'), ('BkAccent', '#22d3ee'), ('BkTireAccent', '#ff8a3d'), ('BkHelmet', '#ffb02e'), ('BkBottle', '#22d3ee'), ('BkSwallowBack', '#1f2d70'), ('BkSwallowFace', '#cf5a2c'), ('BkGold', '#ffc43d')):
+        m = bpy.data.materials.get(name)
+        if m:
+            m.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (*lin3(h), 1)
+    band = bpy.data.materials.get('BkBandGlow')
+    if band:
+        bsdf = band.node_tree.nodes['Principled BSDF']
+        bsdf.inputs['Emission Color'].default_value = (*lin3('#34f5c5'), 1)
+        bsdf.inputs['Emission Strength'].default_value = 4.0
+    # Background: a violet-to-cyan gradient (the app's token colors).
     world = bpy.data.worlds.new('CoinWorld')
     sc.world = world
     world.use_nodes = True
     nt = world.node_tree
     bg = nt.nodes['Background']
-    grad = nt.nodes.new('ShaderNodeTexGradient')
     tc = nt.nodes.new('ShaderNodeTexCoord')
     mapn = nt.nodes.new('ShaderNodeMapping')
+    grad = nt.nodes.new('ShaderNodeTexGradient')
     ramp = nt.nodes.new('ShaderNodeValToRGB')
+    light_path = nt.nodes.new('ShaderNodeLightPath')
+    mix = nt.nodes.new('ShaderNodeMixShader')
+    bg2 = nt.nodes.new('ShaderNodeBackground')
+
     def lin(h):
         c = [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
         return tuple(x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c) + (1,)
-    ramp.color_ramp.elements[0].color = lin('#2a1062')
-    ramp.color_ramp.elements[1].color = lin('#0e7c93')
+    ramp.color_ramp.elements[0].color = lin('#3a1a8a')
+    ramp.color_ramp.elements[1].color = lin('#0d8fa8')
     nt.links.new(tc.outputs['Window'], mapn.inputs['Vector'])
-    mapn.inputs['Rotation'].default_value = (0, 0, math.radians(-50))
+    mapn.inputs['Rotation'].default_value = (0, 0, math.radians(-45))
+    mapn.inputs['Location'].default_value = (-0.2, 0.5, 0)
     nt.links.new(mapn.outputs['Vector'], grad.inputs['Vector'])
     nt.links.new(grad.outputs['Fac'], ramp.inputs['Fac'])
     nt.links.new(ramp.outputs['Color'], bg.inputs['Color'])
-    bg.inputs['Strength'].default_value = 1.0
-    # A floor disc that catches the shadow (snowy ground).
+    bg2.inputs['Color'].default_value = (0.6, 0.62, 0.75, 1)
+    bg2.inputs['Strength'].default_value = 0.3
+    # The camera sees the gradient, the objects are lit by a soft neutral world.
+    nt.links.new(light_path.outputs['Is Camera Ray'], mix.inputs['Fac'])
+    nt.links.new(bg2.outputs['Background'], mix.inputs[1])
+    nt.links.new(bg.outputs['Background'], mix.inputs[2])
+    nt.links.new(mix.outputs['Shader'], nt.nodes['World Output'].inputs['Surface'])
+    # A snowy floor that only catches the shadow.
     bm = bmesh.new()
-    bmesh.ops.create_circle(bm, cap_ends=True, segments=48, radius=1.6)
+    bmesh.ops.create_circle(bm, cap_ends=True, segments=48, radius=2.5)
     floor = link('Floor', bm, material('CoinFloor', (0.85, 0.9, 1.0), 0.0, 0.7))
-    floor.location = (0, 0, 0)
     floor.is_shadow_catcher = True
-    def light(name, kind, loc, energy, color=(1, 1, 1), size=1.0):
-        d = bpy.data.lights.new(name, kind)
+
+    def light(name, loc, energy, color, size):
+        d = bpy.data.lights.new(name, 'AREA')
         d.energy = energy
         d.color = color
-        if kind == 'AREA':
-            d.size = size
+        d.size = size
         o = bpy.data.objects.new(name, d)
         sc.collection.objects.link(o)
         o.location = loc
-        o.rotation_euler = (0, 0, 0)
-        tr_ = o.constraints.new('TRACK_TO')
-        tr_.target = rig
+        tr = o.constraints.new('TRACK_TO')
+        tr.target = rig
         return o
-    light('Key', 'AREA', (2.5, 2.5, 3.5), 900, (1.0, 0.95, 0.9), 2.5)
-    light('Rim', 'AREA', (-2.0, -2.5, 2.5), 700, (0.5, 0.9, 1.0), 2.0)
-    light('Fill', 'AREA', (-2.5, 2.5, 1.0), 250, (0.8, 0.6, 1.0), 2.0)
+    light('Key', (2.6, 3.0, 3.6), 420, (1.0, 0.95, 0.9), 2.5)
+    light('Rim', (-2.4, -2.6, 2.6), 420, (0.45, 0.9, 1.0), 2.0)
+    light('Fill', (-3.0, 2.6, 1.2), 140, (0.85, 0.65, 1.0), 2.5)
     cam_d = bpy.data.cameras.new('Cam')
-    cam_d.lens = 70
+    cam_d.lens = 78
     cam = bpy.data.objects.new('Cam', cam_d)
     sc.collection.objects.link(cam)
     sc.camera = cam
-    cam.location = (0.15, 3.4, 1.55)
+    cam.location = (0.35, 5.6, 1.75)
     target = bpy.data.objects.new('Target', None)
     sc.collection.objects.link(target)
-    target.location = (0.0, 0.0, 0.88)
+    target.location = (0.0, 0.0, 0.98)
     tc2 = cam.constraints.new('TRACK_TO')
     tc2.target = target
     sc.render.engine = 'CYCLES'
     sc.cycles.device = 'CPU'
-    sc.cycles.samples = 64
+    sc.cycles.samples = samples
     sc.cycles.use_denoising = True
-    sc.render.resolution_x = 512
-    sc.render.resolution_y = 512
-    sc.render.film_transparent = False
-    sc.view_settings.view_transform = 'AgX' if 'AgX' in [i.identifier for i in sc.view_settings.bl_rna.properties['view_transform'].enum_items] else 'Filmic'
+    sc.render.resolution_x = size
+    sc.render.resolution_y = size
+    sc.view_settings.view_transform = 'Standard'
     sc.view_settings.look = 'None'
     sc.render.filepath = out_png
     bpy.ops.render.render(write_still=True)
@@ -1416,4 +1418,4 @@ def coin_render(bike_blend, echo_blend, out_png):
 if MODE == 'models':
     build_models(ARGS[1], ARGS[2], ARGS[3])
 elif MODE == 'coin':
-    coin_render(ARGS[1], ARGS[2], ARGS[3])
+    coin_render(ARGS[1], ARGS[2], ARGS[3], *(int(x) for x in ARGS[4:6]))

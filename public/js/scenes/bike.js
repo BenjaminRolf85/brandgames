@@ -24,7 +24,7 @@ import { CHRISTMAS } from '../christmas.js';
 import { makeEnvironment } from '../robot-visuals.js';
 import { TERRAINS, TIRES, PRESSURES, BEST, planScans, rate, sensorText } from '../bike-ai.js';
 import {
-  makeCourse, makeTerrain, Scatter, makeSky, makeBase, makeScanFx, makeGuideDots, makeSnow, makeMist,
+  makeCourse, makeTerrain, Scatter, makeSky, makeBase, makeScanFx, makeGuideDots, makeSnow, makeMist, makeSparks,
   HZ, ITEMS, S0, SEC_LEN, STOP_GAP, HALF, EDGE,
 } from '../bike-world.js';
 import { loadBikeGLTF, loadWorldGLTF, modelKit, BikeRig, EchoRider, SwallowGuide, ScanDrone, makeArch, TIRE_NODES, TIRE_TOKENS } from '../bike-models.js';
@@ -114,6 +114,8 @@ export class BikeScene extends BaseScene {
     // Clipping planes (stage space, then world space every frame): the diorama window.
     this.clipLocal = [new THREE.Plane(new THREE.Vector3(0, 0, -1), 0), new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), new THREE.Plane(new THREE.Vector3(1, 0, 0), 0), new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0)];
     this.clip = this.clipLocal.map((p) => p.clone());
+    this.prevClipping = this.engine.renderer.localClippingEnabled;
+    this.engine.renderer.localClippingEnabled = true;
     // Course group: course units, scaled down; moved so the bike stays at the stage origin.
     const cg = (this.cg = new THREE.Group());
     cg.scale.setScalar(S);
@@ -129,6 +131,8 @@ export class BikeScene extends BaseScene {
     cg.add(this.snow);
     this.mist = makeMist();
     cg.add(this.mist);
+    this.sparks = makeSparks();
+    cg.add(this.sparks);
     // The diorama's earth base (headset; browser intro and results).
     const len0 = WIN.back * S;
     const len1 = -WIN.frontXR * S;
@@ -187,6 +191,7 @@ export class BikeScene extends BaseScene {
     this.bike.setTire(this.choice.tire);
     this.rider = new EchoRider(this.bike.lean, B);
     this.swallow = new SwallowGuide(WU);
+    this.swallow.root.scale.setScalar(1.5);
     this.cg.add(this.swallow.root);
     this.drone = new ScanDrone(WU);
     this.cg.add(this.drone.root);
@@ -233,8 +238,11 @@ export class BikeScene extends BaseScene {
     }
     const rimNode = B.clone('BikeWheel');
     if (rimNode) { this.previewRim = new THREE.Group(); this.previewRim.add(rimNode); this.tirePreview.add(this.previewRim); }
-    this.tirePreview.visible = false;
-    this.ui.add(this.tirePreview);
+    this.tirePreview.position.set(0, 0.06, 0.07);
+    this.tirePreview.rotation.y = 0.95;
+    this.tirePreview.scale.setScalar(0.42);
+    this.tirePreview.traverse((o) => { o.userData.keepDepth = true; o.castShadow = false; });
+    this.tireCard.add(this.tirePreview);
     this.ready = true;
   }
 
@@ -256,7 +264,7 @@ export class BikeScene extends BaseScene {
     con.userData.h = 0.62;
     con.visible = false;
     ui.add(con);
-    this.header = new Panel(0.68, 0.1, (ctx, c) => this.drawHeader(ctx, c));
+    this.header = new Panel(0.68, 0.11, (ctx, c) => this.drawHeader(ctx, c));
     this.header.position.y = 0.26;
     con.add(this.header);
     this.tireTiles = TIRES.map((k, i) => {
@@ -294,6 +302,31 @@ export class BikeScene extends BaseScene {
     this.goBtn.userData.onClick = () => { sfx.click(); this.go(); };
     this.goBtn.position.set(0, -0.225, 0);
     con.add(this.goBtn);
+    // A showcase card for the chosen tire (the 3D tire turns in front of it).
+    this.tireCard = new Panel(0.4, 0.46, (ctx, c) => {
+      const W = c.canvas.width;
+      const H = c.canvas.height;
+      const k = this.choice.tire;
+      c.surface({ stroke: color(TIRE_TOKENS[k]), stripe: false });
+      const g = ctx.createRadialGradient(W / 2, H * 0.4, 0, W / 2, H * 0.4, W * 0.5);
+      g.addColorStop(0, color('xr-button-hover'));
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H * 0.8);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = color(TIRE_TOKENS[k]);
+      ctx.font = font('black', c.m(num('xr-text-md')));
+      ctx.fillText(t(`bikeTire_${k}`), W / 2, H * 0.82, W - c.m(0.04));
+      ctx.fillStyle = color('xr-panel-muted');
+      ctx.font = font('regular', c.m(num('xr-text-min')));
+      ctx.fillText(`${t(`bikeTireText_${k}`)} · ${t(`bikeBar_${this.choice.pressure}`)}`, W / 2, H * 0.92, W - c.m(0.04));
+    });
+    this.tireCard.material.transparent = false;
+    this.tireCard.material.alphaTest = 0.5;
+    this.tireCard.userData.keepDepth = true;
+    this.tireCard.visible = false;
+    ui.add(this.tireCard);
     // The pump button (browser and headset; phones get a thumb button).
     this.pumpBtn = new Button(0.42, 0.13, { label: t('bikePump'), variant: 'primary', labelSize: 'xr-text-lg', onClick: () => this.pumpOnce() });
     this.pumpBtn.visible = false;
@@ -433,10 +466,12 @@ export class BikeScene extends BaseScene {
     ctx.fillStyle = color('xr-panel-muted');
     ctx.font = font('bold', mn);
     ctx.textAlign = 'left';
-    ctx.fillText(`${t('bikeRecommend')}:`, pad, y, W * 0.36);
+    const label = `${t('bikeRecommend')}:`;
+    ctx.fillText(label, pad, y);
+    const lx = pad + ctx.measureText(label).width + c.m(0.012);
     ctx.fillStyle = color(TIRE_TOKENS[rec.tire]);
     ctx.font = font('black', sm);
-    ctx.fillText(t('bikeRecLine', { tire: t(`bikeTire_${rec.tire}`), press: t(`bikePress_${rec.pressure}`) }), pad + W * 0.36, y - (sm - mn) * 0.4, W - pad * 2 - W * 0.36);
+    ctx.fillText(t('bikeRecLine', { tire: t(`bikeTire_${rec.tire}`), press: t(`bikePress_${rec.pressure}`) }), lx, y - (sm - mn) * 0.4, W - pad - lx);
     y += sm * 1.35;
     // certainty
     ctx.font = font('bold', mn);
@@ -544,15 +579,15 @@ export class BikeScene extends BaseScene {
   drawHeader(ctx, c) {
     const W = c.canvas.width;
     const H = c.canvas.height;
-    ctx.clearRect(0, 0, W, H);
+    c.surface({ stripe: false });
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     ctx.fillStyle = color('xr-panel-text');
     ctx.font = font('black', c.m(num('xr-text-md')));
-    ctx.fillText(t('bikeChoose'), c.m(0.01), H * 0.3, W * 0.6);
+    ctx.fillText(t('bikeChoose'), c.m(0.025), H * 0.32, W * 0.6);
     ctx.fillStyle = color('xr-panel-muted');
     ctx.font = font('regular', c.m(num('xr-text-min')));
-    ctx.fillText(t('bikeChooseHint'), c.m(0.01), H * 0.75, W * 0.8);
+    ctx.fillText(t('bikeChooseHint'), c.m(0.025), H * 0.72, W - c.m(0.13));
     // countdown ring
     const left = Math.max(0, CHOOSE_T - (this.phaseT ?? 0));
     const cx = W - c.m(0.045);
@@ -771,26 +806,16 @@ export class BikeScene extends BaseScene {
     return clamp((x - this.xrRef) * 9, -EDGE + 0.1, EDGE - 0.1);
   }
 
-  /** Browser with a mouse: the bike heads for where the pointer points on the ground. */
+  /** Browser with a mouse: moving it left or right steers (relative, like a trackpad). */
   readMouse() {
     const e = this.engine;
     const m = e.mouse;
-    if (e.isXR || e.touchUI || !m?.active) return null;
-    const moved = !this.lastNdc || Math.abs(m.ndc.x - this.lastNdc.x) > 1e-4 || Math.abs(m.ndc.y - this.lastNdc.y) > 1e-4;
+    if (e.isXR || e.touchUI || !m?.active) { this.lastNdc = null; return null; }
+    const dx = this.lastNdc ? m.ndc.x - this.lastNdc.x : 0;
     this.lastNdc = (this.lastNdc ?? new THREE.Vector2()).copy(m.ndc);
-    if (moved) this.inputMode = 'mouse';
-    if (this.inputMode !== 'mouse') return null;
-    const ray = new THREE.Raycaster();
-    ray.setFromCamera(m.ndc, e.camera);
-    const n = new THREE.Vector3(0, 1, 0).transformDirection(this.stage.matrixWorld);
-    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, this.stage.getWorldPosition(new THREE.Vector3()));
-    const hit = ray.ray.intersectPlane(plane, new THREE.Vector3());
-    if (!hit) return null;
-    const local = this.cg.worldToLocal(hit);
-    const s = -local.z;
-    if (s < this.sB + 0.5) return null;
-    const d = this.course.dcx(s);
-    return clamp((local.x - this.course.cx(s)) * Math.sqrt(1 + d * d), -EDGE + 0.1, EDGE - 0.1);
+    if (Math.abs(dx) < 1e-5) return null;
+    this.inputMode = 'mouse';
+    return clamp(this.target + dx * 1.6 * EDGE, -EDGE + 0.1, EDGE - 0.1);
   }
 
   // ---------------------------------------------------------------- flow
@@ -809,7 +834,7 @@ export class BikeScene extends BaseScene {
     Object.assign(this, {
       sB: S0 - STOP_GAP, u: 0, target: 0, latV: 0, speed: 0, air: 100, shields: 0, rideT: 0,
       pts: { choice: 0, overrule: 0, stars: 0, clean: 0, time: 0 }, starsTaken: 0, flats: 0, punctures: 0,
-      hzIdx: 0, itIdx: 0, choices: [], secStats: [], wobble: 0, slowT: 0, slipT: 0, slipV: 0, mudT: 0,
+      hzIdx: 0, itIdx: 0, choices: [], secStats: [], wobble: 0, slowT: 0, slipT: 0, slipV: 0, mudT: 0, gripSlip: 0,
     });
     this.course.hazards.forEach((h) => { h.hit = false; h.passed = false; });
     this.course.items.forEach((it) => { it.taken = false; it.hidden = false; });
@@ -820,7 +845,9 @@ export class BikeScene extends BaseScene {
 
   hudText() {
     const n = Math.min(4, (this.sec ?? 0) + 1);
-    return t('bikeHud', { name: t('bikeName'), n, time: fmtTime(this.rideT ?? 0), score: this.liveScore() });
+    const text = t('bikeHud', { name: t('bikeName'), n, time: fmtTime(this.rideT ?? 0), score: this.liveScore() });
+    // Phones: the bar is narrow, the game's name is known.
+    return this.engine.touchUI ? text.slice(text.indexOf('·') + 1).trim() : text;
   }
 
   liveScore() {
@@ -860,7 +887,9 @@ export class BikeScene extends BaseScene {
     this.scanSmall.redraw();
     this.bike?.setTire(this.choice.tire);
     this.redrawConsole();
+    this.tireCard.redraw();
     this.pop(this.console);
+    this.pop(this.tireCard);
     sfx.appear();
     this.rider?.mood('happy', 1);
   }
@@ -872,6 +901,7 @@ export class BikeScene extends BaseScene {
     sfx.click();
     this.redrawConsole();
     this.gauge.redraw();
+    this.tireCard.redraw();
   }
 
   pickPressure(k) {
@@ -880,6 +910,7 @@ export class BikeScene extends BaseScene {
     sfx.tick();
     this.redrawConsole();
     this.gauge.redraw();
+    this.tireCard.redraw();
   }
 
   /** Ride off with the chosen tire and pressure. */
@@ -981,23 +1012,18 @@ export class BikeScene extends BaseScene {
     this.rider?.cheer();
     sfx.finish();
     this.toast(t('bikeFinished'), null, 'xr-success', 3);
-    const a = this.arches?.[1];
-    if (a) {
-      const p = a.getWorldPosition(new THREE.Vector3());
-      ['xr-bike-confetti-1', 'xr-bike-confetti-2', 'xr-bike-confetti-3', 'xr-bike-confetti-4'].forEach((tok, k) => {
-        this.delay(k * 0.18, () => { if (!this.disposed) this.burst(p.clone().add(new THREE.Vector3((k - 1.5) * 0.12, 0.45, 0)), tok, 30); });
-      });
-    }
+    this.confettiT = 0;
   }
 
   finish() {
     if (this.mode === 'over') return;
     // Time: from the best possible ride to 60 % slower.
     const dist = this.course.finish - (S0 - STOP_GAP);
-    const best = dist / (V_NOM * 1.08) + 4 * 1.6;
+    const best = dist / (V_NOM * 1.08) + 2;
     const slow = best * 1.6;
     this.pts.time = Math.round(TIME_PTS * clamp((slow - this.rideT) / (slow - best), 0, 1));
     const score = Math.min(MAX_SCORE, Math.round(this.pts.choice + this.pts.overrule + this.pts.stars + this.pts.clean + this.pts.time));
+    this.refreshHud?.();
     this.mode = 'over';
     this.app.echo?.suppress(false);
     this.setRays(true);
@@ -1068,6 +1094,7 @@ export class BikeScene extends BaseScene {
     this.updateActors(dt);
     if (!e.isXR) this.updateCamera(dt);
     this.layoutUI(dt);
+    this.onTop();
     if (this.toastPanel && (this.toastT -= dt) <= 0) { this.toastPanel.removeFromParent(); this.toastPanel.dispose(); this.toastPanel = null; }
     const riding = this.mode === 'ride' || this.mode === 'brake';
     const portrait = window.innerWidth < window.innerHeight;
@@ -1174,6 +1201,21 @@ export class BikeScene extends BaseScene {
     if (off && !this.offWarned && this.mode === 'ride') { this.offWarned = true; this.toast(t('bikeOffTrail'), null, 'xr-warning', 1.4); }
     if (!off) this.offWarned = false;
     this.collide(prev, this.sB);
+    // Little grip (the wrong tire): now and then the bike slips away in a curve.
+    if (g < 0.72 && this.mode === 'ride' && this.slipT <= 0) {
+      this.gripSlip = (this.gripSlip ?? 0) + dt * (0.72 - g) * (0.6 + Math.abs(c.ddcx(this.sB)) * 25);
+      if (this.gripSlip > 1.6) {
+        this.gripSlip = 0;
+        this.slipT = 0.8;
+        this.slipV = (c.ddcx(this.sB) > 0 ? -1 : 1) * (1.4 + (1 - g));
+        this.wobble = 0.6;
+        this.slowT = 0.5;
+        this.toast(t('bikeSlip', { name: this.terrainName(sec.kind) }), null, 'xr-warning', 1.2);
+        sfx.whoosh();
+        this.rider?.mood('surprised', 0.8);
+        this.haptic(0.4, 80);
+      }
+    }
     if (!this.revealed && this.phaseT > 2.4) this.reveal();
     // The end of the section: brake to a stop for the next scan; after the last: the finish.
     if (this.sec < 3 && this.mode === 'ride') {
@@ -1206,10 +1248,11 @@ export class BikeScene extends BaseScene {
     for (const p of this.engine.pointers) if (p.kind === 'xr' && p.active) this.engine.haptic(p, k, ms);
   }
 
-  worldAt(s, v, y = 0.4) {
+  /** Sparks at a spot of the course (course units, so they suit the diorama's scale). */
+  spark(s, v, y, token, n = 14, speed = 2.2) {
     const p = this.course.point(s, v);
     p.y = y;
-    return this.cg.localToWorld(p);
+    this.sparks.userData.emit(p, token, n, speed);
   }
 
   hitHazard(h) {
@@ -1217,7 +1260,6 @@ export class BikeScene extends BaseScene {
     const spec = HZ[h.type];
     const name = t(`bikeHz_${h.type}`);
     const st = this.secStats[this.sec];
-    const at = this.worldAt(h.s, h.v, 0.3);
     const tire = this.choice.tire;
     const g = this.rating.grip;
     switch (spec.cls) {
@@ -1227,7 +1269,7 @@ export class BikeScene extends BaseScene {
           this.bike?.setBand(this.shields, true);
           this.toast(t('bikeShieldSaved', { n: this.shields }), null, 'xr-bike-band', 1.6);
           sfx.tink();
-          this.burst(at, 'xr-bike-band', 18);
+          this.spark(h.s, this.u, 0.4, 'xr-bike-band', 18);
           this.haptic(0.4, 40);
           return;
         }
@@ -1237,7 +1279,7 @@ export class BikeScene extends BaseScene {
         this.slowT = 0.8;
         this.toast(t('bikePuncture', { name }), null, 'xr-danger', 1.6);
         sfx.shatter();
-        this.burst(at, 'xr-danger', 20);
+        this.spark(h.s, h.v, 0.25, 'xr-danger', 18);
         this.rider?.hurt();
         this.haptic(0.9, 120);
         break;
@@ -1252,6 +1294,7 @@ export class BikeScene extends BaseScene {
           this.punctures += 1;
         } else this.toast(t('bikeBump', { name }), null, 'xr-warning', 1.3);
         sfx.thud();
+        this.spark(h.s, h.v, 0.1, h.type === 'roots' ? 'xr-bike-root' : 'xr-bike-chunk', 10, 1.6);
         this.rider?.hurt();
         this.haptic(0.7, 90);
         break;
@@ -1273,7 +1316,7 @@ export class BikeScene extends BaseScene {
         this.wobble = 0.5;
         this.toast(t('bikeMudSlow'), null, 'xr-warning', 1.4);
         sfx.thud();
-        this.burst(at, 'xr-bike-mud', 16);
+        this.spark(h.s, h.v, 0.1, 'xr-bike-mud-wet', 22, 2.6);
         this.haptic(0.5, 120);
     }
     if (st) st.hits += 1;
@@ -1284,12 +1327,11 @@ export class BikeScene extends BaseScene {
     it.taken = true;
     it.hidden = true;
     this.itemScatters?.forEach((sc) => { sc.dirty = true; });
-    const at = this.worldAt(it.s, it.v, 0.6);
     if (it.type === 'star') {
       this.starsTaken += 1;
       this.pts.stars += STAR_PTS;
       sfx.coin();
-      this.burst(at, 'xr-bike-gold', 14);
+      this.spark(it.s, it.v, 0.62, 'xr-bike-gold', 14);
       this.rider?.mood('happy', 0.6);
       this.haptic(0.3, 25);
     } else if (it.type === 'cart') {
@@ -1297,13 +1339,13 @@ export class BikeScene extends BaseScene {
       this.air = Math.min(100, this.air + 40);
       this.toast(t('bikeCartridge', { n: Math.max(0, add) }), null, 'xr-bike-cartridge-band', 1.6);
       sfx.powerup();
-      this.burst(at, 'xr-bike-cartridge-band', 18);
+      this.spark(it.s, it.v, 0.55, 'xr-bike-cartridge-band', 18);
     } else {
       this.shields = 3;
       this.bike?.setBand(3, true);
       this.toast(t('bikeShieldItem', { n: 3 }), null, 'xr-bike-band', 1.8);
       sfx.powerup();
-      this.burst(at, 'xr-bike-band', 24);
+      this.spark(it.s, it.v, 0.66, 'xr-bike-band', 24);
     }
     this.gauge.redraw();
   }
@@ -1320,7 +1362,13 @@ export class BikeScene extends BaseScene {
 
   updateFinish(dt) {
     this.phaseT += dt;
-    this.rideT += 0;
+    // Confetti from the arch in the first two seconds.
+    this.confettiT -= dt;
+    if (this.phaseT < 2.2 && this.confettiT <= 0) {
+      this.confettiT = 0.12;
+      const tok = ['xr-bike-confetti-1', 'xr-bike-confetti-2', 'xr-bike-confetti-3', 'xr-bike-confetti-4'][Math.floor(Math.random() * 4)];
+      this.spark(this.course.finish, (Math.random() - 0.5) * 6, 4.4, tok, 8, 2.6);
+    }
     this.speed += (0 - this.speed) * Math.min(1, dt * 0.9);
     this.sB += this.speed * dt;
     this.u += (0 - this.u) * Math.min(1, dt * 1.5);
@@ -1358,6 +1406,7 @@ export class BikeScene extends BaseScene {
       });
     }
     this.arches?.forEach((a) => a.userData.tick?.(time));
+    this.sparks.userData.update(dt);
     // Bike and rider.
     if (this.bike) {
       const yawRel = -Math.atan2(this.latNow ?? 0, Math.max(1.5, this.speed)) * 0.9;
@@ -1482,7 +1531,7 @@ export class BikeScene extends BaseScene {
     let pos;
     let look;
     let fov = portrait ? 64 : 52;
-    if (this.mode === 'scan') { pos = [bx * 0.5, portrait ? 0.62 : 0.52, portrait ? 0.62 : 0.55]; look = [0, 0, -0.95]; }
+    if (this.mode === 'scan') { pos = portrait ? [bx * 0.5, 0.78, 0.48] : [bx * 0.5, 0.52, 0.55]; look = portrait ? [0, 0, -0.5] : [0, 0, -0.95]; }
     else if (this.mode === 'choose') { pos = portrait ? [0.2, 0.32, 0.52] : [0.28, 0.24, 0.42]; look = [0, 0.03, -0.5]; fov = portrait ? 62 : 50; }
     else if (this.mode === 'finish') { const a = 0.5 + this.phaseT * 0.35; pos = [Math.sin(a) * 0.42 + bx, 0.2, Math.cos(a) * 0.42]; look = [bx, 0.08, 0]; }
     else { pos = [bx, portrait ? 0.46 : 0.34, portrait ? 0.72 : 0.58]; look = [bx * 1.1, 0, portrait ? -0.62 : -0.82]; }
@@ -1536,22 +1585,18 @@ export class BikeScene extends BaseScene {
       con.rotation.x = -0.12;
       con.scale.setScalar(popK(con));
       this.layoutTiles();
-      const tp = this.tirePreview;
-      if (tp) {
-        tp.visible = show.tirePreview;
-        placeOnArc(tp, 0.6, this.eye + 0.33, 0.98);
-        tp.rotateY(0.9);
-        tp.scale.setScalar(0.42);
-      }
+      this.tireCard.visible = show.tirePreview;
+      placeOnArc(this.tireCard, 1.12, this.eye - 0.06, 0.98);
+      this.tireCard.scale.setScalar(popK(this.tireCard));
       const st = this.stage.position;
       this.gauge.visible = show.gauge;
       this.gauge.position.set(st.x - 0.34, st.y + 0.13, st.z + 0.26);
       this.gauge.rotation.set(-0.7, 0.35, 0);
-      this.gauge.scale.setScalar(popK(this.gauge));
+      this.gauge.scale.setScalar(0.8 * popK(this.gauge));
       this.chip.visible = show.chip;
       this.chip.position.set(st.x + 0.34, st.y + 0.13, st.z + 0.26);
       this.chip.rotation.set(-0.7, -0.35, 0);
-      this.chip.scale.setScalar(popK(this.chip));
+      this.chip.scale.setScalar(0.8 * popK(this.chip));
       if (this.toastPanel) {
         this.toastPanel.position.set(0, this.eye + 0.04, -1.3);
         this.toastPanel.rotation.set(0, 0, 0);
@@ -1595,7 +1640,7 @@ export class BikeScene extends BaseScene {
     const phone = num('xr-bike-ui-px-phone');
     for (const k of ['scanPanel', 'chip', 'gauge', 'console', 'pumpBtn']) this[k].visible = show[k];
     this.scanSmall.visible = false;
-    if (this.tirePreview) this.tirePreview.visible = show.tirePreview && !touch;
+    this.tireCard.visible = show.tirePreview && !touch;
     // Top bar (desktop: the 3D status bar and the menu button).
     if (!touch && this.hudObjs) {
       const [info, menu] = this.hudObjs;
@@ -1606,13 +1651,7 @@ export class BikeScene extends BaseScene {
     if (!touch) {
       if (show.scanPanel) place(this.scanPanel, 0.012, freeTop + 0.01, 0, 0, desk * 0.82);
       if (show.console) { place(this.console, 0.988, 0.56, 1, 0.5, desk * 0.9); this.layoutTiles(); }
-      if (show.tirePreview && this.tirePreview) {
-        const yTop = freeTop + 0.01 + (0.6 * desk * 0.82) / H;
-        const r = (0.17 * desk) / pxPerM;
-        this.tirePreview.position.set((2 * 0.012 - 1) * hw + r * 1.15, (1 - 2 * (yTop + 0.03)) * hh - r * 1.1, -D);
-        this.tirePreview.scale.setScalar(r / 0.36);
-        this.tirePreview.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.9);
-      }
+      if (show.tirePreview) place(this.tireCard, 0.012, freeTop + 0.02 + (0.6 * desk * 0.82) / H, 0, 0, desk * 0.82);
       if (show.chip) place(this.chip, 0.012, freeTop + 0.01, 0, 0, desk * 0.85);
       if (show.gauge) place(this.gauge, 0.012, 0.985, 0, 1, desk * 0.9);
       if (this.toastPanel) place(this.toastPanel, 0.5, freeTop + 0.07, 0.5, 0, desk * 0.85);
@@ -1668,6 +1707,21 @@ export class BikeScene extends BaseScene {
     this.freeShift = clamp(1 - 2 * mid, -0.8, 0.8);
   }
 
+  /**
+   * Panels draw on top of the diorama: the intro and results (they stand behind it in the browser
+   * view) and the game's own panels (the ground may reach into them on the screen).
+   */
+  onTop() {
+    const mark = (root, order) => root.traverse((o) => {
+      if (!o.material || o.userData.onTop || o.userData.keepDepth) return;
+      for (const m of [].concat(o.material)) { m.depthTest = false; m.depthWrite = false; }
+      o.renderOrder = order;
+      o.userData.onTop = true;
+    });
+    mark(this.layer, 100);
+    for (const o of this.ui.children) mark(o, 90);
+  }
+
   /** Hover scale of the console's tiles (they live inside the console group). */
   layoutTiles() {
     for (const tile of [...this.tireTiles, ...this.pressTiles, this.goBtn]) tile.scale.setScalar(tile.userData.hoverK ?? 1);
@@ -1683,6 +1737,7 @@ export class BikeScene extends BaseScene {
     this.engine.scene.fog = this.engine.isXR && this.engine.xrMode === 'immersive-ar' ? null : (this.prevFog ?? null);
     if (!this.engine.isXR) this.engine.camera.rotation.set(0, 0, 0);
     if (this.prevShadow !== undefined) this.engine.renderer.shadowMap.enabled = this.prevShadow;
+    this.engine.renderer.localClippingEnabled = !!this.prevClipping;
     this.engine.scene.environment = this.prevEnvironment ?? null;
     this.envTarget?.dispose();
     this.scatters.forEach((s) => s.dispose());

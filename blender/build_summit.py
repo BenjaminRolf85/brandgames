@@ -32,9 +32,12 @@ from mathutils import Vector, Matrix, noise
 from bhelpers import init, P, material, link, tbox, tcyl, ttorus, merge, bake_ao, blob, densify
 
 ARGS = sys.argv[sys.argv.index('--') + 1:]
-OUT_GLB, OUT_BLEND = ARGS[0], ARGS[1]
-OUT_CUST = os.path.join(os.path.dirname(OUT_GLB), 'summit-customer.glb')
-PREVIEW = ARGS[2] if len(ARGS) > 2 else None
+# Coin picture for the menu: blender -b -P build_summit.py -- --coin <out.png> [<size> <samples>]
+COIN = ARGS[1] if ARGS and ARGS[0] == '--coin' else None
+if not COIN:
+    OUT_GLB, OUT_BLEND = ARGS[0], ARGS[1]
+    OUT_CUST = os.path.join(os.path.dirname(OUT_GLB), 'summit-customer.glb')
+    PREVIEW = ARGS[2] if len(ARGS) > 2 else None
 init()
 random.seed(7)
 
@@ -651,6 +654,279 @@ bpy.context.scene.collection.objects.link(customer)
 for ob in [cbody, tie_ob, scarf, apron, chead, *arms]:
     ob.parent = customer
 cust_meshes = [cbody, tie_ob, scarf, apron, chead, *arms, *brows, mouth, hair_short, hair_bun, hair_curly, hair_long, beard, glasses]
+
+# ---------- coin picture (no export) ----------
+
+def lin(hexs):
+    """sRGB hex -> linear RGB (the coin uses the token colors of css/game-summit.css)."""
+    h = hexs.lstrip('#')
+    return tuple(((int(h[i:i + 2], 16) / 255) ** 2.2) for i in (0, 2, 4))
+
+
+def set_color(mat, hexs, rough=None, emit=0.0, metal=None):
+    b = mat.node_tree.nodes['Principled BSDF']
+    b.inputs['Base Color'].default_value = (*lin(hexs), 1)
+    if rough is not None:
+        b.inputs['Roughness'].default_value = rough
+    if metal is not None:
+        b.inputs['Metallic'].default_value = metal
+    if emit:
+        b.inputs['Emission Color'].default_value = (*lin(hexs), 1)
+        b.inputs['Emission Strength'].default_value = emit
+
+
+def new_mat(name, hexs, rough=0.5, emit=0.0, metal=0.0):
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    set_color(m, hexs, rough, emit, metal)
+    return m
+
+
+def surface_at(x, y):
+    """Front of the wall at three.js (x, y): Blender ray cast on the wall object."""
+    hit, loc, nrm, idx = wall.ray_cast(P(x, y, 1.0), P(0, 0, -1) - P(0, 0, 0))
+    return -loc.y if hit else 0.0
+
+
+def render_coin(out, size, samples):
+    """The coin picture: Echo climbing the wall below the festive summit, where the customer waits."""
+    sc = bpy.context.scene
+    # Token colors (css/game-summit.css and tokens.css).
+    set_color(ROCK, '#8d8aa8', 0.9)
+    set_color(ROCK2, '#73709a', 0.9)
+    set_color(SNOW, '#f4f8ff', 0.7)
+    set_color(METAL, '#c9d2e3', 0.3, metal=0.9)
+    set_color(SLING, '#5ad8ff', 0.6)
+    set_color(POLE, '#c9d2e3', 0.3)
+    set_color(GOLD, '#ffc65c', 0.25, emit=0.6)
+    set_color(WOOD, '#8a5a3b', 0.7)
+    set_color(PROCK, '#5d5f8e', 0.95)
+    set_color(PSNOW, '#eef2ff', 0.75)
+    set_color(HWEB, '#ff9a4a', 0.6)
+    set_color(HBAG, '#7c5cff', 0.7)
+    set_color(SUIT, '#26386a', 0.65)
+    set_color(SHIRT, '#f4f5f8', 0.6)
+    set_color(SKIN, '#f2c7a8', 0.5)
+    set_color(HAIR, '#6b4027', 0.55)
+    set_color(PANTS, '#1f2436', 0.7)
+    set_color(ACC, '#2fa59a', 0.6)
+    # Flag: violet with a cyan corner.
+    cm = CLOTH.node_tree
+    bsdf = cm.nodes['Principled BSDF']
+    uvn = cm.nodes.new('ShaderNodeTexCoord')
+    sep = cm.nodes.new('ShaderNodeSeparateXYZ')
+    add = cm.nodes.new('ShaderNodeMath')
+    add.operation = 'ADD'
+    gt = cm.nodes.new('ShaderNodeMath')
+    gt.operation = 'GREATER_THAN'
+    gt.inputs[1].default_value = 1.15
+    mix = cm.nodes.new('ShaderNodeMix')
+    mix.data_type = 'RGBA'
+    mix.inputs[6].default_value = (*lin('#7c5cff'), 1)
+    mix.inputs[7].default_value = (*lin('#5ad8ff'), 1)
+    cm.links.new(uvn.outputs['UV'], sep.inputs[0])
+    cm.links.new(sep.outputs[0], add.inputs[0])
+    cm.links.new(sep.outputs[1], add.inputs[1])
+    cm.links.new(add.outputs[0], gt.inputs[0])
+    cm.links.new(gt.outputs[0], mix.inputs[0])
+    cm.links.new(mix.outputs[2], bsdf.inputs['Base Color'])
+    # The customer on the summit (bun and glasses), waving.
+    for o in (hair_short, hair_curly, hair_long, beard, tie_ob, scarf, apron):
+        o.hide_render = True
+    customer.location = P(0.17, PLATEAU_TOP, 0.04)
+    customer.scale = (0.36, 0.36, 0.36)
+    customer.rotation_euler = (0, 0, 0.35)
+    arms[1].rotation_euler = (0, -2.4, 0)
+    # Summit cross with fairy lights, the flag raised.
+    cross.location = P(-0.22, PLATEAU_TOP - 0.01, -0.04)
+    cross.scale = (0.9, 0.9, 0.9)
+    flag.location = P(0.38, PLATEAU_TOP - 0.01, -0.08)
+    bulbs = ['#ff2d3f', '#ffd27a', '#8fe36f', '#5ad8ff', '#e57ad9']
+    bmats = [new_mat(f'bulb{i}', c, 0.3, emit=6.0) for i, c in enumerate(bulbs)]
+    pts = [(0.017 if i % 2 else -0.017, 0.03 + (i / 11) * 0.36, 0.016) for i in range(12)] + [(-0.1 + (i / 7) * 0.2, 0.29 + (0.016 if i % 2 else -0.016), 0.016) for i in range(8)]
+    for i, (x, y, z) in enumerate(pts):
+        blob('bulb', (-0.22 + 0.9 * x, PLATEAU_TOP - 0.01 + 0.9 * y, -0.04 + 0.9 * z), 0.007, bmats[i % 5], segs=8, rings=6)
+    # Colored holds along the route and the quickdraws.
+    hold_cols = ['#5ad8ff', '#e57ad9', '#ffc65c', '#2fcf8a', '#7f8fd6', '#c07fbf', '#6fb3a6', '#d8a46a']
+    rnd = random.Random(11)
+    spots = [(-0.3, 0.12), (0.22, 0.2), (-0.05, 0.33), (0.3, 0.42), (-0.25, 0.5), (0.08, 0.6), (-0.33, 0.72), (0.27, 0.78), (-0.12, 0.86), (0.2, 0.98), (-0.3, 1.0), (0.36, 0.62), (-0.42, 0.3), (0.42, 0.25), (0.0, 0.07)]
+    for i, (x, y) in enumerate(spots):
+        src = hold_obs[i % 4]
+        h = src.copy()
+        h.data = src.data.copy()
+        sc.collection.objects.link(h)
+        m = new_mat(f'hold{i}', hold_cols[i % len(hold_cols)], 0.5)
+        h.data.materials[0] = m
+        h.location = P(x, y, surface_at(x, y) - 0.004)
+        h.rotation_euler = (0, rnd.uniform(-1, 1), 0)
+        s_ = rnd.uniform(1.0, 1.4)
+        h.scale = (s_, s_, s_)
+    for k, b in enumerate(BOLTS_C):
+        q = quickdraw.copy()
+        sc.collection.objects.link(q)
+        q.location = P(b[0], b[1] - 0.012, surface_at(b[0], b[1]) + 0.012)
+    # Echo (the app's mascot model) with its Santa hat and the harness, hanging below the summit.
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'public', 'assets', 'models')
+    rig = bpy.data.objects.new('EchoRig', None)
+    sc.collection.objects.link(rig)
+    for f in ('echo.glb', 'santa-hat.glb'):
+        before = set(bpy.data.objects)
+        bpy.ops.import_scene.gltf(filepath=os.path.join(root, f))
+        for o in set(bpy.data.objects) - before:
+            if o.parent is None:
+                o.parent = rig
+    echo_cols = {'EchoDeep': '#1e1b4b', 'EchoLight': '#a78bfa', 'EchoLid': '#7c3aed', 'EchoIris': '#3b2f8f', 'EchoWhite': '#ffffff', 'EchoBone': '#8b5cf6', 'HatRed': '#ff2d3f', 'HatFur': '#f5f7fc'}
+    for m in bpy.data.materials:
+        if m.name in echo_cols and m.use_nodes:
+            set_color(m, echo_cols[m.name], 0.35)
+        if m.name == 'EchoCyan' and m.use_nodes:
+            set_color(m, '#06b6d4', 0.3, emit=3.0)
+        if m.name == 'EchoBody' and m.use_nodes:
+            nt = m.node_tree
+            bs = nt.nodes['Principled BSDF']
+            tc = nt.nodes.new('ShaderNodeTexCoord')
+            sp = nt.nodes.new('ShaderNodeSeparateXYZ')
+            sub = nt.nodes.new('ShaderNodeMath')
+            sub.operation = 'SUBTRACT'
+            mr = nt.nodes.new('ShaderNodeMapRange')
+            mr.inputs['From Min'].default_value = -0.6
+            mr.inputs['From Max'].default_value = 0.6
+            cr = nt.nodes.new('ShaderNodeValToRGB')
+            cr.color_ramp.elements[0].color = (*lin('#7c3aed'), 1)
+            cr.color_ramp.elements[1].color = (*lin('#06b6d4'), 1)
+            nt.links.new(tc.outputs['Object'], sp.inputs[0])
+            nt.links.new(sp.outputs[0], sub.inputs[0])
+            nt.links.new(sp.outputs[2], sub.inputs[1])
+            nt.links.new(sub.outputs[0], mr.inputs['Value'])
+            nt.links.new(mr.outputs['Result'], cr.inputs['Fac'])
+            nt.links.new(cr.outputs['Color'], bs.inputs['Base Color'])
+            bs.inputs['Roughness'].default_value = 0.4
+    for o in rig.children_recursive:
+        if o.name.startswith(('Lid', 'MouthOpen', 'Logo')):
+            o.hide_render = True
+        if o.name in ('WingL', 'WingR'):
+            o.rotation_mode = 'XYZ'
+            o.rotation_euler.y += 1.05 if o.name == 'WingL' else -1.05
+    hz = harness.copy()
+    sc.collection.objects.link(hz)
+    hz.parent = rig
+    E = 0.23
+    rig.scale = (E, E, E)
+    rig.location = P(0.03, 0.88, surface_at(0.03, 0.88) + 0.13)
+    rig.rotation_euler = (0, 0, 0.3)
+    # The hold Echo hangs on.
+    top = hold_obs[0].copy()
+    top.data = hold_obs[0].data.copy()
+    top.data.materials[0] = new_mat('holdTop', '#2fcf8a', 0.5)
+    sc.collection.objects.link(top)
+    top.location = P(0.03, 1.03, surface_at(0.03, 1.03) - 0.004)
+    top.scale = (1.4, 1.4, 1.4)
+    # The rope from the harness down through the quickdraws.
+    cu = bpy.data.curves.new('rope', 'CURVE')
+    cu.dimensions = '3D'
+    cu.bevel_depth = 0.0065
+    sp_ = cu.splines.new('BEZIER')
+    rp = [(0.03, 0.79, surface_at(0.03, 0.79) + 0.2), (BOLTS_C[3][0], BOLTS_C[3][1] - 0.076, surface_at(BOLTS_C[3][0], BOLTS_C[3][1]) + 0.02),
+          (BOLTS_C[2][0], BOLTS_C[2][1] - 0.076, surface_at(BOLTS_C[2][0], BOLTS_C[2][1]) + 0.02), (BOLTS_C[1][0], BOLTS_C[1][1] - 0.076, surface_at(BOLTS_C[1][0], BOLTS_C[1][1]) + 0.02),
+          (0.05, -0.3, 0.2)]
+    sp_.bezier_points.add(len(rp) - 1)
+    for bp, pt in zip(sp_.bezier_points, rp):
+        bp.co = P(*pt)
+        bp.handle_left_type = bp.handle_right_type = 'AUTO'
+    rope = bpy.data.objects.new('rope', cu)
+    sc.collection.objects.link(rope)
+    rope.data.materials.append(new_mat('ropeMat', '#ff6a3d', 0.6))
+    # Backdrop: snowy peaks, a sea of clouds, stars.
+    for (pk, x, z, h_, ry) in ((peaks[0], -1.15, -1.3, 1.6, 0.5), (peaks[1], 1.25, -1.7, 1.9, -0.3), (peaks[2], -0.3, -3.0, 2.6, 1.0), (peaks[0], 2.2, -3.3, 2.3, 2.0), (peaks[2], -2.3, -2.8, 2.1, 0.2)):
+        c = pk.copy()
+        sc.collection.objects.link(c)
+        c.location = P(x, -0.45, z)
+        c.scale = (h_ * 0.9, h_ * 0.9, h_)
+        c.rotation_euler = (0, 0, ry)
+    for o in peaks:
+        o.hide_render = True
+    cloud = new_mat('cloud', '#f1f2ff', 1.0)
+    cb = cloud.node_tree.nodes['Principled BSDF']
+    cb.inputs['Emission Color'].default_value = (*lin('#c9c6f2'), 1)
+    cb.inputs['Emission Strength'].default_value = 0.35
+    for i in range(46):
+        a = rnd.uniform(0, 2 * math.pi)
+        r = rnd.uniform(0.45, 3.0)
+        x, z = math.cos(a) * r, math.sin(a) * r - 0.6
+        if z > 0.9:
+            continue
+        blob('cloud', (x, rnd.uniform(-0.12, 0.05), z), rnd.uniform(0.18, 0.42), cloud, s=(1.6, 0.55, 1.1), segs=18, rings=10)
+    star = new_mat('star', '#ffffff', 0.5, emit=8.0)
+    for i in range(40):
+        x = rnd.uniform(-4.5, 4.5)
+        y = rnd.uniform(1.6, 5.0)
+        blob('star', (x, y, -6.0), rnd.uniform(0.008, 0.02), star, segs=6, rings=4)
+    # Sky: deep blue at the top, a rose glow at the horizon.
+    w = bpy.data.worlds.new('sky')
+    sc.world = w
+    w.use_nodes = True
+    nt = w.node_tree
+    bg = nt.nodes['Background']
+    tc = nt.nodes.new('ShaderNodeTexCoord')
+    sp = nt.nodes.new('ShaderNodeSeparateXYZ')
+    mr = nt.nodes.new('ShaderNodeMapRange')
+    mr.inputs['From Min'].default_value = -0.05
+    mr.inputs['From Max'].default_value = 0.7
+    cr = nt.nodes.new('ShaderNodeValToRGB')
+    cr.color_ramp.elements[0].color = (*lin('#e79a9c'), 1)
+    cr.color_ramp.elements[1].color = (*lin('#121640'), 1)
+    e = cr.color_ramp.elements.new(0.3)
+    e.color = (*lin('#33367e'), 1)
+    nt.links.new(tc.outputs['Generated'], sp.inputs[0])
+    nt.links.new(sp.outputs[2], mr.inputs['Value'])
+    nt.links.new(mr.outputs['Result'], cr.inputs['Fac'])
+    nt.links.new(cr.outputs['Color'], bg.inputs['Color'])
+    bg.inputs['Strength'].default_value = 1.0
+    sun = bpy.data.objects.new('sun', bpy.data.lights.new('sun', 'SUN'))
+    sun.data.energy = 3.2
+    sun.data.color = lin('#ffb27a')
+    sun.rotation_euler = (math.radians(50), math.radians(-20), math.radians(40))
+    sc.collection.objects.link(sun)
+    fill = bpy.data.objects.new('fill', bpy.data.lights.new('fill', 'AREA'))
+    fill.data.energy = 60
+    fill.data.size = 3
+    fill.data.color = lin('#8fa3ff')
+    fill.location = P(-1.8, 1.6, 1.8)
+    fill.rotation_euler = (P(0, 1, 0) - fill.location).to_track_quat('-Z', 'Y').to_euler()
+    sc.collection.objects.link(fill)
+    cam = bpy.data.objects.new('cam', bpy.data.cameras.new('cam'))
+    cam.data.lens = 44
+    sc.collection.objects.link(cam)
+    sc.camera = cam
+    cam.location = P(0.6, 0.72, 2.4)
+    cam.rotation_euler = (P(0.02, 0.99, 0.0) - cam.location).to_track_quat('-Z', 'Y').to_euler()
+    # A warm moon behind the summit and the Christmas tree on the plateau.
+    blob('moon', (-4.5, 5.0, -8.0), 0.6, new_mat('moon', '#ffd27a', 0.5, emit=4.0), segs=24, rings=14)
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=os.path.join(root, 'xmas.glb'))
+    for o in set(bpy.data.objects) - before:
+        if o.name.startswith('XmasTree') and o.parent is None:
+            o.scale = (0.14, 0.14, 0.14)
+            o.location = P(-0.4, PLATEAU_TOP - 0.01, -0.07)
+        elif o.parent is None:
+            o.hide_render = True
+    sc.render.engine = 'CYCLES'
+    sc.cycles.device = 'CPU'
+    sc.cycles.samples = samples
+    sc.cycles.use_denoising = True
+    sc.render.resolution_x = sc.render.resolution_y = size
+    sc.render.film_transparent = False
+    sc.view_settings.view_transform = 'AgX'
+    sc.view_settings.look = 'AgX - Medium High Contrast'
+    sc.render.filepath = out
+    bpy.ops.render.render(write_still=True)
+
+
+PLATEAU_TOP = TOP + 0.045
+BOLTS_C = [(0.14 if k % 2 == 0 else -0.14, k * STEP + 0.13) for k in range(SECTIONS)]
+if COIN:
+    render_coin(COIN, int(ARGS[2]) if len(ARGS) > 2 else 512, int(ARGS[3]) if len(ARGS) > 3 else 64)
+    sys.exit(0)
 
 # ---------- ambient occlusion, export ----------
 

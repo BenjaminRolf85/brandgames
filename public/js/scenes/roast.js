@@ -99,6 +99,12 @@ export class RoastScene extends BaseScene {
     // Phones: the scene places the camera itself while playing (a little from above).
     this.mobileView((cam, dt, ins) => this.gameCamera(cam, dt, ins));
     this.layout(true);
+    // The intro shows the counter below its panel (not on a phone held upright: the panel fills it).
+    if (!this.engine.isXR && this.layoutKind !== 'portrait') {
+      this.fit.position.set(0.1, this.eye - DROP + 0.12, -1.0);
+      this.fit.scale.set(1.7, 0.25, 0.3);
+      this.fit.visible = true;
+    }
   }
 
   /** Like BaseScene.intro, but higher, so the counter in front never covers it. */
@@ -224,7 +230,7 @@ export class RoastScene extends BaseScene {
     if (this.disposed || !this.M) return;
     this.refreshHud ??= this.hud(() => this.hudText());
     this.startMusic(0, 'roast');
-    Object.assign(this, { score: 0, idx: -1, stars: [], perGuest: [], usedAI: 0, aiRight: 0, basketStars: 0, chefAI: null });
+    Object.assign(this, { score: 0, idx: -1, stars: [], perGuest: [], usedAI: 0, basketStars: 0 });
     this.ui.visible = true;
     this.fit.visible = !this.engine.isXR;
     this.buildUi();
@@ -237,12 +243,17 @@ export class RoastScene extends BaseScene {
     let s = this.idx >= GUESTS.length
       ? t('roastHudBasket', { name, basket: t(CHRISTMAS ? 'roastBasketXmas' : 'roastBasketPlain'), score: this.score })
       : t('roastHud', { name, n: Math.max(1, this.idx + 1), total: GUESTS.length, score: this.score });
-    // Phones: the line that matters most right now, readable in the status bar.
+    s = s.replace(/^ · /, '');
+    // Phones: the line that matters most right now comes first in the status bar (it holds two lines).
     if (this.engine.touchUI) {
-      if (this.mode === 'roast') s += ` · ${t('roastRoasting')}: ${stageName(this.r)}`;
-      else if (this.mode === 'pick' && this.sug?.recipe) s += ` · ${t('roastAiStop')}: ${this.recipeText(this.sug.recipe)} (${Math.round(this.sug.conf * 100)} %)`;
+      let first = '';
+      if (this.mode === 'roast') first = `${t('roastRoasting')}: ${stageName(this.r)}`;
+      else if (this.mode === 'basket' && this.sugAvailable()) first = `${t('roastAiStop')}: ${this.bsug.pick.map((k) => t(`roastItem_${k}`)).join(', ')} (${Math.round(this.bsug.conf * 100)}\u00a0%)`;
+      else if (this.mode === 'pick' && this.sel?.length === 2) first = this.recipeText({ a: this.sel[0], b: this.sel[1], ratio: RATIOS[this.ratioIdx] });
+      else if (this.mode === 'pick' && this.sug?.recipe) first = `${t('roastAiStop')}: ${this.recipeText(this.sug.recipe)} (${Math.round(this.sug.conf * 100)}\u00a0%)`;
+      if (first) s = `${first} · ${s}`;
     }
-    return s.replace(/^ · /, '');
+    return s;
   }
 
   recipeText(rc) {
@@ -295,8 +306,8 @@ export class RoastScene extends BaseScene {
     // phones use the big screen buttons instead of the 3D ones
     const touch = this.engine.touchUI;
     [this.moreA, this.moreB, this.roastBtn, this.stopBtn, this.packBtn, this.aiBtn].forEach((b) => { b.visible = !touch; });
-    // the AI's button under its panel (on phones too: it sits right under what it suggests)
-    this.aiBtn.visible = (which === 'blend' || which === 'basket') && !!this.sugAvailable();
+    // the AI's button under its panel (phones have it among their big buttons)
+    this.aiBtn.visible = !touch && (which === 'blend' || which === 'basket') && !!this.sugAvailable();
     this.updatePads();
   }
 
@@ -361,7 +372,7 @@ export class RoastScene extends BaseScene {
     if (!guest) { onDone?.(); return; }
     this.bubble?.removeFromParent();
     this.bubble = null;
-    guest.turnTo = -Math.PI / 2;
+    guest.turnTo = Math.PI / 2; // walks on to the right, facing the way it goes
     guest.walking = 1;
     guest.talking = false;
     const from = guest.group.position.x;
@@ -379,6 +390,7 @@ export class RoastScene extends BaseScene {
     g.group.traverse((o) => { if (o.isMesh && o.geometry && o.userData.own) o.geometry.dispose(); });
     g.dispose();
     this.cup?.removeFromParent();
+    this.cup?.traverse((o) => { if (o.userData.own) { o.geometry.dispose(); o.material.dispose(); } });
     this.cup = null;
     this.starSprites?.forEach((s) => { s.removeFromParent(); s.material.map.dispose(); s.material.dispose(); });
     this.starSprites = null;
@@ -418,7 +430,7 @@ export class RoastScene extends BaseScene {
     if (s.recipe) {
       const liked = s.neighbors.find((n) => n.stars >= 3 && n.id !== g.id) ?? s.neighbors.find((n) => n.stars >= 3) ?? s.neighbors[0];
       view.kind = s.regular ? 'regular' : 'suggest';
-      view.status = s.regular ? t('roastAiRegular', { n: s.regular.stars }) : t('roastAiSimilar', { list: s.neighbors.slice(0, 2).map((n) => `${short(n.id)} ${Math.round(n.sim * 100)} %`).join(', ') });
+      view.status = s.regular ? t('roastAiRegular', { n: s.regular.stars }) : t('roastAiSimilar', { list: s.neighbors.slice(0, 2).map((n) => `${short(n.id)}\u00a0${Math.round(n.sim * 100)}\u00a0%`).join(', ') });
       // a regular who liked their last cup: that cup; else what similar guests liked
       view.title2 = s.regular && s.regular.stars >= 3 ? t('roastAiRegularLiked', { name: short(g.id) }) : t('roastAiLiked', { name: short(liked.id) });
       view.lines = [this.recipeText(s.recipe), t('roastRecipeRoast', { stage: stageName(s.roast) })];
@@ -432,7 +444,6 @@ export class RoastScene extends BaseScene {
       view.kind = 'cold';
       view.status = this.ai.count ? t('roastAiColdNew') : t('roastAiCold');
     }
-    if (g.key === 'chef') this.chefAI = s.recipe ? s.conf : 0;
     this.aiPanel.show(view);
     this.pulse(this.aiPanel);
   }
@@ -495,6 +506,7 @@ export class RoastScene extends BaseScene {
     this.moreB.redraw();
     this.roastBtn.set({ disabled: !two });
     this.updatePads();
+    this.refreshHud?.();
   }
 
   /** Takes the AI's suggestion (beans, share and its stop mark on the gauge). */
@@ -923,7 +935,7 @@ export class RoastScene extends BaseScene {
     this.ui.add(p);
     const L = this.layoutKind;
     // above the controls (where the eyes are while roasting)
-    const c = this.gauge.visible ? this.gauge : this.blend;
+    const c = this.gauge.visible ? this.gauge : this.basketInfo.visible ? this.basketInfo : this.blend;
     p.position.set(c.position.x, c.position.y + (L === 'portrait' ? 0.19 : 0.22), c.position.z - 0.02);
     p.rotation.copy(c.rotation);
     this.popIn(p);
@@ -986,6 +998,7 @@ export class RoastScene extends BaseScene {
       else if (kind === 'pack') {
         items = [
           { icon: 'review', label: t('roastChangeItems'), onPress: () => { this.picks = []; this.refreshItems(); }, group: 'left' },
+          ...(this.sugAvailable() ? [{ ...ai, group: 'left' }] : []),
           { icon: 'gift', label: t('roastBasketPack'), onPress: () => this.pack(), group: 'right', primary: true },
         ];
       }
@@ -1037,8 +1050,9 @@ export class RoastScene extends BaseScene {
     const eye = this.eye;
     const top = eye - DROP;
     // Phones held upright get a wide AI panel (text left, taste map right).
-    const [aw, ah] = kind === 'portrait' ? [1.0, 0.52] : [0.66, 0.92];
-    if (this.aiPanel.w !== aw) {
+    // Phones held sideways: a shorter one, so it stays clear of the thumb buttons below it.
+    const [aw, ah] = kind === 'portrait' ? [1.0, 0.64] : kind === 'land' ? [0.66, 0.8] : [0.66, 0.92];
+    if (this.aiPanel.w !== aw || this.aiPanel.h !== ah) {
       const old = this.aiPanel;
       const fresh = new AiPanel(aw, ah);
       fresh.show(old.view);
@@ -1063,8 +1077,8 @@ export class RoastScene extends BaseScene {
       ai.userData.base = 1;
       if (kind === 'xr') placeOnArc(ai, -1.05, eye - 0.02, 1.05);
       // phones held sideways: higher, clear of the thumb buttons in the lower corners
-      else if (kind === 'land') placeOnArc(ai, -0.86, eye + 0.1, 1.16);
-      else placeOnArc(ai, -0.82, eye - 0.06, 1.12);
+      else if (kind === 'land') placeOnArc(ai, -0.86, eye + 0.2, 1.16);
+      else placeOnArc(ai, -1.0, eye - 0.02, 1.12);
       if (kind !== 'xr') ai.rotation.y *= 0.6;
       ctl.forEach((c) => {
         c.position.set(0.5, top + 0.33, -0.8);
@@ -1073,6 +1087,8 @@ export class RoastScene extends BaseScene {
       this.fit.position.set(0.25, top + 0.17, -0.97);
       this.fit.scale.set(2.2, 0.95, 0.7);
     }
+    // the basket's panel sits higher, above the basket's handle
+    this.basketInfo.position.y += kind === 'portrait' ? 0.1 : 0.17;
     // the share buttons under the blend bar, "roast" beside it
     const by = -this.blend.h / 2 - 0.012 - this.moreA.h / 2;
     this.moreA.position.set(-this.moreA.w / 2 - 0.008, by, 0.002);
