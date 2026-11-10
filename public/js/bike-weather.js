@@ -132,7 +132,7 @@ export function makeWeatherLayer(course, w, clip) {
     cols.forEach((v, j) => {
       course.point(s, v, p);
       const k = i * cols.length + j;
-      pos.set([p.x, 0.034 + (Math.abs(v) > 2 ? 0.02 : 0), p.z], k * 3);
+      pos.set([p.x, course.h(s) + 0.034 + (Math.abs(v) > 2 ? 0.02 : 0), p.z], k * 3);
       uv.set([(v + 2.3) / 4.6, s / 8], k * 2);
       const edge = 1 - THREE.MathUtils.smoothstep(Math.abs(v), 1.9, 2.3);
       col.set([1, 1, 1, fade * edge], k * 4);
@@ -163,12 +163,12 @@ export function makeWeatherLayer(course, w, clip) {
 }
 
 /** Rain streaks around the bike (course units). update(dt, s, amount 0..1). */
-export function makeRain(count = 320) {
+export function makeRain(count = 320, clip = null) {
   const pos = new Float32Array(count * 6);
   const seed = new Float32Array(count * 3);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const mat = new THREE.LineBasicMaterial({ color: hex('xr-bike-rain'), transparent: true, opacity: 0, depthWrite: false });
+  const mat = new THREE.LineBasicMaterial({ color: hex('xr-bike-rain'), transparent: true, opacity: 0, depthWrite: false, clippingPlanes: clip });
   const lines = new THREE.LineSegments(geo, mat);
   lines.frustumCulled = false;
   lines.userData.noFit = true;
@@ -189,7 +189,8 @@ export function makeRain(count = 320) {
       if (y < 0) y += 6;
       seed[i * 3 + 2] = y;
       course.point(seed[i * 3], seed[i * 3 + 1], p);
-      pos.set([p.x, y, p.z, p.x + 0.04, y + 0.45, p.z + 0.08], i * 6);
+      const hy = course.h(seed[i * 3]);
+      pos.set([p.x, hy + y, p.z, p.x + 0.04, hy + y + 0.45, p.z + 0.08], i * 6);
     }
     init = true;
     geo.attributes.position.needsUpdate = true;

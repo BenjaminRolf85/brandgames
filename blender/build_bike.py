@@ -27,7 +27,8 @@
 #   ArchGarland           its Christmas garland with gold bows (the app adds fairy lights)
 # public/assets/models/bike-jumps.glb (jumps and the pit stop):
 #   HzRamp, HzDriftRamp   kickers (lip at z -0.8, 0.45 high); HzLog, HzBranch, HzTrench lie
-#                         across the whole trail and can only be jumped; PitGantry, PitRack
+#                         across the whole trail and can only be jumped; PitGantry, PitRack,
+#                         PrSignpost (blank arrow boards at the trail's edge)
 # Material names start with Bk; the app recolors them from the --xr-bike-* tokens
 # (public/js/bike-models.js). Ambient occlusion is baked into the vertex colors.
 #
@@ -1388,6 +1389,19 @@ def pit_rack():
     return group('PitRack', p)
 
 
+def pr_signpost():
+    """A wooden signpost with two arrow boards (blank: no text, only arrows)."""
+    p = [tube('post', (0, 0, 0), (0, 1.7, 0), 0.05, W['woodDark'], 8)]
+    p.append(tube('cap', (0, 1.7, 0), (0, 1.78, 0), 0.06, W['woodDark'], 4, r2=0.0))
+    for k, (y, dirx, rot) in enumerate(((1.5, 1, 0.3), (1.22, -1, -0.5))):
+        pts = [(0, -0.09), (0.55, -0.09), (0.68, 0), (0.55, 0.09), (0, 0.09)]
+        verts = [(dirx * x, y + yy, 0.035) for x, yy in pts] + [(dirx * x, y + yy, -0.035) for x, yy in pts]
+        faces = [[0, 1, 2, 3, 4], [9, 8, 7, 6, 5]] + [[i, (i + 1) % 5, 5 + (i + 1) % 5, 5 + i] for i in range(5)]
+        p.append(mesh_obj('board', verts, faces, W['wood'], smooth=False))
+        p.append(box('arrowMark', (dirx * 0.36, y, 0.04), (0.3, 0.035, 0.01), W['signWhite']))
+    return group('PrSignpost', p)
+
+
 # ================================================================ build / export
 
 def export_sel(objs, path):
@@ -1406,7 +1420,7 @@ def build_models(out_bike, out_world, out_blend, out_jumps=None):
              pr_lamp(), pr_post(), pr_bush(), pr_sign(), pr_tree(), pr_fence(), pr_rock(), pr_grass(), pr_hay(),
              pine('PrPine'), pr_stump(), pr_fern(), pr_mushroom(), pine('PrPineSnow', True), pr_rock_snow(), pr_lantern(),
              pr_snowman(), pr_manhole(), pr_pebbles(), pr_leaves(), pr_drift(), pr_flag()] + swallow() + drone() + arch()
-    jumps = [hz_ramp(), hz_drift_ramp(), hz_log(), hz_branch(), hz_trench(), pit_gantry(), pit_rack()]
+    jumps = [hz_ramp(), hz_drift_ramp(), hz_log(), hz_branch(), hz_trench(), pit_gantry(), pit_rack(), pr_signpost()]
     # Ambient occlusion in the vertex colors (glowing parts stay white).
     glow = {'BkLightGlow', 'BkBandGlow', 'BkShieldGlow', 'BkLampGlow', 'BkReflectGlow', 'BkLensGlow', 'BkPitGlow'}
     dens = {'BikeFrame': 0.05, 'BikeFork': 0.05, 'BikeWheel': 0.08, 'BikeCranks': 0.05, 'TireSlick': 0.06, 'TireAllround': 0.06,
