@@ -96,7 +96,7 @@ const atom = (el, p, spot) => ({ el, p, spot: spot ?? null });
  */
 const LEVELS = [
   {
-    key: 'dockLevel1', seed: 11, depth: 0.48 * B, tint: 'xr-dock-protein-1', lib: 12480,
+    key: 'dockLevel1', seed: 11, depth: 0.78 * B, tint: 'xr-dock-protein-1', lib: 12480,
     build() {
       const c = V(0, 0, 0);
       const r = hexRing(c);
@@ -113,7 +113,7 @@ const LEVELS = [
     },
   },
   {
-    key: 'dockLevel2', seed: 23, depth: 0.52 * B, tint: 'xr-dock-protein-2', lib: 23750,
+    key: 'dockLevel2', seed: 23, depth: 0.8 * B, tint: 'xr-dock-protein-2', lib: 23750,
     build() {
       const c = V(0.1 * B, 0.72 * B, 0.17 * B);
       const r = hexRing(c);
@@ -134,7 +134,7 @@ const LEVELS = [
     },
   },
   {
-    key: 'dockLevel3', seed: 37, depth: 0.52 * B, tint: 'xr-dock-protein-3', lib: 38400,
+    key: 'dockLevel3', seed: 37, depth: 0.8 * B, tint: 'xr-dock-protein-3', lib: 38400,
     build() {
       // Two fused rings, long and flat, slightly twisted into a narrow cleft.
       const h = (Math.sqrt(3) / 2) * B;
@@ -166,7 +166,7 @@ const LEVELS = [
     },
   },
   {
-    key: 'dockLevel4', seed: 51, depth: 0.55 * B, tint: 'xr-dock-protein-4', lib: 51200,
+    key: 'dockLevel4', seed: 51, depth: 0.82 * B, tint: 'xr-dock-protein-4', lib: 51200,
     build() {
       const c = V(0, 0.33 * B, 0.33 * B);
       const r = hexRing(c, 90);
@@ -291,6 +291,7 @@ const smax = (a, b, k) => -smin(-a, -b, k);
 const POCKET_DIR = V(0, 0.24, 1).normalize();
 const CARVE = 0.2 * B; // clearance around the binder's atoms
 const SLOPE = 0.5; // the pocket walls widen towards the mouth
+const CAP_R = 0.6; // radius of the flatter face around the pocket
 const CHANNEL = 0.14;
 
 /**
@@ -316,6 +317,9 @@ export class Protein {
       const keep = THREE.MathUtils.smoothstep(near, 0.8, 0.97); // fewer bumps near the pocket mouth
       this.bumps.push({ d, a: (0.025 + rand() * 0.035) * (1 - keep * 0.85), w: 0.008 + rand() * 0.022 });
     }
+    // A broad, gently curved face around the pocket (a cap of a much larger sphere), so the
+    // whole molecule lies under the surface and the pocket is a real cavity.
+    this.capK = CAP_R - this.radius(POCKET_DIR);
     // Pocket frame: z out of the pocket, x right, y up (tilted back with the pocket).
     const z = POCKET_DIR.clone();
     const x = V(0, 1, 0).cross(z).normalize();
@@ -340,7 +344,14 @@ export class Protein {
       if (c < 1 - b.w * 6) continue;
       s += b.a * Math.exp((c - 1) / b.w);
     }
-    return base * (1 + s);
+    let r = base * (1 + s);
+    const c = n.x * POCKET_DIR.x + n.y * POCKET_DIR.y + n.z * POCKET_DIR.z;
+    if (this.capK !== undefined && c > 0.7) {
+      const k = this.capK;
+      const cap = -k * c + Math.sqrt(Math.max(0, k * k * c * c - k * k + CAP_R * CAP_R));
+      r += THREE.MathUtils.smoothstep(c, 0.72, 0.9) * Math.max(0, cap - r);
+    }
+    return r;
   }
 
   /** Distance (negative inside) to the pocket channel, for a point q in F space. */

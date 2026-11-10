@@ -235,7 +235,7 @@ function wallGeometry(pts, th, h, h0 = 0) {
     right.push([p[0] - nx, p[1] - ny]);
   }
   const pos = [];
-  const quad = (a, b, c, d) => pos.push(...a, ...b, ...c, ...a, ...c, ...d);
+  const quad = (a, b, c, d) => pos.push(...a, ...c, ...b, ...a, ...d, ...c);
   const P = (q, y) => [q[0], y, -q[1]];
   for (let i = 0; i < n - 1; i++) {
     quad(P(left[i], h0), P(left[i + 1], h0), P(left[i + 1], h), P(left[i], h)); // left side
@@ -350,9 +350,9 @@ function makeSling(sl, mats) {
   s.lineTo(pb[0], pb[1]);
   s.lineTo(pc[0], pc[1]);
   s.closePath();
-  const geo = new THREE.ExtrudeGeometry(s, { depth: 0.016, bevelEnabled: true, bevelThickness: 0.002, bevelSize: 0.002, bevelSegments: 2 });
+  const geo = new THREE.ExtrudeGeometry(s, { depth: 0.006, bevelEnabled: true, bevelThickness: 0.0015, bevelSize: 0.0015, bevelSegments: 2 });
   geo.rotateX(-Math.PI / 2);
-  geo.translate(0, 0.006, 0);
+  geo.translate(0, 0.021, 0);
   const cover = new THREE.Mesh(geo, mats.sling);
   cover.castShadow = true;
   g.add(cover);
@@ -1127,8 +1127,8 @@ export function buildMachine(table, model, { lite = false } = {}) {
   const gy = 0.815;
   const gateRot = Math.atan2(0.03, 0.0455);
   placePart('PinGatePosts', gx, gy, { rot: gateRot });
-  const gate = placePart('PinGate', gx, gy, { rot: gateRot });
-  const gateWire = gate.children[0] ?? gate;
+  const gateWire = placePart('PinGate', gx, gy, { rot: gateRot, h: 0.03 });
+  gateWire.rotation.order = 'YXZ'; // swing about the bar, then turned along the gate line
   // Plunger.
   const plunger = placePart('PinPlunger', LANE_X, PLUNGER_Y, { h: 0.012 });
   // Ramps.

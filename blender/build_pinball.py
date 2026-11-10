@@ -384,10 +384,11 @@ def saucer():
 
 
 def gate():
-    p = [tcyl('bar', (0, 0.03, 0), 0.0016, 0.046, CHROME, axis='x', segs=10)]
+    # Origin on the hinge bar (the app places it 3 cm above the playfield and swings it).
+    p = [tcyl('bar', (0, 0, 0), 0.0016, 0.046, CHROME, axis='x', segs=10)]
     for x in (-0.016, 0.016):
-        p.append(tcyl('wireV', (x, 0.018, 0), 0.0011, 0.024, CHROME, segs=8))
-    p.append(tcyl('wireH', (0, 0.006, 0), 0.0011, 0.032, CHROME, axis='x', segs=8))
+        p.append(tcyl('wireV', (x, -0.012, 0), 0.0011, 0.024, CHROME, segs=8))
+    p.append(tcyl('wireH', (0, -0.024, 0), 0.0011, 0.032, CHROME, axis='x', segs=8))
     return merge(p, 'PinGate')
 
 
@@ -428,8 +429,7 @@ def build_parts():
         'bumper': bumper(), 'post': post(), 'flipper': flipper(), 'drop': drop(), 'column': column(),
         'house': house(), 'saucer': saucer(), 'plunger': plunger(),
     }
-    g = merge([gate()], 'PinGate')
-    parts['gate'] = g
+    parts['gate'] = gate()
     parts['gatePosts'] = merge(gate_posts(), 'PinGatePosts')
     return parts
 
