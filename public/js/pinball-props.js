@@ -663,6 +663,32 @@ function drawGroup(ctx, g, W, H) {
   }
 }
 
+/**
+ * A printed portrait of a target group (head and shoulders in a round frame, the group's color
+ * behind): the persona standup targets' faces.
+ */
+export function drawPortrait(ctx, g, cx, cy, r, bg) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = color(bg);
+  ctx.fill();
+  ctx.clip();
+  const o = OUTFITS[g];
+  if (g === 'families') {
+    person(ctx, cx - 0.3 * r, cy + 2.61 * r, 3.0 * r, o[0]);
+    person(ctx, cx + 0.42 * r, cy + 2.09 * r, 2.0 * r, o[1]);
+  } else {
+    person(ctx, cx, cy + 3.4 * r, 3.8 * r, o[0]);
+  }
+  ctx.restore();
+  ctx.lineWidth = r * 0.12;
+  ctx.strokeStyle = color('xr-pinball-sticker');
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.94, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
 /** An arm for waving (sleeve and hand), pivot at the top. */
 function armTexture(top, skin) {
   return cutout(48, 120, (ctx) => {

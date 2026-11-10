@@ -7,7 +7,12 @@
   --xr-pinball-accent-glow:    #ff5a4f;
   --xr-pinball-chrome:         #dfe4ee;
   --xr-pinball-dark:           #0a0d18;
-  --xr-pinball-wood:           #1b2a66;   /* inner side walls of the cabinet */
+  --xr-pinball-wood:           #6b3f1f;   /* wooden side blades inside the cabinet */
+  --xr-pinball-wood-light:     #9a6136;
+  --xr-pinball-wood-grain:     #3f2210;
+  --xr-pinball-side-ray:       rgb(255 255 255 / 0.06);   /* side art: rays behind the megaphone */
+  --xr-pinball-halftone:       rgb(255 255 255 / 0.13);   /* printed halftone dots (side art, plastics) */
+  --xr-pinball-price-card:     #fffaf0;
   --xr-pinball-speaker:        #141a33;
   --xr-pinball-coin-light:     #ffb02e;
   --xr-pinball-leg:            #c9d0de;
@@ -31,7 +36,12 @@
   --xr-pinball-ball-glow:      #9fe8ff;
   --xr-pinball-flipper:        #f6f2e8;
   --xr-pinball-flipper-rubber: #ff2238;
-  --xr-pinball-rubber:         #15161c;
+  --xr-pinball-rubber:         #f3f1ea;   /* white rubber rings */
+  --xr-pinball-star-post:      #ffc21a;   /* fluted plastic star posts */
+  --xr-pinball-standup:        #f6f2e8;   /* persona standup targets */
+  --xr-pinball-star:           #ffffff;   /* star rollovers */
+  --xr-pinball-spinner:        #e8ecf4;
+  --xr-pinball-trough:         #04060d;   /* the ball trough window */
   --xr-pinball-sling:          #ff3b48;
   --xr-pinball-bumper-body:    #f6f2e8;
   --xr-pinball-bumper-base:    #1a1f33;
