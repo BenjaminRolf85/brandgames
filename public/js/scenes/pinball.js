@@ -48,6 +48,9 @@ const INTEREST = 45; // ... then clicks for interest; then a visit to the branch
 const PERSONA_PTS = 5; // a persona standup
 const PERSONAS_PTS = 30; // all four personas (and the extra ball lights, once per game)
 const KICK_SPEED = 1.45; // the kickback's shot along its path (m/s)
+const HQ_PASS = 10; // a ball through the head office
+const JACKPOT = 100; // the head office jackpot (lit by a new customer)
+const VAULT_PTS = 30; // a ball locked in the vault (then multiball)
 const clamp = THREE.MathUtils.clamp;
 const KEYS = {
   ArrowLeft: 'left', KeyA: 'left', ShiftLeft: 'left', KeyY: 'left', KeyZ: 'left',
@@ -227,6 +230,7 @@ export class PinballScene extends BaseScene {
         const btns = el.querySelectorAll('.mtouch__btn');
         ['flipL', 'launch', 'flipR'].forEach((g, i) => btns[i]?.insertAdjacentHTML('afterbegin', glyphSVG(g, 34)));
         btns[1]?.classList.add('pinball-pad__launch');
+        this.launchBtn = btns[1];
       }
       this.pad.show(false);
     }
@@ -730,15 +734,15 @@ export class PinballScene extends BaseScene {
   hqVisit(b) {
     const m = this.machine;
     if (!this.hqLit) {
-      this.addPoints(20);
+      this.addPoints(HQ_PASS);
       m?.town.hqPass();
       psfx.chimes(3);
       return;
     }
     this.hqLit = false;
     this.holdOnRamp(b, 2.4);
-    this.addPoints(150);
-    this.message(t('pinballDmdJackpot'), t('pinballDmdJackpotHq', { n: 150 * this.factor() }), 2.6);
+    this.addPoints(JACKPOT);
+    this.message(t('pinballDmdJackpot'), t('pinballDmdJackpotHq', { n: JACKPOT * this.factor() }), 2.6);
     m?.town.hqCheer();
     m?.chars.cheerAll();
     psfx.jingle();
@@ -750,7 +754,7 @@ export class PinballScene extends BaseScene {
     this.vaultLit = false;
     psfx.vault();
     this.message(t('pinballDmdVaultLocked'), t('pinballDmdMultiball'), 2.4);
-    this.addPoints(40);
+    this.addPoints(VAULT_PTS);
     this.holdOnRamp(b, 2.8, () => { this.machine?.town.vault(false); psfx.vault(); });
     this.after(0.6, () => { if (!this.disposed && this.mode === 'play') this.startMultiball(); });
   }
@@ -1058,8 +1062,10 @@ export class PinballScene extends BaseScene {
     this.follow = (this.follow ?? 0) + (want - (this.follow ?? 0)) * Math.min(1, dt * 1.5);
     const f = this.follow;
     // Field-space eye and target; then into the world.
-    const eyeF = portrait ? [0.035, -0.32 + f * 0.5, 0.45] : [0.025, -0.4 + f * 0.6, 0.42];
-    const tgtF = portrait ? [0.035, 0.64 + f, 0] : [0.025, 0.42 + f, 0];
+    // Landscape: the view looks a little to the right, so the shooter lane and the plunger sit left
+    // of the thumb buttons at the right edge.
+    const eyeF = portrait ? [0.035, -0.32 + f * 0.5, 0.45] : [0.12, -0.42 + f * 0.6, 0.46];
+    const tgtF = portrait ? [0.035, 0.64 + f, 0] : [0.12, 0.42 + f, 0];
     const eye = m.world(...eyeF);
     const tgt = m.world(...tgtF);
     const fov = portrait ? 70 : 46;
@@ -1230,6 +1236,13 @@ export class PinballScene extends BaseScene {
       if (this.playT >= DURATION) this.gameOver('pinballDmdTime');
     }
     this.pad?.show(this.mode === 'ready' || this.mode === 'play' || this.mode === 'drain');
+    // The launch button is active (and pulses) exactly while a ball waits on the plunger.
+    const canLaunch = this.mode === 'ready';
+    this.pad?.disable(1, !canLaunch);
+    if (this.launchBtn && this.launchReady !== canLaunch) {
+      this.launchReady = canLaunch;
+      this.launchBtn.classList.toggle('is-ready', canLaunch);
+    }
     if (this.machine) {
       const m = this.machine;
       // Browser: the results get the screen to themselves (in the headset they float in front).

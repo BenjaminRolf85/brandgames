@@ -171,6 +171,16 @@
 .mtouch.pinball-pad .mtouch__btn { width: 6rem; height: 6rem; }
 .mtouch.pinball-pad .mtouch__btn.pinball-pad__launch { width: 4.5rem; height: 4.5rem; margin-left: auto; }
 .mtouch.pinball-pad .mtouch__btn svg { width: 2.25rem; height: 2.25rem; }
+/* A ball waits on the plunger: the launch button glows and pulses. */
+.mtouch.pinball-pad .mtouch__btn.pinball-pad__launch.is-ready {
+  opacity: 1;
+  border-color: var(--xr-pinball-lane-light);
+  color: var(--xr-pinball-lane-light);
+  box-shadow: 0 0 0.75rem var(--xr-pinball-lane-light);
+  animation: pinball-launch-pulse 1.1s ease-in-out infinite;
+}
+@keyframes pinball-launch-pulse { 50% { transform: scale(1.08); } }
+@media (prefers-reduced-motion: reduce) { .mtouch.pinball-pad .mtouch__btn.pinball-pad__launch.is-ready { animation: none; } }
 @media (orientation: landscape) {
   .mtouch.pinball-pad .mtouch__btn { width: 5.25rem; height: 5.25rem; }
   .mtouch.pinball-pad .mtouch__btn.pinball-pad__launch { width: 4.25rem; height: 4.25rem; }
