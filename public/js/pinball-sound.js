@@ -96,6 +96,17 @@ export const psfx = {
   chimes: play((a, n = 6) => {
     for (let k = 0; k < n; k++) bell(a, [1318.5, 987.8, 659.3][k % 3], k * 0.11, 0.05);
   }),
+  // Coins rolling and clinking (the coin chute, the ATM).
+  coins: play((a) => { for (let k = 0; k < 6; k++) { tone(a, 2400 + Math.random() * 900, k * 0.07, 0.08, 'sine', 0.03); burst(a, k * 0.07, 0.02, 5000, 0.04, 3); } }),
+  // The jackpot jingle: a bright fanfare on bells over a bass line.
+  jingle: play((a) => {
+    const notes = [523.3, 659.3, 784, 1046.5, 784, 1046.5, 1318.5];
+    notes.forEach((f, k) => { bell(a, f, k * 0.12, 0.06); tone(a, f / 4, k * 0.12, 0.14, 'triangle', 0.05); });
+    bell(a, 1568, notes.length * 0.12, 0.08);
+    tone(a, 130.8, notes.length * 0.12, 0.6, 'triangle', 0.08);
+  }),
+  // The vault door: a heavy turn and a clunk.
+  vault: play((a) => { tone(a, 70, 0, 0.5, 'sawtooth', 0.04, 55); burst(a, 0.35, 0.12, 300, 0.25, 0.7, 'lowpass'); tone(a, 95, 0.35, 0.2, 'sine', 0.2, 50); }),
   // The match wheel clicking.
   matchTick: play((a) => { burst(a, 0, 0.015, 3000, 0.07, 3); }),
   // Tilt-like buzz for a lost ball (soft, not scary).

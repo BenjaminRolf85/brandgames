@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { color, hex, font } from './tokens.js';
 import { radialTexture } from './robot-visuals.js';
 
-export const ICON = { heart: 0, like: 1, comment: 2, mail: 3, badge: 4, play: 5, star: 6, person: 7, eye: 8, cursor: 9, spark: 10, poster: 11 };
+export const ICON = { heart: 0, like: 1, comment: 2, mail: 3, badge: 4, play: 5, star: 6, person: 7, eye: 8, cursor: 9, spark: 10, poster: 11, coin: 12, confetti1: 13, confetti2: 14, confetti3: 15 };
 const CELLS = 4; // atlas: 4 x 4 cells
 
 let atlasTex = null;
@@ -222,6 +222,26 @@ function atlas() {
     g.fillRect(38, 84, 52, 8);
     g.fillRect(46, 98, 36, 6);
   });
+  cell(ICON.coin, (g) => {
+    outline(() => { g.beginPath(); g.arc(64, 64, 44, 0, Math.PI * 2); });
+    g.fillStyle = color('xr-pinball-gold');
+    g.fill();
+    g.lineWidth = 6;
+    g.strokeStyle = color('xr-pinball-gold-dark');
+    g.beginPath();
+    g.arc(64, 64, 32, 0, Math.PI * 2);
+    g.stroke();
+    star(g, 64, 64, 18, 8);
+    g.fillStyle = color('xr-pinball-gold-dark');
+    g.fill();
+  });
+  // Confetti: little paper strips in three colors.
+  ['xr-pinball-ch-social', 'xr-pinball-ch-poster', 'xr-pinball-ch-email'].forEach((tok, i) => cell(ICON.confetti1 + i, (g) => {
+    g.translate(64, 64);
+    g.rotate(0.5 + i);
+    g.fillStyle = color(tok);
+    g.fillRect(-14, -34, 28, 68);
+  }));
   atlasTex = new THREE.CanvasTexture(c);
   atlasTex.colorSpace = THREE.SRGBColorSpace;
   atlasTex.generateMipmaps = true;

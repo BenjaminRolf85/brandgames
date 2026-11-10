@@ -171,6 +171,13 @@ const SOLID = {
   PbMailbox: ['xr-pinball-mailbox', 0.1, 0.35],
   PbHorn: ['xr-pinball-sticker', 0, 0.3],
   PbPlant: ['xr-pinball-tree-light', 0, 0.6],
+  PbStone: ['xr-pinball-stone', 0, 0.6],
+  PbGold: ['xr-pinball-gold', 1, 0.25],
+  PbSteel: ['xr-pinball-steel', 0.9, 0.3],
+  PbPiggy: ['xr-pinball-piggy', 0, 0.35],
+  PbBird: ['xr-pinball-bird', 0, 0.4],
+  PbBeak: ['xr-pinball-ch-poster', 0, 0.4],
+  PbPaper: ['xr-pinball-paper', 0, 0.6],
 };
 const GLOWS = { PbCoinGlow: 'xr-pinball-coin-light', PbWindowGlow: 'xr-pinball-window', PbGlassGlow: 'xr-pinball-glass', PbLampGlow: 'xr-pinball-light' };
 
@@ -180,6 +187,7 @@ function convert(m, posterTex) {
   if (name === 'PbBumperCap') {
     return new THREE.MeshPhysicalMaterial({ name, color: hex(CH_TOKEN.social), roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.1, emissive: hex(CH_TOKEN.social), emissiveIntensity: 0.35, vertexColors: false });
   }
+  if (name === 'PbGlassBox') return new THREE.MeshStandardMaterial({ name, color: hex('xr-pinball-glass'), roughness: 0.05, transparent: true, opacity: 0.3, depthWrite: false });
   if (name === 'PbPoster') return new THREE.MeshStandardMaterial({ name, map: posterTex, roughness: 0.6, vertexColors: true });
   if (name === 'PbBody') return new THREE.MeshPhysicalMaterial({ name, color: hex('xr-pinball-cabinet'), metalness: 0.3, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.12, vertexColors: true });
   const s = SOLID[name];
@@ -296,13 +304,16 @@ function tube(points, radius, segs = 6) {
   return new THREE.TubeGeometry(curve, Math.max(8, points.length), radius, segs, false);
 }
 
-/** A wireform ramp with a clear plastic entrance, ribs and supports. */
-function makeRamp(r, mats, channel) {
+/**
+ * A ramp along a path: 'wire' (chrome wireform with a clear plastic entrance), 'plastic' (a
+ * colored clear plastic ramp all the way, lit edges) or 'gold' (the coin chute's gold wires).
+ */
+function makeRamp(r, mats, channel, style = 'wire') {
   const g = new THREE.Group();
   g.userData.noFit = true;
   const N = r.pts.length;
-  const sAt = (len) => r.len.findIndex((l) => l >= len);
-  const plasticEnd = Math.max(4, sAt(0.13));
+  const sAt = (len) => { const i = r.len.findIndex((l) => l >= len); return i < 0 ? N - 1 : i; };
+  const plasticEnd = style === 'plastic' ? N - 1 : style === 'gold' ? 0 : Math.max(4, sAt(0.13));
   // Plastic entrance: floor and two side walls, lofted along the path.
   const pos = [];
   const quad = (a, b, c, d) => pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, a.x, a.y, a.z, c.x, c.y, c.z, d.x, d.y, d.z);
@@ -315,18 +326,35 @@ function makeRamp(r, mats, channel) {
     quad(fl[i], fl[i + 1], wl[i + 1], wl[i]);
     quad(fr[i + 1], fr[i], wr[i], wr[i + 1]);
   }
-  const pg = new THREE.BufferGeometry();
-  pg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  pg.computeVertexNormals();
-  const plastic = new THREE.Mesh(pg, mats.rampPlastic);
-  plastic.renderOrder = 3;
-  g.add(plastic);
+  if (pos.length) {
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    pg.computeVertexNormals();
+    const pm = style === 'plastic' ? new THREE.MeshStandardMaterial({ color: hex(CH_TOKEN[channel]), roughness: 0.1, metalness: 0, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false, emissive: hex(CH_TOKEN[channel]), emissiveIntensity: 0.25 }) : mats.rampPlastic;
+    if (pm !== mats.rampPlastic) g.userData.owned = [pm];
+    const plastic = new THREE.Mesh(pg, pm);
+    plastic.renderOrder = 3;
+    g.add(plastic);
+  }
   // Glowing edges in the channel's color along the plastic walls.
   const edgeMat = new THREE.MeshBasicMaterial({ color: hex(CH_TOKEN[channel]), toneMapped: false });
-  const edges = mergeGeometries([tube(wl, 0.0016, 5), tube(wr, 0.0016, 5)]);
-  g.add(new THREE.Mesh(edges, edgeMat));
+  (g.userData.owned ??= []).push(edgeMat);
+  if (wl.length > 1) g.add(new THREE.Mesh(mergeGeometries([tube(wl, 0.0016, 5), tube(wr, 0.0016, 5)]), edgeMat));
+  if (style === 'plastic') {
+    // A plastic ramp: supports only.
+    const sup = [];
+    for (let s = 0.1; s < r.total - 0.05; s += 0.13) {
+      const p = r.at(s);
+      if (p.h < 0.03) continue;
+      const c = new THREE.CylinderGeometry(0.0017, 0.0017, p.h, 6);
+      c.translate(p.x, p.h / 2, -p.y);
+      sup.push(c);
+    }
+    if (sup.length) g.add(new THREE.Mesh(mergeGeometries(sup.map((w) => w.toNonIndexed())), mats.wire));
+    return g;
+  }
   // Wireform: four wires from the end of the plastic to the end of the ramp.
-  const from = plasticEnd - 2;
+  const from = Math.max(0, plasticEnd - 2);
   const wires = [
     tube(rampRail(r, from, N - 1, 0.0105, 0.003), 0.0017),
     tube(rampRail(r, from, N - 1, -0.0105, 0.003), 0.0017),
@@ -347,7 +375,7 @@ function makeRamp(r, mats, channel) {
     c.translate(p.x, p.h / 2, -p.y);
     wires.push(c);
   }
-  const wm = new THREE.Mesh(mergeGeometries(wires.map((w) => w.toNonIndexed())), mats.wire);
+  const wm = new THREE.Mesh(mergeGeometries(wires.map((w) => w.toNonIndexed())), style === 'gold' ? mats.gold : mats.wire);
   wm.castShadow = true;
   g.add(wm);
   return g;
@@ -719,6 +747,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
     wire: new THREE.MeshStandardMaterial({ color: hex('xr-pinball-wire'), metalness: 1, roughness: 0.18 }),
     rubber: new THREE.MeshStandardMaterial({ color: hex('xr-pinball-rubber'), roughness: 0.7 }),
     sling: new THREE.MeshStandardMaterial({ color: hex('xr-pinball-sling'), roughness: 0.25, metalness: 0, transparent: true, opacity: 0.88, emissive: hex('xr-pinball-sling'), emissiveIntensity: 0.35 }),
+    gold: new THREE.MeshStandardMaterial({ color: hex('xr-pinball-gold'), metalness: 1, roughness: 0.2 }),
     rampPlastic: new THREE.MeshStandardMaterial({ color: hex('xr-pinball-ramp'), roughness: 0.1, metalness: 0, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false }),
   };
   owned.push(...Object.values(mats));
@@ -860,7 +889,14 @@ export function buildMachine(table, model, { lite = false } = {}) {
   // Plunger.
   const plunger = placePart('PinPlunger', LANE_X, PLUNGER_Y, { h: 0.012 });
   // Ramps: the video ramp starts under an LED wall, the app ramp inside a giant phone.
-  for (const r of Object.values(table.ramps)) field.add(makeRamp(r.ramp, mats, r.channel));
+  for (const r of Object.values(table.ramps)) {
+    const rm = makeRamp(r.ramp, mats, r.channel, r.ramp.id === 'right' ? 'plastic' : 'wire');
+    owned.push(...(rm.userData.owned ?? []));
+    field.add(rm);
+  }
+  const chuteMesh = makeRamp(table.chute, mats, 'branch', 'gold');
+  owned.push(...(chuteMesh.userData.owned ?? []));
+  field.add(chuteMesh);
   const tv = makeTvGate(table.ramps.left);
   const phone = makePhoneGate(table.ramps.right);
   field.add(tv.group, phone.group);
@@ -988,7 +1024,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
   const det = buildDetails({ root, field, parts, anchors, table, lite });
   owned.push(...det.owned);
   // The agency town: toys behind the arch and on the playfield.
-  const town = buildTown({ field, parts, lite });
+  const town = buildTown({ field, parts, lite, chute: table.chute, burst: (icon, x, y, h, o) => fx.emit(icon, fp(x, y, h), o) });
   // The AI's tip: a floating arrow over the recommended channel, a light beam and a ring.
   const tip = makeTipArrow();
   field.add(tip.group);

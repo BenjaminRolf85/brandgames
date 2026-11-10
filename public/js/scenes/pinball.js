@@ -151,7 +151,7 @@ export class PinballScene extends BaseScene {
     }
     this.planPanel?.removeFromParent();
     this.planPanel?.dispose();
-    const compact = this.layoutMode === 'portrait';
+    const compact = this.layoutMode === 'portrait' || this.engine.touchUI;
     const p = (this.planPanel = compact ? new Panel(0.78, 0.36, (ctx, c) => this.drawPlanCompact(ctx, c)) : new Panel(0.66, 0.74, (ctx, c) => this.drawPlan(ctx, c)));
     p.userData.noFit = true;
     this.column.add(p);
@@ -350,6 +350,7 @@ export class PinballScene extends BaseScene {
       funnel: { stage: 0, reach: 0, clicks: 0 }, kpi: { reach: 0, clicks: 0, customers: 0, history: [0], perChannel: {} },
       launches: 0, multi: false, showUntil: 0, shake: 0, kpiT: 0, histT: 0,
       personas: new Set(), xbLit: false, xbUsed: false, extraBalls: 0, kbLit: true, match: null,
+      vaultLit: false, hqLit: false,
     });
     this.machine?.chars.setCurrent(this.aud);
     this.buildPlanPanel();
@@ -429,7 +430,11 @@ export class PinballScene extends BaseScene {
           this.channelHit('email', d.x + 0.02, d.y);
           if (T.drops.every((q) => q.down)) {
             this.addPoints(60);
-            this.message(t('pinballDmdDrops', { n: 60 * this.factor() }), '', 1.6);
+            if (!this.vaultLit && !this.multi) {
+              this.vaultLit = true;
+              this.machine?.town.vault(true);
+              this.message(t('pinballDmdVaultLit'), t('pinballDmdVaultWhere'), 2.2);
+            } else this.message(t('pinballDmdDrops', { n: 60 * this.factor() }), '', 1.6);
             this.after(1.2, () => { if (!this.disposed) T.drops.forEach((q) => { q.down = false; q.seg.enabled = true; }); });
           }
         } else if (obj.tag === 'poster') {
@@ -444,14 +449,25 @@ export class PinballScene extends BaseScene {
         this.channelHit('branch', obj.x, obj.y);
         if (this.xbLit) this.collectExtraBall();
         break;
-      case 'kickout':
+      case 'kickout': {
+        // The branch's hole lifts the ball into the coin chute: over the playfield to the left inlane.
         psfx.kick();
+        const b = info.ball;
+        if (b && this.mode === 'play') {
+          b.mode = 'ramp';
+          b.z = 0;
+          b.ramp = { ramp: T.chute, s: 0, u: 2.0 };
+          this.machine?.town.coins();
+          psfx.coins();
+        }
         break;
+      }
       case 'rampEnter':
         sfx.whoosh();
+        if (info.ball) { info.ball.hqDone = false; info.ball.vaultDone = false; }
         break;
       case 'rampDone': {
-        if (obj.id === 'kick') break; // the kickback's flight, not a ramp
+        if (obj.id === 'kick' || obj.id === 'chute') break; // the kickback's flight, the coin chute
         sfx.powerup();
         this.addPoints(15);
         const end = obj.pts[obj.pts.length - 1];
@@ -671,11 +687,72 @@ export class PinballScene extends BaseScene {
     m?.chars.cheerAll();
     m?.burst([ICON.person, ICON.star, ICON.spark], this.table.saucer.x, this.table.saucer.y, 0.03, { count: quality.lite ? 6 : 14, up: 0.22, speed: 0.2, size: 0.03 });
     this.lightShow(3.4);
+    if (!this.hqLit) {
+      this.hqLit = true;
+      this.after(2.4, () => { if (!this.disposed && this.mode === 'play') this.message(t('pinballDmdJackpotLit'), t('pinballDmdJackpotWhere'), 2.2); });
+    }
     this.after(2.3, () => {
       if (this.disposed || this.mode !== 'play') return;
       this.funnel = { stage: 0, reach: 0, clicks: 0 };
       this.startMultiball();
     });
+  }
+
+  /** The ramps' stops: the headquarters (right ramp) and the vault (left ramp, when lit). */
+  rampStops() {
+    const T = this.table;
+    for (const b of T.world.balls) {
+      if (b.mode !== 'ramp' || !b.ramp) continue;
+      const { ramp, s } = b.ramp;
+      if (ramp.id === 'right' && !b.hqDone && s >= T.stops.hq) {
+        b.hqDone = true;
+        this.hqVisit(b);
+      } else if (ramp.id === 'left' && !b.vaultDone && this.vaultLit && s >= T.stops.vault) {
+        b.vaultDone = true;
+        this.vaultLock(b);
+      }
+    }
+  }
+
+  /** Holds a ball where it is on its ramp and lets it roll on after sec seconds. */
+  holdOnRamp(b, sec, then) {
+    const keep = { ...b.ramp };
+    b.mode = 'lock';
+    this.after(sec, () => {
+      if (this.disposed || b.mode !== 'lock') return;
+      b.mode = 'ramp';
+      b.ramp = { ...keep, u: 0.6 };
+      then?.();
+    });
+  }
+
+  /** Through the headquarters: a light run; the jackpot when lit (everyone cheers). */
+  hqVisit(b) {
+    const m = this.machine;
+    if (!this.hqLit) {
+      this.addPoints(20);
+      m?.town.hqPass();
+      psfx.chimes(3);
+      return;
+    }
+    this.hqLit = false;
+    this.holdOnRamp(b, 2.4);
+    this.addPoints(150);
+    this.message(t('pinballDmdJackpot'), t('pinballDmdJackpotHq', { n: 150 * this.factor() }), 2.6);
+    m?.town.hqCheer();
+    m?.chars.cheerAll();
+    psfx.jingle();
+    this.lightShow(2.6);
+  }
+
+  /** The vault opens for the ball, keeps it, a second ball comes; then both play (multiball). */
+  vaultLock(b) {
+    this.vaultLit = false;
+    psfx.vault();
+    this.message(t('pinballDmdVaultLocked'), t('pinballDmdMultiball'), 2.4);
+    this.addPoints(40);
+    this.holdOnRamp(b, 2.8, () => { this.machine?.town.vault(false); psfx.vault(); });
+    this.after(0.6, () => { if (!this.disposed && this.mode === 'play') this.startMultiball(); });
   }
 
   /** Kampagnenstart: a second ball comes out of the shooter lane. */
@@ -929,6 +1006,29 @@ export class PinballScene extends BaseScene {
     }
     const p = this.column;
     if (!p || !this.machine) return;
+    if (e.touchUI) {
+      // Phones: the planner as a small strip under the status bar, fixed to the screen.
+      const cam = e.camera;
+      const d = 0.5;
+      const halfH = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * d;
+      const halfW = halfH * cam.aspect;
+      const pw = this.planPanel?.w ?? 0.78;
+      const ph = this.planPanel?.h ?? 0.36;
+      const k = (mode === 'portrait' ? 1.3 * halfW : 0.62 * halfW) / pw;
+      const top = halfH - (2 * halfH * 70) / window.innerHeight;
+      const x = mode === 'portrait' ? 0 : -halfW + (pw * k) / 2 + 0.01;
+      cam.updateMatrixWorld();
+      const world = cam.localToWorld(new THREE.Vector3(x, top - (ph * k) / 2, -d));
+      p.position.copy(this.group.worldToLocal(world));
+      const gq = this.group.getWorldQuaternion(new THREE.Quaternion()).invert();
+      p.quaternion.copy(gq.multiply(cam.getWorldQuaternion(new THREE.Quaternion())));
+      p.scale.setScalar(k);
+      if (!p.userData.onTop) {
+        p.traverse((o) => { if (o.material) { o.material.depthTest = false; o.renderOrder = 60; } });
+        p.userData.onTop = this.planPanel;
+      } else if (p.userData.onTop !== this.planPanel) p.userData.onTop = null;
+      return;
+    }
     if (mode === 'portrait') {
       const top = this.machineY + 0.92 * this.S;
       p.rotation.set(-(this.pitch ?? 0.98), 0, 0);
@@ -940,6 +1040,48 @@ export class PinballScene extends BaseScene {
       p.rotation.set(-(this.pitch ?? 0.78), 0, 0);
       p.position.set(-0.66, this.eye - 0.42, FRONT_Z - 0.62);
     }
+  }
+
+  /**
+   * Phones: a player's view from the front end of the machine, low and close, looking up the
+   * playfield (about 40 degrees). The flippers are big at the bottom; when a ball is high up the
+   * view glides a little upwards (damped, a small range) and comes back.
+   */
+  playerCamera(dt, cam, ins) {
+    const m = this.machine;
+    const portrait = cam.aspect < 0.85;
+    const H = window.innerHeight;
+    // The highest ball on the playfield pulls the view up a little.
+    let hi = 0;
+    for (const b of this.table.world.balls) if (b.mode !== 'gone') hi = Math.max(hi, b.y);
+    const want = clamp((hi - 0.45) * 0.22, 0, 0.09);
+    this.follow = (this.follow ?? 0) + (want - (this.follow ?? 0)) * Math.min(1, dt * 1.5);
+    const f = this.follow;
+    // Field-space eye and target; then into the world.
+    const eyeF = portrait ? [0.035, -0.32 + f * 0.5, 0.45] : [0.025, -0.4 + f * 0.6, 0.42];
+    const tgtF = portrait ? [0.035, 0.64 + f, 0] : [0.025, 0.42 + f, 0];
+    const eye = m.world(...eyeF);
+    const tgt = m.world(...tgtF);
+    const fov = portrait ? 70 : 46;
+    if (cam.fov !== fov) { cam.fov = fov; cam.updateProjectionMatrix(); }
+    // The thumb buttons cover the bottom: shift the picture up by half of what they cover.
+    const shift = ((ins.bottom - ins.top) / H) * 0.5;
+    const tmpCam = this.tmpCam ?? (this.tmpCam = new THREE.PerspectiveCamera()); // (a camera looks along -z)
+    tmpCam.position.copy(eye);
+    tmpCam.up.set(0, 1, 0);
+    tmpCam.lookAt(tgt);
+    tmpCam.rotateX(-shift * THREE.MathUtils.degToRad(fov));
+    const k = this.camInit ? Math.min(1, dt * 4) : 1;
+    this.camInit = true;
+    cam.position.lerp(tmpCam.position, k);
+    cam.quaternion.slerp(tmpCam.quaternion, k);
+    this.pitch = 0.75;
+    if (this.shake > 0.01) {
+      const a = this.shake * 0.006;
+      cam.position.x += (Math.random() - 0.5) * a;
+      cam.position.y += (Math.random() - 0.5) * a;
+    }
+    return true;
   }
 
   /** Points the browser camera so the given world points fill the free part of the screen. */
@@ -1001,6 +1143,7 @@ export class PinballScene extends BaseScene {
   /** Browser preview: the player's view down onto the machine (phones and desktop). */
   previewCamera(dt, cam, ins) {
     if (!this.machine || this.mode === 'over') return false;
+    if (this.engine.touchUI && this.mode !== 'intro') return this.playerCamera(dt, cam, ins);
     const portrait = cam.aspect < 0.85;
     const intro = this.mode === 'intro';
     const pitch = intro ? 0.3 : portrait ? 0.98 : this.engine.touchUI ? 0.9 : 0.78;
@@ -1062,7 +1205,7 @@ export class PinballScene extends BaseScene {
       setPlunger(T, this.pull);
       if (this.idle > AUTO_LAUNCH) { this.pull = 0.6; this.launch(); }
     }
-    if (playing || this.mode === 'drain') T.world.step(dt);
+    if (playing || this.mode === 'drain') { T.world.step(dt); this.rampStops(); }
     for (const b of T.world.balls) {
       // The gate swings when a ball leaves the shooter lane.
       if (this.machine && b.mode === 'field' && b.x > 0.245 && b.y > 0.78 && b.y < 0.86 && b.vy > 0) this.machine.gate.rotation.x = Math.min(1.2, b.vy * 0.6);

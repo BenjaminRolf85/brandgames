@@ -61,7 +61,34 @@ function rampPath(side) {
     [-0.108, 0.84, 0.077], [-0.112, 0.77, 0.074], [-0.118, 0.63, 0.062], [-0.13, 0.51, 0.046],
     [-0.158, 0.44, 0.026], [-0.175, 0.392, 0.008], [-0.176, 0.378, 0.0],
   ];
-  return P.map(([x, y, h]) => [x * side, y, h]);
+  if (side > 0) return P;
+  // The right one: up the outside, into the headquarters tower behind the arch (through its
+  // second floor), out of its front, over the arch and down onto the right inlane.
+  const R = [
+    [a[0], a[1], 0.0], [b[0], b[1], 0.012], [-0.206, 0.7, 0.032], [-0.216, 0.8, 0.05],
+    [-0.222, 0.9, 0.06], [-0.214, 1.0, 0.064], [-0.19, 1.09, 0.066], [-0.13, 1.16, 0.068],
+    [-0.065, 1.178, 0.07], [-0.018, 1.165, 0.07], [0.012, 1.14, 0.07], [0.0, 1.1, 0.071],
+    [-0.03, 1.06, 0.072], [-0.07, 1.0, 0.073], [-0.095, 0.9, 0.076],
+    [-0.108, 0.84, 0.077], [-0.112, 0.77, 0.074], [-0.118, 0.63, 0.062], [-0.13, 0.51, 0.046],
+    [-0.158, 0.44, 0.026], [-0.175, 0.392, 0.008], [-0.176, 0.378, 0.0],
+  ];
+  return R.map(([x, y, h]) => [-x, y, h]);
+}
+
+/** Where the tower stands and the vault's door is (field x, y). */
+export const HQ = { x: 0.0, y: 1.165 };
+export const VAULT = { x: -0.205, y: 1.205 };
+
+/**
+ * The coin chute: from the branch's hole a lift brings the ball up, a gold wireform bridge
+ * carries it high over the playfield (over both ramps) and drops it onto the left inlane.
+ */
+function chutePath() {
+  return [
+    [0.193, 0.468, 0], [0.193, 0.472, 0.04], [0.188, 0.49, 0.085], [0.17, 0.52, 0.104],
+    [0.12, 0.55, 0.108], [0.05, 0.575, 0.108], [-0.02, 0.58, 0.106], [-0.08, 0.56, 0.1],
+    [-0.13, 0.52, 0.088], [-0.162, 0.47, 0.06], [-0.174, 0.42, 0.03], [-0.176, 0.39, 0.008], [-0.176, 0.378, 0],
+  ];
 }
 
 /**
@@ -243,12 +270,22 @@ export function buildTable() {
     id: 'kick', mouth: [[kx - 0.02, KICKBACK.y], [kx + 0.02, KICKBACK.y]], dir: [0, 1], samples: 60,
     points: [[kx, KICKBACK.y, 0], [kx, 0.25, 0], [kx, 0.33, 0], [-0.214, 0.372, 0], [-0.202, 0.392, 0], [-0.186, 0.405, 0], [-0.172, 0.425, 0]],
   });
+  // The coin chute (saucer lift and bridge), ridden like a ramp (not in the world's list).
+  const chute = new Ramp({ id: 'chute', mouth: [[0, 0], [0, 0]], dir: [0, 1], samples: 120, drag: 0.05, points: chutePath() });
   const kickback = { ...KICKBACK, path, sensor: w.addSensor(kx - 0.02, KICKBACK.y, kx + 0.02, KICKBACK.y, { tag: 'kickback' }) };
 
   // The plunger: a moving segment across the bottom of the shooter lane.
   const plunger = w.addSegment(0.2475, PLUNGER_Y, 0.287, PLUNGER_Y, { th: 0.003, e: 0.1, fr: 0.3 });
 
-  return { world: w, walls, gate, lanes, bumpers, ramps, drops, column, house, saucer, slings, flippers, posts, plunger, standups, spinner, rollovers, kickback };
+  // Where the ball passes the headquarters (right ramp) and the vault (left ramp): arc lengths.
+  const nearest = (r, x, y) => {
+    let best = 0;
+    let bd = 1e9;
+    r.pts.forEach((p, i) => { const d = Math.hypot(p[0] - x, p[1] - y); if (d < bd) { bd = d; best = r.len[i]; } });
+    return best;
+  };
+  const stops = { hq: nearest(ramps.right.ramp, HQ.x + 0.005, HQ.y), vault: nearest(ramps.left.ramp, VAULT.x + 0.04, VAULT.y - 0.025) };
+  return { world: w, walls, gate, lanes, bumpers, ramps, drops, column, house, saucer, slings, flippers, posts, plunger, standups, spinner, rollovers, kickback, chute, stops };
 }
 
 /** Moves the plunger tip (pull 0 .. 1). */

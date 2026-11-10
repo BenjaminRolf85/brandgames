@@ -350,15 +350,15 @@ function drawBackboxSide(ctx, W, H) {
  */
 function drawBlade(ctx, W, H) {
   const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, color('xr-pinball-district-6'));
-  g.addColorStop(0.55, color('xr-pinball-district-1'));
-  g.addColorStop(1, color('xr-pinball-district-2'));
+  g.addColorStop(0, color('xr-pinball-field-2'));
+  g.addColorStop(0.6, color('xr-pinball-cabinet'));
+  g.addColorStop(1, color('xr-pinball-plan'));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
   const rnd = mulberry(9);
   const ground = H * 0.775; // the playfield's level on the blade (h = 0; the blade starts 2 cm below)
   // Two rows of buildings: far ones in violet, near ones in the cabinet's blue, lit windows.
-  for (const [tok, hMin, hMax, alpha] of [['xr-pinball-district-6', 0.25, 0.5, 0.7], ['xr-pinball-cabinet-dark', 0.15, 0.36, 1]]) {
+  for (const [tok, hMin, hMax, alpha] of [['xr-pinball-plan', 0.25, 0.5, 0.9], ['xr-pinball-cabinet-dark', 0.15, 0.36, 1]]) {
     let x = -10;
     while (x < W) {
       const w = 30 + rnd() * 70;
