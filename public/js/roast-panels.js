@@ -100,7 +100,8 @@ export function flavorIcon(ctx, key, x, y, s, col) {
  */
 export function bubblePanel({ name, body, sub = null, stars: n = 0, w = 0.66, active = false, tail: tailAt = 'left', bodySize = 'xr-text-md' }) {
   const pad = 0.035;
-  const blocks = [{ text: name, size: 'xr-text-sm', weight: 'bold', gap: 0.012 }, { text: body, size: bodySize, weight: 'bold', gap: 0.012 }];
+  const blocks = [{ text: name, size: 'xr-text-sm', weight: 'bold', gap: 0.012 }];
+  if (body) blocks.push({ text: body, size: bodySize, weight: 'bold', gap: 0.012 });
   if (sub) blocks.push({ text: sub, size: 'xr-text-sm', gap: 0.012 });
   const starH = n ? 0.065 : 0;
   const tail = 0.045;
@@ -128,7 +129,7 @@ export function bubblePanel({ name, body, sub = null, stars: n = 0, w = 0.66, ac
     ctx.fill();
     let y = pad;
     y = para(ctx, c, name, pad, y, w - pad * 2, { size: 'xr-text-sm', weight: 'bold', col: 'xr-roast-bubble-muted' }) + 0.012;
-    y = para(ctx, c, body, pad, y, w - pad * 2, { size: bodySize, weight: 'bold', col: 'xr-roast-bubble-ink' }) + 0.012;
+    if (body) y = para(ctx, c, body, pad, y, w - pad * 2, { size: bodySize, weight: 'bold', col: 'xr-roast-bubble-ink' }) + 0.012;
     if (sub) y = para(ctx, c, sub, pad, y, w - pad * 2, { size: 'xr-text-sm', col: 'xr-roast-bubble-muted' }) + 0.012;
     if (n) stars(ctx, c, n, pad + 0.03, y + 0.03, 0.026, 0.065);
   });

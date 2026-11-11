@@ -158,12 +158,15 @@ const LEVELS = [
       const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.16, -0.32, 0.12));
       atoms.forEach((a) => a.p.applyQuaternion(tilt));
       const n = atoms.length;
+      const bulky = branch(atoms[0].p, V(-0.2, 1, 0.05));
       return {
         atoms, rings: [[0, 1, 2, 3, 4, 5], idxB],
         mismatch: { swap: n - 3, to: 'O' },
         small: { remove: n - 2 },
-        bulky: { add: branch(atoms[0].p, V(-0.2, 1, 0.05)) },
+        bulky: { add: bulky },
         decoy: { add: plume(atoms[idxB[0]].p, V(0.1, 0.35, 0.93)) },
+        // Your own design: the two rings, and four places to attach atoms (one points into the wall).
+        design: { keep: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], points: [[2, n - 3], [idxB[5], n - 2], [idxB[4], n - 1], [0, bulky[0].p]] },
       };
     },
   },
@@ -182,12 +185,14 @@ const LEVELS = [
       atoms.push(atom('C', outward(r[0], c, 0.45)));
       const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.3, 0.18, -0.2));
       atoms.forEach((a) => a.p.applyQuaternion(tilt));
+      const bulky = branch(r[2].clone().applyQuaternion(tilt), r[2].clone().sub(c).applyQuaternion(tilt).setZ(0));
       return {
         atoms, rings: [[0, 1, 2, 3, 4, 5]],
         mismatch: { swap: 7, to: 'O' },
         small: { remove: [6, 7] },
-        bulky: { add: branch(r[2].clone().applyQuaternion(tilt), r[2].clone().sub(c).applyQuaternion(tilt).setZ(0)) },
+        bulky: { add: bulky },
         decoy: { add: plume(atoms[10].p, V(0.15, 0.25, 0.95), ['S', 'O', 'C']) },
+        design: { keep: [0, 1, 2, 3, 4, 5, 6, 10], points: [[6, 7], [1, 8], [5, 9], [2, bulky[0].p]] },
       };
     },
   },
@@ -243,14 +248,17 @@ export const PASS = 70; // lab binding needed to solve a pocket
  */
 export function makeRound(count = 4, rand = Math.random) {
   const ri = (a, b) => Math.round(a + rand() * (b - a));
-  const failLevel = 1 + Math.floor(rand() * (count - 1)); // never the first pocket
   const decoyWhy = ['dockWhyDecoy1', 'dockWhyDecoy2', 'dockWhyDecoy3'];
   return LEVELS.slice(0, count).map((L, idx) => {
     const spec = L.build();
     const c0 = spec.atoms.reduce((s, a) => s.add(a.p), V(0, 0, 0)).divideScalar(spec.atoms.length);
     const slots = spec.atoms.map((a) => ({ p: a.p.clone(), el: a.el, spot: a.spot, r: ELEMENTS[a.el].r }));
-    const fail = idx === failLevel;
-    const kinds = fail ? ['binder', 'decoy', ...(rand() < 0.5 ? ['mismatch', 'bulky'] : ['small', 'bulky'])] : ['binder', 'mismatch', 'small', 'bulky'];
+    // Pocket 2: the AI's top pick fails in the lab. Pockets 3 and 4: no library hit binds well
+    // enough (the top pick fails too); you design your own molecule on a scaffold.
+    const design = idx >= 2 && spec.design ? spec.design : null;
+    const fail = idx === 1 || !!design;
+    const rest = rand() < 0.5 ? ['mismatch', 'bulky'] : ['small', 'bulky'];
+    const kinds = design ? ['decoy', ...rest] : fail ? ['binder', 'decoy', ...rest] : ['binder', 'mismatch', 'small', 'bulky'];
     const binderAI = fail ? ri(64, 73) : ri(82, 93);
     const ai = {
       binder: binderAI,
@@ -272,13 +280,79 @@ export function makeRound(count = 4, rand = Math.random) {
       };
     });
     const top = [...candidates].sort((a, b) => b.ai - a.ai)[0];
-    return {
+    const level = {
       idx, key: L.key, seed: L.seed, depth: L.depth, tint: L.tint, fail,
       lib: L.lib + ri(-900, 900), secs: (0.4 + rand() * 0.7).toFixed(1),
       template: finishMolecule(spec.atoms.map((a) => ({ ...a, core: true })), spec.rings, c0),
       c0, slots, candidates, top,
     };
+    if (design) {
+      level.design = {
+        scaffold: design.keep.map((i) => ({ el: spec.atoms[i].el, p: spec.atoms[i].p.clone(), spot: null, core: true })),
+        rings: spec.rings.filter((r) => r.every((i) => design.keep.includes(i))).map((r) => r.map((i) => design.keep.indexOf(i))),
+        // Attachment points: where an atom would sit (F space), which scaffold atom it hangs on,
+        // and the contact spot there (none for the point that faces the wall).
+        points: design.points.map(([from, at]) => {
+          const p = typeof at === 'number' ? spec.atoms[at].p.clone() : at.clone();
+          return { p, from: spec.atoms[from].p.clone(), spot: typeof at === 'number' ? spec.atoms[at].spot : null };
+        }),
+      };
+      const own = { letter: '+', kind: 'scaffold', choices: design.points.map(() => null), code: '', tested: false, lab: null, fit: null };
+      own.mol = buildDesign(level, own.choices);
+      own.ai = designEstimate(level, own.choices);
+      candidates.push(own);
+    }
+    return level;
   });
+}
+
+// ---------- your own design (pockets 3 and 4) ----------
+
+export const DESIGN_ATOMS = ['N', 'O', 'C', 'S', 'Cl'];
+
+/** How an atom at an attachment point works out: good, bad (repels), weak (no contact), clash, empty. */
+export function judgePoint(point, el) {
+  if (!el) return 'empty';
+  if (!point.spot) return 'clash';
+  if (SPOTS[point.spot].match.includes(el)) return 'good';
+  if (el === 'N' || el === 'O') return 'bad';
+  return 'weak';
+}
+
+/** The scaffold with the chosen atoms (choices[k]: element or null), as a molecule. */
+export function buildDesign(level, choices) {
+  const d = level.design;
+  const atoms = d.scaffold.map((a) => ({ ...a, p: a.p.clone() }));
+  d.points.forEach((pt, k) => {
+    if (choices[k]) atoms.push({ el: choices[k], p: pt.p.clone(), spot: null, core: !!pt.spot });
+  });
+  return finishMolecule(atoms, d.rings, level.c0);
+}
+
+const tally = (level, choices) => {
+  const n = { good: 0, bad: 0, weak: 0, clash: 0, empty: 0 };
+  level.design.points.forEach((pt, k) => { n[judgePoint(pt, choices[k])] += 1; });
+  return n;
+};
+
+/** The AI's estimate for your design (in %): it reads shape and contacts, not the lab. */
+export function designEstimate(level, choices) {
+  const n = tally(level, choices);
+  const key = choices.map((c) => c ?? '-').join('');
+  let h = 7;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) % 997;
+  const jitter = (h % 9) - 4;
+  return Math.round(THREE.MathUtils.clamp(28 + 18 * n.good - 22 * n.bad - 30 * n.clash - 3 * n.weak + jitter, 5, 95));
+}
+
+/** What the lab measures for your design (binding in %) and why. */
+export function designTruth(level, choices, rand = Math.random) {
+  const n = tally(level, choices);
+  const ri = (a, b) => Math.round(a + rand() * (b - a));
+  if (n.clash) return { truth: ri(6, 14), why: 'dockWhyBulky' };
+  if (n.bad) return { truth: ri(16, 28), why: 'dockWhyMismatch' };
+  if (n.weak || n.empty) return { truth: ri(32, 46), why: 'dockWhySmall' };
+  return { truth: ri(88, 96), why: 'dockWhyBuild' };
 }
 
 // ---------- the protein: a lumpy blob with a carved pocket (signed distance field) ----------
