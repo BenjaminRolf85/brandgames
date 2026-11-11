@@ -1,6 +1,8 @@
 // Design switcher: "night" (default) and "sunny". The skin is a token layer in tokens.css,
 // selected by <html data-skin="...">; this module persists it and waits for its font.
-export const SKINS = ['night', 'sunny'];
+// Since November 2026 only "night" is offered (the "sunny" tokens stay in tokens.css); add
+// 'sunny' to SKINS and the buttons in index.html and the menu settings to bring it back.
+export const SKINS = ['night'];
 const KEY = 'kiar.skin';
 const listeners = new Set();
 

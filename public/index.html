@@ -11,7 +11,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   <script>
-    try { if (localStorage.getItem('kiar.skin') === 'sunny') document.documentElement.dataset.skin = 'sunny'; } catch (e) { /* storage unavailable */ }
+    // The "sunny" design is no longer offered (Nov 2026): a stored choice is cleared.
+    try { localStorage.removeItem('kiar.skin'); } catch (e) { /* storage unavailable */ }
   </script>
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/app.css">
@@ -42,10 +43,6 @@
           </span>
         </a>
         <div class="topbar__controls">
-          <div class="segmented" role="group" aria-label="Design">
-            <button type="button" class="segmented__item" data-skin-btn="night" data-i18n="skinNight" aria-pressed="true"></button>
-            <button type="button" class="segmented__item" data-skin-btn="sunny" data-i18n="skinSunny" aria-pressed="false"></button>
-          </div>
           <div class="segmented" role="group" aria-label="Sprache / Language">
             <button type="button" class="segmented__item" data-lang="de" aria-pressed="true">DE</button>
             <button type="button" class="segmented__item" data-lang="en" aria-pressed="false">EN</button>
