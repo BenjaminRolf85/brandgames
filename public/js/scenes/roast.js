@@ -30,7 +30,7 @@ import {
   cupFlavor, rate, guestPoints, basketResult, basketFor, mapPos,
 } from '../roast-ai.js';
 import {
-  loadShop, part, shopMaterials, makeJar, Roaster, makeScale, makeCup, makeItem, makeBasket, Puffs, BeanFlight, Guest, makeLights,
+  loadShop, part, shopMaterials, makeJar, Roaster, makeScale, makeCup, makeItem, makeBasket, Puffs, BeanFlight, Guest, makeLights, beanColor,
 } from '../roast-visuals.js';
 import {
   bubblePanel, jarTag, itemTag, AiPanel, blendPanel, gaugePanel, starSprite, scoreSprite, beanName, stageName, ratioIndex,
@@ -146,6 +146,9 @@ export class RoastScene extends BaseScene {
       this.fit.visible = true;
     }
   }
+
+  /** Phones and tablets in the browser: big screen buttons and the order strip instead of small 3D text. */
+  get phone() { return !this.engine.isXR && this.engine.touchUI; }
 
   /** Like BaseScene.intro, but higher, so the counter in front never covers it. */
   showIntro(title, text) {
@@ -274,6 +277,7 @@ export class RoastScene extends BaseScene {
     this.ui.visible = true;
     this.fit.visible = !this.engine.isXR;
     this.buildUi();
+    this.buildStrip();
     this.mode = 'play';
     this.startWave('calm');
   }
@@ -378,7 +382,10 @@ export class RoastScene extends BaseScene {
     g.bubbleActive = g === this.active;
     g.bubble?.removeFromParent();
     g.bubble?.dispose();
-    const b = bubblePanel({ name: t(`roastGuest_${g.def.id}`), body: data.body, sub: data.sub ?? null, stars: data.stars ?? 0, w: 0.44, active: g.bubbleActive, tail: 'center', bodySize: 'xr-text-sm' });
+    // phones: a compact bubble (the name, stars after the cup); the request and the order's state are in the order strip
+    const b = this.phone
+      ? bubblePanel({ name: short(g.def.id), body: data.keep ? data.body : null, stars: data.stars ?? 0, w: data.keep || data.stars ? 0.26 : 0.2, active: g.bubbleActive, tail: 'center', bodySize: 'xr-text-sm' })
+      : bubblePanel({ name: t(`roastGuest_${g.def.id}`), body: data.body, sub: data.sub ?? null, stars: data.stars ?? 0, w: 0.44, active: g.bubbleActive, tail: 'center', bodySize: 'xr-text-sm' });
     b.userData.interactive = true;
     b.userData.label = t(`roastGuest_${g.def.id}`);
     b.userData.onClick = () => this.selectGuest(g, true);
@@ -399,7 +406,7 @@ export class RoastScene extends BaseScene {
     if (!b) return;
     const portrait = this.layoutKind === 'portrait';
     const active = g === this.active;
-    const s = active ? (portrait ? 1.14 : 1.06) : portrait ? 0.84 : 0.92;
+    const s = this.phone ? (active ? 2.2 : 1.95) : active ? (portrait ? 1.14 : 1.06) : portrait ? 0.84 : 0.92;
     b.scale.setScalar(s);
     const x = SLOT_X[g.slot];
     const y = this.eye + 0.05 + (b.h * s) / 2; // clear of tall hats, also when a head hangs
@@ -466,7 +473,7 @@ export class RoastScene extends BaseScene {
     g.vis.react('sad');
     g.vis.slump = true;
     sfx.wrong();
-    this.setBubble(g, { body: t('roastTooLong') });
+    this.setBubble(g, { body: t('roastTooLong'), keep: true });
     if (this.active === g) { this.active = null; this.ensureActive(true); }
     // a little grey cloud over the head
     this.burst(g.vis.main.head.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.22, 0)), 'xr-roast-smoke-dark', 14);
@@ -614,6 +621,7 @@ export class RoastScene extends BaseScene {
     this.aiBtn.visible = !this.engine.touchUI && (this.mode === 'basket' ? !!this.sugAvailable() : canAI);
     this.stopBtn.set({ disabled: this.drumBatch?.state !== 'roasting' });
     this.updatePads();
+    this.refreshStrip();
   }
 
   sugAvailable() {
@@ -924,6 +932,13 @@ export class RoastScene extends BaseScene {
 
   /** A light dot flies from the guest to the AI panel; the new cup appears on the taste map. */
   learnFx(stars, g) {
+    if (this.phone) {
+      sfx.build();
+      this.stripFlash('ai', t('roastAiLearned', { name: short(g.def.id), n: stars }));
+      if (this.mode === 'play' && this.active) this.showAI(this.active);
+      this.aiPanel.show({ count: this.ai.count, dots: this.dots() });
+      return;
+    }
     const from = g.vis.main.head.getWorldPosition(new THREE.Vector3());
     const to = this.aiPanel.getWorldPosition(new THREE.Vector3());
     const dot = starSprite(true, 0.05);
@@ -970,9 +985,9 @@ export class RoastScene extends BaseScene {
   }
 
   /** Pops a 3D model in by its scale only (its materials are shared with the rest of the shop). */
-  popScale(obj, delay = 0) {
+  popScale(obj, delay = 0, size = 1) {
     obj.scale.setScalar(0.001);
-    this.delay(delay, () => this.tween(0.35, (k) => obj.scale.setScalar(Math.max(0.001, k * (1 + 0.15 * Math.sin(k * Math.PI))))));
+    this.delay(delay, () => this.tween(0.35, (k) => obj.scale.setScalar(Math.max(0.001, size * k * (1 + 0.15 * Math.sin(k * Math.PI))))));
   }
 
   pulse(obj) {
@@ -1067,12 +1082,16 @@ export class RoastScene extends BaseScene {
   sayBasket(body, stars = 0) {
     this.basketBubble?.removeFromParent();
     this.basketBubble?.dispose();
-    const b = bubblePanel({ name: t('roastGuest_student'), body, stars, w: 0.62, active: true, tail: 'center', bodySize: 'xr-text-sm' });
+    const b = this.phone
+      ? bubblePanel({ name: short('student'), body: null, stars, w: stars ? 0.26 : 0.2, active: true, tail: 'center' })
+      : bubblePanel({ name: t('roastGuest_student'), body, stars, w: 0.62, active: true, tail: 'center', bodySize: 'xr-text-sm' });
+    if (this.phone) b.scale.setScalar(2.2);
     const x = SLOT_X[1];
-    b.position.set(x, this.eye + 0.01 + b.h / 2, SLOT_Z + 0.16);
+    b.position.set(x, this.eye + 0.01 + (b.h * b.scale.y) / 2, SLOT_Z + 0.16);
     b.rotation.set(0, this.engine.isXR ? Math.atan2(-x, -b.position.z) : 0, 0);
     this.ui.add(b);
-    this.popIn(b);
+    if (this.phone) this.popScale(b, 0, 2.2);
+    else this.popIn(b);
     this.basketBubble = b;
   }
 
@@ -1141,6 +1160,7 @@ export class RoastScene extends BaseScene {
     this.ui.visible = false;
     this.fit.visible = false;
     this.updatePads();
+    if (this.strip) this.strip.el.hidden = true;
     // the shop makes way for the results
     const s = this.shop;
     this.tween(0.5, (k) => s.scale.setScalar(Math.max(0.001, 1 - k)), { onDone: () => { s.visible = false; } });
@@ -1178,7 +1198,9 @@ export class RoastScene extends BaseScene {
       ? t('roastHudBasket', { name, basket: basketWord(), score: this.score })
       : t('roastHud', { name, wave, done: this.stats?.length ?? 0, total: GUESTS.length, score: this.score });
     s = s.replace(/^ · /, '');
-    // Phones: the line that matters most right now comes first in the status bar (it holds two lines).
+    // Phones: the order strip shows the request, the AI and the drum; the status bar the round.
+    if (this.strip) return s;
+    // (touch without the strip) the line that matters most right now comes first
     if (touch && this.mode === 'play') {
       let first = '';
       if (this.drumBatch?.state === 'roasting') first = `${t('roastRoasting')}: ${stageName(this.r)}`;
@@ -1234,9 +1256,10 @@ export class RoastScene extends BaseScene {
   /** Which station panels are visible: 'play' (blend and drum), 'basket' or 'none'. */
   showControls(which) {
     this.controls = which;
-    this.blend.visible = which === 'play';
-    this.gauge.visible = which === 'play';
-    this.basketInfo.visible = which === 'basket';
+    // phones: the order strip shows the blend and the roast stage (the 3D text would be too small)
+    this.blend.visible = which === 'play' && !this.phone;
+    this.gauge.visible = which === 'play' && !this.phone;
+    this.basketInfo.visible = which === 'basket' && !this.phone;
     // phones use the big screen buttons instead of the 3D ones
     const touch = this.engine.touchUI;
     [this.moreA, this.moreB, this.roastBtn, this.stopBtn, this.packBtn].forEach((b) => { b.visible = !touch; });
@@ -1245,6 +1268,7 @@ export class RoastScene extends BaseScene {
 
   /** Short message above the drum (or the basket). */
   toast(text, token = 'xr-accent') {
+    if (this.phone) { this.stripFlash(this.mode === 'play' ? 'drum' : 'ai', text); return; }
     this.toastPanel?.removeFromParent();
     this.toastPanel?.dispose();
     const p = textPanel(0.56, 0.08, [{ text, size: 'xr-text-sm', weight: 'black', color: color(token) }], { surface: { stroke: color(token) } });
@@ -1315,7 +1339,7 @@ export class RoastScene extends BaseScene {
         { icon: 'special', label: t('roastStop'), onPress: () => this.stopRoast(), group: 'right', primary: true },
       ];
       // the bean and its main note ("Ethiopia · fruity"), since the 3D tags are small on a phone
-      const note = (i) => `${beanName(i)} · ${t(`roastBeanNote_${BEANS[i].key}`).split(',')[0]}`;
+      const note = (i) => `${beanName(i)}\n${t(`roastBeanNote_${BEANS[i].key}`).split(',')[0]}`;
       let items = null;
       if (kind === 'jars') items = [0, 1, 2, 3].map((i) => ({ icon: '', label: note(i), onPress: () => this.toggleJar(i), group: 'left' })).concat(station);
       else if (kind === 'blend') {
@@ -1336,6 +1360,7 @@ export class RoastScene extends BaseScene {
       if (items) {
         this.pads = this.touchButtons(items, { grid: true });
         this.padEl = [...document.querySelectorAll('#stage > .mtouch')].pop() ?? null;
+        this.padEl?.classList.add('roast-pads');
         this.pads?.show(true);
         // four bean buttons: one row of four when upright, a 2 x 2 block when sideways
         const left = this.padEl?.querySelector('.mtouch__group--left');
@@ -1373,6 +1398,151 @@ export class RoastScene extends BaseScene {
     } else if (kind === 'items') ITEMS.forEach((_, i) => mark(i, this.picks.includes(i)));
   }
 
+  // ---------- phones: the order strip ----------
+
+  /**
+   * Phones: a strip of screen cards that stays readable however small the 3D view is: the active
+   * guest's request (their speech bubble), the AI's suggestion with its confidence, the drum with
+   * the roast stage. Upright under the status bar; sideways in two columns above the thumb buttons.
+   */
+  buildStrip() {
+    if (!this.phone || this.strip) return;
+    const el = document.createElement('div');
+    el.className = 'roast-strip';
+    el.innerHTML = `
+      <section class="roast-strip__card roast-strip__guest"><p class="roast-strip__name"></p><p class="roast-strip__ask"></p><p class="roast-strip__sub"></p><div class="roast-strip__bar"><i></i></div></section>
+      <section class="roast-strip__card roast-strip__ai"><p class="roast-strip__label"></p><p class="roast-strip__main"></p><p class="roast-strip__conf"></p></section>
+      <section class="roast-strip__card roast-strip__drum"><p class="roast-strip__label"></p><p class="roast-strip__main"><span class="roast-strip__chip"></span><span class="roast-strip__stage"></span></p><p class="roast-strip__sub"></p></section>`;
+    document.getElementById('stage')?.append(el);
+    const q = (sel) => el.querySelector(sel);
+    const guest = q('.roast-strip__guest');
+    const ai = q('.roast-strip__ai');
+    const drum = q('.roast-strip__drum');
+    this.strip = {
+      el, guest, ai, drum,
+      name: guest.querySelector('.roast-strip__name'), ask: guest.querySelector('.roast-strip__ask'), sub: guest.querySelector('.roast-strip__sub'),
+      bar: guest.querySelector('.roast-strip__bar'), fill: guest.querySelector('.roast-strip__bar > i'),
+      aiLabel: ai.querySelector('.roast-strip__label'), aiMain: ai.querySelector('.roast-strip__main'), aiConf: ai.querySelector('.roast-strip__conf'),
+      drumLabel: drum.querySelector('.roast-strip__label'), chip: drum.querySelector('.roast-strip__chip'), stage: drum.querySelector('.roast-strip__stage'), drumSub: drum.querySelector('.roast-strip__sub'),
+    };
+    this.flashes = {};
+    this.refreshStrip();
+  }
+
+  /** A short message in a card of the strip (a crack, a hint, what the AI just learned). */
+  stripFlash(card, text) {
+    this.flashes[card] = { text, until: this.time + 2.4 };
+    this.refreshStrip();
+  }
+
+  refreshStrip() {
+    const S = this.strip;
+    if (!S) return;
+    const show = this.mode === 'play' || this.mode === 'basket' || this.mode === 'pack';
+    S.el.hidden = !show;
+    if (!show) return;
+    const put = (node, text) => { if (node.textContent !== text) node.textContent = text; node.hidden = !text; };
+    const flash = (k) => (this.flashes[k] && this.flashes[k].until > this.time ? this.flashes[k] : null);
+    const basket = this.mode !== 'play';
+    // the guest you prepare for: their request, your blend, their patience
+    let name = '';
+    let ask = '';
+    let sub = '';
+    let frac = null;
+    if (basket) {
+      name = t('roastGuest_student');
+      ask = t(CHRISTMAS ? 'roastAsk_basket' : 'roastAsk_basket_plain');
+      sub = t('roastBasketChosen', { list: (this.picks ?? []).map((k) => t(`roastItem_${ITEMS[k].key}`)).join(', ') || '–' });
+    } else if (this.active) {
+      const g = this.active;
+      name = t(`roastGuest_${g.def.id}`);
+      ask = g.ask ?? '';
+      sub = this.sel.length === 2 ? t('roastStripBlend', { recipe: this.recipeText({ a: this.sel[0], b: this.sel[1], ratio: RATIOS[this.ratioIdx] }) }) : t('roastStripPick');
+      frac = clamp(g.patience / g.patienceMax, 0, 1);
+    } else if (this.ready.length) ask = t('roastHudReady', { name: short(this.ready[0].g.def.id) });
+    else ask = t('roastNobody');
+    put(S.name, name);
+    put(S.ask, ask);
+    put(S.sub, sub);
+    S.bar.hidden = frac === null;
+    if (frac !== null) {
+      S.fill.style.width = `${Math.round(frac * 100)}%`;
+      S.fill.style.background = `var(--${frac > 0.5 ? 'xr-success' : frac > 0.25 ? 'xr-warning' : 'xr-danger'})`;
+    }
+    // the AI: its suggestion and how sure it is (or what it just learned)
+    let main = '';
+    let conf = null;
+    const fa = flash('ai');
+    if (fa) main = fa.text;
+    else if (basket) {
+      if (this.bsug?.profile) { main = t('roastStripBasketAi', { list: this.bsug.pick.map((k) => t(`roastItem_${k}`)).join(', ') }); conf = this.bsug.conf; } else main = t('roastAiBasketCold');
+    } else if (this.active && this.sug) {
+      const sg = this.sug;
+      if (sg.recipe) { main = `${this.recipeText(sg.recipe)}, ${stageName(sg.roast)}`; conf = sg.conf; } else if (sg.avoid) main = t('roastAiAvoid', { name: short(sg.avoid.id), recipe: this.recipeText(sg.avoid.recipe) });
+      else main = t('roastStripCold');
+    } else main = this.ai.count === 1 ? t('roastAiCount1') : t('roastAiCount', { n: this.ai.count });
+    put(S.aiLabel, t('roastStripAi'));
+    put(S.aiMain, main);
+    put(S.aiConf, conf === null ? '' : `${t('roastAiConf', { n: Math.round(conf * 100) })}${conf < 0.3 ? ` · ${t('roastAiUnsure')}` : ''}`);
+    S.aiConf.className = `roast-strip__conf roast-strip__conf--${conf >= 0.6 ? 'high' : conf >= 0.3 ? 'mid' : 'low'}`;
+    S.ai.classList.toggle('is-flash', !!fa);
+    // the drum: the stage while it roasts (with its color), who it is for, who is next
+    S.drum.hidden = basket;
+    S.el.classList.toggle('is-basket', basket);
+    if (!basket) {
+      const b = this.drumBatch;
+      const fd = flash('drum');
+      let stage = t('roastDrumFree');
+      let col = null;
+      const lines = [];
+      if (b?.state === 'roasting') {
+        stage = stageName(this.r);
+        col = beanColor(this.r);
+        lines.push(t('roastRoastFor', { name: short(b.g.def.id) }));
+      } else if (b?.state === 'pour') lines.push(t('roastRoastFor', { name: short(b.g.def.id) }));
+      else if (this.cooling.length) stage = t('roastStripCooling', { name: short(this.cooling[0].g.def.id) });
+      if (this.nextBatch) lines.push(t('roastNext', { name: short(this.nextBatch.g.def.id) }));
+      if (fd) lines.unshift(fd.text);
+      put(S.drumLabel, t('roastStripDrum'));
+      put(S.stage, stage);
+      S.chip.hidden = !col;
+      if (col) S.chip.style.background = `#${col.getHexString()}`;
+      put(S.drumSub, lines.join(' · '));
+      S.drum.classList.toggle('is-flash', !!fd);
+    }
+    this.placeStrip();
+  }
+
+  /** Under the status bar; sideways the columns end above the thumb buttons. */
+  placeStrip() {
+    const S = this.strip;
+    if (!S || S.el.hidden) return;
+    const H = window.innerHeight;
+    const land = window.innerWidth > H;
+    const hud = document.querySelector('#stage > .mhud');
+    const top = Math.round((hud?.getBoundingClientRect().bottom ?? 56) + 8);
+    S.el.style.top = `${top}px`;
+    if (land) {
+      const groups = this.padEl ? [...this.padEl.querySelectorAll('.mtouch__group')] : [];
+      const padTop = groups.length ? Math.min(...groups.map((g) => g.getBoundingClientRect().top)) : H;
+      S.el.style.bottom = `${Math.round(H - padTop + 8)}px`;
+      delete S.el.dataset.inset;
+    } else {
+      S.el.style.bottom = '';
+      S.el.dataset.inset = 'top'; // the 3D view is framed below it
+    }
+  }
+
+  /** Landscape on phones: the screen width the strip's columns cover on the left and right. */
+  stripSides() {
+    const S = this.strip;
+    if (!S || S.el.hidden || window.innerWidth <= window.innerHeight) return { left: 0, right: 0 };
+    const W = window.innerWidth;
+    const g = S.guest.getBoundingClientRect();
+    const right = [S.ai, S.drum].filter((c) => !c.hidden).map((c) => c.getBoundingClientRect().left);
+    return { left: g.width ? g.right + 6 : 0, right: right.length ? W - Math.min(...right) + 6 : 0 };
+  }
+
   // ---------- layout ----------
 
   /**
@@ -1405,6 +1575,7 @@ export class RoastScene extends BaseScene {
       this.aiPanel = fresh;
     }
     const ai = this.aiPanel;
+    ai.visible = !this.phone; // phones: the order strip shows the AI's suggestion
     if (kind === 'portrait') {
       ai.rotation.set(0, 0, 0);
       ai.scale.setScalar(1.2);
@@ -1443,6 +1614,11 @@ export class RoastScene extends BaseScene {
     this.roastBtn.position.set(this.blend.w / 2 + 0.02 + this.roastBtn.w / 2, -0.03, 0.002);
     this.stopBtn.position.set(0, -this.gauge.h / 2 - 0.014 - this.stopBtn.h / 2, 0.002);
     this.aiBtn.position.set(0, -ai.h / 2 - 0.012 - this.aiBtn.h / 2, 0.002);
+    // phones: the camera frames just the counter and the guests (the strip carries the panels' text)
+    if (this.phone) {
+      this.fit.position.set(-0.08, top + 0.08, -0.96);
+      this.fit.scale.set(1.3, 0.55, 0.68);
+    }
     this.guests.forEach((g) => this.placeBubble(g));
     this.updatePads();
   }
@@ -1481,6 +1657,9 @@ export class RoastScene extends BaseScene {
       b0 = Math.min(b0, b); b1 = Math.max(b1, b);
     }
     const H = window.innerHeight;
+    const W = window.innerWidth;
+    const side = this.stripSides();
+    const freeW = Math.max(0.35, 1 - (side.left + side.right) / W);
     const free = Math.max(0.35, 1 - (ins.top + ins.bottom) / H);
     const center = (ins.bottom - ins.top) / H;
     const tv = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
@@ -1494,9 +1673,10 @@ export class RoastScene extends BaseScene {
     for (const p of pts) {
       const q = p.clone().sub(T);
       const f = q.dot(fwd);
-      need = Math.max(need, (margin * Math.abs(q.x)) / th - f, (margin * Math.abs(q.dot(up))) / (tv * free) - f);
+      need = Math.max(need, (margin * Math.abs(q.x)) / (th * freeW) - f, (margin * Math.abs(q.dot(up))) / (tv * free) - f);
     }
     const want = T.clone().addScaledVector(fwd, -need).addScaledVector(up, -center * need * tv);
+    want.x += ((side.right - side.left) / W) * need * th;
     const k = this.camReady ? Math.min(1, dt * 4) : 1;
     this.camReady = true;
     cam.position.lerp(want, k);
@@ -1607,6 +1787,7 @@ export class RoastScene extends BaseScene {
       if (this.mode !== 'intro' && this.mode !== 'over') {
         this.refreshHud?.();
         this.updatePads();
+        this.refreshStrip();
       }
     }
   }
@@ -1633,6 +1814,7 @@ export class RoastScene extends BaseScene {
     this.audio.stop();
     music.stop();
     this.pads?.remove();
+    this.strip?.el.remove();
     for (const g of [...this.guests]) this.removeGuest(g);
     this.basketGuest?.dispose();
     this.smoke?.dispose();

@@ -184,7 +184,7 @@ export class BikeScene extends BaseScene {
     this.speedLines = makeSpeedLines(70, this.clipFx);
     cg.add(this.speedLines);
     // A soft shadow under the bike that stays on the ground: it shows the height of a jump.
-    this.blob = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.9).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-bike-hole'), transparent: true, opacity: 0.5, depthWrite: false }));
+    this.blob = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.9, 2, 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-bike-hole'), transparent: true, opacity: 0.5, depthWrite: false }));
     this.blob.userData.noFit = true;
     this.blob.renderOrder = 1;
     cg.add(this.blob);
@@ -2045,9 +2045,18 @@ export class BikeScene extends BaseScene {
       this.bike.root.position.copy(c.point(s, this.u));
       const groundY = c.h(s) + ramp0(c, s, this.u);
       this.blob.position.set(this.bike.root.position.x, groundY + 0.04, this.bike.root.position.z);
-      this.blob.rotation.set(Math.atan(c.dh(s)), c.yaw(s), 0, 'YXZ');
+      this.blob.rotation.set(0, c.yaw(s), 0, 'YXZ');
       const lift = this.inAir ? Math.max(0, this.y) : 0;
-      this.blob.scale.setScalar(1 / (1 + lift * 0.6));
+      const bs = 1 / (1 + lift * 0.6);
+      this.blob.scale.setScalar(bs);
+      // It bends with the ground (over crests and into dips) instead of cutting into it.
+      const bp = this.blob.geometry.attributes.position;
+      const along = bs / Math.sqrt(1 + c.dcx(s) ** 2);
+      for (let i = 0; i < bp.count; i++) {
+        const sz = s - bp.getZ(i) * along;
+        bp.setY(i, (c.h(sz) + ramp0(c, sz, this.u) - groundY) / bs);
+      }
+      bp.needsUpdate = true;
       this.blob.material.opacity = 0.5 / (1 + lift * 0.8);
       this.bike.root.position.y = this.inAir ? this.Y : groundY;
       // Along the slope (nose up on a ramp), along the flight in the air, plus the wheelie.

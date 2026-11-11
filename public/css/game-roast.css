@@ -188,18 +188,21 @@
 }
 .roast-strip__ai { grid-area: ai; border-color: var(--xr-roast-ai); }
 .roast-strip__drum { grid-area: drum; }
+.roast-strip.is-basket .roast-strip__ai { grid-column: 1 / -1; }
 .roast-strip__name { font-weight: var(--font-weight-bold); color: var(--xr-roast-bubble-muted); }
 .roast-strip__ask {
   font-size: var(--xr-roast-strip-ask);
   font-weight: var(--font-weight-bold);
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .roast-strip__sub { color: var(--xr-roast-bubble-muted); font-weight: var(--font-weight-bold); }
 .roast-strip__label { font-weight: var(--font-weight-bold); color: var(--xr-roast-ai); }
 .roast-strip__drum .roast-strip__label { color: var(--xr-panel-muted); }
+.roast-strip__drum .roast-strip__sub { color: var(--xr-panel-muted); }
+.roast-strip__drum.is-flash .roast-strip__sub { color: var(--xr-roast-wave); }
 .roast-strip__main { font-weight: var(--font-weight-bold); }
 .roast-strip__conf { font-weight: var(--font-weight-bold); }
 .roast-strip__conf--low { color: var(--xr-danger); }
@@ -233,6 +236,7 @@
     align-items: start;
   }
   .roast-strip__guest { max-height: 100%; }
+  .roast-strip.is-basket .roast-strip__ai { grid-column: auto; }
   .roast-strip__ask { -webkit-line-clamp: 6; }
 }
 /* the big buttons of this game: labels at reading size, bean and note on two lines */

@@ -21,14 +21,16 @@ import { EVENT } from '../event.js';
 import { CHRISTMAS, makeBulbs } from '../christmas.js';
 import { makeEnvironment } from '../robot-visuals.js';
 import '../dock-text.js';
-import { makeRound, Protein, evaluateFit, PASS } from '../dock-chem.js';
+import { makeRound, Protein, evaluateFit, PASS, designTruth } from '../dock-chem.js';
+import { Workshop } from '../dock-workshop.js';
+import { phoneStrip } from '../dock-phone.js';
 import {
   makeKit, MoleculeView, proteinMaterial, makeSpotMarkers, blobShadow, makeScreening, makeWells, loadBench, fallbackDeck,
   drawAIPanel, drawFitPanel, drawLabPanel, drawLegend, aiPanelSize, fitPanelSize, labPanelSize, legendSize, AI_ROWS,
 } from '../dock-visuals.js';
 
 const LEVELS = EVENT ? 3 : 4;
-const ROUND_TIME = EVENT ? 150 : 240; // seconds of play for all pockets
+const ROUND_TIME = EVENT ? 190 : 280; // seconds of play for all pockets
 const BENCH_DROP = 0.56; // bench top below eye height
 const BENCH_Z = -0.72;
 const PROT = { y: -0.17, z: -0.8 }; // protein center (y relative to eye height)
@@ -41,8 +43,11 @@ const CAPTURE = 0.06; // the pocket pulls a molecule in within this distance ...
 const TOL = { xr: 42, desk: 48, touch: 58 }; // ... and this angle (degrees) of the right pose
 const IN_POCKET = 0.035;
 const FIT_MIN = 0.5; // fit needed to send a molecule to the lab
-const HINT_T = [12, 24, 24, 24]; // seconds until the AI's pose is shown
+const HINT_T = [12, 24, 55, 55]; // seconds until the AI's pose (pockets 3, 4: the finished design) is shown
 const PTS = { fit: 400, speed: 450, fast: 12, slow: 72, tests: [250, 120, 40, 0] }; // per pocket (max 1100)
+// Pockets 3 and 4 (your own design): more time for building, plus points for the design (max 1300).
+// A perfect round: 2 x 1100 + 2 x 1300 = 4800.
+const PTS_DESIGN = { fit: 400, speed: 450, fast: 25, slow: 120, tests: [250, 120, 40, 0], design: 200 };
 const LAB_TIME = 3.6;
 const clamp = THREE.MathUtils.clamp;
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -81,6 +86,11 @@ export class DockScene extends BaseScene {
     this.tol = THREE.MathUtils.degToRad(this.isXR ? TOL.xr : this.touch ? TOL.touch : TOL.desk);
     this.buildLab();
     this.setupInput();
+    this.shop = new Workshop(this);
+    if (this.touch) {
+      this.strip = phoneStrip({ onPick: (c) => { if (c?.s === 'tray') { sfx.click(); this.pick(c); } } });
+      this.onSceneDispose(() => this.strip.remove());
+    }
     // The round is drawn now, so the first protein can be built in the background during the intro.
     this.round = makeRound(LEVELS);
     this.builds = [];
@@ -256,6 +266,7 @@ export class DockScene extends BaseScene {
     this.onKey = (ev) => {
       if (this.mode !== 'play' || this.isXR) return;
       const k = ev.key;
+      if (this.shop.key(k)) { ev.preventDefault(); return; }
       const step = THREE.MathUtils.degToRad(15);
       let handled = true;
       if (k >= '1' && k <= '4') this.pick(this.level?.candidates[Number(k) - 1]);
@@ -337,6 +348,7 @@ export class DockScene extends BaseScene {
 
   proximityGrab(p) {
     if (this.mode !== 'play' || p.kind !== 'xr' || !p.controller || !this.level) return;
+    if (this.shop.proximity(p)) return; // an atom from the dish, or one pulled off your design
     const hand = V().setFromMatrixPosition(this.ctrlMatrix(p));
     let best = null;
     let bestD = 0.13;
@@ -459,25 +471,16 @@ export class DockScene extends BaseScene {
     this.pocketLight.position.copy(V().copy(L.c0).add(V(0, 0, 0.17)).applyMatrix4(this.protein.F));
     // Candidates (they land on the tray when the screening is done).
     L.candidates.forEach((c, k) => {
-      c.view = new MoleculeView(this.kit, c.mol);
+      c.view = null;
       c.s = 'hidden';
       c.slot = k;
       c.pose = { pos: this.slotPos(k), quat: new THREE.Quaternion() };
       c.scale = 0.001;
-      c.trayScale = Math.min(this.touch ? 0.78 : 0.62, (this.touch ? 0.06 : TRAY.size) / c.mol.radius);
       c.spin = Math.random() * Math.PI * 2;
+      this.makeView(c);
       c.view.group.visible = false;
       c.badge = this.makeBadge(c);
       this.world.add(c.badge);
-      const proxy = c.view.proxy;
-      proxy.userData.interactive = true;
-      proxy.userData.label = t('dockCandidate', { c: c.letter });
-      proxy.userData.setHover = (v) => { c.hover = v; };
-      if (this.isXR) {
-        proxy.userData.onGrab = (p) => this.grabXR(c, p);
-        proxy.userData.onRelease = (p) => this.releaseXR(c, p);
-      } else proxy.userData.onClick = () => this.pick(c);
-      this.world.add(c.view.group);
     });
     this.active = null;
     this.snapped = false;
@@ -493,8 +496,35 @@ export class DockScene extends BaseScene {
     this.redrawAll();
     this.runScreening();
     sfx.scan();
-    this.toast(t('dockLevelTitle', { n: i + 1, name: t(L.key) }), 'xr-dock-ai');
+    this.toast(t(L.design ? 'dockDesignTitle' : 'dockLevelTitle', { n: i + 1, name: t(L.key) }), L.design ? 'xr-dock-you' : 'xr-dock-ai');
     this.refreshHud?.();
+  }
+
+  /** (Re)creates a candidate's molecule view (your own design changes with every atom). */
+  makeView(c) {
+    const old = c.view;
+    const v = new MoleculeView(this.kit, c.mol);
+    if (old) {
+      v.group.position.copy(old.group.position);
+      v.group.quaternion.copy(old.group.quaternion);
+      v.group.scale.copy(old.group.scale);
+      v.group.visible = old.group.visible;
+      if (this.hand?.held === old.proxy) this.hand.held = v.proxy;
+      old.group.removeFromParent();
+      old.dispose();
+    }
+    c.view = v;
+    c.trayScale = Math.min(this.touch ? 0.78 : 0.62, (this.touch ? 0.06 : TRAY.size) / c.mol.radius);
+    const proxy = v.proxy;
+    proxy.userData.interactive = true;
+    proxy.userData.label = c.kind === 'scaffold' ? t('dockOwn') : t('dockCandidate', { c: c.letter });
+    proxy.userData.setHover = (h) => { c.hover = h; };
+    if (this.isXR) {
+      proxy.userData.onGrab = (p) => this.grabXR(c, p);
+      proxy.userData.onRelease = (p) => this.releaseXR(c, p);
+    } else proxy.userData.onClick = () => this.pick(c);
+    this.world.add(v.group);
+    if (c.kind === 'scaffold') this.shop.attach(c);
   }
 
   // ---------- building proteins in the background ----------
@@ -680,6 +710,9 @@ export class DockScene extends BaseScene {
     c.pose.pos.copy(c.view.group.position);
     c.pose.quat.copy(c.view.group.quaternion);
     c.fit = Math.round((this.fitOut.fit ?? 0) * 100) / 100;
+    // Your own design: the lab measures what you built.
+    if (c.kind === 'scaffold') Object.assign(c, designTruth(this.level, c.choices));
+    this.shop.clear();
     c.s = 'lab';
     c.testing = true;
     this.mode = 'lab';
@@ -747,17 +780,18 @@ export class DockScene extends BaseScene {
     const L = this.level;
     c.s = 'done';
     this.solved += 1;
-    const speed = Math.round(PTS.speed * clamp((PTS.slow - L.t) / (PTS.slow - PTS.fast), 0, 1));
-    const fitPts = Math.round(PTS.fit * clamp(c.fit, 0, 1));
-    const testPts = PTS.tests[Math.min(PTS.tests.length - 1, L.tests - 1)];
-    const pts = fitPts + speed + testPts;
+    const P = L.design ? PTS_DESIGN : PTS;
+    const speed = Math.round(P.speed * clamp((P.slow - L.t) / (P.slow - P.fast), 0, 1));
+    const fitPts = Math.round(P.fit * clamp(c.fit, 0, 1));
+    const testPts = P.tests[Math.min(P.tests.length - 1, L.tests - 1)];
+    const pts = fitPts + speed + testPts + (L.design && c.kind === 'scaffold' ? P.design : 0);
     this.score += pts;
     this.levelLog.push({ level: L.idx, fit: c.fit, time: Math.round(L.t), tests: L.tests, pts });
     sfx.powerup();
     this.delay(0.15, () => { if (!this.disposed) sfx.correct(); });
     this.burst(this.world.localToWorld(this.idealPos.clone()), 'xr-dock-good', 40);
     this.ringFlash(this.idealPos, 'xr-dock-good');
-    this.toast(t('dockSolved', { n: pts }), 'xr-dock-good', t('dockWhyGood'));
+    this.toast(t('dockSolved', { n: pts }), 'xr-dock-good', t(c.why));
     this.mode = 'solved';
     this.refreshHud?.();
     this.delay(2.6, () => {
@@ -768,14 +802,18 @@ export class DockScene extends BaseScene {
   }
 
   fail(c, top) {
-    c.s = 'failed';
-    c.view.clearGlow();
-    if (this.active === c) this.active = null;
-    this.snapped = false;
+    const own = c.kind === 'scaffold';
+    // Your own design stays in the pocket: change atoms and test again. Others go back, marked.
+    c.s = own ? 'active' : 'failed';
+    if (!own) {
+      c.view.clearGlow();
+      if (this.active === c) this.active = null;
+      this.snapped = false;
+    }
     sfx.wrong();
     const verdict = c.lab >= 34 ? t('dockLabWeak') : t('dockLabNone');
-    this.toast(top ? t('dockLabSurprise') : `${t('dockCandidate', { c: c.letter })}: ${verdict}`, 'xr-dock-bad', t(c.why));
-    this.flyHome(c);
+    this.toast(top ? t('dockLabSurprise') : `${own ? t('dockOwn') : t('dockCandidate', { c: c.letter })}: ${verdict}`, 'xr-dock-bad', t(c.why));
+    if (!own) this.flyHome(c);
     this.mode = 'play';
     this.redrawFit();
     // Phones: the result lies over the protein; it goes when you carry on.
@@ -798,7 +836,7 @@ export class DockScene extends BaseScene {
     const learned = [
       { q: t('dockLearnQ1'), a: t('dockLearnA1') },
       { q: t('dockLearnQ2'), a: t('dockLearnA2') },
-      { q: t('dockLearnQ3'), a: t('dockLearnA3') },
+      { q: t('dockLearnQ4'), a: t('dockLearnA4') },
     ];
     const parts = [t('dockLine', { solved: this.solved, total: LEVELS, tests: this.tests })];
     if (this.tipsTested) parts.push(t('dockLineAI', { hits: this.tipsHit, tips: this.tipsTested }));
@@ -809,6 +847,7 @@ export class DockScene extends BaseScene {
 
   clearCandidates() {
     this.showRay();
+    this.shop?.clear();
     if (!this.level) return;
     for (const c of this.level.candidates) {
       if (!c.view) continue;
@@ -825,7 +864,8 @@ export class DockScene extends BaseScene {
 
   showGhost(c) {
     this.removeGhost();
-    const g = new MoleculeView(this.kit, c.mol, { ghost: true });
+    // Your own design: the AI shows the finished molecule (a hint after a long while).
+    const g = new MoleculeView(this.kit, c.kind === 'scaffold' ? this.level.template : c.mol, { ghost: true });
     g.group.position.copy(this.idealPos);
     g.group.quaternion.copy(this.idealQuat);
     g.group.renderOrder = 3;
@@ -909,8 +949,14 @@ export class DockScene extends BaseScene {
     }
     this.labBtnState();
     if (!this.isXR && !this.touch) this.deskCamera(dt);
-    this.pad?.show(this.mode === 'play' || this.mode === 'lab' || this.mode === 'screen' || this.mode === 'solved' || this.mode === 'switch');
-    this.swipe?.show(this.mode === 'play' && !!this.active && !this.swiped);
+    const atomPad = this.shop.update(dt, this.time);
+    const live = this.mode === 'play' || this.mode === 'lab' || this.mode === 'screen' || this.mode === 'solved' || this.mode === 'switch';
+    this.pad?.show(live && !atomPad);
+    this.swipe?.show(this.mode === 'play' && !!this.active && !this.swiped && !atomPad);
+    if (this.strip) {
+      this.strip.show(live);
+      if (live) { this.strip.place(); if (tick !== this.stripTick) { this.stripTick = tick; this.strip.set(this.phoneState()); } }
+    }
   }
 
   /** Tray molecules turn slowly; failed ones sit small and dim. */
@@ -931,7 +977,7 @@ export class DockScene extends BaseScene {
         c.pose.quat.setFromEuler(new THREE.Euler(this.touch ? -0.15 : -0.55, Math.sin(c.spin) * (c.s === 'failed' ? 0.2 : 0.6), 0));
       }
       if (c.badge) {
-        c.badge.position.copy(home).add(this.touch ? V(0, -0.07, 0.01) : V(0, -TRAY.lift + 0.022, 0.058));
+        c.badge.position.copy(home).add(this.touch ? V(0, -0.085, 0.01) : V(0, -TRAY.lift + 0.022, 0.058));
         c.badge.visible = c.s !== 'hidden';
       }
       c.scale += (want - c.scale) * Math.min(1, dt * 8);
@@ -960,8 +1006,9 @@ export class DockScene extends BaseScene {
       ctx.fillStyle = color(done ? (ok ? 'xr-dock-good' : 'xr-dock-bad') : 'xr-panel-text');
       ctx.fillText(c.letter, p.canvas.width / 2, p.canvas.height * 0.54);
     });
+    if (this.touch) b.scale.setScalar(1.5); // phones: big enough to read and to tap
     b.userData.interactive = true;
-    b.userData.label = t('dockCandidate', { c: c.letter });
+    b.userData.label = c.kind === 'scaffold' ? t('dockOwn') : t('dockCandidate', { c: c.letter });
     b.userData.onClick = () => this.pick(c);
     b.userData.setHover = (v) => { c.hover = v; };
     return b;
@@ -1064,6 +1111,8 @@ export class DockScene extends BaseScene {
     this.engine.haptic(this.hand, 0.8, 90);
     this.ringFlash(this.idealPos, (this.fitOut.fit ?? 0) >= FIT_MIN ? 'xr-dock-good' : 'xr-dock-mid');
     this.removeGhost();
+    // The scaffold sits in the pocket: the first free attachment point is ready for an atom.
+    if (this.active?.kind === 'scaffold' && this.shop.sel === null) this.shop.select(this.shop.nextEmpty());
   }
 
   /** A ring of light that widens around the pocket. */
@@ -1094,81 +1143,13 @@ export class DockScene extends BaseScene {
     const compact = key === 'port' || key === 'land';
     // Rebuild the panels (sizes differ between full and compact).
     [...this.ui.children].forEach((o) => { o.removeFromParent(); disposeOwn(o); });
-    const ai = aiPanelSize(compact);
-    this.aiPanel = new Panel(ai.w, ai.h, (ctx, c) => drawAIPanel(ctx, c, this.aiState()));
-    const fs = fitPanelSize(compact, key === 'land');
-    this.fitPanel = new Panel(fs.w, fs.h, (ctx, c) => drawFitPanel(ctx, c, this.fitState()));
-    const ls = labPanelSize();
-    this.labPanel = new Panel(ls.w, ls.h, (ctx, c) => drawLabPanel(ctx, c, { cand: this.labCand, k: this.labCand?.tested ? 1 : this.labK ?? 0 }));
-    const lg = legendSize(compact);
-    this.legend = key === 'port' ? null : new Panel(lg.w, lg.h, (ctx, c) => drawLegend(ctx, c, { compact }));
-    this.ui.add(this.aiPanel, this.fitPanel, this.labPanel);
-    if (this.legend) this.ui.add(this.legend);
-    // Rows of the AI ranking can be picked (pointer, mouse, finger).
-    this.rowHits = [0, 1, 2, 3].map((i) => {
-      const R = AI_ROWS(compact);
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(ai.w - 0.04, R.h), this.kit.hidden);
-      m.position.set(0, ai.h / 2 - (R.y0 + R.h * i + R.h / 2), 0.002);
-      m.userData.interactive = true;
-      m.userData.onClick = () => {
-        const c = this.level && [...this.level.candidates].sort((a, b) => b.ai - a.ai)[i];
-        if (!c) return;
-        sfx.click();
-        this.pick(c);
-      };
-      this.aiPanel.add(m);
-      return m;
-    });
-    // Buttons (desktop: to the pocket and dock; headset: to the lab).
+    // Phones: the ranking, the fit meter and the lab result are a readable strip on the screen
+    // (dock-phone.js); the 3D view keeps the protein and the candidates, large.
+    this.aiPanel = this.fitPanel = this.labPanel = this.legend = null;
+    this.rowHits = [];
     this.btnSnap = null;
     this.btnDock = null;
-    if (!this.touch) {
-      this.btnDock = new Button(this.isXR ? 0.36 : 0.27, 0.11, { label: t(this.isXR ? 'dockBtnLab' : 'dockBtnDock'), variant: 'primary', onClick: () => this.dock() });
-      this.ui.add(this.btnDock);
-      if (!this.isXR) {
-        this.btnSnap = new Button(0.25, 0.11, { label: t('dockBtnSnap'), onClick: () => this.snapToPocket() });
-        this.ui.add(this.btnSnap);
-      }
-    }
-    const pz = -0.95;
-    if (key === 'xr') {
-      // Left: the AI's ranking; right beside the protein: the fit meter and the lab button,
-      // above them the lab result. Everything within reach of a glance while docking.
-      placeOnArc(this.aiPanel, -0.6, eye + 0.06, 1.0);
-      if (this.legend) placeOnArc(this.legend, -0.6, eye + 0.06 + ai.h / 2 + 0.03 + lg.h / 2, 1.0);
-      this.fitPanel.position.set(0.45, eye - 0.06, -0.84);
-      this.fitPanel.rotation.y = -0.5;
-      this.btnDock.position.set(0.44, eye - 0.06 - fs.h / 2 - 0.03 - this.btnDock.h / 2, -0.83);
-      this.btnDock.rotation.y = -0.5;
-      placeOnArc(this.labPanel, 0.64, eye + 0.25, 1.05);
-    } else if (key === 'desk') {
-      this.aiPanel.position.set(-0.76, eye + 0.1, pz);
-      this.legend.position.set(-0.76, eye + 0.1 - ai.h / 2 - 0.03 - lg.h / 2, pz);
-      this.fitPanel.position.set(0.7, eye + 0.31, pz);
-      const by = eye + 0.31 - fs.h / 2 - 0.03 - 0.055;
-      this.btnSnap.position.set(0.7 - 0.14, by, pz);
-      this.btnDock.position.set(0.7 + 0.14, by, pz);
-      this.labPanel.position.set(0.7, by - 0.055 - 0.03 - ls.h / 2, pz);
-    } else if (key === 'land') {
-      // Left: fit meter, protein, candidates. Right: the AI's ranking and the legend, ending
-      // above the thumb buttons in the lower right corner.
-      this.fitPanel.position.set(0, eye + 0.17, -0.9);
-      const top = eye + 0.17 + fs.h / 2;
-      this.aiPanel.position.set(0.7, top - ai.h / 2, -0.9);
-      this.legend.position.set(0.7, top - ai.h - 0.025 - lg.h / 2, -0.9);
-      this.labPanel.position.set(0, eye - 0.12, -0.55);
-    } else {
-      this.aiPanel.position.set(0, eye + 0.37, -0.9);
-      this.fitPanel.position.set(0, eye + 0.1, -0.9);
-      this.labPanel.position.set(0, eye - 0.15, -0.62);
-      this.labPanel.scale.setScalar(0.92);
-    }
-    // On phones the lab result lies over the protein; it does not change the framing.
-    if (compact) {
-      this.labPanel.userData.noFit = true;
-      this.labPanel.material.depthTest = false;
-      this.labPanel.renderOrder = 20;
-    }
+    if (!compact) this.buildPanels(key);
     // Phones frame panels, protein and the candidates; the bench is only backdrop.
     this.bench.userData.noFit = compact;
     this.bench.visible = !compact;
@@ -1224,6 +1205,93 @@ export class DockScene extends BaseScene {
     }
     cam.position.lerp(this.deskView.pos, Math.min(1, dt * 5));
     cam.lookAt(this.deskView.target);
+  }
+
+  /** The 3D panels of the headset and the desktop (ranking, legend, fit meter, buttons, lab). */
+  buildPanels(key) {
+    const { eye } = this;
+    const compact = false;
+    const ai = aiPanelSize(compact);
+    this.aiPanel = new Panel(ai.w, ai.h, (ctx, c) => drawAIPanel(ctx, c, this.aiState()));
+    const fs = fitPanelSize(compact);
+    this.fitPanel = new Panel(fs.w, fs.h, (ctx, c) => drawFitPanel(ctx, c, this.fitState()));
+    const ls = labPanelSize();
+    this.labPanel = new Panel(ls.w, ls.h, (ctx, c) => drawLabPanel(ctx, c, { cand: this.labCand, k: this.labCand?.tested ? 1 : this.labK ?? 0, build: this.buildInfo() }));
+    const lg = legendSize(compact);
+    this.legend = new Panel(lg.w, lg.h, (ctx, c) => drawLegend(ctx, c, { compact }));
+    this.ui.add(this.aiPanel, this.fitPanel, this.labPanel);
+    if (this.legend) this.ui.add(this.legend);
+    // Rows of the AI ranking can be picked (pointer, mouse, finger).
+    this.rowHits = [0, 1, 2, 3].map((i) => {
+      const R = AI_ROWS(compact);
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(ai.w - 0.04, R.h), this.kit.hidden);
+      m.position.set(0, ai.h / 2 - (R.y0 + R.h * i + R.h / 2), 0.002);
+      m.userData.interactive = true;
+      m.userData.onClick = () => {
+        const c = this.level && [...this.level.candidates].sort((a, b) => b.ai - a.ai)[i];
+        if (!c) return;
+        sfx.click();
+        this.pick(c);
+      };
+      this.aiPanel.add(m);
+      return m;
+    });
+    // Buttons (desktop: to the pocket and dock; headset: to the lab).
+    if (!this.touch) {
+      this.btnDock = new Button(this.isXR ? 0.36 : 0.27, 0.11, { label: t(this.isXR ? 'dockBtnLab' : 'dockBtnDock'), variant: 'primary', onClick: () => this.dock() });
+      this.ui.add(this.btnDock);
+      if (!this.isXR) {
+        this.btnSnap = new Button(0.25, 0.11, { label: t('dockBtnSnap'), onClick: () => this.snapToPocket() });
+        this.ui.add(this.btnSnap);
+      }
+    }
+    const pz = -0.95;
+    if (key === 'xr') {
+      // Left: the AI's ranking; right beside the protein: the fit meter and the lab button,
+      // above them the lab result. Everything within reach of a glance while docking.
+      placeOnArc(this.aiPanel, -0.6, eye + 0.06, 1.0);
+      if (this.legend) placeOnArc(this.legend, -0.6, eye + 0.06 + ai.h / 2 + 0.03 + lg.h / 2, 1.0);
+      this.fitPanel.position.set(0.45, eye - 0.06, -0.84);
+      this.fitPanel.rotation.y = -0.5;
+      this.btnDock.position.set(0.44, eye - 0.06 - fs.h / 2 - 0.03 - this.btnDock.h / 2, -0.83);
+      this.btnDock.rotation.y = -0.5;
+      placeOnArc(this.labPanel, 0.64, eye + 0.25, 1.05);
+    } else if (key === 'desk') {
+      this.aiPanel.position.set(-0.76, eye + 0.1, pz);
+      this.legend.position.set(-0.76, eye + 0.1 - ai.h / 2 - 0.03 - lg.h / 2, pz);
+      this.fitPanel.position.set(0.7, eye + 0.31, pz);
+      const by = eye + 0.31 - fs.h / 2 - 0.03 - 0.055;
+      this.btnSnap.position.set(0.7 - 0.14, by, pz);
+      this.btnDock.position.set(0.7 + 0.14, by, pz);
+      this.labPanel.position.set(0.7, by - 0.055 - 0.03 - ls.h / 2, pz);
+    }
+  }
+
+  /** The workshop's panel text in pockets 3 and 4 (instead of the waiting lab). */
+  buildInfo() {
+    const c = this.shop?.cand;
+    if (!c) return null;
+    return { est: c.ai, hint: t(this.isXR ? 'dockWorkshopXR' : 'dockWorkshopScreen') };
+  }
+
+  /** Phones: what the screen strip shows (fit meter, ranking chips, lab result). */
+  phoneState() {
+    const f = this.fitState();
+    const L = this.level;
+    const chips = L && this.mode !== 'screen' ? [...L.candidates].sort((a, b) => b.ai - a.ai).map((c) => ({
+      cand: c, letter: c.letter, ai: c.ai, top: c === L.top, own: c.kind === 'scaffold', active: c === this.active,
+      tested: !!c.tested, ok: (c.lab ?? 0) >= PASS,
+    })) : [];
+    let lab = null;
+    const c = this.labCand;
+    if (c) {
+      const done = !!c.tested;
+      const value = done ? c.lab : Math.round(c.truth * Math.min(1, this.labK ?? 0));
+      lab = { letter: c.letter, value, done, ok: done && c.lab >= PASS, ai: c.ai, verdict: !done ? '' : c.lab >= PASS ? t('dockLabStrong') : c.lab >= 34 ? t('dockLabWeak') : t('dockLabNone') };
+    }
+    const tok = Object.entries({ 'xr-dock-good': 'xr-dock-good', 'xr-dock-bad': 'xr-dock-bad', 'xr-dock-mid': 'xr-dock-mid' }).find(([, v]) => f.statusColor === color(v));
+    const status = this.shop.building && this.shop.sel !== null ? t('dockStatusBuild') : f.status;
+    return { fit: f.fit, good: f.good, bad: f.bad, special: f.special, status, statusToken: tok ? tok[0] : 'xr-panel-muted', chips, lab };
   }
 
   aiState() {

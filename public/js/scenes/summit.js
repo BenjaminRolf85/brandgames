@@ -1,16 +1,20 @@
 // "Gipfelgespräch" / "Summit Talk": a climbing wall that is a sales conversation. Five sections
 // of the wall are the five stages of the talk (opening, needs, value, objections, closing at
 // the summit). The customer waits at the summit and says something; the holds within Echo's
-// reach are the possible replies. Strong replies are solid holds (Echo climbs, trust rises),
-// acceptable ones wobble, weak ones crumble (Echo slips, trust and strength drop; pick again).
-// Strength drains while you think. Three customers of different types (analytical,
+// reach are the possible replies. Choosing a reply means taking hold of it and pulling yourself
+// up on it: strong replies are solid holds (a soft click, Echo climbs, trust rises), acceptable
+// ones wobble, weak ones break in the hand (a jolt, Echo slips, trust and strength drop; pick
+// again). Strength drains while you hesitate, and every pull costs a little. Three customers of different types (analytical,
 // relationship-oriented, decisive), each a full climb.
 // The AI idea: an AI coach reads the customer's words (a small lexicon-based sentiment and
 // customer-type analysis, summit-ai.js) and shows mood and type with its confidence, the signal
 // words it reacted to and a tip; after the reply it shows whether it read the customer right.
 // It misses irony, hesitation and problem words that are not aimed at you: the human reads more.
-// Controls: Quest: reach out and grab a hold (trigger, squeeze or pinch near it) or point and
-// press; desktop: click a hold or a reply, keys 1 to 3; phones: big answer buttons (or tap a hold).
+// Controls: Quest: grab a hold (grip, trigger or pinch near it, or point at it) and pull the hand
+// down: the wall moves with the hand; let go and grab the next one. Comfort option in the intro:
+// moves in jumps behind a short fade instead of continuous; a vignette while the wall moves.
+// Desktop and phones: press on a hold (or its reply) and drag it down; a ring shows how far.
+// Keys 1 to 3, a click without dragging and the answer buttons pull by themselves.
 import * as THREE from 'three';
 import { BaseScene } from '../scene.js';
 import { textPanel, Button } from '../ui3d.js';
@@ -115,6 +119,57 @@ export class SummitScene extends BaseScene {
     this.onUpdate((dt) => this.update(dt));
     const hint = this.engine.isXR ? 'summitIntroXR' : this.engine.touchUI ? 'summitIntroTouch' : 'summitIntroScreen';
     this.intro(t('summitName'), `${t('summitIntro')} ${t(hint)}`, () => this.start());
+    try { this.comfortSnap = localStorage.getItem(COMFORT_KEY) === 'snap'; } catch { this.comfortSnap = false; }
+    if (this.engine.isXR) {
+      this.addComfortButton();
+      this.buildVignette();
+    }
+  }
+
+  /** Headset: below the start button, continuous moves or moves in jumps (comfort). */
+  addComfortButton() {
+    const go = this.layer.children.find((o) => o instanceof Button && o.opts?.label === t('start'));
+    if (!go) return;
+    const label = () => t('summitComfort', { mode: t(this.comfortSnap ? 'summitComfortSnap' : 'summitComfortSmooth') });
+    const btn = this.add(new Button(0.5, 0.09, {
+      label: label(),
+      onClick: (_, b) => {
+        this.comfortSnap = !this.comfortSnap;
+        try { localStorage.setItem(COMFORT_KEY, this.comfortSnap ? 'snap' : 'smooth'); } catch { /* private mode */ }
+        b.opts.label = label();
+        b.redraw();
+      },
+    }));
+    btn.position.set(0, go.position.y - go.h / 2 - 0.04 - btn.h / 2, go.position.z);
+    this.popIn(btn, 0.2);
+    this.comfortBtn = btn;
+  }
+
+  /** Headset: a dark ring around the view while the wall moves (and a short fade for jumps). */
+  buildVignette() {
+    const mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      uniforms: { uA: { value: 0 }, uB: { value: 0 }, uColor: { value: new THREE.Color(hex('xr-summit-vignette')) } },
+      vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform float uA; uniform float uB; uniform vec3 uColor; varying vec2 vUv;
+        void main() {
+          float r = length(vUv - 0.5);
+          float a = max(smoothstep(0.1, 0.3, r) * uA, uB);
+          if (a < 0.004) discard;
+          gl_FragColor = vec4(uColor, a);
+          #include <colorspace_fragment>
+        }`,
+    });
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), mat);
+    m.position.z = -0.25;
+    m.renderOrder = 9999;
+    m.frustumCulled = false;
+    m.visible = false;
+    this.engine.camera.add(m);
+    this.vignette = m;
+    this.blinkT = 0;
   }
 
   /** One customer of every type (shuffled), the B2B or B2C one at random. */
@@ -255,15 +310,29 @@ export class SummitScene extends BaseScene {
       }
     };
     window.addEventListener('keydown', this.onKey);
-    // Quest: reach out and grab a hold (trigger, squeeze or pinch while the hand is near it).
+    // Quest: reach out and grab a hold (grip, trigger or pinch while the hand is near it), then
+    // pull the hand down; letting go before the end finishes the move by itself.
     this.grabbers = [];
     for (const p of this.engine.pointers) {
       if (p.kind !== 'xr' || !p.controller) continue;
       const fn = () => this.tryGrab(p);
+      const up = () => this.releasePull(p);
       p.controller.addEventListener('selectstart', fn);
       p.controller.addEventListener('squeezestart', fn);
-      this.grabbers.push([p.controller, fn]);
+      p.controller.addEventListener('selectend', up);
+      p.controller.addEventListener('squeezeend', up);
+      this.grabbers.push([p.controller, fn, up]);
     }
+    // Mouse and finger: where the press started, so a drag downward pulls.
+    const c = this.engine.canvas;
+    this.onDown = (e) => { this.downY = e.clientY; };
+    this.onMove = (e) => {
+      const P = this.pull;
+      if (!P || P.via !== 'drag' || this.downY == null) return;
+      P.dragP = clamp((e.clientY - this.downY) / this.pullPx(), 0, 1);
+    };
+    c.addEventListener('pointerdown', this.onDown);
+    c.addEventListener('pointermove', this.onMove);
     // Phones: the talk with big answer buttons.
     if (this.engine.touchUI) {
       this.talk = phoneTalk({ onPick: (i) => this.choose(i), onNext: () => this.next() });
@@ -275,7 +344,23 @@ export class SummitScene extends BaseScene {
   tryGrab(p) {
     if (this.mode !== 'choose') return;
     const near = this.options.find((o) => o.nearBy === p && !o.gone);
-    if (near) this.choose(this.options.indexOf(near));
+    if (near) this.choose(this.options.indexOf(near), 'hand', p);
+  }
+
+  /** A hold was taken by a pointer: headset hands pull, mouse and finger drag. */
+  grabOption(opt, p) {
+    const i = this.options.indexOf(opt);
+    if (p?.kind === 'xr') this.choose(i, 'hand', p);
+    else this.choose(i, this.engine.isXR ? 'auto' : 'drag');
+  }
+
+  /** Let go: a move that was pulled only part of the way finishes by itself. */
+  releasePull(p) {
+    const P = this.pull;
+    if (!P || this.mode !== 'pull') return;
+    if (P.via === 'hand' && P.hand !== p) return;
+    if (P.via === 'drag') this.downY = null;
+    P.release = true;
   }
 
   // ---------- flow ----------
@@ -537,13 +622,16 @@ export class SummitScene extends BaseScene {
     hold.setState('option');
     this.mountain?.add(hold.group);
     const opt = { reply, n, hold, gone: false, nearBy: null, x, y, z };
-    hold.hit.userData.onClick = () => this.choose(this.options.indexOf(opt));
+    hold.hit.userData.onGrab = (p) => this.grabOption(opt, p);
+    hold.hit.userData.onRelease = (p) => this.releasePull(p);
     hold.hit.userData.label = L(reply.text);
     hold.group.scale.setScalar(0.001);
     this.anim(0.35, (k) => hold.group.scale.setScalar(Math.max(0.001, k)), null, 0.1 + i * 0.08);
     // Reply plate above the hold (not on phones: the answers are on the screen there).
     if (!this.engine.touchUI) {
       const label = makeLabel(n, L(reply.text), () => this.choose(this.options.indexOf(opt)));
+      label.userData.onGrab = (p) => this.grabOption(opt, p);
+      label.userData.onRelease = (p) => this.releasePull(p);
       const h = holder(label, LS);
       h.position.set(x, y + 0.05 + (label.h * LS) / 2, this.stepIndex === 4 ? 0.2 : z + 0.09);
       this.mountain?.add(h);
@@ -553,7 +641,6 @@ export class SummitScene extends BaseScene {
     return opt;
   }
 
-  /** The player picks reply i (click, key, grab or tap). */
   /**
    * The player takes hold of reply i: via 'hand' (Quest, the hand pulls), 'drag' (mouse or
    * finger drags the hold down) or 'auto' (click, key, answer button, pointing: pulls by itself).
@@ -616,6 +703,23 @@ export class SummitScene extends BaseScene {
       hh.position.set(opt.x, opt.y - 0.075, opt.z + 0.11);
       this.mountain.add(hh);
       this.pullHint = hh;
+    }
+  }
+
+  /** The reply plate turns into the verdict with a tip (on phones: the answer button). */
+  showFeedback(opt, i, kind) {
+    const tip = L(opt.reply.tip);
+    this.talk?.mark(i, kind, tip);
+    if (opt.label) {
+      const old = opt.label;
+      old.removeFromParent();
+      old.userData.panel.dispose();
+      const fb = makeFeedback(kind, tip);
+      const h = holder(fb, LS);
+      h.position.set(opt.x, opt.y + 0.05 + (fb.h * LS) / 2, this.stepIndex === 4 ? 0.21 : opt.z + 0.1);
+      this.mountain.add(h);
+      this.popIn(fb);
+      opt.label = h;
     }
   }
 
@@ -753,24 +857,6 @@ export class SummitScene extends BaseScene {
   /** Comfort setting in the headset: moves as quick jumps behind a short fade. */
   snapMoves() {
     return this.engine.isXR && this.comfortSnap;
-  }
-
-  /** Mouse or finger: grab a hold where the pointer goes down, then drag down to pull. */
-  pickAt(ev) {
-    const r = this.engine.canvas.getBoundingClientRect();
-    const ndc = new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
-    const ray = new THREE.Raycaster();
-    ray.setFromCamera(ndc, this.engine.camera);
-    const targets = [];
-    this.options.forEach((o, i) => {
-      if (o.gone) return;
-      targets.push([o.hold.hit, i]);
-      if (o.label?.userData.panel) targets.push([o.label.userData.panel, i]);
-    });
-    this.group.updateMatrixWorld(true);
-    const hits = ray.intersectObjects(targets.map(([o]) => o), false);
-    if (!hits.length) return -1;
-    return targets.find(([o]) => o === hits[0].object)[1];
   }
 
   /** How far (CSS px) a drag goes for one move. */
@@ -973,8 +1059,31 @@ export class SummitScene extends BaseScene {
     this.tickTimers(dt);
     const e = this.engine;
     // The wall scrolls with the climb, so the holds within reach stay at arm's length.
-    this.focus += (this.focusTo - this.focus) * (1 - Math.exp(-dt * 3.2));
-    this.depth += (this.depthTo - this.depth) * (1 - Math.exp(-dt * 2.4));
+    this.updatePull(dt);
+    const was = this.focus;
+    if (this.snapMoves()) {
+      // Comfort: the wall jumps to its new place behind a short fade.
+      const off = Math.abs(this.focusTo - this.focus) + Math.abs(this.depthTo - this.depth);
+      if (off > 0.003 && !this.blinkT) this.blinkT = 0.001;
+    } else {
+      this.focus += (this.focusTo - this.focus) * (1 - Math.exp(-dt * 3.2));
+      this.depth += (this.depthTo - this.depth) * (1 - Math.exp(-dt * 2.4));
+    }
+    if (this.vignette) {
+      let blink = 0;
+      if (this.blinkT) {
+        const b0 = this.blinkT;
+        this.blinkT += dt;
+        if (b0 < 0.12 && this.blinkT >= 0.12) { this.focus = this.focusTo; this.depth = this.depthTo; }
+        blink = this.blinkT < 0.12 ? this.blinkT / 0.12 : clamp(1 - (this.blinkT - 0.12) / 0.18, 0, 1);
+        if (this.blinkT > 0.3) this.blinkT = 0;
+      }
+      const speed = Math.abs(this.focus - was) / Math.max(dt, 1e-3);
+      const u = this.vignette.material.uniforms;
+      u.uA.value += (clamp(speed / 0.25, 0, 1) * 0.9 - u.uA.value) * (1 - Math.exp(-dt * 10));
+      u.uB.value = blink;
+      this.vignette.visible = this.engine.isXR && (u.uA.value > 0.01 || blink > 0);
+    }
     this.placeMountain();
     cutUniform.value = this.group.localToWorld(new THREE.Vector3(0, this.CLOUD_Y + 0.02, 0)).y;
     this.sky?.userData.tick(this.time);
@@ -1117,9 +1226,19 @@ export class SummitScene extends BaseScene {
   dispose() {
     this.mode = 'over';
     window.removeEventListener('keydown', this.onKey);
-    for (const [c, fn] of this.grabbers ?? []) {
+    for (const [c, fn, up] of this.grabbers ?? []) {
       c.removeEventListener('selectstart', fn);
       c.removeEventListener('squeezestart', fn);
+      c.removeEventListener('selectend', up);
+      c.removeEventListener('squeezeend', up);
+    }
+    this.engine.canvas.removeEventListener('pointerdown', this.onDown);
+    this.engine.canvas.removeEventListener('pointermove', this.onMove);
+    this.removePullHint();
+    if (this.vignette) {
+      this.vignette.removeFromParent();
+      this.vignette.geometry.dispose();
+      this.vignette.material.dispose();
     }
     this.app.echo?.suppress(false);
     this.engine.fitEnabled = true;

@@ -6,10 +6,10 @@
 import * as THREE from 'three';
 import { color, hex, num, font } from './tokens.js';
 import { t } from './i18n.js';
-import { roundRect, wrap } from './ui3d.js';
+import { roundRect, wrap, Panel } from './ui3d.js';
 import { loadGLTF } from './models.js';
 import { radialTexture } from './robot-visuals.js';
-import { ELEMENTS, SPOTS, B } from './dock-chem.js';
+import { ELEMENTS, SPOTS, B, DESIGN_ATOMS } from './dock-chem.js';
 
 export const DOCK_URL = 'assets/models/dock.glb';
 const col = (token) => new THREE.Color(hex(token));
@@ -522,10 +522,11 @@ export function drawAIPanel(ctx, c, st) {
     ctx.fillStyle = color('xr-button-bg');
     ctx.fill();
     ctx.lineWidth = c.m(0.003);
-    ctx.strokeStyle = color(i === 0 ? 'xr-warning' : 'xr-panel-border');
+    const top = cand === L.top;
+    ctx.strokeStyle = color(top ? 'xr-warning' : cand.kind === 'scaffold' ? 'xr-dock-you' : 'xr-panel-border');
     ctx.stroke();
     text(ctx, c, cand.letter, bx, y + 0.002, { size: 'xr-text-sm', weight: 'black', align: 'center' });
-    if (i === 0) star(ctx, c.m(bx + 0.024), c.m(y - 0.022), c.m(0.012), color('xr-warning'));
+    if (top) star(ctx, c.m(bx + 0.024), c.m(y - 0.022), c.m(0.012), color('xr-warning'));
     const bx0 = pad + 0.062;
     const bw = compact ? 0.24 : 0.25;
     bar(ctx, c, bx0, y, bw, 0.02, (cand.ai / 100) * k, color('xr-dock-ai'));
@@ -549,7 +550,7 @@ export function drawAIPanel(ctx, c, st) {
   star(ctx, c.m(pad + 0.012), c.m(fy - 0.002), c.m(0.012), color('xr-warning'));
   text(ctx, c, t('dockAITip'), pad + 0.03, fy, { size: 'xr-text-min', weight: 'bold', fill: color('xr-warning') });
   ctx.font = font('regular', c.m(S('xr-text-min')));
-  const lines = wrap(ctx, t('dockAINote'), c.m(w - pad * 2));
+  const lines = wrap(ctx, t(L.design ? 'dockDesignNote' : 'dockAINote'), c.m(w - pad * 2));
   lines.slice(0, 2).forEach((ln, i) => text(ctx, c, ln, pad, fy + 0.045 + i * 0.04, { size: 'xr-text-min', weight: 'regular', fill: color('xr-panel-muted') }));
 }
 
@@ -616,6 +617,15 @@ export function labPanelSize() {
 
 export function drawLabPanel(ctx, c, st) {
   const cand = st.cand;
+  if (!cand && st.build) {
+    // Pockets 3 and 4: the molecule workshop with the AI's live estimate for your design.
+    c.surface({ stroke: color('xr-dock-you') });
+    text(ctx, c, t('dockWorkshop'), 0.03, 0.05, { size: 'xr-text-md', weight: 'black', fill: color('xr-dock-you') });
+    text(ctx, c, t('dockEstimate', { n: st.build.est }), 0.03, 0.115, { size: 'xr-text-lg', weight: 'black', fill: color('xr-dock-ai') });
+    ctx.font = font('regular', c.m(S('xr-text-min')));
+    wrap(ctx, st.build.hint, c.m(c.w - 0.06)).slice(0, 5).forEach((ln, i) => text(ctx, c, ln, 0.03, 0.175 + i * 0.04, { size: 'xr-text-min', weight: 'regular', fill: color('xr-panel-muted') }));
+    return;
+  }
   if (!cand) {
     // Waiting: what the lab is for.
     c.surface({ stroke: color('xr-panel-border') });
@@ -725,4 +735,114 @@ export function drawLegend(ctx, c, st) {
     pair(pad + 0.014, y, spot, el, 0.012);
     text(ctx, c, t(key), pad + 0.085, y, { size: 'xr-text-min', weight: 'bold', maxW: c.w - pad * 2 - 0.085 });
   });
+}
+
+// ---------- the molecule workshop (pockets 3 and 4) ----------
+
+/**
+ * Markers on the attachment points of a scaffold (molecule frame): a glowing ring, a short stub
+ * from the atom it hangs on, and an invisible sphere to point at. tick(time, sel, choices, faceQ)
+ * turns the rings to the viewer (faceQ: the camera's rotation in the molecule frame).
+ */
+export function makePointMarkers(kit, points, c0) {
+  const g = new THREE.Group();
+  g.userData.noFit = true;
+  const ringGeo = new THREE.TorusGeometry(0.018, 0.0028, 8, 36);
+  const stubMat = new THREE.MeshBasicMaterial({ color: hex('xr-dock-glow'), transparent: true, opacity: 0.55, toneMapped: false });
+  const glow = new THREE.Color(hex('xr-dock-glow'));
+  const sel = new THREE.Color(hex('xr-warning'));
+  const items = points.map((pt, k) => {
+    const pos = pt.p.clone().sub(c0);
+    const from = pt.from.clone().sub(c0);
+    const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: glow, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false }));
+    ring.position.copy(pos);
+    ring.renderOrder = 4;
+    const d = pos.clone().sub(from);
+    const stub = new THREE.Mesh(kit.cyl, stubMat);
+    stub.position.copy(from);
+    stub.quaternion.setFromUnitVectors(UP, d.clone().normalize());
+    stub.scale.set(0.0026, d.length() * 0.6, 0.0026);
+    const hit = new THREE.Mesh(kit.proxy, kit.hidden);
+    hit.scale.setScalar(0.024);
+    hit.position.copy(pos);
+    hit.userData.interactive = true;
+    g.add(ring, stub, hit);
+    return { k, ring, stub, hit, pos };
+  });
+  g.userData.items = items;
+  g.userData.tick = (time, selected, choices, faceQ) => {
+    for (const it of items) {
+      const filled = !!choices[it.k];
+      const on = it.k === selected;
+      it.ring.visible = !filled || on;
+      it.stub.visible = !filled;
+      it.ring.quaternion.copy(faceQ);
+      it.ring.scale.setScalar(on ? 1.35 + 0.12 * Math.sin(time * 8) : 1 + 0.1 * Math.sin(time * 3 + it.k));
+      it.ring.material.color.copy(on ? sel : glow);
+      it.ring.material.opacity = on ? 1 : 0.75;
+    }
+  };
+  return g;
+}
+
+/** A round tile for the atom menu: the element in its color (null: remove, a red cross). */
+export function atomTile(el, size = 0.072) {
+  let hover = false;
+  const p = new Panel(size, size, (ctx, c) => {
+    const W = c.canvas.width;
+    const r = W / 2 - c.m(0.004);
+    ctx.beginPath();
+    ctx.arc(W / 2, W / 2, r, 0, Math.PI * 2);
+    ctx.fillStyle = el ? color(ELEMENTS[el].token) : color('xr-button-bg');
+    ctx.fill();
+    ctx.lineWidth = c.m(hover ? 0.006 : 0.003);
+    ctx.strokeStyle = color(hover ? 'xr-warning' : 'xr-panel-border');
+    ctx.stroke();
+    if (el) {
+      ctx.font = font('black', c.m(size * 0.52));
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = c.m(0.006);
+      ctx.strokeStyle = color('xr-bg-preview');
+      ctx.strokeText(el, W / 2, W / 2 + c.m(0.002));
+      ctx.fillStyle = color('xr-panel-text');
+      ctx.fillText(el, W / 2, W / 2 + c.m(0.002));
+    } else cross(ctx, W / 2, W / 2, c.m(size * 0.42), color('xr-dock-bad'));
+  });
+  p.userData.interactive = true;
+  p.userData.noFit = true;
+  p.userData.setHover = (v) => { hover = v; p.scale.setScalar(v ? 1.12 : 1); p.redraw(); };
+  p.renderOrder = 6;
+  p.material.depthTest = false;
+  return p;
+}
+
+/** The headset's parts dish: one ball per element to grab and plug onto the scaffold. */
+export function makePartsDish(kit) {
+  const g = new THREE.Group();
+  g.userData.noFit = true;
+  const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.15, 0.012, 48), new THREE.MeshStandardMaterial({ color: hex('xr-dock-trim'), roughness: 0.4, metalness: 0.3 }));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.165, 0.003, 8, 64), new THREE.MeshBasicMaterial({ color: hex('xr-dock-you'), toneMapped: false }));
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.006;
+  g.add(dish, ring);
+  const balls = DESIGN_ATOMS.map((el, i) => {
+    const mesh = new THREE.Mesh(kit.sphere, new THREE.MeshPhysicalMaterial({ color: hex(ELEMENTS[el].token), roughness: 0.25, clearcoat: 1 }));
+    const r = ELEMENTS[el].r * 1.35;
+    mesh.scale.setScalar(r);
+    const home = new THREE.Vector3((i - 2) * 0.062, 0.006 + r, 0);
+    mesh.position.copy(home);
+    const label = new Panel(0.05, 0.04, (ctx, c) => {
+      ctx.font = font('black', c.m(0.034));
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = color('xr-panel-text');
+      ctx.fillText(el, c.canvas.width / 2, c.canvas.height / 2);
+    });
+    label.position.set(home.x, home.y + 0.045, 0);
+    g.add(mesh, label);
+    return { el, mesh, home, label };
+  });
+  g.userData.balls = balls;
+  return g;
 }

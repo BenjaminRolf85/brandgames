@@ -331,7 +331,8 @@ export function buildDesign(level, choices) {
 
 const tally = (level, choices) => {
   const n = { good: 0, bad: 0, weak: 0, clash: 0, empty: 0 };
-  level.design.points.forEach((pt, k) => { n[judgePoint(pt, choices[k])] += 1; });
+  // An empty point without a contact spot is just right (that one faces the wall).
+  level.design.points.forEach((pt, k) => { if (pt.spot || choices[k]) n[judgePoint(pt, choices[k])] += 1; });
   return n;
 };
 
