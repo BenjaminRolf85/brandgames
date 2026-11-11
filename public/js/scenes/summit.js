@@ -1059,8 +1059,8 @@ export class SummitScene extends BaseScene {
     this.tickTimers(dt);
     const e = this.engine;
     // The wall scrolls with the climb, so the holds within reach stay at arm's length.
-    this.updatePull(dt);
     const was = this.focus;
+    this.updatePull(dt);
     if (this.snapMoves()) {
       // Comfort: the wall jumps to its new place behind a short fade.
       const off = Math.abs(this.focusTo - this.focus) + Math.abs(this.depthTo - this.depth);
@@ -1080,7 +1080,7 @@ export class SummitScene extends BaseScene {
       }
       const speed = Math.abs(this.focus - was) / Math.max(dt, 1e-3);
       const u = this.vignette.material.uniforms;
-      u.uA.value += (clamp(speed / 0.25, 0, 1) * 0.9 - u.uA.value) * (1 - Math.exp(-dt * 10));
+      u.uA.value += (clamp(speed / 0.25, 0, 1) * 0.75 - u.uA.value) * (1 - Math.exp(-dt * 10));
       u.uB.value = blink;
       this.vignette.visible = this.engine.isXR && (u.uA.value > 0.01 || blink > 0);
     }
