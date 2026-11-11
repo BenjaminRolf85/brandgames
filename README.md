@@ -99,6 +99,9 @@ Live: https://brandgame.echomotion.ai (die alte Adresse https://ki-wissen-ar.net
 
 ## KI-Lab in 3D / AI Lab in 3D (`public/js/scenes/lab.js`)
 
+**DE (November 2026):** Das KI-Lab wird im Menü nicht mehr angeboten (Knopf in der Symbolleiste entfernt); der Code in `public/js/scenes/lab.js` bleibt.
+**EN (November 2026):** The AI Lab is no longer offered in the menu (its button in the icon bar is removed); the code in `public/js/scenes/lab.js` stays.
+
 **DE:** Button „KI-Lab ansehen“ im 3D-Menü. Das 360°-Panorama umgibt dich als Kugel, die Fotos erscheinen als gebogene Panorama-Leinwände. Im Browser schaut man sich per Ziehen um. Bilder und Bildunterschriften: `LAB_IMAGES` in `public/js/content.js`, Dateien in `public/assets/lab/` (ohne Metadaten gespeichert).
 **EN:** “View AI Lab” button in the 3D menu. The 360° panorama surrounds you as a sphere, the photos appear as curved panorama screens. In the browser you drag to look around. Images and captions: `LAB_IMAGES` in `public/js/content.js`, files in `public/assets/lab/` (saved without metadata).
 
@@ -149,6 +152,9 @@ One sponsor bonus question/statement per round (double points), the Echomotion b
 **Overall ranking (EN):** Computed on every request from the same entries; nothing extra is stored. The games in `OVERALL_MODES` count (AI Quiz, the three Parkour levels, AI Pong, Data Flight, AI Arena). In each game a name's best score counts as a share of that game's maximum (`MAX_SCORE`), up to 1000 points (`GAME_POINTS`). The sum is the overall score, at most 7000. That way games with big scores (AI Arena up to 9000) don't drown out those with small ones (AI Quiz up to 1200), and playing more games earns more. The same name in different upper and lower case counts as the same player; the most recently typed spelling is shown. The overall ranking is the first tab of the leaderboard in AR and on the big screen (`/board`, fixed with `?mode=overall`). After submitting, the game shows the player's rank and points in the overall ranking and a button to it.
 
 ## Designs / Skins
+
+**DE (November 2026):** Das Design „Sonne“ wird nicht mehr angeboten (Umschalter auf der Startseite und in den Einstellungen entfernt, `SKINS` in `public/js/skin.js` enthält nur noch `night`; eine gespeicherte Wahl wird beim Laden gelöscht). Die Tokens bleiben in `tokens.css`; zum Wiedereinschalten `sunny` in `SKINS` und die Knöpfe wieder ergänzen.
+**EN (November 2026):** The "sunny" design is no longer offered (the switch on the landing page and in the settings is removed, `SKINS` in `public/js/skin.js` only holds `night`; a stored choice is cleared on load). The tokens stay in `tokens.css`; to bring it back, add `sunny` to `SKINS` and the buttons again.
 
 Zwei Designs, umschaltbar auf der Startseite (Kopfzeile) und im 3D-Menü, gespeichert pro Gerät:
 Two designs, switchable on the landing page (top bar) and in the 3D menu, saved per device:

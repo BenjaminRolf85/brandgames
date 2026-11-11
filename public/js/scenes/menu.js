@@ -9,7 +9,7 @@ import { color, num, font } from '../tokens.js';
 import { t, L, getLang, setLang } from '../i18n.js';
 import { SPONSOR } from '../content.js';
 import { stats } from '../progress.js';
-import { getSkin, setSkin } from '../skin.js';
+import { getSkin, setSkin, SKINS } from '../skin.js';
 import { VISIBLE_MODES, CLIENT_GAMES } from '../config.js';
 import { sfx } from '../sfx.js';
 import { music } from '../music.js';
@@ -298,7 +298,7 @@ export class MenuScene extends BaseScene {
     const bar = [
       iconButton('trophy', t('leaderboard'), () => app.showLeaderboard(), 'xr-warning', bw),
       iconButton('licence', t('licenceShort'), () => this.showLicence(), 'xr-badge', bw),
-      iconButton('lab', t('labShort'), () => app.showLab(0), 'xr-accent', bw),
+      // The AI Lab (360° views, scenes/lab.js) is no longer offered in the menu since Nov 2026.
       iconButton('settings', t('settings'), () => this.showSettings(), 'xr-accent', bw),
       iconButton('exit', this.engine.isXR ? t('exitXR') : t('exit'), () => app.exit(), 'xr-panel-muted', bw),
     ];
@@ -404,12 +404,14 @@ export class MenuScene extends BaseScene {
     });
     section('settingsLang', langs);
 
-    const skins = [['night', 'skinNight'], ['sunny', 'skinSunny']].map(([key, name]) => {
-      const b = new Button(0.28, 0.1, { label: t(name), labelSize: 'xr-text-sm', onClick: () => { if (getSkin() !== key) rebuild(() => setSkin(key)); } });
+    // Design: only the night look is offered since November 2026 (SKINS in skin.js), so there
+    // is nothing to choose here any more.
+    const skins = SKINS.length > 1 ? SKINS.map((key) => {
+      const b = new Button(0.28, 0.1, { label: t(key === 'sunny' ? 'skinSunny' : 'skinNight'), labelSize: 'xr-text-sm', onClick: () => { if (getSkin() !== key) rebuild(() => setSkin(key)); } });
       b.set({ status: getSkin() === key ? 'selected' : null });
       return b;
-    });
-    section('design', skins);
+    }) : [];
+    if (skins.length) section('design', skins);
 
     const echo = this.app.echo;
     if (echo) {
