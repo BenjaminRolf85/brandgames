@@ -682,6 +682,7 @@ export class RoastScene extends BaseScene {
     this.delay(POUR_TIME, () => {
       if (this.disposed || this.drumBatch !== batch) return;
       batch.state = 'roasting';
+      if (this.flashes) delete this.flashes.drum; // a crack of the batch before
       this.r = 0;
       this.cracked = 0;
       this.roaster.showDrum(true);
@@ -1199,7 +1200,12 @@ export class RoastScene extends BaseScene {
       : t('roastHud', { name, wave, done: this.stats?.length ?? 0, total: GUESTS.length, score: this.score });
     s = s.replace(/^ · /, '');
     // Phones: the order strip shows the request, the AI and the drum; the status bar the round.
-    if (this.strip) return s;
+    if (this.strip) {
+      if (this.mode !== 'play' || window.innerWidth <= window.innerHeight) return s;
+      const d = this.drumState();
+      const drum = d.stage === t('roastDrumFree') ? [d.stage, ...d.lines] : [`${t('roastStripDrum')}: ${d.stage}`, ...d.lines];
+      return `${drum.join(' · ')} · ${s}`;
+    }
     // (touch without the strip) the line that matters most right now comes first
     if (touch && this.mode === 'play') {
       let first = '';
@@ -1433,6 +1439,7 @@ export class RoastScene extends BaseScene {
   stripFlash(card, text) {
     this.flashes[card] = { text, until: this.time + 2.4 };
     this.refreshStrip();
+    this.refreshHud?.();
   }
 
   refreshStrip() {
@@ -1444,6 +1451,7 @@ export class RoastScene extends BaseScene {
     const put = (node, text) => { if (node.textContent !== text) node.textContent = text; node.hidden = !text; };
     const flash = (k) => (this.flashes[k] && this.flashes[k].until > this.time ? this.flashes[k] : null);
     const basket = this.mode !== 'play';
+    const land = window.innerWidth > window.innerHeight;
     // the guest you prepare for: their request, your blend, their patience
     let name = '';
     let ask = '';
@@ -1457,10 +1465,15 @@ export class RoastScene extends BaseScene {
       const g = this.active;
       name = t(`roastGuest_${g.def.id}`);
       ask = g.ask ?? '';
-      sub = this.sel.length === 2 ? t('roastStripBlend', { recipe: this.recipeText({ a: this.sel[0], b: this.sel[1], ratio: RATIOS[this.ratioIdx] }) }) : t('roastStripPick');
+      const recipe = this.sel.length === 2 ? this.recipeText({ a: this.sel[0], b: this.sel[1], ratio: RATIOS[this.ratioIdx] }) : null;
+      sub = !recipe ? t('roastStripPick') : land ? recipe : t('roastStripBlend', { recipe });
       frac = clamp(g.patience / g.patienceMax, 0, 1);
     } else if (this.ready.length) ask = t('roastHudReady', { name: short(this.ready[0].g.def.id) });
-    else ask = t('roastNobody');
+    else {
+      // nobody to prepare for: the guest whose cup is on its way, else nobody
+      const g = this.guests.find((x) => x.state === 'wait' && x.batch);
+      if (g) { name = t(`roastGuest_${g.def.id}`); ask = g.ask ?? ''; sub = this.orderStatus(g) ?? ''; } else ask = t('roastNobody');
+    }
     put(S.name, name);
     put(S.ask, ask);
     put(S.sub, sub);
@@ -1487,30 +1500,37 @@ export class RoastScene extends BaseScene {
     S.aiConf.className = `roast-strip__conf roast-strip__conf--${conf >= 0.6 ? 'high' : conf >= 0.3 ? 'mid' : 'low'}`;
     S.ai.classList.toggle('is-flash', !!fa);
     // the drum: the stage while it roasts (with its color), who it is for, who is next
-    S.drum.hidden = basket;
+    // (sideways it is the first line of the status bar instead, see hudText)
+    S.drum.hidden = basket || land;
     S.el.classList.toggle('is-basket', basket);
-    if (!basket) {
-      const b = this.drumBatch;
-      const fd = flash('drum');
-      let stage = t('roastDrumFree');
-      let col = null;
-      const lines = [];
-      if (b?.state === 'roasting') {
-        stage = stageName(this.r);
-        col = beanColor(this.r);
-        lines.push(t('roastRoastFor', { name: short(b.g.def.id) }));
-      } else if (b?.state === 'pour') lines.push(t('roastRoastFor', { name: short(b.g.def.id) }));
-      else if (this.cooling.length) stage = t('roastStripCooling', { name: short(this.cooling[0].g.def.id) });
-      if (this.nextBatch) lines.push(t('roastNext', { name: short(this.nextBatch.g.def.id) }));
-      if (fd) lines.unshift(fd.text);
+    if (!S.drum.hidden) {
+      const d = this.drumState();
       put(S.drumLabel, t('roastStripDrum'));
-      put(S.stage, stage);
-      S.chip.hidden = !col;
-      if (col) S.chip.style.background = `#${col.getHexString()}`;
-      put(S.drumSub, lines.join(' · '));
-      S.drum.classList.toggle('is-flash', !!fd);
+      put(S.stage, d.stage);
+      S.chip.hidden = !d.col;
+      if (d.col) S.chip.style.background = `#${d.col.getHexString()}`;
+      put(S.drumSub, d.lines.join(' · '));
+      S.drum.classList.toggle('is-flash', d.flash);
     }
     this.placeStrip();
+  }
+
+  /** The drum for the strip and the status bar: stage (and its color), who it roasts for, who is next. */
+  drumState() {
+    const b = this.drumBatch;
+    const fd = this.flashes?.drum && this.flashes.drum.until > this.time ? this.flashes.drum : null;
+    let stage = t('roastDrumFree');
+    let col = null;
+    const lines = [];
+    if (b?.state === 'roasting') {
+      stage = stageName(this.r);
+      col = beanColor(this.r);
+      lines.push(t('roastRoastFor', { name: short(b.g.def.id) }));
+    } else if (b?.state === 'pour') lines.push(t('roastRoastFor', { name: short(b.g.def.id) }));
+    else if (this.cooling.length) stage = t('roastStripCooling', { name: short(this.cooling[0].g.def.id) });
+    if (this.nextBatch) lines.push(t('roastNext', { name: short(this.nextBatch.g.def.id) }));
+    if (fd) lines.unshift(fd.text);
+    return { stage, col, lines, flash: !!fd };
   }
 
   /** Under the status bar; sideways the columns end above the thumb buttons. */

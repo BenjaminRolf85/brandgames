@@ -547,8 +547,10 @@ export function drawAIPanel(ctx, c, st) {
   if (compact) return;
   // Footer: what the star means and that predictions are probabilities.
   const fy = R.y0 + R.h * 4 + 0.035;
-  star(ctx, c.m(pad + 0.012), c.m(fy - 0.002), c.m(0.012), color('xr-warning'));
-  text(ctx, c, t('dockAITip'), pad + 0.03, fy, { size: 'xr-text-min', weight: 'bold', fill: color('xr-warning') });
+  if (L.top) {
+    star(ctx, c.m(pad + 0.012), c.m(fy - 0.002), c.m(0.012), color('xr-warning'));
+    text(ctx, c, t('dockAITip'), pad + 0.03, fy, { size: 'xr-text-min', weight: 'bold', fill: color('xr-warning') });
+  } else text(ctx, c, t('dockWorkshop'), pad, fy, { size: 'xr-text-min', weight: 'bold', fill: color('xr-dock-you') });
   ctx.font = font('regular', c.m(S('xr-text-min')));
   const lines = wrap(ctx, t(L.design ? 'dockDesignNote' : 'dockAINote'), c.m(w - pad * 2));
   lines.slice(0, 2).forEach((ln, i) => text(ctx, c, ln, pad, fy + 0.045 + i * 0.04, { size: 'xr-text-min', weight: 'regular', fill: color('xr-panel-muted') }));
@@ -639,7 +641,7 @@ export function drawLabPanel(ctx, c, st) {
   const ok = done && value >= 70;
   c.surface({ stroke: done ? color(ok ? 'xr-dock-good' : 'xr-dock-bad') : color('xr-dock-lab') });
   const pad = 0.03;
-  text(ctx, c, t('dockLabTitle', { c: cand.letter }), pad, 0.045, { size: 'xr-text-sm', weight: 'black', fill: color('xr-dock-lab') });
+  text(ctx, c, cand.kind === 'scaffold' ? t('dockLabTitleOwn') : t('dockLabTitle', { c: cand.letter }), pad, 0.045, { size: 'xr-text-sm', weight: 'black', fill: color('xr-dock-lab') });
   // Curve: binding over the dose (log scale), with the AI's prediction as a dashed line.
   const x0 = pad + 0.01;
   const y0 = 0.075;
@@ -821,8 +823,8 @@ export function atomTile(el, size = 0.072) {
 export function makePartsDish(kit) {
   const g = new THREE.Group();
   g.userData.noFit = true;
-  const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.15, 0.012, 48), new THREE.MeshStandardMaterial({ color: hex('xr-dock-trim'), roughness: 0.4, metalness: 0.3 }));
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.165, 0.003, 8, 64), new THREE.MeshBasicMaterial({ color: hex('xr-dock-you'), toneMapped: false }));
+  const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.12, 0.012, 48), new THREE.MeshStandardMaterial({ color: hex('xr-dock-trim'), roughness: 0.4, metalness: 0.3 }));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.131, 0.003, 8, 64), new THREE.MeshBasicMaterial({ color: hex('xr-dock-you'), toneMapped: false }));
   ring.rotation.x = Math.PI / 2;
   ring.position.y = 0.006;
   g.add(dish, ring);
@@ -830,16 +832,17 @@ export function makePartsDish(kit) {
     const mesh = new THREE.Mesh(kit.sphere, new THREE.MeshPhysicalMaterial({ color: hex(ELEMENTS[el].token), roughness: 0.25, clearcoat: 1 }));
     const r = ELEMENTS[el].r * 1.35;
     mesh.scale.setScalar(r);
-    const home = new THREE.Vector3((i - 2) * 0.062, 0.006 + r, 0);
+    const home = new THREE.Vector3((i - 2) * 0.05, 0.006 + r, -0.012);
     mesh.position.copy(home);
-    const label = new Panel(0.05, 0.04, (ctx, c) => {
+    const label = new Panel(0.045, 0.036, (ctx, c) => {
       ctx.font = font('black', c.m(0.034));
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = color('xr-panel-text');
       ctx.fillText(el, c.canvas.width / 2, c.canvas.height / 2);
     });
-    label.position.set(home.x, home.y + 0.045, 0);
+    label.rotation.x = -Math.PI / 2;
+    label.position.set(home.x, 0.0075, 0.055); // lying on the dish, in front of its atom
     g.add(mesh, label);
     return { el, mesh, home, label };
   });

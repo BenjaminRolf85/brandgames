@@ -256,7 +256,7 @@ export function makeRound(count = 4, rand = Math.random) {
     // Pocket 2: the AI's top pick fails in the lab. Pockets 3 and 4: no library hit binds well
     // enough (the top pick fails too); you design your own molecule on a scaffold.
     const design = idx >= 2 && spec.design ? spec.design : null;
-    const fail = idx === 1 || !!design;
+    const fail = idx === 1;
     const rest = rand() < 0.5 ? ['mismatch', 'bulky'] : ['small', 'bulky'];
     const kinds = design ? ['decoy', ...rest] : fail ? ['binder', 'decoy', ...rest] : ['binder', 'mismatch', 'small', 'bulky'];
     const binderAI = fail ? ri(64, 73) : ri(82, 93);
@@ -269,6 +269,8 @@ export function makeRound(count = 4, rand = Math.random) {
     };
     const letters = ['A', 'B', 'C', 'D'];
     const order = kinds.map((k) => ({ k, r: rand() })).sort((a, b) => a.r - b.r).map((o) => o.k);
+    // Design pockets: the AI itself is unsure about every library hit (no confident top pick).
+    if (design) Object.assign(ai, { decoy: ri(58, 66), mismatch: ri(46, 55), small: ri(40, 50), bulky: ri(22, 35) });
     const candidates = order.map((kind, i) => {
       const v = variant(spec, kind);
       const [t0, t1] = TRUTH[kind];
@@ -279,7 +281,8 @@ export function makeRound(count = 4, rand = Math.random) {
         tested: false, lab: null, fit: null,
       };
     });
-    const top = [...candidates].sort((a, b) => b.ai - a.ai)[0];
+    // The AI's confident top pick (none in the design pockets).
+    const top = design ? null : [...candidates].sort((a, b) => b.ai - a.ai)[0];
     const level = {
       idx, key: L.key, seed: L.seed, depth: L.depth, tint: L.tint, fail,
       lib: L.lib + ri(-900, 900), secs: (0.4 + rand() * 0.7).toFixed(1),

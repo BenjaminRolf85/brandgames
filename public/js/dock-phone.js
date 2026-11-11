@@ -24,10 +24,16 @@ export function phoneStrip({ onPick }) {
   });
   el.hidden = true;
   const row1 = document.createElement('div');
+  const rowS = document.createElement('div');
   const row2 = document.createElement('div');
   css(row1, { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: '0' });
-  css(row2, { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap', minWidth: '0' });
-  el.append(row1, row2);
+  css(rowS, { fontSize: 'var(--text-sm)', fontWeight: 'var(--font-weight-bold)', minHeight: '1.25em' });
+  css(row2, { display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', minWidth: '0' });
+  // Upright: three rows. Landscape: one band, fit and status left, the ranking right.
+  const left = document.createElement('div');
+  css(left, { display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', minWidth: '0', flex: '1 1 auto' });
+  left.append(row1, rowS);
+  el.append(left, row2);
   stage?.append(el);
   let key = '';
   let cands = [];
@@ -51,12 +57,17 @@ export function phoneStrip({ onPick }) {
       key = k;
       // Row 1: the lab result while there is one, else the fit meter and the status.
       row1.replaceChildren();
+      rowS.textContent = '';
       if (st.lab) {
         const L = st.lab;
-        row1.append(span(L.done ? t('dockLabValue', { n: L.value }) : `${t('dockLabTitle', { c: L.letter })}: ${L.value} %`, {
+        row1.append(span(L.done ? t('dockLabValue', { n: L.value }) : `${L.letter === '+' ? t('dockLabTitleOwn') : t('dockLabTitle', { c: L.letter })}: ${L.value} %`, {
           fontWeight: 'var(--font-weight-black)', color: L.done ? (L.ok ? 'var(--xr-dock-good)' : 'var(--xr-dock-bad)') : 'var(--xr-dock-lab)', whiteSpace: 'nowrap',
         }));
-        if (L.done) row1.append(span(`${t('dockLabAI', { n: L.ai })} · ${L.verdict}`, { color: 'var(--xr-panel-text)', fontSize: 'var(--text-sm)', minWidth: '0' }));
+        if (L.done) {
+          row1.append(span(t('dockLabAI', { n: L.ai }), { color: 'var(--xr-dock-ai)', fontWeight: 'var(--font-weight-bold)', whiteSpace: 'nowrap' }));
+          rowS.textContent = L.verdict;
+          rowS.style.color = L.ok ? 'var(--xr-dock-good)' : 'var(--xr-dock-bad)';
+        }
       } else {
         const fitTok = st.fit >= 0.7 ? 'var(--xr-dock-good)' : st.fit >= 0.45 ? 'var(--xr-dock-mid)' : 'var(--xr-dock-bad)';
         row1.append(span(`${t('dockFit')} ${Math.round(st.fit * 100)} %`, { fontWeight: 'var(--font-weight-black)', color: fitTok, whiteSpace: 'nowrap' }));
@@ -66,10 +77,8 @@ export function phoneStrip({ onPick }) {
           dots.append(span('', { width: '12px', height: '12px', borderRadius: '50%', background: tok, display: 'inline-block' }));
         }
         row1.append(dots);
-        row1.append(span(st.status, {
-          color: `var(--${st.statusToken})`, fontSize: 'var(--text-sm)', fontWeight: 'var(--font-weight-bold)',
-          minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }));
+        rowS.textContent = st.status;
+        rowS.style.color = `var(--${st.statusToken})`;
       }
       // Row 2: the AI's ranking as chips (tap to pick), your own molecule with the AI's estimate.
       row2.replaceChildren();
@@ -81,11 +90,11 @@ export function phoneStrip({ onPick }) {
         b.dataset.i = String(i);
         const border = c.tested ? (c.ok ? 'var(--xr-dock-good)' : 'var(--xr-dock-bad)') : c.top ? 'var(--xr-warning)' : c.own ? 'var(--xr-dock-you)' : 'var(--xr-panel-border)';
         css(b, {
-          font: 'inherit', fontSize: 'var(--text-md)', fontWeight: 'var(--font-weight-bold)', minHeight: '36px', padding: '2px 10px',
+          font: 'inherit', fontSize: 'var(--text-md)', fontWeight: 'var(--font-weight-bold)', minHeight: '36px', padding: '2px 6px', whiteSpace: 'nowrap',
           borderRadius: 'var(--radius-pill)', border: `2px solid ${border}`, color: 'var(--xr-panel-text)',
           background: c.active ? 'var(--xr-dock-row-hi)' : 'var(--xr-button-bg)', textDecoration: c.tested && !c.ok ? 'line-through' : 'none',
         });
-        b.textContent = c.own ? `${t('dockOwnShort')} ${c.ai} %` : `${c.letter} ${c.ai} %`;
+        b.textContent = `${c.letter} ${c.ai} %`;
         b.setAttribute('aria-label', c.own ? t('dockOwnEst', { n: c.ai }) : `${t('dockCandidate', { c: c.letter })}: ${c.ai} %`);
         row2.append(b);
       });
@@ -93,6 +102,15 @@ export function phoneStrip({ onPick }) {
     show(on) { if (el.hidden === on) el.hidden = !on; },
     /** Keeps the strip right below the status bar. */
     place() {
+      const land = window.innerWidth > window.innerHeight;
+      const dir = land ? 'row' : 'column';
+      if (el.style.flexDirection !== dir) {
+        el.style.flexDirection = dir;
+        el.style.alignItems = land ? 'center' : 'stretch';
+        el.style.gap = land ? 'var(--space-3)' : 'var(--space-1)';
+        row2.style.flexWrap = land ? 'nowrap' : 'wrap';
+        row2.style.flex = land ? 'none' : '';
+      }
       const hud = stage?.querySelector('.mhud');
       const top = hud && !hud.hidden ? hud.getBoundingClientRect().bottom + 6 : 12;
       const v = `${Math.round(top)}px`;
@@ -100,4 +118,30 @@ export function phoneStrip({ onPick }) {
     },
     remove() { el.remove(); },
   };
+}
+
+/**
+ * Larger labels on the game's own thumb buttons (the newest .mtouch in the stage): 14 px words;
+ * with symbols (the atom buttons) a big element symbol above a short hint.
+ */
+export function enlargePad(symbols = null) {
+  const pads = document.querySelectorAll('#stage .mtouch');
+  const pad = pads[pads.length - 1];
+  if (!pad) return;
+  pad.querySelectorAll('.mtouch__label').forEach((lab, i) => {
+    css(lab, { fontSize: 'var(--text-sm)', lineHeight: '1.15', textAlign: 'center' });
+    const sym = symbols?.[i];
+    if (!sym) return;
+    const hint = lab.textContent.split('·').slice(1).join('·').trim();
+    const big = span2(sym, { fontSize: 'var(--text-xl)', fontWeight: 'var(--font-weight-black)', display: 'block' });
+    const small = span2(hint, { display: 'block' });
+    lab.replaceChildren(big, small);
+  });
+}
+
+function span2(text, styles) {
+  const s = document.createElement('span');
+  s.textContent = text;
+  css(s, styles);
+  return s;
 }

@@ -10,6 +10,7 @@ import { t } from './i18n.js';
 import { sfx } from './sfx.js';
 import { DESIGN_ATOMS, buildDesign, designEstimate, judgePoint } from './dock-chem.js';
 import { makePointMarkers, atomTile, makePartsDish } from './dock-visuals.js';
+import { enlargePad } from './dock-phone.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const SNAP = 0.045; // an atom in the hand snaps onto a point within this distance
@@ -33,7 +34,7 @@ export class Workshop {
     // Headset: the parts dish in reach, right in front of the protein.
     if (s.isXR) {
       this.dish = makePartsDish(s.kit);
-      this.dish.position.set(0.23, s.eye - 0.3, -0.57);
+      this.dish.position.set(0.19, s.eye - 0.37, -0.53);
       this.dish.rotation.set(0.35, -0.35, 0, 'YXZ');
       this.dish.visible = false;
       s.world.add(this.dish);
@@ -51,6 +52,7 @@ export class Workshop {
         ...DESIGN_ATOMS.map((el, i) => ({ icon: '', label: t(keys[el]), group: i < 3 ? 'left' : 'right', onPress: () => this.choose(el, true) })),
         { icon: 'back', label: t('dockDone'), group: 'right', primary: true, onPress: () => this.select(null) },
       ], { grid: true });
+      enlargePad([...DESIGN_ATOMS, null]);
     }
   }
 
@@ -72,7 +74,7 @@ export class Workshop {
     const m = makePointMarkers(this.scene.kit, L.design.points, L.c0);
     m.userData.items.forEach((it) => {
       it.hit.userData.label = t('dockWorkshop');
-      it.hit.userData.onClick = () => { if (this.building) this.select(it.k); };
+      it.hit.userData.onClick = () => { if (this.building) { this.select(it.k); this.picked = true; } };
     });
     c.view.group.add(m);
     c.markers = m;
@@ -80,6 +82,7 @@ export class Workshop {
 
   select(k) {
     this.sel = k;
+    this.picked = false; // chosen by pointing (the headset shows the ring menu only then)
     if (k !== null) sfx.tick();
   }
 
@@ -100,7 +103,9 @@ export class Workshop {
     const cur = this.cand.choices[k];
     const next = toggle && el === cur ? null : el;
     this.setChoice(k, next);
-    if (next) this.sel = this.nextEmpty(k);
+    // Headset: the menu closes; elsewhere the next free point is ready for the next atom.
+    if (this.scene.isXR) this.sel = null;
+    else if (next) this.sel = this.nextEmpty(k);
   }
 
   setChoice(k, el) {
@@ -162,14 +167,16 @@ export class Workshop {
         return true;
       }
     }
+    let best = null;
+    let bestD = 0.05;
     for (const b of this.dish.userData.balls) {
-      if (s.world.worldToLocal(b.mesh.getWorldPosition(V())).distanceTo(hand) < 0.06) {
-        p.held = b.mesh;
-        this.grabPart(b.el, p);
-        return true;
-      }
+      const d = s.world.worldToLocal(b.mesh.getWorldPosition(V())).distanceTo(hand);
+      if (d < bestD) { best = b; bestD = d; }
     }
-    return false;
+    if (!best) return false;
+    p.held = best.mesh;
+    this.grabPart(best.el, p);
+    return true;
   }
 
   // ---------- frame ----------
@@ -210,7 +217,7 @@ export class Workshop {
       c.markers.userData.tick(time, on ? this.sel : null, c.choices, faceQ);
     }
     // Ring menu around the selected point (not on phones, not while holding an atom).
-    const ring = on && this.sel !== null && !s.touch && !this.held && !s.drag;
+    const ring = on && this.sel !== null && !s.touch && !this.held && !s.drag && (!s.isXR || this.picked);
     const it = ring ? items.find((x) => x.k === this.sel) : null;
     if (it) {
       const cam = s.engine.camera;

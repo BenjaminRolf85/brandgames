@@ -23,7 +23,7 @@ import { makeEnvironment } from '../robot-visuals.js';
 import '../dock-text.js';
 import { makeRound, Protein, evaluateFit, PASS, designTruth } from '../dock-chem.js';
 import { Workshop } from '../dock-workshop.js';
-import { phoneStrip } from '../dock-phone.js';
+import { phoneStrip, enlargePad } from '../dock-phone.js';
 import {
   makeKit, MoleculeView, proteinMaterial, makeSpotMarkers, blobShadow, makeScreening, makeWells, loadBench, fallbackDeck,
   drawAIPanel, drawFitPanel, drawLabPanel, drawLegend, aiPanelSize, fitPanelSize, labPanelSize, legendSize, AI_ROWS,
@@ -261,6 +261,7 @@ export class DockScene extends BaseScene {
         { icon: 'duck', label: t('dockBtnSnap'), onPress: () => this.snapToPocket() },
         { icon: 'lab', label: t('dockBtnDock'), primary: true, onPress: () => this.dock() },
       ]);
+      enlargePad();
     }
     // Keyboard: 1 to 4 pick, F to the pocket, Space or Enter dock, arrows and Q/E turn, R back.
     this.onKey = (ev) => {
@@ -767,7 +768,7 @@ export class DockScene extends BaseScene {
     c.tested = true;
     c.lab = c.truth;
     const L = this.level;
-    const top = c === L.top;
+    const top = !!L.top && c === L.top;
     if (top) { this.tipsTested += 1; if (c.lab >= PASS) this.tipsHit += 1; }
     c.badge?.redraw();
     this.redrawAI();
