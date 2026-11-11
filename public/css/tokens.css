@@ -172,6 +172,7 @@
   --leading-normal: 1.55;
 
   /* Spacing (4px grid) */
+  --brand-logo-size: 2.5rem; /* Echomotion logo in the landing page's top bar */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
