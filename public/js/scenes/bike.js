@@ -29,7 +29,7 @@ import { EVENT } from '../event.js';
 import { makeEnvironment, radialTexture } from '../robot-visuals.js';
 import { TIRES, PRESSURES, BEST, planScans, rate, sensorText, liveScan } from '../bike-ai.js';
 import {
-  makeCourse, makeTerrain, Scatter, makeSky, makeBase, makeScanFx, makeGuideDots, makeSnow, makeMist, makeSparks, makeCurtains, vergeHeight,
+  makeCourse, makeTerrain, Scatter, makeSky, makeBase, makeScanFx, makeGuideDots, makeSnow, makeMist, makeSparks, makeCurtains, vergeHeight, FX_AREA,
   HZ, ITEMS, RAMPS, RAMP_H, S0, STOP_GAP, HALF, EDGE,
 } from '../bike-world.js';
 import {
@@ -148,6 +148,9 @@ export class BikeScene extends BaseScene {
     // Clipping planes (stage space, then world space every frame): the diorama window.
     this.clipLocal = [new THREE.Plane(new THREE.Vector3(0, 0, -1), 0), new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), new THREE.Plane(new THREE.Vector3(1, 0, 0), 0), new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0)];
     this.clip = this.clipLocal.map((p) => p.clone());
+    // Particles (snow, rain, spray, speed lines) are also cut at the base's top in the headset.
+    this.floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 1e4);
+    this.clipFx = [...this.clip, this.floor];
     this.prevClipping = this.engine.renderer.localClippingEnabled;
     this.engine.renderer.localClippingEnabled = true;
     // Course group: course units, scaled down; moved so the bike stays at the stage origin.
@@ -161,11 +164,11 @@ export class BikeScene extends BaseScene {
     cg.add(this.fx.group);
     this.dots = makeGuideDots();
     cg.add(this.dots);
-    this.snow = makeSnow(this.course, 260, this.clip);
+    this.snow = makeSnow(this.course, 260, this.clipFx);
     cg.add(this.snow);
     this.mist = makeMist();
     cg.add(this.mist);
-    this.sparks = makeSparks();
+    this.sparks = makeSparks(260, this.clipFx);
     cg.add(this.sparks);
     // Weather: the new ground per event (shown when it turns) and rain streaks.
     this.wLayers = this.course.weather.map((w) => {
@@ -173,12 +176,12 @@ export class BikeScene extends BaseScene {
       if (layer) cg.add(layer);
       return layer;
     });
-    this.rain = makeRain(320, this.clip);
+    this.rain = makeRain(320, this.clipFx);
     cg.add(this.rain);
     // Tire tracks (one recycled ribbon per wheel) and speed lines on fast descents.
     this.tracks = makeTracks(this.clip);
     cg.add(this.tracks.group);
-    this.speedLines = makeSpeedLines(70, this.clip);
+    this.speedLines = makeSpeedLines(70, this.clipFx);
     cg.add(this.speedLines);
     // A soft shadow under the bike that stays on the ground: it shows the height of a jump.
     this.blob = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.9).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-bike-hole'), transparent: true, opacity: 0.5, depthWrite: false }));
@@ -1568,6 +1571,7 @@ export class BikeScene extends BaseScene {
     }
     this.positionCourse();
     this.updateCurtains();
+    this.updateFloor();
     this.updateActors(gdt);
     if (!e.isXR) this.updateCamera(dt);
     this.layoutUI(dt);
@@ -1594,6 +1598,19 @@ export class BikeScene extends BaseScene {
     this.rideT += dt;
     this.speed = 0;
     this.pumpAnim = Math.max(0, (this.pumpAnim ?? 0) - dt * 3);
+  }
+
+  /** The particles' floor: the base's top while the diorama has one, else far below. */
+  updateFloor() {
+    if (!this.base.visible) { this.floor.set(new THREE.Vector3(0, 1, 0), 1e4); return; }
+    this.floor.set(new THREE.Vector3(0, 1, 0), -this.base.position.y).applyMatrix4(this.stage.matrixWorld);
+  }
+
+  /** The volume snow and rain fall in: the diorama's footprint, about 0.5 m high (headset). */
+  fxArea() {
+    if (!this.base.visible) return FX_AREA;
+    this.area ??= {};
+    return Object.assign(this.area, { back: this.win.back, front: this.win.front, side: this.win.side - 0.15, top: 0.5 / this.S });
   }
 
   /** Headset: the diorama's cut edges follow the hills down to the base. */
@@ -2142,13 +2159,13 @@ export class BikeScene extends BaseScene {
     const wOn = w && w.triggered && this.mode !== 'intro' && this.mode !== 'over' && s < w.end + 2;
     this.weatherK = lerp(this.weatherK ?? 0, wOn ? 1 : 0, Math.min(1, dt * 0.9));
     this.wLayers.forEach((layer, i) => layer?.userData.setK(w && w.i === i ? this.weatherK : 0));
-    this.rain.userData.update(dt, c, s, w && (w.kind === 'rain' || w.kind === 'thaw') ? this.weatherK : 0);
+    this.rain.userData.update(dt, c, s, w && (w.kind === 'rain' || w.kind === 'thaw') ? this.weatherK : 0, this.fxArea());
     const look = w ? WEATHER_LOOK[w.kind] : null;
     this.key.intensity = 1.55 * (1 + ((look?.light ?? 1) - 1) * this.weatherK);
 
     // Snow over the snow section, mist where the scanner was blinded.
     const kind = c.sectionAt(s + 4).kind;
-    this.snow.userData.update(dt, s, kind === 'snow' && this.mode !== 'intro', this.S);
+    this.snow.userData.update(dt, s, kind === 'snow' && this.mode !== 'intro', this.S, this.fxArea());
     const sec = c.sections[this.sec ?? 0];
     const fogEv = this.wEv?.kind === 'fog' && this.wEv.triggered && s < this.wEv.s + 30;
     const mistWant = fogEv || (this.mistOn && (this.mode === 'scan' || this.mode === 'choose' || (riding && s < sec.b0 + 14))) ? 1 : 0;

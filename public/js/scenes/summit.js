@@ -27,7 +27,7 @@ import { CUSTOMERS, STAGES } from '../summit-talks.js';
 import { readLine, readType, isUnsure } from '../summit-ai.js';
 import {
   loadSummitModels, makeMountain, Hold, makeDecorHolds, makeShards, Rope, ClimberEcho, makeSummitDecor,
-  makeSky, makePeaks, makeClouds, surfaceZ, cutUniform, TOP, PLATEAU_Y, BOLTS,
+  makeSky, makePeaks, makeClouds, surfaceZ, cutUniform, makePullHint, TOP, PLATEAU_Y, BOLTS,
 } from '../summit-visuals.js';
 import { holder, makeBubble, makeLabel, makeFeedback, makeCoach, makeStatus } from '../summit-panels.js';
 import { phoneTalk } from '../summit-phone.js';
@@ -52,7 +52,10 @@ const STAND_TO_HANG = new THREE.Vector3(0, 0.15, -0.075); // grip point standing
 // plus 4 per % of trust, 200 more when every deal closes with at least 80 % trust: max 5000.
 const PTS = { solid: 140, speed: 60, solidRetry: 70, ok: 60, okRetry: 30, summit: 200, trust: 4, bonus: 200 };
 const TRUST = { start: 20, good: 16, ok: 6, bad: -10 };
-const STAMINA = { drain: 1.1, grace: 1.5, bad: -20, good: 8, ok: 3 };
+const STAMINA = { drain: 1.1, grace: 1.5, bad: -20, good: 8, ok: 3, pull: 4 }; // pulling costs a little
+const PULL_M = num('xr-summit-pull-reach'); // hand travel for one move (headset)
+const BREAK_AT = 0.3; // a weak hold breaks when this much of the pull is on it
+const COMFORT_KEY = 'kiar.summitComfort';
 const clamp = THREE.MathUtils.clamp;
 const ease = (k) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
 const shuffle = (a) => { const r = [...a]; for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; };
@@ -551,15 +554,18 @@ export class SummitScene extends BaseScene {
   }
 
   /** The player picks reply i (click, key, grab or tap). */
-  choose(i) {
+  /**
+   * The player takes hold of reply i: via 'hand' (Quest, the hand pulls), 'drag' (mouse or
+   * finger drags the hold down) or 'auto' (click, key, answer button, pointing: pulls by itself).
+   * A solid hold clicks, a wobbly one wobbles, a weak one breaks as soon as weight comes on it.
+   */
+  choose(i, via = 'auto', hand = null) {
     if (this.mode !== 'choose') return;
     const opt = this.options[i];
     if (!opt || opt.gone) return;
-    this.mode = 'move';
+    this.mode = 'pull';
     const q = opt.reply.q;
     const kind = q === 2 ? 'good' : q === 1 ? 'ok' : 'bad';
-    sfx.grab();
-    this.engine.haptic(opt.nearBy ?? this.engine.pointers.find((p) => p.kind === 'xr' && p.active), 0.5, 40);
     // Did the AI coach read the customer right? (counted once per stage)
     if (this.firstPick) {
       this.firstPick = false;
@@ -570,120 +576,206 @@ export class SummitScene extends BaseScene {
       this.coach.userData.set({ verdict });
       this.talk?.setCoach({ verdict });
     }
-    this.showFeedback(opt, i, kind);
     this.talk?.lock(true);
-    this.both((f) => { f.react(kind); f.setTrust(this.trust); });
-    if (kind === 'bad') this.crumble(opt);
-    else this.climbTo(opt, kind);
-  }
-
-  showFeedback(opt, i, kind) {
-    const tip = L(opt.reply.tip);
-    this.talk?.mark(i, kind, tip);
-    if (opt.label) {
-      const old = opt.label;
-      old.removeFromParent();
-      old.userData.panel.dispose();
-      const fb = makeFeedback(kind, tip);
-      const h = holder(fb, LS);
-      h.position.set(opt.x, opt.y + 0.05 + (fb.h * LS) / 2, this.stepIndex === 4 ? 0.21 : opt.z + 0.1);
-      this.mountain.add(h);
-      this.popIn(fb);
-      opt.label = h;
+    const cl = this.climber;
+    this.toWall();
+    const next = this.stepIndex + 1 < FOCUS.length ? FOCUS[this.stepIndex + 1] : VIEW_TOP;
+    this.pull = { opt, i, kind, via, hand, p: 0, dragP: 0, release: false, tick: 0, from: cl.grip.clone(), to: new THREE.Vector3(opt.x, opt.y, opt.z), base: this.focusTo, next, startY: null };
+    if (hand) this.pull.startY = this.handPos(hand).y;
+    cl.reach = Math.sign(opt.x - cl.grip.x);
+    cl.pose = 'climb';
+    cl.focus();
+    opt.hold.setPull(0);
+    sfx.grab();
+    if (kind === 'good') {
+      // Solid: a soft click and a tick in the hand.
+      this.after(0.06, () => sfx.tick());
+      this.buzz(0.35, 25);
+    } else {
+      this.buzz(0.2, 30);
+      if (kind === 'ok') opt.hold.shake = 1.0;
+    }
+    if (kind !== 'bad') {
+      opt.hold.setState(kind);
+      this.showFeedback(opt, i, kind);
+      this.both((f) => { f.react(kind); f.setTrust(this.trust); });
+      // The other holds fade away; this one stays on the wall as part of the route.
+      for (const o of this.options) {
+        if (o === opt) continue;
+        if (o.label) { const l = o.label; o.label = null; l.removeFromParent(); l.userData.panel.dispose(); }
+        if (o.gone) continue;
+        o.gone = true;
+        const h = o.hold;
+        this.anim(0.35, (k) => h.group.scale.setScalar(Math.max(0.001, 1 - k)), () => h.dispose());
+      }
+    }
+    // Pulling by hand or by dragging: a hint below the hold.
+    if (via !== 'auto') {
+      const hint = makePullHint(t(via === 'hand' ? 'summitPullHintXR' : 'summitPullHint'));
+      const hh = holder(hint, LS);
+      hh.position.set(opt.x, opt.y - 0.075, opt.z + 0.11);
+      this.mountain.add(hh);
+      this.pullHint = hh;
     }
   }
 
-  crumble(opt) {
-    const cl = this.climber;
-    this.stepFails += 1;
-    this.addTrust(TRUST.bad);
-    this.stamina = Math.max(0, this.stamina + STAMINA.bad);
-    sfx.wrong();
-    opt.hold.setState('bad');
-    opt.hold.shake = 0.6;
-    // Echo reaches for it, it breaks, Echo slips and the rope catches.
-    this.toWall();
-    const from = cl.grip.clone();
-    cl.reach = Math.sign(opt.x - from.x);
-    const reachTo = from.clone().lerp(new THREE.Vector3(opt.x, opt.y, opt.z), 0.45);
-    this.anim(0.4, (k) => cl.grip.lerpVectors(from, reachTo, ease(k)), () => {
-      opt.gone = true;
-      opt.hold.group.visible = false;
-      const at = new THREE.Vector3(opt.x, opt.y, opt.z + 0.03);
-      const sh = makeShards('xr-summit-hold-bad', at);
-      this.mountain.add(sh);
-      this.shards.push(sh);
-      sfx.shatter();
-      sfx.crash();
-      this.engine.haptic(this.engine.pointers.find((p) => p.kind === 'xr' && p.active), 0.9, 120);
-      cl.pose = 'slip';
-      cl.hurt();
-      const low = from.clone().add(new THREE.Vector3(0, -0.11, 0.02));
-      this.anim(0.35, (k) => cl.grip.lerpVectors(reachTo, low, k * k), () => {
-        cl.swing = 1;
-        this.anim(0.6, (k) => cl.grip.lerpVectors(low, from, ease(k)), () => {
-          cl.grip.copy(from);
-          cl.pose = 'hang';
-          cl.reach = 0;
-          if (opt.label) { opt.label.visible = true; }
-          if (this.stamina <= 0) { this.fallOff(); return; }
-          this.mode = 'choose';
-          this.talk?.lock(false);
-          this.chooseT = STAMINA.grace;
-        }, 0.25);
-      });
-    });
+  /** A haptic pulse in the pulling hand (or any active controller). */
+  buzz(strength, ms) {
+    const hand = this.pull?.hand ?? this.engine.pointers.find((p) => p.kind === 'xr' && p.active);
+    this.engine.haptic(hand, strength, ms);
   }
 
-  climbTo(opt, kind) {
+  handPos(p, out = new THREE.Vector3()) {
+    return out.setFromMatrixPosition(p.controller.matrixWorld);
+  }
+
+  removePullHint() {
+    if (!this.pullHint) return;
+    const h = this.pullHint;
+    this.pullHint = null;
+    h.removeFromParent();
+    h.userData.panel.dispose();
+  }
+
+  /** Every frame while pulling: progress from the hand, the drag or by itself. */
+  updatePull(dt) {
+    const P = this.pull;
+    if (!P || this.mode !== 'pull') return;
+    let want = P.p;
+    if (P.via === 'auto' || P.release) want = Math.min(1, P.p + dt / 0.8);
+    else if (P.via === 'drag') want = Math.max(P.p, P.dragP);
+    else if (P.via === 'hand' && P.hand?.active) {
+      const d = P.startY - this.handPos(P.hand).y;
+      want = Math.max(P.p, clamp(d / PULL_M, 0, 1));
+    } else if (P.via === 'hand') want = Math.min(1, P.p + dt / 0.8);
+    P.p = want;
+    P.opt.hold.setPull(P.p);
+    this.pullHint?.userData.panel.userData.tick(this.time);
+    if (P.p > 0.12) this.removePullHint();
+    // A little tick in the hand every quarter of the way.
+    const q = Math.floor(P.p * 4);
+    if (q > P.tick && P.p < 1) { P.tick = q; if (P.kind !== 'bad') { this.buzz(0.15, 12); sfx.bounce(); } }
+    // A weak hold breaks as soon as weight comes on it.
+    if (P.kind === 'bad' && P.p >= BREAK_AT) { this.breakHold(); return; }
+    // Echo follows the pull, and so does the wall (in the headset it moves with the hand).
+    const cl = this.climber;
+    cl.grip.lerpVectors(P.from, P.to, ease(P.p));
+    cl.grip.z += Math.sin(P.p * Math.PI) * 0.03;
+    if (!this.snapMoves()) {
+      this.focusTo = P.base + (P.next - P.base) * (P.via === 'hand' ? P.p : ease(P.p));
+      if (P.via === 'hand') this.focus = this.focusTo;
+    }
+    if (P.p >= 1) this.arrive();
+  }
+
+  /** Arrived on the hold: points, trust, strength, and on to the next stage. */
+  arrive() {
+    const P = this.pull;
+    const { opt, kind } = P;
+    this.pull = null;
+    this.removePullHint();
+    opt.hold.setPull(-1);
+    this.mode = 'move';
     const cl = this.climber;
     const good = kind === 'good';
     const speed = good && !this.stepFails ? Math.round(PTS.speed * clamp(1 - (this.chooseT - 2) / 9, 0, 1)) : 0;
     const pts = good ? (this.stepFails ? PTS.solidRetry : PTS.solid + speed) : (this.stepFails ? PTS.okRetry : PTS.ok);
     this.addScore(pts);
     this.addTrust(good ? TRUST.good : TRUST.ok);
-    this.stamina = Math.min(100, this.stamina + (good ? STAMINA.good : STAMINA.ok));
+    this.stamina = clamp(this.stamina + (good ? STAMINA.good : STAMINA.ok) - STAMINA.pull, 0, 100);
+    this.both((f) => f.setTrust(this.trust));
     if (good) sfx.correct(); else sfx.point();
-    opt.hold.setState(kind);
-    if (!good) opt.hold.shake = 1.4;
+    this.buzz(0.5, 40);
+    sfx.flap();
     this.popScore(`+${pts}`, new THREE.Vector3(opt.x, opt.y + 0.02, opt.z + 0.08), good ? 'xr-summit-hold-good' : 'xr-summit-hold-ok');
-    // The other holds fade away; this one stays on the wall as part of the route.
-    for (const o of this.options) {
-      if (o === opt) continue;
-      if (o.label) { const l = o.label; o.label = null; l.removeFromParent(); l.userData.panel.dispose(); }
-      if (o.gone) continue;
-      o.gone = true;
-      const h = o.hold;
-      this.anim(0.35, (k) => h.group.scale.setScalar(Math.max(0.001, 1 - k)), () => h.dispose());
-    }
-    this.toWall();
-    const from = cl.grip.clone();
-    const to = new THREE.Vector3(opt.x, opt.y, opt.z);
-    cl.reach = Math.sign(opt.x - from.x);
-    cl.pose = 'climb';
-    cl.focus();
-    this.after(0.25, () => sfx.flap());
-    this.anim(0.85, (k) => {
-      const e = ease(k);
-      cl.grip.lerpVectors(from, to, e);
-      cl.grip.z += Math.sin(k * Math.PI) * 0.03;
-    }, () => {
-      cl.grip.copy(to);
-      cl.pose = 'hang';
-      cl.reach = 0;
-      if (good) cl.happy(1.3);
-      this.route.push(opt);
-      this.stepIndex += 1;
-      this.focusTo = this.stepIndex < FOCUS.length ? FOCUS[this.stepIndex] : VIEW_TOP;
-      this.after(good ? 0.9 : 1.3, () => {
-        if (opt.label) { const l = opt.label; opt.label = null; l.removeFromParent(); l.userData.panel.dispose(); }
-        opt.hold.setState('route');
-        const last = this.stepIndex >= this.customer.steps.length;
-        this.coach.userData.set(last ? { phase: 'shown', reveal: 1, mood: null, words: [], verdict: null, unsure: false } : { phase: 'idle', verdict: null });
-        if (this.stepIndex >= this.customer.steps.length) this.reachSummit();
-        else this.beginStep();
-      });
+    cl.grip.copy(P.to);
+    cl.pose = 'hang';
+    cl.reach = 0;
+    if (good) cl.happy(1.3);
+    this.route.push(opt);
+    this.stepIndex += 1;
+    this.focusTo = this.stepIndex < FOCUS.length ? FOCUS[this.stepIndex] : VIEW_TOP;
+    this.after(good ? 0.9 : 1.3, () => {
+      if (opt.label) { const l = opt.label; opt.label = null; l.removeFromParent(); l.userData.panel.dispose(); }
+      opt.hold.setState('route');
+      const last = this.stepIndex >= this.customer.steps.length;
+      this.coach.userData.set(last ? { phase: 'shown', reveal: 1, mood: null, words: [], verdict: null, unsure: false } : { phase: 'idle', verdict: null });
+      if (last) this.reachSummit();
+      else this.beginStep();
     });
+  }
+
+  /** The weak hold breaks in the hand: shards, a jolt, Echo slips into the rope; pick again. */
+  breakHold() {
+    const P = this.pull;
+    const { opt, i } = P;
+    this.pull = null;
+    this.removePullHint();
+    this.mode = 'move';
+    const cl = this.climber;
+    this.stepFails += 1;
+    this.addTrust(TRUST.bad);
+    this.stamina = Math.max(0, this.stamina + STAMINA.bad);
+    sfx.wrong();
+    opt.hold.setState('bad');
+    opt.hold.setPull(-1);
+    this.showFeedback(opt, i, 'bad');
+    this.both((f) => { f.react('bad'); f.setTrust(this.trust); });
+    opt.gone = true;
+    opt.hold.group.visible = false;
+    const sh = makeShards('xr-summit-hold-bad', new THREE.Vector3(opt.x, opt.y, opt.z + 0.03));
+    this.mountain.add(sh);
+    this.shards.push(sh);
+    sfx.shatter();
+    sfx.crash();
+    this.engine.haptic(P.hand ?? this.engine.pointers.find((p) => p.kind === 'xr' && p.active), 1.0, 180);
+    // The wall drops back (a jolt below where it was) and settles again.
+    this.focusTo = P.base;
+    if (!this.snapMoves()) this.focus = P.base - 0.06;
+    cl.pose = 'slip';
+    cl.hurt();
+    const at = cl.grip.clone();
+    const low = P.from.clone().add(new THREE.Vector3(0, -0.11, 0.02));
+    this.anim(0.3, (k) => cl.grip.lerpVectors(at, low, k * k), () => {
+      cl.swing = 1;
+      this.anim(0.6, (k) => cl.grip.lerpVectors(low, P.from, ease(k)), () => {
+        cl.grip.copy(P.from);
+        cl.pose = 'hang';
+        cl.reach = 0;
+        if (this.stamina <= 0) { this.fallOff(); return; }
+        this.mode = 'choose';
+        this.talk?.lock(false);
+        this.chooseT = STAMINA.grace;
+      }, 0.25);
+    });
+  }
+
+  /** Comfort setting in the headset: moves as quick jumps behind a short fade. */
+  snapMoves() {
+    return this.engine.isXR && this.comfortSnap;
+  }
+
+  /** Mouse or finger: grab a hold where the pointer goes down, then drag down to pull. */
+  pickAt(ev) {
+    const r = this.engine.canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndc, this.engine.camera);
+    const targets = [];
+    this.options.forEach((o, i) => {
+      if (o.gone) return;
+      targets.push([o.hold.hit, i]);
+      if (o.label?.userData.panel) targets.push([o.label.userData.panel, i]);
+    });
+    this.group.updateMatrixWorld(true);
+    const hits = ray.intersectObjects(targets.map(([o]) => o), false);
+    if (!hits.length) return -1;
+    return targets.find(([o]) => o === hits[0].object)[1];
+  }
+
+  /** How far (CSS px) a drag goes for one move. */
+  pullPx() {
+    return clamp(window.innerHeight * 0.18, 70, 170);
   }
 
   addTrust(d) { this.trust = clamp(this.trust + d, 0, 100); }

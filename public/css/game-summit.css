@@ -40,6 +40,9 @@
   --xr-summit-hold-idle-4:    #d8a46a;
   --xr-summit-hold-bolt:      var(--p-ink-900);
   --xr-summit-grab:           var(--p-white);     /* ring when the hand is close enough to grab */
+  --xr-summit-pull:           var(--p-mint-400);  /* pull progress ring and the pull hint */
+  --xr-summit-pull-back:      var(--p-ink-700);
+  --xr-summit-vignette:       var(--p-ink-950);   /* comfort vignette in the headset while the view moves */
 
   /* summit: flag, cross, fairy lights */
   --xr-summit-flag:           var(--p-violet-500);
@@ -114,6 +117,7 @@
   --xr-summit-step:           0.24;   /* height of one section of the wall (one stage) */
   --xr-summit-label-scale:    0.5;    /* reply plates next to the holds (readable at arm's length) */
   --xr-summit-grab-radius:    0.12;   /* hand within this distance of a hold: grab */
+  --xr-summit-pull-reach:     0.22;   /* hand travel (m) that pulls you up one hold */
 
   /* phones: the answer panel (screen element) */
   --xr-summit-talk-max:          30rem;

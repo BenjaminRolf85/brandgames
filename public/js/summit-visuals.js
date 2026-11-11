@@ -4,6 +4,7 @@
 // sea of clouds and a dusk sky. All colors come from the --xr-summit-* tokens.
 import * as THREE from 'three';
 import { hex, color, font } from './tokens.js';
+import { Panel } from './ui3d.js';
 import { loadGLTF } from './models.js';
 import { radialTexture } from './robot-visuals.js';
 import { loadEchoParts, bendWing } from './echo-mascot.js';
@@ -221,6 +222,25 @@ export class Hold {
     this.ring = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.004, 6, 32), new THREE.MeshBasicMaterial({ color: hex('xr-summit-grab'), transparent: true, opacity: 0, depthWrite: false, toneMapped: false }));
     this.ring.position.z = 0.03;
     this.group.add(this.ring);
+    // Pull progress: a ring that fills while you pull yourself up on this hold.
+    this.progress = new THREE.Mesh(new THREE.RingGeometry(0.066, 0.08, 48), new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      uniforms: { uP: { value: 0 }, uColor: { value: col('xr-summit-pull') }, uBack: { value: col('xr-summit-pull-back') } },
+      vertexShader: 'varying vec2 vP; void main() { vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform float uP; uniform vec3 uColor; uniform vec3 uBack; varying vec2 vP;
+        void main() {
+          float a = atan(vP.x, vP.y);
+          float k = (a < 0.0 ? a + 6.2831853 : a) / 6.2831853;
+          gl_FragColor = k <= uP ? vec4(uColor, 0.95) : vec4(uBack, 0.45);
+          #include <colorspace_fragment>
+        }`,
+    }));
+    this.progress.position.z = 0.034;
+    this.progress.renderOrder = 15;
+    this.progress.visible = false;
+    this.group.add(this.progress);
+    this.grabbed = 0;
     this.hit = new THREE.Mesh(new THREE.SphereGeometry(0.058, 12, 8), new THREE.MeshBasicMaterial({ visible: false }));
     this.hit.position.z = 0.02;
     this.hit.userData.noFit = true;
@@ -235,6 +255,13 @@ export class Hold {
     this.near = 0;
     this.shake = 0;
     this.pulse = Math.random() * 6;
+  }
+
+  /** Pull progress 0..1 (negative hides the ring). */
+  setPull(p) {
+    this.progress.visible = p >= 0;
+    this.progress.material.uniforms.uP.value = Math.max(0, p);
+    this.grabbed = p >= 0 ? 1 : 0;
   }
 
   setState(state) {
@@ -262,7 +289,7 @@ export class Hold {
     this.glow.scale.setScalar(0.15 + 0.05 * Math.max(this.hover, this.near));
     const s = this.size * (1 + 0.15 * Math.max(this.hover, this.near));
     this.body.scale.setScalar(s);
-    this.ring.material.opacity = option ? 0.25 + this.near * 0.7 : 0;
+    this.ring.material.opacity = option ? 0.25 + Math.max(this.near, this.grabbed) * 0.7 : this.grabbed * 0.9;
     this.ring.scale.setScalar(1 + 0.12 * Math.sin(time * 9));
     this.shake = Math.max(0, this.shake - dt);
     this.body.position.set(Math.sin(time * 70) * 0.004 * Math.min(1, this.shake * 4), Math.cos(time * 63) * 0.003 * Math.min(1, this.shake * 4), 0);
@@ -276,6 +303,8 @@ export class Hold {
     this.glow.material.dispose();
     this.ring.geometry.dispose();
     this.ring.material.dispose();
+    this.progress.geometry.dispose();
+    this.progress.material.dispose();
     this.hit.geometry.dispose();
     this.disposed = true;
     this.badge?.material.map.dispose();
@@ -791,4 +820,46 @@ export function makeClouds(y, { count = 90, ar = false } = {}) {
   place(0);
   inst.userData.tick = (time) => place(time);
   return inst;
+}
+
+/**
+ * The hint while a hold is grabbed: chevrons pointing down and a short text ("pull down").
+ * Panel units like the reply plates; tick(time) lets the chevrons slide.
+ */
+export function makePullHint(text) {
+  const W = 0.36;
+  const H = 0.17;
+  let phase = 0;
+  const p = new Panel(W, H, (ctx, c) => {
+    const w = c.canvas.width;
+    ctx.fillStyle = color('xr-panel-bg');
+    ctx.beginPath();
+    ctx.roundRect(c.m(0.004), c.m(0.004), w - c.m(0.008), c.canvas.height - c.m(0.008), c.m(0.03));
+    ctx.fill();
+    ctx.strokeStyle = color('xr-summit-pull');
+    ctx.lineWidth = c.m(0.012);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (let i = 0; i < 2; i++) {
+      const y = c.m(0.03 + i * 0.03 + phase * 0.02);
+      ctx.globalAlpha = 1 - i * 0.35 - phase * 0.3;
+      ctx.beginPath();
+      ctx.moveTo(w / 2 - c.m(0.04), y);
+      ctx.lineTo(w / 2, y + c.m(0.025));
+      ctx.lineTo(w / 2 + c.m(0.04), y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color('xr-panel-text');
+    ctx.font = font('bold', c.m(0.036));
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, w / 2, c.m(0.135), w - c.m(0.03));
+  });
+  p.renderOrder = 14;
+  p.userData.tick = (time) => {
+    const ph = (time * 1.6) % 1;
+    if (Math.abs(ph - phase) > 0.08) { phase = ph; p.redraw(); }
+  };
+  return p;
 }

@@ -1180,40 +1180,52 @@ export function makeGuideDots(n = 9) {
   return mesh;
 }
 
-/** Snowflakes falling over the snow section near the bike (course units). update(dt, s, on). */
+/**
+ * Snowflakes falling over the snow section near the bike (course units).
+ * update(dt, s, on, scale, area): area { back, front, side, top } is the volume they fall in
+ * (behind/ahead of the bike, to each side, height above the ground); they fade out near the top.
+ */
+export const FX_AREA = { back: 2.5, front: 14, side: 5, top: 6 };
 export function makeSnow(course, count = 260, clip = null) {
   const pos = new Float32Array(count * 3);
+  const col = new Float32Array(count * 4).fill(1);
   const seed = new Float32Array(count * 3); // s, v, phase
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const mat = new THREE.PointsMaterial({ color: hex('xr-snow-flake'), map: radialTexture(), size: 0.012, transparent: true, depthWrite: false, opacity: 0, clippingPlanes: clip });
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 4));
+  const mat = new THREE.PointsMaterial({ color: hex('xr-snow-flake'), map: radialTexture(), size: 0.012, vertexColors: true, transparent: true, depthWrite: false, opacity: 0, clippingPlanes: clip });
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
   points.userData.noFit = true;
   const p = new THREE.Vector3();
   const ys = new Float32Array(count);
   let init = false;
-  points.userData.update = (dt, s, on, scale) => {
+  points.userData.update = (dt, s, on, scale, area = FX_AREA) => {
     mat.opacity += ((on ? 0.9 : 0) - mat.opacity) * Math.min(1, dt * 1.5);
     mat.size = 0.11 * scale;
     points.visible = mat.opacity > 0.02;
-    if (!points.visible) return;
+    if (!points.visible) { init = false; return; }
+    const { back, front, side, top } = area;
     for (let i = 0; i < count; i++) {
-      if (!init || seed[i * 3] < s - 2.5) {
-        seed[i * 3] = s + (init ? 8 + Math.random() * 6 : -2 + Math.random() * 16);
-        seed[i * 3 + 1] = -5 + Math.random() * 10;
+      const out = seed[i * 3] < s - back || seed[i * 3] > s + front + 0.5 || Math.abs(seed[i * 3 + 1]) > side || ys[i] > top;
+      if (!init || out) {
+        seed[i * 3] = init && seed[i * 3] < s - back ? s + front * (0.55 + Math.random() * 0.45) : s - back + Math.random() * (back + front);
+        seed[i * 3 + 1] = (Math.random() * 2 - 1) * side;
         seed[i * 3 + 2] = Math.random() * TAU;
-        ys[i] = init ? 5 + Math.random() * 1.5 : Math.random() * 6;
+        ys[i] = init ? top * (0.7 + Math.random() * 0.3) : Math.random() * top;
       }
       ys[i] -= dt * (0.7 + (i % 5) * 0.08);
-      if (ys[i] < 0) ys[i] += 6;
+      if (ys[i] < 0) ys[i] += top;
       course.point(seed[i * 3], seed[i * 3 + 1] + Math.sin(ys[i] * 1.3 + seed[i * 3 + 2]) * 0.25, p);
       pos[i * 3] = p.x;
       pos[i * 3 + 1] = ys[i] + course.h(seed[i * 3]);
       pos[i * 3 + 2] = p.z;
+      // Soft at the top of the volume and where they touch the ground.
+      col[i * 4 + 3] = (1 - THREE.MathUtils.smoothstep(ys[i], top * 0.6, top)) * THREE.MathUtils.smoothstep(ys[i], 0, 0.25);
     }
     init = true;
     geo.attributes.position.needsUpdate = true;
+    geo.attributes.color.needsUpdate = true;
   };
   return points;
 }
@@ -1250,9 +1262,9 @@ export function makeMist(count = 9) {
 }
 
 /** Small sparks in course units (hits, stars, confetti), driven by update(dt). emit(pos, token, n). */
-export function makeSparks(max = 260) {
+export function makeSparks(max = 260, clip = null) {
   const geo = new THREE.IcosahedronGeometry(0.07, 0);
-  const mat = new THREE.MeshBasicMaterial({ toneMapped: false });
+  const mat = new THREE.MeshBasicMaterial({ toneMapped: false, clippingPlanes: clip });
   const mesh = new THREE.InstancedMesh(geo, mat, max);
   mesh.frustumCulled = false;
   mesh.userData.noFit = true;
