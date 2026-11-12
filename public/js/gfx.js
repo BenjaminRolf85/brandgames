@@ -3,6 +3,8 @@
 // shadows and optional bloom in the browser. Everything respects the effects setting
 // (quality.lite: cheaper shadows, no bloom) and the headset (no post effects in XR, where every
 // frame counts twice). UI panels (ui3d.js) use toneMapped: false, so they keep their token colors.
+// Measuring: renderer.info.render.calls counts only the last render pass (shadow passes and
+// bloom passes reset it).
 //
 //   const restore = sceneLook(engine, { tone: 'aces', exposure: 1.05, env: 'studio', shadows: 'soft' });
 //   this.onSceneDispose(restore);
@@ -144,10 +146,12 @@ export function contactShadow(radius = 0.2, opacity = 0.45) {
  * Bloom for the browser view (glowing neon, lights, crystals). Off in the headset and with
  * "lite" effects. A high threshold keeps UI text from glowing. Returns a dispose function.
  * Note: with bloom the tone mapping is applied once at the end (OutputPass), also to the UI,
- * so prefer tone: 'neutral' (closest to the token colors) in scenes that use it.
+ * so prefer tone: 'neutral' (closest to the token colors) in scenes that use it. To keep white
+ * UI text from glowing, use a threshold of about 1.0 and push glowing colors above 1 (emissive
+ * intensity > 1); a lower threshold also picks up white panels and snow.
  */
 export function bloom(engine, { strength = 0.45, radius = 0.4, threshold = 0.88 } = {}) {
-  if (quality.lite) return () => {};
+  if (quality.lite || engine.isXR) return () => {};
   let composer = null;
   let bloomPass = null;
   let alive = true;
