@@ -51,6 +51,7 @@ const hazeUniforms = {
   uWarm: { value: new THREE.Color() },
   uDark: { value: new THREE.Color() },
   uSnowCap: { value: new THREE.Color() },
+  uMist: { value: new THREE.Color() },
   uHazeAmt: { value: 1 },
 };
 /** Distance haze on or off (off in AR, where the real room is behind the peaks). */
@@ -60,6 +61,7 @@ function refreshRockColors() {
   hazeUniforms.uWarm.value.set(hex('xr-summit-rock-warm'));
   hazeUniforms.uDark.value.set(hex('xr-summit-rock-dark'));
   hazeUniforms.uSnowCap.value.set(hex('xr-summit-peak-snow'));
+  hazeUniforms.uMist.value.set(hex('xr-summit-cloud-shade')).lerp(col('xr-summit-cloud'), 0.45);
 }
 
 function patchRock(mat, { grain = 0, bump = 0, octaves = 1, tint = 0, cracks = 0, snowCap = 0, haze = 0, mist = 0, hazeNear = 2.5, hazeFar = 9 } = {}) {
@@ -82,7 +84,7 @@ function patchRock(mat, { grain = 0, bump = 0, octaves = 1, tint = 0, cracks = 0
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform float uCutY;
-        uniform vec3 uHaze; uniform vec3 uWarm; uniform vec3 uDark; uniform vec3 uSnowCap; uniform float uHazeAmt;
+        uniform vec3 uHaze; uniform vec3 uWarm; uniform vec3 uDark; uniform vec3 uSnowCap; uniform vec3 uMist; uniform float uHazeAmt;
         varying vec3 vRockW;
         varying vec3 vGrainP;
         float grainHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -95,7 +97,7 @@ function patchRock(mat, { grain = 0, bump = 0, octaves = 1, tint = 0, cracks = 0
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         ${bump > 0 ? `{
           // Rough rock: the normal follows a noise relief (object space, good enough for a bump).
-          vec3 bp = vGrainP * 30.0;
+          vec3 bp = vGrainP * ${octaves > 1 ? '22.0' : '30.0'};
           float b0 = grainNoise(bp);
           vec3 bg = vec3(grainNoise(bp + vec3(0.12, 0.0, 0.0)), grainNoise(bp + vec3(0.0, 0.12, 0.0)), grainNoise(bp + vec3(0.0, 0.0, 0.12))) - b0;
           ${octaves > 1 ? `
@@ -108,7 +110,7 @@ function patchRock(mat, { grain = 0, bump = 0, octaves = 1, tint = 0, cracks = 0
         ${snowCap > 0 ? `{
           // Snow settles on every face that looks up.
           vec3 wN = normalize((vec4(normal, 0.0) * viewMatrix).xyz);
-          float sc = smoothstep(0.48, 0.68, wN.y + (grainNoise(vGrainP * 9.0) - 0.5) * 0.35);
+          float sc = smoothstep(0.66, 0.82, wN.y + (grainNoise(vGrainP * 9.0) - 0.5) * 0.3);
           diffuseColor.rgb = mix(diffuseColor.rgb, uSnowCap, sc * ${f(snowCap)});
         }` : ''}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
@@ -125,15 +127,18 @@ function patchRock(mat, { grain = 0, bump = 0, octaves = 1, tint = 0, cracks = 0
           diffuseColor.rgb = mix(diffuseColor.rgb, uDark, smoothstep(0.5, 0.85, mid) * ${f(tint * 0.75)});
         }` : ''}
         ${cracks > 0 ? `{
-          float cn = grainNoise(vGrainP * vec3(9.0, 16.0, 9.0) + vec3(0.0, 7.3, 0.0));
-          float crack = 1.0 - smoothstep(0.0, 0.03, abs(cn - 0.5));
+          // Long, mostly vertical fissures, only here and there.
+          float cn = grainNoise(vGrainP * vec3(16.0, 3.5, 16.0) + vec3(0.0, 7.3, 0.0));
+          float crack = 1.0 - smoothstep(0.0, 0.022, abs(cn - 0.5));
+          crack *= smoothstep(0.5, 0.7, grainNoise(vGrainP * 5.0 + vec3(3.1, 0.0, 8.2)));
           diffuseColor.rgb *= 1.0 - ${f(cracks)} * crack;
         }` : ''}`)
       .replace('#include <tonemapping_fragment>', `${haze > 0 || mist > 0 ? `{
           // Distance haze toward the sky, and mist just above the sea of clouds.
           float hz = smoothstep(${f(hazeNear)}, ${f(hazeFar)}, length(vRockW - cameraPosition)) * ${f(haze)} * uHazeAmt;
-          float ms = (1.0 - smoothstep(uCutY, uCutY + 0.55, vRockW.y)) * ${f(mist)};
-          gl_FragColor.rgb = mix(gl_FragColor.rgb, uHaze, clamp(max(hz, ms), 0.0, 1.0));
+          float ms = (1.0 - smoothstep(uCutY, uCutY + 0.5, vRockW.y)) * ${f(mist)};
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, uHaze, clamp(hz, 0.0, 1.0));
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, uMist, clamp(ms * ms * (3.0 - 2.0 * ms), 0.0, 1.0));
         }` : ''}
         #include <tonemapping_fragment>`);
   };
@@ -147,7 +152,7 @@ function patchRock(mat, { grain = 0, bump = 0, octaves = 1, tint = 0, cracks = 0
 function rockDetail() {
   const tier = gfxTier();
   if (quality.lite || tier === 'low') return { bump: 0, octaves: 1, cracks: 0 };
-  return tier === 'high' ? { bump: 0.3, octaves: 2, cracks: 0.32 } : { bump: 0.22, octaves: 1, cracks: 0 };
+  return tier === 'high' ? { bump: 0.42, octaves: 2, cracks: 0.4 } : { bump: 0.22, octaves: 1, cracks: 0 };
 }
 
 const std = (token, roughness, metalness = 0, extra = {}) => new THREE.MeshStandardMaterial({ color: hex(token), roughness, metalness, vertexColors: true, ...extra });
@@ -155,10 +160,10 @@ const std = (token, roughness, metalness = 0, extra = {}) => new THREE.MeshStand
 /** Token materials for summit.glb (fresh set per call). */
 function wallMaterials() {
   const d = rockDetail();
-  const rockOpts = { grain: 0.35, bump: d.bump, octaves: d.octaves, tint: 0.5, cracks: d.cracks, mist: 0.6 };
+  const rockOpts = { grain: 0.35, bump: d.bump, octaves: d.octaves, tint: 0.4, cracks: d.cracks, mist: 0.7 };
   const rock = patchRock(std('xr-summit-rock', 0.93), rockOpts);
   const rockAlt = patchRock(std('xr-summit-rock-alt', 0.93), rockOpts);
-  const snow = patchRock(std('xr-summit-snow', 0.75), { mist: 0.6 });
+  const snow = patchRock(std('xr-summit-snow', 0.75), { mist: 0.7 });
   // Christmas: snow catches on every ledge and bump (snow.js); the snow pillows stay as they are.
   winterize(rock);
   winterize(rockAlt);
@@ -166,15 +171,15 @@ function wallMaterials() {
     SummitRock: rock,
     SummitRockAlt: rockAlt,
     SummitSnow: snow,
-    SummitMetal: patchRock(std('xr-summit-metal', 0.3, 0.9), { mist: 0.6 }),
+    SummitMetal: patchRock(std('xr-summit-metal', 0.3, 0.9), { mist: 0.7 }),
     SummitSling: std('xr-summit-sling', 0.6),
     SummitHoldBolt: std('xr-summit-hold-bolt', 0.35, 0.8),
     SummitPole: std('xr-summit-pole', 0.3, 0.8),
     SummitGold: std('xr-summit-gold', 0.25, 1, { emissive: hex('xr-summit-gold'), emissiveIntensity: 0.18 }),
     SummitWood: std('xr-summit-wood', 0.7),
     // The distant peaks: snow on every upward face, haze with distance, mist at their feet.
-    SummitPeakRock: patchRock(std('xr-summit-peak-rock', 0.95, 0, { flatShading: true }), { grain: 0.25, tint: 0.4, snowCap: 0.92, haze: 0.55, mist: 0.75 }),
-    SummitPeakSnow: patchRock(std('xr-summit-peak-snow', 0.8, 0, { flatShading: true }), { haze: 0.55, mist: 0.75 }),
+    SummitPeakRock: patchRock(std('xr-summit-peak-rock', 0.95, 0, { flatShading: true }), { grain: 0.3, tint: 0.15, snowCap: 0.9, haze: 0.22, mist: 0.95 }),
+    SummitPeakSnow: patchRock(std('xr-summit-peak-snow', 0.8, 0, { flatShading: true }), { haze: 0.22, mist: 0.95 }),
     SummitHarnessWeb: std('xr-summit-harness', 0.6),
     SummitHarnessMetal: std('xr-summit-harness-metal', 0.25, 0.9),
     SummitHarnessBag: std('xr-summit-chalkbag', 0.75),

@@ -6,12 +6,12 @@
 //  - depth haze: a soft gradient in the sky color between the backdrop and the track, so trees,
 //    towers and clouds sit further back (not on 'low')
 //  - light shafts: moonbeams in the forest, dawn rays in the city (one draw call, 'high' only)
-//  - bloom on glowing parts in the desktop browser only (never in the headset or on phones)
+//  No bloom: the snow-lit stage is brighter than the glowing parts, so it would only blur the snow.
 // All colors come from tokens (--xr-parkour-key-*, sky and ground fills; the haze takes the
 // world's own sky tokens).
 import * as THREE from 'three';
 import { hex } from './tokens.js';
-import { sceneLook, bloom, gfxTier } from './gfx.js';
+import { sceneLook, gfxTier } from './gfx.js';
 import { quality } from './quality.js';
 import { WINTER } from './snow.js';
 
@@ -19,8 +19,8 @@ const wt = (token) => (WINTER ? `${token}-winter` : token);
 
 // Key light (color, intensity), hemisphere fill (sky, ground, intensity), rim strength, exposure.
 const RIG = {
-  forest: { key: 'xr-parkour-key-forest', keyI: 1.9, sky: 'xr-parkour-sky-forest', ground: 'xr-parkour-ground-forest', hemi: 0.75, rim: 1.0, exposure: 1.0, haze: () => wt('xr-forest-sky-bottom'), shafts: 'xr-parkour-shaft-forest' },
-  city: { key: 'xr-parkour-key-city', keyI: 1.9, sky: 'xr-parkour-sky-city', ground: 'xr-parkour-ground-city', hemi: 0.8, rim: 0.9, exposure: 1.0, haze: () => wt('xr-city-sky-bottom'), shafts: 'xr-parkour-shaft-city' },
+  forest: { key: 'xr-parkour-key-forest', keyI: 1.6, sky: 'xr-parkour-sky-forest', ground: 'xr-parkour-ground-forest', hemi: 0.75, rim: 1.0, exposure: 1.0, haze: () => wt('xr-forest-sky-bottom'), shafts: 'xr-parkour-shaft-forest' },
+  city: { key: 'xr-parkour-key-city', keyI: 1.6, sky: 'xr-parkour-sky-city', ground: 'xr-parkour-ground-city', hemi: 0.8, rim: 0.9, exposure: 1.0, haze: () => wt('xr-city-sky-bottom'), shafts: 'xr-parkour-shaft-city' },
   office: { key: 'xr-parkour-key-office', keyI: 1.55, sky: 'xr-parkour-sky-office', ground: 'xr-parkour-ground-office', hemi: 0.85, rim: 0.7, exposure: 1.0, haze: null, shafts: null },
 };
 
@@ -45,8 +45,6 @@ export function parkourLook(engine, world, env) {
       l.intensity *= 0.25;
     }
   }
-  // Bloom only where frames are cheap: the desktop browser with full effects.
-  const glow = tier === 'high' && !engine.isXR && !engine.touchUI ? bloom(engine, { strength: 0.42, radius: 0.55, threshold: 0.9 }) : null;
   return {
     rig,
     tier,
@@ -62,7 +60,6 @@ export function parkourLook(engine, world, env) {
       }
     },
     dispose() {
-      glow?.();
       restore();
       for (const s of saved) {
         s.l.intensity = s.i;
@@ -74,20 +71,29 @@ export function parkourLook(engine, world, env) {
 }
 
 let hazeTex = null;
-/** Vertical alpha ramp: dense at the bottom (mist rising from below), clear towards the top. */
+/**
+ * Alpha ramp: dense at the bottom (mist rising from below), clear towards the top, and soft at
+ * the left and right so no edge shows against the sky picture.
+ */
 function hazeTexture() {
   if (hazeTex) return hazeTex;
   const c = document.createElement('canvas');
-  c.width = 4;
-  c.height = 256;
+  c.width = 64;
+  c.height = 128;
   const ctx = c.getContext('2d');
-  const g = ctx.createLinearGradient(0, 256, 0, 0);
-  g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(0.3, 'rgba(255,255,255,0.62)');
-  g.addColorStop(0.62, 'rgba(255,255,255,0.22)');
-  g.addColorStop(1, 'rgba(255,255,255,0.05)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 4, 256);
+  const img = ctx.createImageData(64, 128);
+  const smooth = (k) => k * k * (3 - 2 * k);
+  for (let y = 0; y < 128; y++) {
+    const up = y / 127; // 0 at the top of the canvas
+    const v = Math.pow(up, 1.6); // canvas top = top of the plane: clear; bottom: dense
+    for (let x = 0; x < 64; x++) {
+      const side = smooth(Math.min(1, Math.min(x, 63 - x) / 12));
+      const o = (y * 64 + x) * 4;
+      img.data[o] = img.data[o + 1] = img.data[o + 2] = Math.round(255 * v * side);
+      img.data[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
   hazeTex = new THREE.CanvasTexture(c);
   return hazeTex;
 }
@@ -96,11 +102,11 @@ function hazeTexture() {
  * Depth haze between the backdrop and the track (stage units): one transparent plane in the sky
  * color. setColor(color) follows the sky (the city's night).
  */
-export function makeHaze(world, half, bottom, top, opacity = 0.42) {
+export function makeHaze(world, half, bottom, top, opacity = 0.34) {
   const rig = RIG[world];
   if (!rig?.haze || gfxTier() === 'low') return null;
   const mat = new THREE.MeshBasicMaterial({ color: hex(rig.haze()), alphaMap: hazeTexture(), transparent: true, opacity, depthWrite: false, toneMapped: false, fog: false });
-  const h = (top - bottom) * 0.8;
+  const h = (top - bottom) * 0.62;
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(half * 2, h), mat);
   mesh.position.set(0, bottom + h / 2, -1.55); // just behind the back edge of the track
   mesh.renderOrder = 1;

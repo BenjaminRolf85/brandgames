@@ -18,12 +18,17 @@ function skyTexture() {
   const ctx = c.getContext('2d');
   const g = ctx.createLinearGradient(0, 0, 0, 256);
   g.addColorStop(0, color('xr-pong-sky-top'));
-  g.addColorStop(0.5, color('xr-pong-sky-mid'));
-  g.addColorStop(0.62, color('xr-pong-sky-glow'));
-  g.addColorStop(0.78, color('xr-pong-sky-top'));
-  g.addColorStop(1, color('xr-pong-sky-top'));
+  g.addColorStop(0.55, color('xr-pong-sky-mid'));
+  g.addColorStop(0.8, color('xr-pong-sky-top'));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 4, 256);
+  // A thin glow band at the horizon, behind the data city's silhouettes.
+  ctx.fillStyle = color('xr-pong-sky-glow');
+  for (let y = 0; y < 256; y++) {
+    ctx.globalAlpha = 0.42 * Math.exp(-(((y / 256 - 0.6) / 0.07) ** 2));
+    ctx.fillRect(0, y, 4, 1);
+  }
+  ctx.globalAlpha = 1;
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -71,7 +76,8 @@ export function pongLook(scene, arena, { hw, hh, len }) {
     softSun(key, { size: 2.2, near: 0.5, far: 4.5, bias: -0.0006, normalBias: 0.01, radius: 4 });
     // Shadow catcher on the tunnel floor: only the shadows show, the neon floor stays as it is.
     // It reaches a bit past the far end, where the robot stands.
-    const catcher = new THREE.Mesh(new THREE.PlaneGeometry(2 * hw, len + 0.4), new THREE.ShadowMaterial({ opacity: 0.5, depthWrite: false }));
+    const catcher = new THREE.Mesh(new THREE.PlaneGeometry(2 * hw, len + 0.4), new THREE.ShadowMaterial({ opacity: 0.6, depthWrite: false }));
+    catcher.renderOrder = 3; // after the glowing floor grid, so the shadows darken it too
     catcher.rotation.x = -Math.PI / 2;
     catcher.position.set(0, -hh + 0.001, -0.2);
     catcher.receiveShadow = true;
@@ -96,7 +102,7 @@ export function pongLook(scene, arena, { hw, hh, len }) {
   let neon = 1;
   if (desktop && tier === 'high') {
     neon = 1.7;
-    scene.onSceneDispose(bloom(e, { strength: 0.55, radius: 0.5, threshold: 1.0 }));
+    scene.onSceneDispose(bloom(e, { strength: 0.45, radius: 0.5, threshold: 1.0 }));
   }
 
   return {

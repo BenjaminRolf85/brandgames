@@ -10,6 +10,7 @@ import { instanced, edgeFactor } from './parkour-visuals.js';
 import { roundRect } from './ui3d.js';
 import { t } from './i18n.js';
 import { font } from './tokens.js';
+import { gfxTier } from './gfx.js';
 
 export const OFFICE_URL = 'assets/models/office.glb';
 
@@ -53,14 +54,21 @@ export function loadOfficeModels() {
   return promise;
 }
 
+// Canvas pictures on screens: twice the resolution on 'high' (Quest 3 full, desktop), sharp
+// with anisotropic filtering at grazing angles.
+const sharpness = () => (gfxTier() === 'high' ? 2 : 1);
+const sharpen = (tex) => { tex.anisotropy = gfxTier() === 'high' ? 8 : 4; return tex; };
+
 /** Monitor picture: an agent chat (header, messages, input line), drawn with the tokens. */
 let screenTex = null;
 function screenTexture() {
-  if (screenTex) return screenTex;
+  const R = sharpness();
+  if (screenTex?.userData.R === R) return screenTex;
   const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 150;
+  c.width = 256 * R;
+  c.height = 150 * R;
   const ctx = c.getContext('2d');
+  ctx.scale(R, R);
   ctx.fillStyle = color('xr-parkour-back');
   ctx.fillRect(0, 0, 256, 150);
   ctx.fillStyle = color('xr-office-fabric');
@@ -80,7 +88,8 @@ function screenTexture() {
   ctx.fillStyle = color('xr-parkour-back');
   [[104, 70, 120], [104, 78, 90]].forEach(([x, y, w]) => ctx.fillRect(x, y, w, 3));
   bubble(10, 126, 236, 16, color('xr-office-dark'));
-  screenTex = new THREE.CanvasTexture(c);
+  screenTex = sharpen(new THREE.CanvasTexture(c));
+  screenTex.userData.R = R;
   screenTex.colorSpace = THREE.SRGBColorSpace;
   screenTex.flipY = false; // glTF UVs (top left origin)
   return screenTex;
@@ -136,11 +145,14 @@ function makeProp(O, pr, C) {
 /** The workshop screen: title, welcome line, the Echomotion logo and a few agenda bars. */
 let workshopTex = null;
 function workshopTexture() {
-  if (workshopTex) return workshopTex;
+  const R = sharpness();
+  if (workshopTex?.userData.R === R) return workshopTex;
   const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 288;
+  c.width = 512 * R;
+  c.height = 288 * R;
   const ctx = c.getContext('2d');
+  ctx.scale(R, R);
+  let tex = null;
   const draw = (logo) => {
     ctx.fillStyle = color('xr-parkour-back');
     ctx.fillRect(0, 0, 512, 288);
@@ -159,16 +171,18 @@ function workshopTexture() {
       ctx.fill();
     });
     if (logo) ctx.drawImage(logo, 372, 140, 112, 112);
-    if (workshopTex) workshopTex.needsUpdate = true;
+    if (tex) tex.needsUpdate = true;
   };
   draw(null);
   const img = new Image();
   img.onload = () => draw(img);
   img.src = 'assets/echomotion-logo.png';
-  workshopTex = new THREE.CanvasTexture(c);
-  workshopTex.colorSpace = THREE.SRGBColorSpace;
-  workshopTex.flipY = false; // glTF UVs (top left origin)
-  return workshopTex;
+  tex = sharpen(new THREE.CanvasTexture(c));
+  tex.userData.R = R;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.flipY = false; // glTF UVs (top left origin)
+  workshopTex = tex;
+  return tex;
 }
 
 /** Cable tangle with sparks (the office's hazard, 1 unit wide). */

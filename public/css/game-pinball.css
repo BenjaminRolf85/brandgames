@@ -158,7 +158,8 @@
   --xr-pinball-title-glow:     #ff5a4f;
 
   /* lights */
-  --xr-pinball-light:          #fff6ea;   /* key light over the machine, flasher */
+  --xr-pinball-light:          #ffefd9;   /* warm key light over the machine, flasher */
+  --xr-pinball-rim:            #8fb4ff;   /* cool rim light from behind the head */
   --xr-pinball-white:          #ffffff;   /* self-light of the playfield and apron art (multiplies the art) */
 
   /* scale of the machine in the headset (1 = a real 21 inch playfield) */

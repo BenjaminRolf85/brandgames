@@ -59,9 +59,9 @@ const MAT = {
   GreenWall2: { t: 'xr-green-wall-2', r: 0.8 },
   GreenWall3: { t: 'xr-green-wall-3', r: 0.8 },
   GreenWall4: { t: 'xr-green-wall-4', r: 0.8 },
-  GreenRoof1: { t: 'xr-green-roof-1', r: 0.7, snow: 1, patchy: 0.18 },
-  GreenRoof2: { t: 'xr-green-roof-2', r: 0.7, snow: 1, patchy: 0.18 },
-  GreenRoof3: { t: 'xr-green-roof-3', r: 0.6, snow: 1, patchy: 0.18 },
+  GreenRoof1: { t: 'xr-green-roof-1', r: 0.7, snow: 1, patchy: 0.18, snowTilt: 0.16 },
+  GreenRoof2: { t: 'xr-green-roof-2', r: 0.7, snow: 1, patchy: 0.18, snowTilt: 0.16 },
+  GreenRoof3: { t: 'xr-green-roof-3', r: 0.6, snow: 1, patchy: 0.18, snowTilt: 0.16 },
   GreenWindow: { t: 'xr-green-window', r: 0.2, window: true },
   GreenWood: { t: 'xr-green-wood', r: 0.8 },
   GreenPine: { t: 'xr-green-pine', r: 0.9, snow: 0.8, snowY: 0.06 },
@@ -102,8 +102,8 @@ float gNoise(vec3 x) {
 `;
 
 /** Shader patches on a standard material: snow (k), meadow tint, solar glint, lit windows, water. */
-function patch(mat, U, { snow = 0, snowY = -1, patchy = 0.55, tint = false, glint = false, window = false, water = false, grain = 0 }) {
-  const key = `g${snow}|${snowY}|${patchy}|${tint}|${glint}|${window}|${water}|${grain}`;
+function patch(mat, U, { snow = 0, snowY = -1, patchy = 0.55, snowTilt = 0, tint = false, glint = false, window = false, water = false, grain = 0 }) {
+  const key = `g${snow}|${snowY}|${patchy}|${snowTilt}|${tint}|${glint}|${window}|${water}|${grain}`;
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader
@@ -129,7 +129,7 @@ function patch(mat, U, { snow = 0, snowY = -1, patchy = 0.55, tint = false, glin
     if (snow > 0) {
       color += `{ float gup = dot(normalize(vGN), uUp);
         float gn = gNoise(vGP * 140.0) * 0.6 + gNoise(vGP * 420.0) * 0.4;
-        gS = smoothstep(0.5, 0.78, gup + (gn - 0.5) * ${patchy.toFixed(2)}) * smoothstep(0.0, 0.15, uSnow) * clamp(uSnow * 1.25, 0.0, 1.0) * ${snow.toFixed(2)};
+        gS = smoothstep(0.5, 0.78, gup - ${snowTilt.toFixed(2)} + (gn - 0.5) * ${patchy.toFixed(2)}) * smoothstep(0.0, 0.15, uSnow) * clamp(uSnow * 1.25, 0.0, 1.0) * ${snow.toFixed(2)};
         ${snowY >= 0 ? `gS *= smoothstep(${(snowY - 0.025).toFixed(3)} + (1.0 - uSnow) * 0.04, ${snowY.toFixed(3)} + (1.0 - uSnow) * 0.04, vGP.y + (gn - 0.5) * 0.02);` : ''}
         vec3 gsc = mix(uSnowShade, uSnowColor, clamp(gAo.r * 1.25 - 0.1, 0.0, 1.0));
         diffuseColor.rgb = mix(diffuseColor.rgb, gsc, gS); }\n`;
@@ -323,7 +323,7 @@ export class Region {
       // A little light of its own, so the water reads as water from every angle (not only as a
       // reflection of a dark room).
       const hi = this.tier === 'high';
-      const wmat = patch(new THREE.MeshStandardMaterial({ name: 'GreenWater', color: hex('xr-green-water'), emissive: hex('xr-green-water'), emissiveIntensity: 0.12, roughness: hi ? 0.12 : 0.3, metalness: 0.05, transparent: true, opacity: 0.8, envMapIntensity: hi ? 0.9 : 0.45, side: THREE.DoubleSide }), this.U, { water: true });
+      const wmat = patch(new THREE.MeshStandardMaterial({ name: 'GreenWater', color: hex('xr-green-water'), emissive: hex('xr-green-water'), emissiveIntensity: 0.12, roughness: hi ? 0.12 : 0.3, metalness: 0.05, transparent: true, opacity: 0.8, envMapIntensity: hi ? 0.9 : 0.45, side: THREE.DoubleSide, forceSinglePass: true }), this.U, { water: true });
       this.mats.GreenWater = wmat;
       water.traverse((m) => {
         if (!m.isMesh) return;
@@ -381,7 +381,7 @@ export class Region {
       if (d.cloud) { m.transparent = true; m.opacity = 0.96; }
       if (d.window) { m.emissive = new THREE.Color(); }
       const grain = this.tier === 'high' ? d.grain ?? 0 : 0;
-      if (d.snow || d.tint || d.glint || d.window || grain) patch(m, this.U, { snow: CHRISTMAS ? d.snow ?? 0 : 0, snowY: d.snowY ?? -1, patchy: d.patchy ?? 0.55, tint: !!d.tint, glint: !!d.glint, window: !!d.window, grain });
+      if (d.snow || d.tint || d.glint || d.window || grain) patch(m, this.U, { snow: CHRISTMAS ? d.snow ?? 0 : 0, snowY: d.snowY ?? -1, patchy: d.patchy ?? 0.55, snowTilt: d.snowTilt ?? 0, tint: !!d.tint, glint: !!d.glint, window: !!d.window, grain });
     }
     m.name = name;
     this.mats[name] = m;
@@ -407,12 +407,13 @@ export class Region {
    * 'low' (contact shadows under the projects instead).
    */
   buildLights() {
-    const key = new THREE.DirectionalLight(hex('xr-green-key-light'), 1.5);
-    key.position.set(-0.45, 0.95, 0.6);
+    // Low (about 37 degrees) from the front left: long, readable shadows like a late winter sun.
+    const key = new THREE.DirectionalLight(hex('xr-green-key-light'), 1.6);
+    key.position.set(-0.6, 0.62, 0.42);
     key.target.position.set(0, 0, 0);
     this.root.add(key, key.target);
     this.key = key;
-    this.keyBase = 1.5;
+    this.keyBase = 1.6;
     this.keyColor = new THREE.Color(hex('xr-green-key-light'));
     this.heatColor = new THREE.Color(hex('xr-green-heat-light'));
     this.stormColor = new THREE.Color(hex('xr-green-storm-light'));
@@ -428,7 +429,7 @@ export class Region {
       this.rim.target.position.set(0, 0, 0);
       this.root.add(this.rim, this.rim.target);
     }
-    const fill = new THREE.HemisphereLight(hex('xr-green-sky-fill'), hex('xr-green-soil-dark'), 0.35);
+    const fill = new THREE.HemisphereLight(hex('xr-green-sky-fill'), hex('xr-green-soil-dark'), 0.28);
     this.root.add(fill);
     this.fill = fill;
   }
@@ -575,7 +576,7 @@ export class Region {
     ringShape.holes.push(roundRect(size - 0.009, size - 0.009, 0.007));
     const ring = new THREE.ShapeGeometry(ringShape, 4).rotateX(-Math.PI / 2).toNonIndexed();
     const flags = corners.map(([x, z]) => new THREE.PlaneGeometry(0.005, 0.0035).translate(x + 0.0025, 0.0105 - 0.0029, z).toNonIndexed());
-    const frame = new THREE.Mesh(mergeGeometries([ring, ...flags]), new THREE.MeshBasicMaterial({ color: hex('xr-green-plot-edge'), transparent: true, opacity: 0.9, side: THREE.DoubleSide, toneMapped: false }));
+    const frame = new THREE.Mesh(mergeGeometries([ring, ...flags]), new THREE.MeshBasicMaterial({ color: hex('xr-green-plot-edge'), transparent: true, opacity: 0.9, side: THREE.DoubleSide, forceSinglePass: true, toneMapped: false }));
     frame.position.y = 0.0029;
     const glow = new THREE.Mesh(new THREE.PlaneGeometry(size * 1.7, size * 1.7).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-green-plot-ok'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
     glow.position.y = 0.003;
@@ -789,7 +790,7 @@ export class Region {
     }
     gx.globalAlpha = 1;
     const gtex = new THREE.CanvasTexture(gc);
-    this.gustMat = new THREE.MeshBasicMaterial({ map: gtex, color: hex('xr-green-gust'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+    this.gustMat = new THREE.MeshBasicMaterial({ map: gtex, color: hex('xr-green-gust'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, toneMapped: false });
     this.gusts = [];
     for (let i = 0; i < (this.lite ? 8 : 14); i++) {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.006, 8, 1), this.gustMat);
@@ -921,7 +922,7 @@ export class Region {
     if (lamp) {
       const beam = new THREE.Group();
       beam.position.copy(lamp.position);
-      const bm = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.16, 16, 1, true).rotateZ(Math.PI / 2).translate(-0.08, 0, 0), new THREE.MeshBasicMaterial({ color: hex('xr-green-lamp'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+      const bm = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.16, 16, 1, true).rotateZ(Math.PI / 2).translate(-0.08, 0, 0), new THREE.MeshBasicMaterial({ color: hex('xr-green-lamp'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, toneMapped: false }));
       bm.userData.noFit = true;
       beam.add(bm);
       beam.userData.noFit = true;

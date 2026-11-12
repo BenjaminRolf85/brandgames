@@ -42,9 +42,9 @@
   --xr-bike-snow-shade:     #a9bdd8;
   --xr-bike-snow-ground:    #d9e3f0;
   --xr-bike-key-light:      #fff0d6;   /* warm sun (key light) */
-  --xr-bike-fill-sky:       #cfe3ff;   /* cool fill from the sky */
+  --xr-bike-fill-sky:       #e6eef8;   /* cool fill from the sky */
   --xr-bike-fill-ground:    #6b6a3c;   /* warm bounce from the ground */
-  --xr-bike-env-sky:        #5c8fd6;   /* image-based light: sky, horizon, ground, sun */
+  --xr-bike-env-sky:        #86aee0;   /* image-based light: sky, horizon, ground, sun */
   --xr-bike-env-horizon:    #f3ead8;
   --xr-bike-env-ground:     #4d5a32;
   --xr-bike-env-sun:        #fff2d2;

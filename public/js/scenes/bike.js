@@ -27,7 +27,7 @@ import { music } from '../music.js';
 import { quality } from '../quality.js';
 import { EVENT } from '../event.js';
 import { radialTexture } from '../robot-visuals.js';
-import { sceneLook, bloom, gfxTier } from '../gfx.js';
+import { sceneLook, gfxTier } from '../gfx.js';
 import { TIRES, PRESSURES, BEST, planScans, rate, sensorText, liveScan } from '../bike-ai.js';
 import {
   makeCourse, makeTerrain, Scatter, makeSky, makeBase, makeScanFx, makeGuideDots, makeSnow, makeMist, makeSparks, makeCurtains, vergeHeight, FX_AREA, makeOutdoorEnv,
@@ -129,19 +129,17 @@ export class BikeScene extends BaseScene {
     this.prevEnvironment = this.engine.scene.environment;
     // Filmic look: neutral tone mapping keeps the token colors but no longer blows out the
     // snow and the sunny gravel; the outdoor environment gives the PBR materials sky light.
-    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.05, env: this.envTarget.texture, envIntensity: 0.75, shadows: quality.lite ? false : 'soft' }));
+    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.25, env: this.envTarget.texture, envIntensity: 0.9, shadows: quality.lite ? false : 'soft' }));
     // The engine's flat default lights give way to this scene's sun, sky fill and bounce.
     const eng = this.engine;
     const engSun = eng.scene.children.filter((o) => o.isDirectionalLight);
     const prevLights = { hemi: eng.hemi && [eng.hemi.intensity, eng.hemi.color.clone(), eng.hemi.groundColor.clone()], suns: engSun.map((l) => l.intensity) };
-    if (eng.hemi) { eng.hemi.intensity = 0.7; eng.hemi.color.setHex(hex('xr-bike-fill-sky')); eng.hemi.groundColor.setHex(hex('xr-bike-fill-ground')); }
+    if (eng.hemi) { eng.hemi.intensity = 0.95; eng.hemi.color.setHex(hex('xr-bike-fill-sky')); eng.hemi.groundColor.setHex(hex('xr-bike-fill-ground')); }
     engSun.forEach((l) => { l.intensity = 0; });
     this.onSceneDispose(() => {
       if (eng.hemi && prevLights.hemi) { eng.hemi.intensity = prevLights.hemi[0]; eng.hemi.color.copy(prevLights.hemi[1]); eng.hemi.groundColor.copy(prevLights.hemi[2]); }
       engSun.forEach((l, i) => { l.intensity = prevLights.suns[i]; });
     });
-    // Bloom in the desktop browser: lamps, stars, the scanner and the reflectors glow softly.
-    if (this.tier === 'high' && !eng.isXR && !eng.touchUI) this.onSceneDispose(bloom(eng, { strength: 0.32, radius: 0.5, threshold: 0.9 }));
     this.prevBackdrop = this.engine.backdrop.visible;
     if (!this.engine.isXR) this.engine.backdrop.visible = false;
     this.prevFog = this.engine.scene.fog;

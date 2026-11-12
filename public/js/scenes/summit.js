@@ -88,7 +88,7 @@ export class SummitScene extends BaseScene {
     // tone mapping (keeps the token colors), the dusk sky as image-based light, soft shadows.
     this.envTarget = makeDuskEnvironment(this.engine.renderer);
     this.shadows = !quality.lite;
-    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.0, env: this.envTarget.texture, envIntensity: 0.75, shadows: this.shadows ? 'soft' : false }));
+    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.0, env: this.envTarget.texture, envIntensity: 0.5, shadows: this.shadows ? 'soft' : false }));
     setRockHaze(!this.ar);
     this.prevBackdrop = this.engine.backdrop.visible;
     this.engine.backdrop.visible = false;
@@ -180,16 +180,16 @@ export class SummitScene extends BaseScene {
     const { eye } = this;
     // Key: the low warm sun from the right. Fill: cool sky light from the left. Rim: the glow of
     // the sunset behind the wall, which outlines the rock, Echo and the customer.
-    const sun = new THREE.DirectionalLight(hex('xr-summit-sun'), 2.1);
-    sun.position.set(1.1, eye + 1.3, 0.7);
+    const sun = new THREE.DirectionalLight(hex('xr-summit-sun'), 2.5);
+    sun.position.set(1.5, eye + 1.1, 0.35);
     sun.target.position.set(0, eye - 0.2, WALL_Z);
     if (this.shadows) softSun(sun, { size: 1.6, near: 0.3, far: 3.5, bias: -0.0006, normalBias: 0.012, radius: 4 });
     const fill = new THREE.DirectionalLight(hex('xr-summit-fill'), 0.4);
     fill.position.set(-1.4, eye + 0.4, 0.4);
     fill.target.position.set(0, eye - 0.2, WALL_Z);
     this.group.add(sun, sun.target, fill, fill.target);
-    if (gfxTier() !== 'low') {
-      const rim = new THREE.DirectionalLight(hex('xr-summit-rim'), 1.6);
+    if (gfxTier() !== 'low' && !quality.lite) {
+      const rim = new THREE.DirectionalLight(hex('xr-summit-rim'), 1.1);
       rim.position.set(0.9, eye + 0.5, WALL_Z - 1.8);
       rim.target.position.set(-0.1, eye - 0.1, WALL_Z + 0.2);
       this.group.add(rim, rim.target);

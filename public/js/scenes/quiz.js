@@ -30,10 +30,10 @@ export class QuizScene extends BaseScene {
       return `${this.name}   ·   ${Math.min(s.i + 1, s.queue.length)}/${s.queue.length}   ·   ${s.score} ${t('score')}${streak}`;
     });
     useHouse(this);
-    this.lookAndLight();
     // The robot buddy on the right (the knowledge house is on the left), question marks around.
     this.bot = new QuizBot(this.group);
     this.placeBot();
+    this.lookAndLight();
     this.marks = makeQuestionMarks([[-0.74, this.eye + 0.48, -1.35, 0.14], [0.72, this.eye + 0.56, -1.35, 0.11], [-0.62, this.eye + 0.7, -1.45, 0.08], [0.86, this.eye + 0.34, -1.25, 0.09]]);
     this.group.add(this.marks);
     this.onUpdate((dt) => {

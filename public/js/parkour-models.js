@@ -27,7 +27,8 @@ function makeMaterials() {
     PkPanel: std('PkPanel', 'xr-parkour-panel', 0.5, 0.4),
     PkDark: std('PkDark', 'xr-parkour-recess', 0.3, 0.7),
     PkGlow: new THREE.MeshBasicMaterial({ name: 'PkGlow', color: 0xffffff, toneMapped: false }),
-    CoinGold: std('CoinGold', 'xr-parkour-coin', 1, 0.22, { emissive: hex('xr-parkour-coin'), emissiveIntensity: 0.12 }),
+    // Polished gold: stronger reflections of the environment (the coins are the stars of the course).
+    CoinGold: std('CoinGold', 'xr-parkour-coin', 1, 0.18, { emissive: hex('xr-parkour-coin'), emissiveIntensity: 0.1, envMapIntensity: 1.6 }),
     CoinFace: new THREE.MeshStandardMaterial({ name: 'CoinFace', map: logoTexture(), metalness: 0.35, roughness: 0.35, emissive: 0xffffff, emissiveMap: logoTexture(), emissiveIntensity: 0.3 }),
     CrystalGlow: new THREE.MeshStandardMaterial({ name: 'CrystalGlow', color: hex('xr-parkour-glitch'), emissive: hex('xr-parkour-glitch'), emissiveIntensity: 1.1, metalness: 0.1, roughness: 0.15, flatShading: true, transparent: true, opacity: 0.92 }),
     CrystalBase: std('CrystalBase', 'xr-parkour-recess', 0.5, 0.5),

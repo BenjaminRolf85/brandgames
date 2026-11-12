@@ -18,7 +18,7 @@
   /* rock, snow and gear */
   --xr-summit-rock:           #8d8aa8;
   --xr-summit-rock-alt:       #73709a;
-  --xr-summit-rock-warm:      #a8908f;   /* large warm patches in the rock */
+  --xr-summit-rock-warm:      #9c8e86;   /* large warm patches in the rock */
   --xr-summit-rock-dark:      #4c476c;   /* weathered patches and fissures */
   --xr-summit-snow:           var(--p-snow-50);
   --xr-summit-peak-rock:      #5d5f8e;

@@ -679,8 +679,8 @@
   --xr-pong-key-light:    var(--p-sand-100);    /* graphics: warm key light */
   --xr-pong-rim-light:    var(--p-aqua-400);    /* cool rim light from the far end */
   --xr-pong-sky-top:      var(--p-ink-950);     /* browser: night sky behind the tunnel */
-  --xr-pong-sky-mid:      var(--p-dusk-900);
-  --xr-pong-sky-glow:     var(--p-dawn-800);    /* violet glow at the horizon */
+  --xr-pong-sky-mid:      var(--p-ink-850);
+  --xr-pong-sky-glow:     var(--p-violet-700);  /* violet glow band at the horizon */
 
   /* Knowledge house (3D gimmick) */
   --xr-house-grass:       var(--p-green-600);

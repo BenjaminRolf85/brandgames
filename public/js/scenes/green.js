@@ -21,7 +21,7 @@ import { t } from '../i18n.js';
 import { sfx } from '../sfx.js';
 import { music } from '../music.js';
 import { CHRISTMAS } from '../christmas.js';
-import { sceneLook, bloom, gfxTier } from '../gfx.js';
+import { sceneLook, gfxTier } from '../gfx.js';
 import '../green-text.js';
 import { GreenGame, TYPES, TYPE_KEYS, YEARS, WEATHER, MONTH_WIND, MONTH_SUN, CHEAPEST, LIVE } from '../green-sim.js';
 import { Region, loadGreen } from '../green-visuals.js';
@@ -75,13 +75,13 @@ export class GreenScene extends BaseScene {
   /**
    * Tone mapping, the studio environment for reflections and soft shadows (none on 'low'); the
    * room's own lights softer (the diorama has its own sun); in the browser a night-sky gradient
-   * behind the diorama and, on 'high', a gentle bloom on lights, lit windows and the glint of the
-   * solar panels. In the headset no post effects, and in AR the real room stays visible.
+   * behind the diorama. No bloom: the snow and the white speech bubbles would haze the miniature.
+   * In the headset no post effects, and in AR the real room stays visible.
    */
   setLook() {
     const e = this.engine;
     const tier = gfxTier();
-    this.onSceneDispose(sceneLook(e, { tone: 'neutral', exposure: 1.0, env: 'studio', envIntensity: 0.55, shadows: tier === 'low' ? false : 'soft' }));
+    this.onSceneDispose(sceneLook(e, { tone: 'neutral', exposure: 1.0, env: 'studio', envIntensity: 0.45, shadows: tier === 'low' ? false : 'soft' }));
     const sun = e.scene.children.find((o) => o.isDirectionalLight);
     const prev = { hemi: e.hemi.intensity, sun: sun?.intensity };
     e.hemi.intensity = prev.hemi * 0.45;
@@ -103,7 +103,6 @@ export class GreenScene extends BaseScene {
       const prevBg = e.scene.background;
       e.scene.background = sky;
       this.onSceneDispose(() => { if (e.scene.background === sky) e.scene.background = prevBg; sky.dispose(); });
-      if (tier === 'high' && !e.touchUI) this.onSceneDispose(bloom(e, { strength: 0.32, radius: 0.45, threshold: 0.9 }));
     }
   }
 
