@@ -54,7 +54,13 @@ export class QuizScene extends BaseScene {
     const house = this.house.group;
     if (tier !== 'low') {
       // From the upper left front: the shadows fall to the right over the visible snow.
-      const key = new THREE.DirectionalLight(hex('xr-quiz-key'), 0.75);
+      // The key light carries the scene (so its shadows read); the engine's sky light is
+      // turned down while the quiz runs (restored on dispose).
+      const hemi = this.engine.hemi;
+      const hemiWas = hemi.intensity;
+      hemi.intensity = hemiWas * 0.5;
+      this.onSceneDispose(() => { hemi.intensity = hemiWas; });
+      const key = new THREE.DirectionalLight(hex('xr-quiz-key'), 1.85);
       key.position.set(-0.85, 1.15, 0.55);
       key.target.position.set(0, 0.2, 0);
       softSun(key, { size: 1.1, near: 0.2, far: 4, bias: -0.0006, normalBias: 0.012, radius: 4 });

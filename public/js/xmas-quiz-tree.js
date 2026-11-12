@@ -364,7 +364,7 @@ export class QuizTree extends KnowledgeHouse {
   constructor(scene) {
     super(scene);
     // Snow on the island instead of a lawn.
-    this.grassColor = new THREE.Color(hex('xr-snow'));
+    this.grassColor = new THREE.Color(hex('xr-snow')).multiplyScalar(0.86); // lit snow stays below white, so shadows show
     this.grassMat.color.copy(this.grassColor);
     // Snow with a soft relief and glittering specks (they catch the studio light).
     const snow = snowTextures();
