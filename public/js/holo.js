@@ -37,7 +37,7 @@ const FRAG_BODY = /* glsl */ `
   // Fine scanlines, faded out where one line would be thinner than about a pixel.
   float ph = yy * 1500.0 - uHoloTime * 9.0;
   float aa = 1.0 - smoothstep(1.2, 3.0, fwidth(ph));
-  float scan = 1.0 - 0.16 * aa * (0.5 + 0.5 * sin(ph)) - 0.08 * (1.0 - aa);
+  float scan = 1.0 - 0.26 * aa * (0.5 + 0.5 * sin(ph)) - 0.13 * (1.0 - aa);
   // A soft scan band sweeping up from the table every few seconds.
   float sweepY = fract(uHoloTime * 0.32) * 0.95 - 0.08;
   float sweep = exp(-pow((h - sweepY) / 0.018, 2.0));
