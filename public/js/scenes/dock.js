@@ -266,7 +266,7 @@ export class DockScene extends BaseScene {
     // Phones: one finger turns the molecule (relative, like a trackball).
     if (this.touch) {
       this.swipe = this.dragPad({
-        hint: t('dockSwipe'),
+        hint: false, // the strip's status line says what to do; a chip would collide with the buttons
         enabled: () => this.mode === 'play' && !!this.active && this.active.s === 'active' && !this.snapTween,
         onStart: () => { this.swipeLast = [0, 0]; this.unsnap(); this.swiped = true; this.dragging = true; },
         onMove: (dx, dy) => {
