@@ -11,12 +11,39 @@ const easeOutCubic = (k) => 1 - Math.pow(1 - k, 3);
 const TOUCH = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 const FOV = 60;
 
+/**
+ * Additive glows only add light; they must not change the framebuffer's alpha. three.js blends
+ * alpha with the same factors as color, so an additive shader that outputs alpha 1 (color fading
+ * to black at its edges) would make its whole shape opaque: in AR (transparent canvas over the
+ * passthrough) that shows as a dark patch over the real room. This routes every AdditiveBlending
+ * material through the same color blend with the alpha left untouched. Color is unchanged, so
+ * the browser and VR look exactly as before.
+ */
+function keepAlphaOnAdditive(renderer) {
+  const state = renderer.state;
+  const setMaterial = state.setMaterial.bind(state);
+  state.setMaterial = (m, frontFaceCW) => {
+    if (m.blending !== THREE.AdditiveBlending) return setMaterial(m, frontFaceCW);
+    const keep = [m.blending, m.blendEquation, m.blendSrc, m.blendDst, m.blendEquationAlpha, m.blendSrcAlpha, m.blendDstAlpha];
+    m.blending = THREE.CustomBlending;
+    m.blendEquation = THREE.AddEquation;
+    m.blendSrc = m.premultipliedAlpha ? THREE.OneFactor : THREE.SrcAlphaFactor;
+    m.blendDst = THREE.OneFactor;
+    m.blendEquationAlpha = THREE.AddEquation;
+    m.blendSrcAlpha = THREE.ZeroFactor;
+    m.blendDstAlpha = THREE.OneFactor;
+    setMaterial(m, frontFaceCW);
+    [m.blending, m.blendEquation, m.blendSrc, m.blendDst, m.blendEquationAlpha, m.blendSrcAlpha, m.blendDstAlpha] = keep;
+  };
+}
+
 export class Engine {
   constructor(host) {
     const r = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     r.setPixelRatio(Math.min(window.devicePixelRatio, quality.lite ? 1.25 : 2));
     r.setSize(window.innerWidth, window.innerHeight);
     r.xr.enabled = true;
+    keepAlphaOnAdditive(r);
     host.appendChild(r.domElement);
     this.renderer = r;
     this.canvas = r.domElement;
