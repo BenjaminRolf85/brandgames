@@ -54,8 +54,13 @@
   --xr-bricks-bag-handle:     #7a5233;
   --xr-bricks-puff:           #efe6d8;   /* mortar dust when a brick sits */
   --xr-bricks-smoke:          #dfe3ea;   /* chimney smoke */
-  --xr-bricks-key-light:      #fff1dc;
-  --xr-bricks-rim-light:      #9fb4ff;
+  --xr-bricks-key-light:      #ffe2bd;   /* warm evening sun */
+  --xr-bricks-rim-light:      #8fa8ff;   /* cool rim from behind */
+  /* the winter-evening sky (browser and VR, never in AR) */
+  --xr-bricks-sky-top:        #0b1030;
+  --xr-bricks-sky-mid:        #3a2f6e;
+  --xr-bricks-sky-low:        #141029;
+  --xr-bricks-star:           #fff4d6;
   /* the AI forecast chart */
   --xr-bricks-chart-saved:    var(--xr-accent);
   --xr-bricks-chart-forecast: #c8b8ff;

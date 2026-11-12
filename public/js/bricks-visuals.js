@@ -11,6 +11,7 @@ import { hex, color, num, font } from './tokens.js';
 import { radialTexture } from './robot-visuals.js';
 import { audioContext } from './sfx.js';
 import { winterize } from './snow.js';
+import { gfxTier } from './gfx.js';
 import { L, H, D, GAP, TOP, OX, OZ, RIDGE, EAVE, WALLS, ANNEX_COURSES, XA, ZA } from './bricks-plan.js';
 
 export const BRICKS_URL = 'assets/models/bricks.glb';
@@ -57,14 +58,60 @@ const MATS = {
 // Materials that get snow in winter (everything facing up in the garden, and the roof).
 const SNOWY = ['Grass', 'GrassDark', 'Leaf', 'LeafDark', 'Fence', 'Stone', 'Sand', 'Soil', 'Roof', 'RoofDark', 'Mailbox', 'Bark'];
 
+// Glossy parts get a clear coat (gold, the door's paint, the toy-like machine, the solar glass).
+const COAT = { BrickGold: 1, Door: 0.5, Machine: 0.6, SolarCell: 0.8, Mailbox: 0.4, Crane: 0.3 };
+// Fine surface detail (procedural, object space): [scale of the blotches, of the grain, strength].
+const DETAIL = {
+  Grass: [14, 120, 0.22], GrassDark: [14, 120, 0.2], Soil: [30, 160, 0.25], SoilDark: [30, 160, 0.25],
+  Gravel: [40, 260, 0.3], Stone: [25, 200, 0.18], Sand: [20, 180, 0.15], BrickClay: [60, 300, 0.16],
+  Roof: [20, 220, 0.12], Concrete: [18, 240, 0.14], Wood: [12, 300, 0.14], Quoin: [60, 300, 0.12],
+};
+
+/**
+ * Subtle surface variation for large flat materials: blotches and grain from a small value
+ * noise in object space (no UVs needed). Patched before the color step, so the snow and the
+ * baked ambient occlusion still apply on top. Off with "lite" effects.
+ */
+function addDetail(mat, [big, fine, amount]) {
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGdP;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGdP = position;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec3 vGdP;
+        float gdHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+        float gdNoise(vec3 x) {
+          vec3 i = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(mix(gdHash(i), gdHash(i + vec3(1, 0, 0)), f.x), mix(gdHash(i + vec3(0, 1, 0)), gdHash(i + vec3(1, 1, 0)), f.x), f.y),
+                     mix(mix(gdHash(i + vec3(0, 0, 1)), gdHash(i + vec3(1, 0, 1)), f.x), mix(gdHash(i + vec3(0, 1, 1)), gdHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+        }`)
+      .replace('#include <color_fragment>', `{
+          float gdA = gdNoise(vGdP * ${big.toFixed(1)});
+          float gdB = gdNoise(vGdP * ${fine.toFixed(1)});
+          diffuseColor.rgb *= 1.0 + ${amount.toFixed(3)} * ((gdA - 0.5) * 1.4 + (gdB - 0.5) * 0.8);
+        }
+        #include <color_fragment>`);
+  };
+  mat.customProgramCacheKey = () => `gd${big}-${fine}-${amount}`;
+  return mat;
+}
+
 export function bricksMaterials() {
+  const tier = gfxTier();
   const out = {};
   for (const [name, [token, roughness, metalness, extra = {}]] of Object.entries(MATS)) {
     const opts = { name, color: hex(token), roughness, metalness, vertexColors: true };
     if (extra.emissive) Object.assign(opts, { emissive: hex(extra.emissive), emissiveIntensity: extra.emissiveIntensity });
-    out[name] = new THREE.MeshStandardMaterial(opts);
+    out[name] = COAT[name] && tier === 'high'
+      ? new THREE.MeshPhysicalMaterial({ ...opts, clearcoat: COAT[name], clearcoatRoughness: 0.25 })
+      : new THREE.MeshStandardMaterial(opts);
+    if (DETAIL[name] && tier !== 'low') addDetail(out[name], DETAIL[name]);
     if (SNOWY.includes(name)) winterize(out[name]);
   }
+  // Glass reflects the sky a little (studio environment) until the lights go on.
+  out.Glass.roughness = 0.04;
+  out.Glass.metalness = 0.4;
   out.LampGlow = new THREE.MeshBasicMaterial({ name: 'LampGlow', color: hex('xr-bricks-lamp'), toneMapped: false });
   return out;
 }

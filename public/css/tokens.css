@@ -251,6 +251,18 @@
   --xr-parkour-tower:      var(--p-ink-900);
   --xr-parkour-window:     var(--p-violet-400);
   --xr-parkour-dust:       var(--p-cyan-400);
+  /* light rig per world (graphics pass, parkour-look.js): warm key, cool sky fill, warm ground bounce */
+  --xr-parkour-key-forest:    var(--p-sand-100);
+  --xr-parkour-sky-forest:    var(--p-frost-500);
+  --xr-parkour-ground-forest: var(--p-earth-700);
+  --xr-parkour-shaft-forest:  var(--p-frost-300);   /* moonbeams through the canopy */
+  --xr-parkour-key-city:      var(--p-frost-peach-200);
+  --xr-parkour-sky-city:      var(--p-lilac-400);
+  --xr-parkour-ground-city:   var(--p-asphalt-800);
+  --xr-parkour-shaft-city:    var(--p-sun-300);     /* dawn rays, gone at night */
+  --xr-parkour-key-office:    var(--p-sand-100);
+  --xr-parkour-sky-office:    var(--p-ink-100);
+  --xr-parkour-ground-office: var(--p-brown-500);
 
   /* Echo Parkour level 1: magic forest of floating grass islands (blender/build_forest.py) */
   --xr-forest-grass:       var(--p-leaf-500);    /* grass tops */
@@ -508,6 +520,7 @@
   --xr-flight-boss-rim:    var(--p-red-500);
   --xr-flight-boss-core:   var(--p-coral-300);
   --xr-flight-pulse:       var(--p-cyan-400);    /* Echo's antivirus pulses */
+  --xr-flight-key-light:   var(--p-sand-100);    /* graphics: warm key light (the rim light takes the world's color) */
   --xr-echo-goggle-frame:  var(--p-chrome-400);  /* Echo's VR goggles */
   --xr-echo-goggle-strap:  var(--p-violet-700);
   --xr-echo-goggle-lens:   var(--p-cyan-400);
@@ -596,6 +609,7 @@
   --xr-quiz-d:            var(--p-pink-400);
   --xr-quiz-badge-text:   var(--p-ink-950);     /* the letter on its badge */
   --xr-quiz-mark:         var(--p-sun-300);     /* floating question marks */
+  --xr-quiz-key:          #fff1dc;              /* warm key light over the house / tree */
   --xr-bot-shell:         var(--p-ink-50);      /* the robot buddy */
   --xr-bot-joint:         var(--p-chrome-400);
   --xr-bot-dark:          var(--p-ink-900);
@@ -662,6 +676,11 @@
   --xr-pong-opp-gpt:      var(--xr-pong-ai);
   --xr-pong-opp-claude:   var(--xr-pong-ai);
   --xr-pong-opp-gemini:   var(--xr-pong-ai);
+  --xr-pong-key-light:    var(--p-sand-100);    /* graphics: warm key light */
+  --xr-pong-rim-light:    var(--p-aqua-400);    /* cool rim light from the far end */
+  --xr-pong-sky-top:      var(--p-ink-950);     /* browser: night sky behind the tunnel */
+  --xr-pong-sky-mid:      var(--p-dusk-900);
+  --xr-pong-sky-glow:     var(--p-dawn-800);    /* violet glow at the horizon */
 
   /* Knowledge house (3D gimmick) */
   --xr-house-grass:       var(--p-green-600);

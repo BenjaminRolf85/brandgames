@@ -9,6 +9,7 @@ import { t } from './i18n.js';
 import { roundRect, wrap, Panel } from './ui3d.js';
 import { loadGLTF } from './models.js';
 import { radialTexture } from './robot-visuals.js';
+import { mergeGeometries } from '../vendor/addons/utils/BufferGeometryUtils.js';
 import { ELEMENTS, SPOTS, B, DESIGN_ATOMS } from './dock-chem.js';
 
 export const DOCK_URL = 'assets/models/dock.glb';
@@ -381,13 +382,18 @@ export function loadBench() {
         const vc = !!o.geometry.attributes.color;
         if (GLOW_TOKENS[m.name]) out = new THREE.MeshBasicMaterial({ name: m.name, color: hex(GLOW_TOKENS[m.name]), toneMapped: false });
         else if (m.name === 'DockGlass') out = new THREE.MeshPhysicalMaterial({ name: m.name, color: hex('xr-dock-glass'), roughness: 0.06, metalness: 0, transparent: true, opacity: 0.32, clearcoat: 1, depthWrite: false });
-        else if (MAT_TOKENS[m.name]) {
+        else if (m.name === 'DockBench' || m.name === 'DockScreen' || m.name === 'DockPlate') {
+          // Lab surfaces: a clear lacquer that catches the studio light.
+          out = new THREE.MeshPhysicalMaterial({
+            name: m.name, color: hex(MAT_TOKENS[m.name]), roughness: m.name === 'DockScreen' ? 0.12 : 0.38, metalness: m.name === 'DockScreen' ? 0.3 : 0,
+            clearcoat: m.name === 'DockPlate' ? 0.3 : 0.75, clearcoatRoughness: 0.18, vertexColors: vc,
+          });
+        } else if (MAT_TOKENS[m.name]) {
           out = new THREE.MeshStandardMaterial({ name: m.name, color: hex(MAT_TOKENS[m.name]), roughness: m.roughness ?? 0.5, metalness: m.metalness ?? 0, vertexColors: vc });
           if (m.name.startsWith('DockLiquid') || m.name === 'DockNeedle') {
             out.emissive.setHex(hex(MAT_TOKENS[m.name]));
             Object.assign(out, { emissiveIntensity: 0.3, roughness: 0.15, transparent: true, opacity: 0.9 });
           }
-          if (m.name === 'DockScreen') Object.assign(out, { roughness: 0.15, metalness: 0.4 });
         }
         mats.set(m.name, out);
         return out;
@@ -848,4 +854,111 @@ export function makePartsDish(kit) {
   });
   g.userData.balls = balls;
   return g;
+}
+
+// ---------- graphics: fewer draw calls, grounding, backdrop ----------
+
+/**
+ * Merges the bench's static parts by material (one draw call per material instead of one per
+ * part). keep: names of parts that stay separate (scaled, toggled or recolored at runtime).
+ * Returns the merged meshes (bench-local, children of root).
+ */
+export function mergeStatic(root, keep) {
+  root.updateMatrixWorld(true);
+  const inv = root.matrixWorld.clone().invert();
+  const byMat = new Map();
+  const kept = new Set();
+  for (const name of keep) root.getObjectByName(name)?.traverse((o) => kept.add(o));
+  const victims = [];
+  root.traverse((o) => {
+    if (!o.isMesh || kept.has(o) || o.isInstancedMesh) return;
+    const g = o.geometry.clone();
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
+    g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+    const list = byMat.get(o.material) ?? [];
+    list.push(g.index ? g.toNonIndexed() : g);
+    byMat.set(o.material, list);
+    victims.push(o);
+  });
+  victims.forEach((o) => o.removeFromParent());
+  const out = [];
+  for (const [mat, list] of byMat) {
+    const merged = mergeGeometries(list, false);
+    list.forEach((g) => g.dispose());
+    if (!merged) continue;
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.name = `DockMerged${mat.name}`;
+    if (mat.name === 'DockGlass') mesh.renderOrder = 3;
+    if (mat.isMeshBasicMaterial || mat.transparent) mesh.userData.noShadow = true;
+    root.add(mesh);
+    out.push(mesh);
+  }
+  return out;
+}
+
+/** Soft contact shadows under several props in one draw call. spots: [[x, z, w, d, opacity]]. */
+export function contactShadows(spots) {
+  const geos = spots.map(([x, z, w, d, o]) => {
+    const g = new THREE.PlaneGeometry(w, d);
+    g.rotateX(-Math.PI / 2);
+    g.translate(x, 0.0015, z);
+    const n = g.attributes.position.count;
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(o), 3));
+    return g;
+  });
+  const geo = mergeGeometries(geos, false);
+  geos.forEach((g) => g.dispose());
+  // The opacity per blob rides in the vertex color (a grey level that scales the texture alpha).
+  const mat = new THREE.MeshBasicMaterial({ color: hex('xr-dock-shadow'), alphaMap: shadowAlpha(), transparent: true, depthWrite: false, toneMapped: false });
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 color;\nvarying float vShade;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvShade = color.r;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vShade;').replace('#include <alphamap_fragment>', '#include <alphamap_fragment>\ndiffuseColor.a *= vShade;');
+  };
+  const m = new THREE.Mesh(geo, mat);
+  m.renderOrder = -1;
+  m.userData.noFit = true;
+  m.userData.noShadow = true;
+  return m;
+}
+
+let alphaTex = null;
+function shadowAlpha() {
+  if (alphaTex) return alphaTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgb(255,255,255)');
+  g.addColorStop(0.45, 'rgb(150,150,150)');
+  g.addColorStop(1, 'rgb(0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  alphaTex = new THREE.CanvasTexture(c);
+  return alphaTex;
+}
+
+/** A backdrop gradient around the lab (VR and the browser view; never in AR passthrough). */
+export function skyDome(radius = 9) {
+  const geo = new THREE.SphereGeometry(radius, 32, 16);
+  const top = col('xr-dock-sky-top');
+  const mid = col('xr-dock-sky-mid');
+  const bottom = col('xr-dock-sky-bottom');
+  const pos = geo.attributes.position;
+  const c = new THREE.Color();
+  const cols = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / radius;
+    const front = Math.max(0, -pos.getZ(i) / radius); // the haze glows behind the protein
+    if (y > 0) c.copy(mid).lerp(top, Math.min(1, y * 1.6));
+    else c.copy(mid).lerp(bottom, Math.min(1, -y * 2.4));
+    c.lerp(mid, front * front * 0.35 * (1 - Math.abs(y)));
+    cols.set([c.r, c.g, c.b], i * 3);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false }));
+  m.renderOrder = -10;
+  m.userData.noFit = true;
+  m.userData.noShadow = true;
+  m.frustumCulled = false;
+  return m;
 }

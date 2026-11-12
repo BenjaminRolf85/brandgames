@@ -26,10 +26,11 @@ import { sfx } from '../sfx.js';
 import { music } from '../music.js';
 import { quality } from '../quality.js';
 import { EVENT } from '../event.js';
-import { makeEnvironment, radialTexture } from '../robot-visuals.js';
+import { radialTexture } from '../robot-visuals.js';
+import { sceneLook, bloom, gfxTier } from '../gfx.js';
 import { TIRES, PRESSURES, BEST, planScans, rate, sensorText, liveScan } from '../bike-ai.js';
 import {
-  makeCourse, makeTerrain, Scatter, makeSky, makeBase, makeScanFx, makeGuideDots, makeSnow, makeMist, makeSparks, makeCurtains, vergeHeight, FX_AREA,
+  makeCourse, makeTerrain, Scatter, makeSky, makeBase, makeScanFx, makeGuideDots, makeSnow, makeMist, makeSparks, makeCurtains, vergeHeight, FX_AREA, makeOutdoorEnv,
   HZ, ITEMS, RAMPS, RAMP_H, S0, STOP_GAP, HALF, EDGE,
 } from '../bike-world.js';
 import {
@@ -120,9 +121,27 @@ export class BikeScene extends BaseScene {
     this.btn = { left: false, right: false };
     this.inputMode = 'none';
     this.win = { ...this.windowTarget() };
-    this.envTarget = makeEnvironment(this.engine.renderer);
+    // Graphics tier: 'high' (desktop, Quest 3 with full effects), 'medium' (phones, Quest 3
+    // lite, Quest 2), 'low' (lite elsewhere). Sharper textures, bigger shadow maps, more
+    // particles and bloom (browser only) where the GPU can afford them.
+    this.tier = gfxTier();
+    this.envTarget = makeOutdoorEnv(this.engine.renderer);
     this.prevEnvironment = this.engine.scene.environment;
-    this.engine.scene.environment = this.envTarget.texture;
+    // Filmic look: neutral tone mapping keeps the token colors but no longer blows out the
+    // snow and the sunny gravel; the outdoor environment gives the PBR materials sky light.
+    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.05, env: this.envTarget.texture, envIntensity: 0.75, shadows: quality.lite ? false : 'soft' }));
+    // The engine's flat default lights give way to this scene's sun, sky fill and bounce.
+    const eng = this.engine;
+    const engSun = eng.scene.children.filter((o) => o.isDirectionalLight);
+    const prevLights = { hemi: eng.hemi && [eng.hemi.intensity, eng.hemi.color.clone(), eng.hemi.groundColor.clone()], suns: engSun.map((l) => l.intensity) };
+    if (eng.hemi) { eng.hemi.intensity = 0.7; eng.hemi.color.setHex(hex('xr-bike-fill-sky')); eng.hemi.groundColor.setHex(hex('xr-bike-fill-ground')); }
+    engSun.forEach((l) => { l.intensity = 0; });
+    this.onSceneDispose(() => {
+      if (eng.hemi && prevLights.hemi) { eng.hemi.intensity = prevLights.hemi[0]; eng.hemi.color.copy(prevLights.hemi[1]); eng.hemi.groundColor.copy(prevLights.hemi[2]); }
+      engSun.forEach((l, i) => { l.intensity = prevLights.suns[i]; });
+    });
+    // Bloom in the desktop browser: lamps, stars, the scanner and the reflectors glow softly.
+    if (this.tier === 'high' && !eng.isXR && !eng.touchUI) this.onSceneDispose(bloom(eng, { strength: 0.32, radius: 0.5, threshold: 0.9 }));
     this.prevBackdrop = this.engine.backdrop.visible;
     if (!this.engine.isXR) this.engine.backdrop.visible = false;
     this.prevFog = this.engine.scene.fog;
@@ -158,13 +177,13 @@ export class BikeScene extends BaseScene {
     cg.scale.setScalar(S);
     cg.userData.noFit = true;
     st.add(cg);
-    this.terrain = makeTerrain(this.course, this.clip);
+    this.terrain = makeTerrain(this.course, this.clip, { res: this.tier === 'high' ? 2 : 1, aniso: { high: 8, medium: 4, low: 2 }[this.tier] });
     cg.add(this.terrain);
     this.fx = makeScanFx(this.course);
     cg.add(this.fx.group);
     this.dots = makeGuideDots();
     cg.add(this.dots);
-    this.snow = makeSnow(this.course, 260, this.clipFx);
+    this.snow = makeSnow(this.course, { high: 340, medium: 260, low: 150 }[this.tier], this.clipFx);
     cg.add(this.snow);
     this.mist = makeMist();
     cg.add(this.mist);
@@ -176,7 +195,7 @@ export class BikeScene extends BaseScene {
       if (layer) cg.add(layer);
       return layer;
     });
-    this.rain = makeRain(320, this.clipFx);
+    this.rain = makeRain({ high: 400, medium: 320, low: 180 }[this.tier], this.clipFx);
     cg.add(this.rain);
     // Tire tracks (one recycled ribbon per wheel) and speed lines on fast descents.
     this.tracks = makeTracks(this.clip);
@@ -197,21 +216,20 @@ export class BikeScene extends BaseScene {
     this.curtains = makeCurtains(this.base.userData.earth);
     st.add(this.curtains);
     // Light: a key light with a shadow over the window around the bike, a cool rim light.
-    const key = new THREE.DirectionalLight(hex('xr-bike-key-light'), 1.55);
+    this.keyBase = 2.3;
+    const key = new THREE.DirectionalLight(hex('xr-bike-key-light'), this.keyBase);
     key.position.set(-0.55, 1.4, 0.5);
     key.target.position.set(0, 0, -0.55);
-    const rim = new THREE.DirectionalLight(hex('xr-bike-sky-1-low'), 0.6);
+    const rim = new THREE.DirectionalLight(hex('xr-bike-sky-1-low'), 0.9);
     rim.position.set(0.6, 0.6, -1.6);
     rim.target = key.target;
     st.add(key, key.target, rim);
     this.key = key;
     if (!quality.lite) {
-      const r = this.engine.renderer;
-      this.prevShadow = r.shadowMap.enabled;
-      r.shadowMap.enabled = true;
-      r.shadowMap.type = THREE.PCFSoftShadowMap;
       key.castShadow = true;
-      key.shadow.mapSize.set(1024, 1024);
+      // One shadow-casting light; 2048 where the GPU can afford it, else 1024.
+      const map = this.tier === 'high' ? 2048 : 1024;
+      key.shadow.mapSize.set(map, map);
       Object.assign(key.shadow.camera, { left: -0.75, right: 0.75, top: 1.2, bottom: -1.0, near: 0.1, far: 3.2 });
       key.shadow.camera.updateProjectionMatrix();
       key.shadow.bias = -0.0015;
@@ -2170,7 +2188,7 @@ export class BikeScene extends BaseScene {
     this.wLayers.forEach((layer, i) => layer?.userData.setK(w && w.i === i ? this.weatherK : 0));
     this.rain.userData.update(dt, c, s, w && (w.kind === 'rain' || w.kind === 'thaw') ? this.weatherK : 0, this.fxArea());
     const look = w ? WEATHER_LOOK[w.kind] : null;
-    this.key.intensity = 1.55 * (1 + ((look?.light ?? 1) - 1) * this.weatherK);
+    this.key.intensity = this.keyBase * (1 + ((look?.light ?? 1) - 1) * this.weatherK);
 
     // Snow over the snow section, mist where the scanner was blinded.
     const kind = c.sectionAt(s + 4).kind;
@@ -2497,7 +2515,6 @@ export class BikeScene extends BaseScene {
     this.engine.backdrop.visible = this.prevBackdrop;
     this.engine.scene.fog = this.engine.isXR && this.engine.xrMode === 'immersive-ar' ? null : (this.prevFog ?? null);
     if (!this.engine.isXR) this.engine.camera.rotation.set(0, 0, 0);
-    if (this.prevShadow !== undefined) this.engine.renderer.shadowMap.enabled = this.prevShadow;
     this.engine.renderer.localClippingEnabled = !!this.prevClipping;
     this.engine.scene.environment = this.prevEnvironment ?? null;
     this.envTarget?.dispose();

@@ -25,13 +25,13 @@ import { music } from '../music.js';
 import { quality } from '../quality.js';
 import { EVENT } from '../event.js';
 import { WINTER, makeSnowfall } from '../snow.js';
-import { makeEnvironment } from '../robot-visuals.js';
+import { sceneLook, softSun, contactShadow, gfxTier } from '../gfx.js';
 import '../summit-text.js';
 import { CUSTOMERS, STAGES } from '../summit-talks.js';
 import { readLine, readType, isUnsure } from '../summit-ai.js';
 import {
   loadSummitModels, makeMountain, Hold, makeDecorHolds, makeShards, Rope, ClimberEcho, makeSummitDecor,
-  makeSky, makePeaks, makeClouds, surfaceZ, cutUniform, makePullHint, TOP, PLATEAU_Y, BOLTS,
+  makeSky, makePeaks, makeClouds, surfaceZ, cutUniform, makePullHint, makeDuskEnvironment, setRockHaze, TOP, PLATEAU_Y, BOLTS,
 } from '../summit-visuals.js';
 import { holder, makeBubble, makeLabel, makeFeedback, makeCoach, makeStatus } from '../summit-panels.js';
 import { phoneTalk } from '../summit-phone.js';
@@ -84,20 +84,16 @@ export class SummitScene extends BaseScene {
     this.CLOUD_Y = this.eye - 0.8;
     this.ar = this.engine.isXR && this.engine.xrMode === 'immersive-ar';
 
-    // Lighting and the room: a dusk sky replaces the preview room (not in AR).
-    this.envTarget = makeEnvironment(this.engine.renderer);
-    this.prevEnvironment = this.engine.scene.environment;
-    this.engine.scene.environment = this.envTarget.texture;
+    // Lighting and the room: a dusk sky replaces the preview room (not in AR). The look: neutral
+    // tone mapping (keeps the token colors), the dusk sky as image-based light, soft shadows.
+    this.envTarget = makeDuskEnvironment(this.engine.renderer);
+    this.shadows = !quality.lite;
+    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.0, env: this.envTarget.texture, envIntensity: 0.75, shadows: this.shadows ? 'soft' : false }));
+    setRockHaze(!this.ar);
     this.prevBackdrop = this.engine.backdrop.visible;
     this.engine.backdrop.visible = false;
     this.prevFog = this.engine.scene.fog?.color.getHex();
     this.engine.scene.fog?.color.setHex(hex('xr-summit-sky-mid'));
-    this.shadows = !quality.lite;
-    if (this.shadows) {
-      this.prevShadow = this.engine.renderer.shadowMap.enabled;
-      this.engine.renderer.shadowMap.enabled = true;
-      this.engine.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    }
 
     this.world = new THREE.Group();
     this.world.userData.noFit = true;
@@ -182,21 +178,22 @@ export class SummitScene extends BaseScene {
 
   buildLights() {
     const { eye } = this;
-    const sun = new THREE.DirectionalLight(hex('xr-summit-sun'), 1.5);
+    // Key: the low warm sun from the right. Fill: cool sky light from the left. Rim: the glow of
+    // the sunset behind the wall, which outlines the rock, Echo and the customer.
+    const sun = new THREE.DirectionalLight(hex('xr-summit-sun'), 2.1);
     sun.position.set(1.1, eye + 1.3, 0.7);
     sun.target.position.set(0, eye - 0.2, WALL_Z);
-    if (this.shadows) {
-      sun.castShadow = true;
-      sun.shadow.mapSize.set(1024, 1024);
-      const s = sun.shadow.camera;
-      s.left = -0.75; s.right = 0.75; s.top = 0.8; s.bottom = -0.8; s.near = 0.3; s.far = 3.5;
-      sun.shadow.bias = -0.0008;
-      sun.shadow.normalBias = 0.01;
-    }
-    const fill = new THREE.DirectionalLight(hex('xr-summit-fill'), 0.55);
+    if (this.shadows) softSun(sun, { size: 1.6, near: 0.3, far: 3.5, bias: -0.0006, normalBias: 0.012, radius: 4 });
+    const fill = new THREE.DirectionalLight(hex('xr-summit-fill'), 0.4);
     fill.position.set(-1.4, eye + 0.4, 0.4);
     fill.target.position.set(0, eye - 0.2, WALL_Z);
     this.group.add(sun, sun.target, fill, fill.target);
+    if (gfxTier() !== 'low') {
+      const rim = new THREE.DirectionalLight(hex('xr-summit-rim'), 1.6);
+      rim.position.set(0.9, eye + 0.5, WALL_Z - 1.8);
+      rim.target.position.set(-0.1, eye - 0.1, WALL_Z + 0.2);
+      this.group.add(rim, rim.target);
+    }
   }
 
   /** A round window with the customer's close-up (head and chest), next to the speech bubble. */
@@ -250,6 +247,10 @@ export class SummitScene extends BaseScene {
       || Math.abs(y) < 0.06 || BOLTS.some((b) => Math.abs(x - b.x) < 0.05 && Math.abs(y - b.y) < 0.06)));
     this.decor = makeSummitDecor(M.wall, this.mats);
     this.mountain.add(this.decor);
+    // A soft shadow where the customer stands (grounds the figure, also without shadow maps).
+    const blob = contactShadow(0.085, 0.38);
+    blob.position.set(CUSTOMER_SPOT.x, PLATEAU_Y + 0.003, CUSTOMER_SPOT.z);
+    this.mountain.add(blob);
     const peaks = makePeaks(M.wall, this.mats);
     peaks.position.y = this.CLOUD_Y;
     if (this.ar) { peaks.scale.setScalar(0.5); peaks.position.z = -0.4; }
@@ -1244,9 +1245,7 @@ export class SummitScene extends BaseScene {
     this.engine.fitEnabled = true;
     this.engine.backdrop.visible = this.prevBackdrop;
     if (this.prevFog !== undefined) this.engine.scene.fog?.color.setHex(this.prevFog);
-    if (this.shadows) this.engine.renderer.shadowMap.enabled = this.prevShadow;
     if (!this.engine.isXR) this.engine.camera.rotation.set(0, 0, 0);
-    this.engine.scene.environment = this.prevEnvironment ?? null;
     this.envTarget?.dispose();
     this.climber?.dispose();
     this.rope?.dispose();

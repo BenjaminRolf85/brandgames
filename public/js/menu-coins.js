@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { loadGLTF } from './models.js';
 import { color, hex } from './tokens.js';
 import { drawIcon } from './icons.js';
+import { gfxTier } from './gfx.js';
 
 export const COIN_URL = 'assets/models/coin.glb';
 export const CARD_ART = {
@@ -119,7 +120,7 @@ function faceTexture(key) {
   }
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.flipY = false; // glTF UVs (top left origin)
-  tex.anisotropy = 4;
+  tex.anisotropy = gfxTier() === 'high' ? 8 : 4; // the coins turn: sharp art at an angle
   faces.set(key, tex);
   return tex;
 }

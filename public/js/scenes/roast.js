@@ -23,14 +23,15 @@ import { sfx } from '../sfx.js';
 import { music } from '../music.js';
 import { quality } from '../quality.js';
 import { CHRISTMAS, makeLightString, makeTree } from '../christmas.js';
-import { makeEnvironment, radialTexture } from '../robot-visuals.js';
+import { radialTexture } from '../robot-visuals.js';
+import { sceneLook, contactShadow, gfxTier } from '../gfx.js';
 import '../roast-text.js';
 import {
   GUESTS, BASKET_GUEST, BEANS, RATIOS, ITEMS, CUES, FIRST_CRACK, SECOND_CRACK, Recommender,
   cupFlavor, rate, guestPoints, basketResult, basketFor, mapPos,
 } from '../roast-ai.js';
 import {
-  loadShop, part, shopMaterials, makeJar, Roaster, makeScale, makeCup, makeItem, makeBasket, Puffs, BeanFlight, Guest, makeLights, beanColor,
+  loadShop, part, shopMaterials, shopDetail, makeJar, Roaster, makeScale, makeCup, makeItem, makeBasket, Puffs, BeanFlight, Guest, makeLights, beanColor,
 } from '../roast-visuals.js';
 import {
   bubblePanel, jarTag, itemTag, AiPanel, blendPanel, gaugePanel, starSprite, scoreSprite, beanName, stageName, ratioIndex,
@@ -104,22 +105,22 @@ export class RoastScene extends BaseScene {
     this.sel = [];
     this.ratioIdx = 2;
 
-    const r = this.engine.renderer;
-    this.envTarget = makeEnvironment(r);
-    this.prevEnvironment = this.engine.scene.environment;
-    this.engine.scene.environment = this.envTarget.texture;
-    this.prevShadow = r.shadowMap.enabled;
-    if (!quality.lite) {
-      r.shadowMap.enabled = true;
-      r.shadowMap.type = THREE.PCFSoftShadowMap;
-    }
+    // The look by graphics tier ('high': desktop and Quest 3, 'medium': phones and Quest 3 lite,
+    // 'low': lite elsewhere): neutral tone mapping, image based light from the studio environment
+    // (brass, copper, glass and porcelain reflect it), one soft shadow map unless effects are lite.
+    this.tier = gfxTier();
+    this.shadows = !quality.lite;
+    this.onSceneDispose(sceneLook(this.engine, {
+      tone: 'neutral', exposure: 1.0, env: 'studio', envIntensity: this.tier === 'low' ? 0.5 : 0.62, shadows: this.shadows ? 'soft' : false,
+    }));
+    shopDetail(this.tier);
 
     // The shop: counter top at eye height - DROP; everything in it is in "shop space".
     this.shop = new THREE.Group();
     this.shop.position.set(0, this.eye - DROP, 0);
     this.shop.userData.noFit = true; // the browser camera frames this.fit and the panels instead
     this.group.add(this.shop);
-    this.lights = makeLights(quality.lite);
+    this.lights = makeLights(this.tier, this.shadows);
     this.shop.add(this.lights);
     // Game panels live here (not in the layer, which the intro and results clear).
     this.ui = new THREE.Group();
@@ -202,6 +203,27 @@ export class RoastScene extends BaseScene {
       this.floorShadow.position.set(0, -1, -1.2);
       this.floorShadow.receiveShadow = true;
       s.add(this.floorShadow);
+    }
+    // soft contact shadows on the (real) floor: under the counter, the roaster and the tree
+    this.contacts = [];
+    const blob = (x, z, sx, sz, op) => {
+      const m = contactShadow(0.5, op);
+      m.scale.set(sx, sz, 1);
+      m.position.set(x, -1, z);
+      s.add(m);
+      this.contacts.push(m);
+      return m;
+    };
+    blob(COUNTER_AT.x - 0.1, COUNTER_AT.z - 0.05, 3.0, 1.5, 0.5);
+    blob(ROASTER_AT.x, ROASTER_AT.z, 1.3, 1.3, 0.5);
+    if (this.tree) blob(-1.22, -1.78, 1.0, 1.0, 0.4);
+    // the browser view: a warm haze behind the counter (shop light in the dark); not in the headset
+    if (!this.engine.isXR) {
+      this.haze = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 2.8), new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-roast-light'), transparent: true, opacity: 0.2, depthWrite: false, toneMapped: false }));
+      this.haze.position.set(0.1, 0.35, -2.9);
+      this.haze.userData.noFit = true;
+      this.haze.renderOrder = -2;
+      s.add(this.haze);
     }
     this.smoke = new Puffs(s, { count: 22, token: 'xr-roast-smoke', size: 0.16, rise: 0.3, life: 2.6 });
     this.steam = new Puffs(s, { count: 18, token: 'xr-roast-steam', size: 0.05, rise: 0.12, life: 1.4 });
@@ -328,6 +350,7 @@ export class RoastScene extends BaseScene {
     this.next = i + 1;
     this.spawnCool = 0.8;
     const vis = new Guest(this.G, def.model, def.look);
+    this.groundGuest(vis);
     vis.group.position.set(ENTER_X, this.floorShop ?? -1, LANE_Z);
     vis.group.rotation.y = Math.PI / 2;
     this.shop.add(vis.group);
@@ -503,11 +526,21 @@ export class RoastScene extends BaseScene {
     }, { ease: (k) => k, onDone: () => this.removeGuest(g) });
   }
 
+  /** A soft contact shadow at the guest's feet (walks with them). */
+  groundGuest(vis) {
+    const m = contactShadow(0.24, 0.5);
+    m.position.y = 0.004;
+    vis.group.add(m);
+    vis.blob = m;
+  }
+
   removeGuest(g) {
     const i = this.guests.indexOf(g);
     if (i >= 0) this.guests.splice(i, 1);
     g.vis.group.removeFromParent();
     g.vis.dispose();
+    g.vis.blob?.geometry.dispose();
+    g.vis.blob?.material.dispose();
     g.hit.geometry.dispose();
     g.bar.removeFromParent();
     g.bar.userData.dispose();
@@ -1043,6 +1076,7 @@ export class RoastScene extends BaseScene {
     });
     // the student comes back for her grandma's present
     const vis = new Guest(this.G, BASKET_GUEST.model);
+    this.groundGuest(vis);
     vis.group.position.set(ENTER_X, this.floorShop ?? -1, LANE_Z);
     vis.group.rotation.y = Math.PI / 2;
     this.shop.add(vis.group);
@@ -1720,6 +1754,8 @@ export class RoastScene extends BaseScene {
     this.floorShop = e.floorY - e.root.position.y - this.group.position.y - this.shop.position.y;
     if (this.plinth) this.plinth.scale.y = Math.max(0.001, -0.9 - this.floorShop);
     if (this.floorShadow) this.floorShadow.position.y = this.floorShop + 0.002;
+    this.contacts?.forEach((m) => { if (!m.userData.guest) m.position.y = this.floorShop + 0.003; });
+    if (this.haze) this.haze.visible = !this.engine.isXR;
     if (this.roaster) {
       const base = Math.max(this.floorShop, ROASTER_BASE_MIN);
       this.roaster.group.position.y = base;
@@ -1837,11 +1873,13 @@ export class RoastScene extends BaseScene {
     this.strip?.el.remove();
     for (const g of [...this.guests]) this.removeGuest(g);
     this.basketGuest?.dispose();
+    this.basketGuest?.blob?.geometry.dispose();
+    this.basketGuest?.blob?.material.dispose();
     this.smoke?.dispose();
     this.steam?.dispose();
-    this.engine.renderer.shadowMap.enabled = this.prevShadow;
-    this.engine.scene.environment = this.prevEnvironment ?? null;
-    this.envTarget?.dispose();
+    this.contacts?.forEach((m) => { m.geometry.dispose(); m.material.dispose(); });
+    this.haze?.geometry.dispose();
+    this.haze?.material.dispose();
     super.dispose();
   }
 }

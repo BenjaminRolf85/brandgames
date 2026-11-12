@@ -11,7 +11,7 @@ import { color, hex, num, font } from '../tokens.js';
 import { t } from '../i18n.js';
 import { sfx } from '../sfx.js';
 import { PONG_OPPONENTS } from '../content.js';
-import { makeEnvironment, radialTexture } from '../robot-visuals.js';
+import { radialTexture } from '../robot-visuals.js';
 import { Shockwaves, makeDust, makeBrain, makeTunnel, makeGlassPaddle, frameGeometry } from '../pong-visuals.js';
 import { DataStorm, Obstacles, POWERUPS } from '../pong-events.js';
 import { HoloFX, makePortal, makeFresnelShell, RibbonTrail } from '../pong-shaders.js';
@@ -24,6 +24,7 @@ import { ARRoom } from '../ar-room.js';
 import { quality } from '../quality.js';
 import { aimPad } from '../touch-ui.js';
 import { EVENT, EVENT_ROUNDS } from '../event.js';
+import { pongLook } from '../pong-look.js';
 
 const HW = 0.3; // half tunnel width (m)
 const HH = 0.21; // half tunnel height
@@ -318,6 +319,11 @@ export class PongScene extends BaseScene {
     this.fx = new HoloFX('xr-pong-rail', ['xr-pong-player', 'xr-pong-ai', 'xr-pong-rail', 'xr-pong-obstacle'].map(hex));
     this.tunnel = makeTunnel(HW, HH, LEN, 'xr-pong-rail', this.fx);
     arena.add(this.tunnel.group);
+    // Graphics: tone mapping, studio reflections, key and rim light, shadows, sky, bloom
+    // (scaled per device in pong-look.js). Neon parts are pushed above white where bloom runs.
+    this.look = pongLook(this, arena, { hw: HW, hh: HH, len: LEN });
+    const neon = this.look.neon;
+    for (const m of [...this.tunnel.edges.map((x) => x.material), this.tunnel.near.material, this.tunnel.far.material]) m.color.multiplyScalar(neon);
     // Blender-built frame: metal beams with light seams, gates with data nodes and server
     // pillars behind the AI.
     this.cRail = new THREE.Color(hex('xr-pong-rail'));
@@ -325,6 +331,7 @@ export class PongScene extends BaseScene {
     loadPongArena().then((model) => {
       if (this.disposed) return;
       this.frameModel = model;
+      for (const m of model.mats.NeonPlayer ?? []) m.color.multiplyScalar(neon);
       arena.add(model.group);
       if (this.opp) this.applyOpponent(this.opp);
     }).catch((e) => console.warn('Pong arena model not loaded', e));
@@ -346,7 +353,8 @@ export class PongScene extends BaseScene {
     // behind its paddle (made in applyOpponent), a neon grid floor and a data city behind the AI.
     this.player.add(makeHandle(PPH));
     this.ai.add(makeHandle(PH));
-    this.paddleEcho = makePaddleEcho(this.player, PPW, PPH);
+    this.player.children.concat(this.ai.children).forEach((o) => this.look.casters(o));
+    this.paddleEcho = makePaddleEcho(this.player, PPW, PPH, (model) => this.look.casters(model));
     arena.add(makeGridFloor(HW, HH, LEN));
     if (!quality.lite) arena.add(makeSkyline(HW, HH, ZA - 0.95));
 
@@ -377,6 +385,7 @@ export class PongScene extends BaseScene {
       if (this.disposed) return;
       this.ballModels = set;
       for (const { root } of Object.values(set)) {
+        this.look.casters(root);
         root.scale.setScalar(R);
         root.visible = false;
         this.ballBody.add(root);
@@ -384,6 +393,7 @@ export class PongScene extends BaseScene {
       if (this.ballType) this.showBallModel(this.ballType);
     }).catch((e) => console.warn('Pong ball models not loaded', e));
     this.ballType = null;
+    this.look.casters(this.ball);
     arena.add(this.ball, this.ballGlow, this.ballLight);
 
     // Depth cue: a bright frame that runs along the tunnel at the ball's depth,
@@ -448,10 +458,6 @@ export class PongScene extends BaseScene {
     // Floor tiles light up where you step while playing.
     this.room.onStep = (p) => { sfx.step(); this.room.ripple(p, hex('xr-pong-player'), 0.25); };
     this.tmpV = new THREE.Vector3();
-
-    this.envTarget = makeEnvironment(this.engine.renderer);
-    this.prevEnvironment = this.engine.scene.environment;
-    this.engine.scene.environment = this.envTarget.texture;
   }
 
   /** Colors the AI side (paddle, brain, far frame) in the opponent's color and sets its skills. */
@@ -461,13 +467,14 @@ export class PongScene extends BaseScene {
     const c = hex(opp.token);
     this.ai.userData.setColor(c);
     this.brain.userData.setColor(c);
-    this.tunnel.far.material.color.setHex(c);
+    this.tunnel.far.material.color.setHex(c).multiplyScalar(this.look.neon);
     this.portal.userData.setColor(c);
     this.fx.setHitColor(1, c);
-    for (const m of this.frameModel?.mats.NeonAI ?? []) m.color.setHex(c);
+    for (const m of this.frameModel?.mats.NeonAI ?? []) m.color.setHex(c).multiplyScalar(this.look.neon);
     // The opponent as one of the Arena's robots, in its color, behind the AI paddle.
     this.robot?.dispose();
     this.robot = makePaddleRobot(ROBOT_FOR[opp.key] ?? 'light', opp.token, { hh: HH, hw: HW, z: ZA - 0.08 });
+    this.look.casters(this.robot.group);
     this.arena.add(this.robot.group);
     this.ease = { ...PONG_EASE, ...(opp.ease ?? {}) };
     this.reaction = opp.reaction + this.ease.reaction;
@@ -1292,7 +1299,7 @@ export class PongScene extends BaseScene {
     if (model) {
       // Neon parts glow in the owner's color (hotter = whiter); the ball rolls with its flight.
       const glow = own.clone().lerp(WHITE, 0.15 + heat * 0.35);
-      for (const m of model.mats.NeonBall ?? []) m.color.copy(glow);
+      for (const m of model.mats.NeonBall ?? []) m.color.copy(glow).multiplyScalar(this.look.neon);
       for (const m of model.mats.BallIce ?? []) { m.emissive.copy(own); m.emissiveIntensity = 0.3 + heat * 0.3; }
       const rr = Math.max(b.r ?? R, 0.01);
       this.ballBody.rotation.x -= ((flying ? b.vz : 0.5) * dt * 0.35) / rr;
@@ -1353,7 +1360,7 @@ export class PongScene extends BaseScene {
     // Blender frame: light seams flash on every hit.
     this.neonKick = Math.max(0, this.neonKick - dt * 2.5);
     if (this.frameModel) {
-      for (const m of this.frameModel.mats.NeonRail ?? []) m.color.copy(this.cRail).lerp(WHITE, this.neonKick * 0.55);
+      for (const m of this.frameModel.mats.NeonRail ?? []) m.color.copy(this.cRail).lerp(WHITE, this.neonKick * 0.55).multiplyScalar(this.look.neon);
     }
     this.rain.userData.tick(this.time, (flying ? heat * 0.8 : 0) + this.storm.env);
     // Real room: light pool below the arena in the color of the action, rain boost in a storm.
@@ -1503,8 +1510,6 @@ export class PongScene extends BaseScene {
     this.app.echo?.suppress(false);
     this.announcer.stop();
     this.setRays(true);
-    this.engine.scene.environment = this.prevEnvironment ?? null;
-    this.envTarget?.dispose();
     this.room?.dispose();
     super.dispose();
   }

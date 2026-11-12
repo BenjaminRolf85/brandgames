@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { loadGLTF } from './models.js';
 import { hex } from './tokens.js';
 import { radialTexture } from './robot-visuals.js';
+import { softSun } from './gfx.js';
 
 export const SHOP_URL = 'assets/models/roast.glb';
 export const GUESTS_URL = 'assets/models/roast-guests.glb';
@@ -20,7 +21,7 @@ const hash = (i) => { const s = Math.sin(i * 127.1 + 311.7) * 43758.5453; return
 // Blender material -> [token, roughness, metalness, extra]
 const SHOP = {
   RoastWood: ['xr-roast-wood', 0.55, 0], RoastWoodDark: ['xr-roast-wood-dark', 0.6, 0], RoastWoodLight: ['xr-roast-wood-light', 0.5, 0],
-  RoastMarble: ['xr-roast-marble', 0.22, 0, { physical: true, clearcoat: 0.6, clearcoatRoughness: 0.2 }],
+  RoastMarble: ['xr-roast-marble', 0.3, 0, { physical: true, clearcoat: 0.5, clearcoatRoughness: 0.25, envMapIntensity: 0.45 }],
   RoastBrass: ['xr-roast-brass', 0.3, 1], RoastPlinth: ['xr-roast-plinth', 0.7, 0],
   RoastEnamel: ['xr-roast-enamel', 0.3, 0.05, { physical: true, clearcoat: 1, clearcoatRoughness: 0.12 }],
   RoastIron: ['xr-roast-iron', 0.48, 0.6], RoastCopper: ['xr-roast-copper', 0.28, 1], RoastSteel: ['xr-roast-steel', 0.35, 0.9],
@@ -36,6 +37,108 @@ const SHOP = {
   RoastBow: ['xr-roast-bow', 0.4, 0], RoastBauble: ['xr-roast-bauble', 0.2, 0.8], RoastBean: ['xr-roast-bean-green', 0.5, 0],
 };
 
+// ---------- surface detail: wood grain and marble veins (procedural, made once) ----------
+
+const DETAIL = {
+  RoastWood: ['wood', 3], RoastWoodDark: ['wood', 3], RoastWoodLight: ['wood', 3], RoastPlinth: ['wood', 2], RoastMarble: ['marble', 1.2],
+};
+const detailTex = {};
+
+/** Smooth value noise (tileable over `period` cells). */
+function valueNoise(period, seed) {
+  const g = [];
+  for (let i = 0; i < period * period; i++) g.push(hash(i * 7.13 + seed));
+  const at = (x, y) => g[((y % period + period) % period) * period + ((x % period + period) % period)];
+  return (x, y) => {
+    const xi = Math.floor(x); const yi = Math.floor(y);
+    const u = smooth(x - xi); const v = smooth(y - yi);
+    const a = at(xi, yi) + (at(xi + 1, yi) - at(xi, yi)) * u;
+    const b = at(xi, yi + 1) + (at(xi + 1, yi + 1) - at(xi, yi + 1)) * u;
+    return a + (b - a) * v;
+  };
+}
+
+/**
+ * A grey multiplier texture (near white, so the token color stays): 'wood' has long grain lines
+ * along u, 'marble' soft veins. Tileable, mipmapped, sharp at grazing angles.
+ */
+function detailTexture(kind, size) {
+  const key = `${kind}${size}`;
+  if (detailTex[key]) return detailTex[key];
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  const n1 = valueNoise(8, kind === 'wood' ? 1 : 5);
+  const n2 = valueNoise(32, kind === 'wood' ? 2 : 6);
+  const n3 = valueNoise(4, 9);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const v = y / size;
+      let k;
+      if (kind === 'wood') {
+        // rings stretched along u, wobbling slowly; fine pores on top
+        const w = v * 22 + 1.6 * n1(u * 8, v * 8) + 0.35 * n3(u * 4, v * 4);
+        const ring = 0.5 + 0.5 * Math.sin(w * Math.PI * 2);
+        const pores = n2(u * 32 * 0.25, v * 32);
+        k = 0.8 + 0.13 * Math.pow(ring, 3) + 0.07 * pores;
+      } else {
+        // soft grey veins following a turbulent field
+        const t = n1(u * 8, v * 8) * 0.6 + n2(u * 32, v * 32) * 0.25 + n3(u * 4, v * 4) * 0.8;
+        const vein = Math.abs(Math.sin((u * 3 + v * 2 + t * 2.2) * Math.PI));
+        k = 1 - 0.16 * Math.pow(1 - vein, 10) - 0.05 * n2(u * 32, v * 32);
+      }
+      const o = (y * size + x) * 4;
+      const g = Math.round(255 * clamp(k, 0, 1));
+      img.data[o] = g; img.data[o + 1] = g; img.data[o + 2] = g; img.data[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  detailTex[key] = tex;
+  return tex;
+}
+
+/** Box-projected UVs in meters (times `density` repeats per meter), once per geometry. */
+function boxUV(geo, density) {
+  if (geo.userData.boxUV) return;
+  geo.userData.boxUV = true;
+  const pos = geo.attributes.position;
+  if (!geo.attributes.normal) geo.computeVertexNormals();
+  const nor = geo.attributes.normal;
+  const uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    const ax = Math.abs(nor.getX(i)); const ay = Math.abs(nor.getY(i)); const az = Math.abs(nor.getZ(i));
+    const x = pos.getX(i); const y = pos.getY(i); const z = pos.getZ(i);
+    let a; let b;
+    if (ay >= ax && ay >= az) { a = x; b = z; } else if (ax >= az) { a = z; b = y; } else { a = x; b = y; }
+    uv[i * 2] = a * density * 0.35; // grain runs along the long side
+    uv[i * 2 + 1] = b * density;
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
+
+/**
+ * Surface detail by graphics tier: 'high' (desktop, Quest 3) grain and veins with a little relief,
+ * 'medium' the same without relief and at half resolution, 'low' none (plain token colors).
+ */
+export function shopDetail(tier) {
+  const M = shopMaterials();
+  for (const [name, [kind]] of Object.entries(DETAIL)) {
+    const m = M[name];
+    const tex = tier === 'low' ? null : detailTexture(kind, tier === 'high' ? 512 : 256);
+    m.map = tex;
+    m.bumpMap = tier === 'high' && kind === 'wood' ? tex : null;
+    m.bumpScale = 0.6;
+    if (kind === 'marble') m.roughnessMap = tier === 'high' ? tex : null;
+    m.needsUpdate = true;
+  }
+}
+
 let shopMats = null;
 /** Shared materials of the shop (one set per page; the scene does not dispose them). */
 export function shopMaterials() {
@@ -48,7 +151,7 @@ export function shopMaterials() {
   }
   shopMats.RoastGlass = new THREE.MeshPhysicalMaterial({
     name: 'RoastGlass', color: hex('xr-roast-glass'), roughness: 0.05, metalness: 0, transparent: true, opacity: 0.13,
-    clearcoat: 0.6, clearcoatRoughness: 0.05, depthWrite: false, envMapIntensity: 0.7,
+    clearcoat: 0.6, clearcoatRoughness: 0.05, depthWrite: false, envMapIntensity: 0.4,
   });
   shopMats.RoastFlameGlow = new THREE.MeshBasicMaterial({ name: 'RoastFlameGlow', color: hex('xr-roast-flame'), toneMapped: false });
   return shopMats;
@@ -59,6 +162,8 @@ function skin(root) {
   root.traverse((o) => {
     if (!o.isMesh) return;
     o.material = M[o.material.name] ?? o.material;
+    const d = DETAIL[o.material.name];
+    if (d) boxUV(o.geometry, d[1]);
     o.castShadow = o.material !== M.RoastGlass && o.material !== M.RoastFlameGlow;
     o.receiveShadow = true;
     if (o.material === M.RoastGlass) o.renderOrder = 2;
@@ -81,6 +186,27 @@ export function loadShop() {
 }
 
 // ---------- beans ----------
+
+let lowBean = null;
+/**
+ * A lighter bean (80 instead of 168 triangles) for the hundreds of small beans in the jars and the
+ * cooling tray: the same shape (flat side with the crease), fewer segments.
+ */
+export function lowBeanGeometry() {
+  if (lowBean) return lowBean;
+  const g = new THREE.SphereGeometry(0.5, 8, 6);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    let y = p.getY(i) * 0.52;
+    const z = p.getZ(i) * 0.74;
+    if (y < -0.05) y *= 0.55;
+    if (Math.abs(z) < 0.09 && y < 0) y += 0.09;
+    p.setXYZ(i, p.getX(i), y, z);
+  }
+  g.computeVertexNormals();
+  lowBean = g;
+  return g;
+}
 
 let beanGeo = null;
 export function beanGeometry(gltf) {
@@ -141,7 +267,7 @@ export function makeJar(gltf, i) {
   const g = new THREE.Group();
   const jar = part(gltf, 'Jar');
   g.add(jar);
-  const beans = jarBeans(beanGeometry(gltf), i + 1);
+  const beans = jarBeans(lowBeanGeometry(), i + 1);
   g.add(beans);
   g.userData.beans = beans;
   return g;
@@ -174,7 +300,7 @@ export class Roaster {
     this.beansAt.add(this.drumBeans);
     // Beans cooling in the tray after the roast.
     this.nTray = 80;
-    this.trayBeans = new THREE.InstancedMesh(geo, beanMaterial(), this.nTray);
+    this.trayBeans = new THREE.InstancedMesh(lowBeanGeometry(), beanMaterial(), this.nTray);
     this.trayBeans.visible = false;
     const tray = (this.trayGroup = new THREE.Group());
     this.trayTop.add(tray);
@@ -683,26 +809,22 @@ export class Guest {
 // ---------- shop lights ----------
 
 /** Warm key light with a soft shadow over the counter, a cool rim from behind. */
-export function makeLights(lite) {
+export function makeLights(tier, shadows) {
   const g = new THREE.Group();
   g.userData.noFit = true;
-  const key = new THREE.DirectionalLight(hex('xr-roast-light'), 1.5);
+  // warm key from the front left (the shop's lamps), a cool rim from behind (the window light),
+  // a soft warm fill close to the counter
+  const key = new THREE.DirectionalLight(hex('xr-roast-light'), 1.7);
   key.position.set(-0.8, 1.6, 0.9);
-  key.target.position.set(0, 0, -0.95);
-  const rim = new THREE.DirectionalLight(hex('xr-roast-glass'), 0.7);
-  rim.position.set(0.6, 1.2, -2.2);
+  key.target.position.set(0.1, 0, -1.1);
+  const rim = new THREE.DirectionalLight(hex('xr-roast-glass'), tier === 'low' ? 0.7 : 1.1);
+  rim.position.set(0.6, 1.4, -2.4);
   rim.target = key.target;
-  const fill = new THREE.PointLight(hex('xr-roast-light'), 0.9, 2.2, 2);
+  const fill = new THREE.PointLight(hex('xr-roast-light'), 0.7, 2.2, 2);
   fill.position.set(-0.2, 0.55, -0.6);
   g.add(key, key.target, rim, fill);
-  if (!lite) {
-    key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
-    Object.assign(key.shadow.camera, { left: -1.3, right: 1.3, top: 1.2, bottom: -1.0, near: 0.3, far: 4 });
-    key.shadow.camera.updateProjectionMatrix();
-    key.shadow.bias = -0.0006;
-    key.shadow.normalBias = 0.015;
-  }
+  // one shadow-casting light; the map size follows the tier (2048 on desktop and Quest 3, else 1024)
+  if (shadows) softSun(key, { size: 2.9, near: 0.3, far: 4.5, bias: -0.0005, normalBias: 0.018 });
   g.userData.key = key;
   return g;
 }

@@ -26,10 +26,10 @@ import { loadGLTF } from '../models.js';
 import { COIN_FACTS, CITY_FACTS, OFFICE_FACTS } from '../parkour-level.js';
 import { loadParkourModels, logoTexture } from '../parkour-models.js';
 import { factCard } from '../fact-card.js';
-import { makeEnvironment, radialTexture } from '../robot-visuals.js';
+import { radialTexture } from '../robot-visuals.js';
 import {
   FlightEcho, DataItems, makeVortex, makeStream, makeBinaryStreams, makeCircuitFloor, makeSpace, makeDatabase, makeGoldCoin,
-  makeHacker, makeAttackKit, makeBeam, HACKER_URL,
+  makeHacker, makeAttackKit, makeBeam, HACKER_URL, flightLook,
 } from '../dataflight-visuals.js';
 import {
   WORLDS, POWER_TOKEN, makeRacks, makeStorm, makeFirewall, makePortal, makeGate, makePowerUp, makeShieldBubble,
@@ -103,9 +103,8 @@ export class DataflightScene extends BaseScene {
     this.C = new THREE.Vector3(0, this.eye - C_DROP, C_Z);
     this.depth = 0; // browser preview: depth offset (mouse wheel)
 
-    this.envTarget = makeEnvironment(this.engine.renderer);
-    this.prevEnvironment = this.engine.scene.environment;
-    this.engine.scene.environment = this.envTarget.texture;
+    // Graphics: tone mapping, studio reflections, key and world-colored rim light, desktop bloom.
+    this.look = flightLook(this);
     // The data space replaces the preview room (grid floor and walls).
     this.prevBackdrop = this.engine.backdrop.visible;
     this.engine.backdrop.visible = false;
@@ -190,6 +189,7 @@ export class DataflightScene extends BaseScene {
     u.uB.value.copy(A.b).lerp(B.b, k);
     u.uC.value.copy(A.c).lerp(B.c, k);
     this.space.material.color.copy(A.space).lerp(B.space, k);
+    this.look.setRim(u.uA.value);
     this.stream.userData.setPalette(A.streaks.map((c, i) => c.clone().lerp(B.streaks[i], k)));
     const weight = (i) => (from === i ? 1 - k : 0) + (to === i ? k : 0);
     this.racks.userData.setAmount(weight(1));
@@ -453,7 +453,7 @@ export class DataflightScene extends BaseScene {
   /** A hacker flies out of the vortex to a spot in front, a bit to the side. */
   spawnHacker(i) {
     const side = i % 2 ? 1 : -1;
-    const obj = makeHacker(this.hackerGltf);
+    const obj = makeHacker(this.hackerGltf, this.look.neon);
     const from = this.vortex.position.clone();
     obj.position.copy(from);
     obj.scale.setScalar(0.3);
@@ -942,8 +942,8 @@ export class DataflightScene extends BaseScene {
     this.tween(1.5, (k) => { this.bossDim = 1 - 0.7 * k; this.applyTheme(); });
     if (this.hacker) this.endHacker(this.hacker);
     for (const g of [...this.gates]) this.removeGate(g);
-    const pilot = this.hackerGltf ? makeHacker(this.hackerGltf) : null;
-    const obj = makeBoss(pilot, CORE_HP);
+    const pilot = this.hackerGltf ? makeHacker(this.hackerGltf, this.look.neon) : null;
+    const obj = makeBoss(pilot, CORE_HP, { neon: this.look.neon });
     obj.position.set(this.C.x, this.C.y + 0.4, VORTEX_Z + 0.4);
     obj.scale.setScalar(0.15);
     this.world.add(obj);
@@ -959,7 +959,7 @@ export class DataflightScene extends BaseScene {
     const b = this.boss;
     if (!b) return;
     b.obj.removeFromParent();
-    b.obj.traverse((o) => { if (o.material) [].concat(o.material).forEach((m) => m.dispose()); });
+    b.obj.traverse((o) => { if (o.material) [].concat(o.material).forEach((m) => { m.roughnessMap?.dispose(); m.emissiveMap?.dispose(); m.dispose(); }); });
     this.boss = null;
   }
 
@@ -1383,8 +1383,6 @@ export class DataflightScene extends BaseScene {
     this.engine.backdrop.visible = this.prevBackdrop;
     if (!this.engine.isXR) this.engine.camera.rotation.set(0, 0, 0);
     this.echo?.dispose();
-    this.engine.scene.environment = this.prevEnvironment ?? null;
-    this.envTarget?.dispose();
     super.dispose();
   }
 }

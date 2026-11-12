@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { Button, measureBlocks } from './ui3d.js';
 import { color, hex, num, font } from './tokens.js';
 import { loadGLTF } from './models.js';
+import { gfxTier } from './gfx.js';
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 const LETTER_TOKENS = ['xr-quiz-a', 'xr-quiz-b', 'xr-quiz-c', 'xr-quiz-d'];
@@ -135,7 +136,9 @@ export const QUIZBOT_URL = 'assets/models/quizbot.glb';
 function botMaterials() {
   const std = (token, roughness, metalness = 0, extra = {}) => new THREE.MeshStandardMaterial({ color: hex(token), roughness, metalness, vertexColors: true, ...extra });
   return {
-    BotShell: std('xr-bot-shell', 0.3, 0.1),
+    BotShell: gfxTier() === 'high'
+      ? new THREE.MeshPhysicalMaterial({ color: hex('xr-bot-shell'), roughness: 0.32, metalness: 0.05, vertexColors: true, clearcoat: 0.8, clearcoatRoughness: 0.12 })
+      : std('xr-bot-shell', 0.3, 0.1),
     BotJoint: std('xr-bot-joint', 0.3, 0.8),
     BotDark: std('xr-bot-dark', 0.5, 0.2),
     BotVisor: std('xr-bot-visor', 0.08, 0.3),
@@ -324,18 +327,22 @@ export class QuizBot {
 let markTex = null;
 function markTexture() {
   if (markTex) return markTex;
+  // Sharper where the GPU can afford it (desktop, Quest 3 with full effects).
+  const S = gfxTier() === 'high' ? 256 : 128;
+  const k = S / 128;
   const c = document.createElement('canvas');
-  c.width = c.height = 128;
+  c.width = c.height = S;
   const ctx = c.getContext('2d');
-  ctx.font = font('black', 104);
+  ctx.font = font('black', 104 * k);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.shadowColor = color('xr-quiz-mark');
-  ctx.shadowBlur = 16;
+  ctx.shadowBlur = 16 * k;
   ctx.fillStyle = color('xr-quiz-mark');
-  ctx.fillText('?', 64, 70);
+  ctx.fillText('?', 64 * k, 70 * k);
   markTex = new THREE.CanvasTexture(c);
   markTex.colorSpace = THREE.SRGBColorSpace;
+  markTex.anisotropy = 4;
   return markTex;
 }
 

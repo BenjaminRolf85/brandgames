@@ -19,13 +19,14 @@ import { music } from '../music.js';
 import { quality } from '../quality.js';
 import { EVENT } from '../event.js';
 import { CHRISTMAS, makeBulbs } from '../christmas.js';
-import { makeEnvironment } from '../robot-visuals.js';
+import { sceneLook, softSun, gfxTier, polish } from '../gfx.js';
 import '../dock-text.js';
 import { makeRound, Protein, evaluateFit, PASS, designTruth } from '../dock-chem.js';
 import { Workshop } from '../dock-workshop.js';
 import { phoneStrip, enlargePad } from '../dock-phone.js';
 import {
-  makeKit, MoleculeView, proteinMaterial, makeSpotMarkers, blobShadow, makeScreening, makeWells, loadBench, fallbackDeck,
+  makeKit, MoleculeView, proteinMaterial, makeSpotMarkers, makeScreening, makeWells, loadBench, fallbackDeck,
+  mergeStatic, contactShadows, skyDome,
   drawAIPanel, drawFitPanel, drawLabPanel, drawLegend, aiPanelSize, fitPanelSize, labPanelSize, legendSize, AI_ROWS,
 } from '../dock-visuals.js';
 
@@ -103,17 +104,30 @@ export class DockScene extends BaseScene {
 
   buildLab() {
     const { eye } = this;
-    this.envTarget = makeEnvironment(this.engine.renderer);
-    this.prevEnvironment = this.engine.scene.environment;
-    this.engine.scene.environment = this.envTarget.texture;
-    // Soft warm key light from the upper left, a violet rim from behind.
-    const key = new THREE.DirectionalLight(hex('xr-dock-key-light'), 0.7);
-    key.position.set(-0.8, eye + 1.2, 0.4);
-    key.target.position.set(0, eye - 0.3, -0.8);
-    const rim = new THREE.DirectionalLight(hex('xr-dock-rim-light'), 0.8);
+    // The look (gfx.js): neutral tone mapping, soft studio reflections; the high tier (Quest 3
+    // with full effects, desktop) adds one soft shadow from the key light. No bloom: the white
+    // bench and the panels would glow.
+    this.tier = gfxTier();
+    this.shadows = this.tier === 'high' && !this.touch;
+    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 0.95, env: 'studio', envIntensity: 0.55, shadows: this.shadows ? 'soft' : false }));
+    // The engine's flat ambient and sun step back while the lab is open: a warm key (with the
+    // shadow), a violet rim and the studio reflections shape the protein instead.
+    const engineLights = this.engine.scene.children.filter((o) => o.isHemisphereLight || o.isDirectionalLight);
+    const before = engineLights.map((l) => l.intensity);
+    engineLights.forEach((l) => { l.intensity *= l.isHemisphereLight ? 0.45 : 0.35; });
+    this.onSceneDispose(() => engineLights.forEach((l, i) => { l.intensity = before[i]; }));
+    // Warm key light from the upper left (it casts the shadow), a violet rim from behind.
+    const key = new THREE.DirectionalLight(hex('xr-dock-key-light'), 1.9);
+    key.position.set(-1.25, eye + 1.15, -0.35);
+    key.target.position.set(0, eye - 0.45, -0.74);
+    if (this.shadows) softSun(key, { size: 1.5, far: 4, normalBias: 0.012, radius: 4 });
+    const rim = new THREE.DirectionalLight(hex('xr-dock-rim-light'), 1.3);
     rim.position.set(0.6, eye + 0.6, -2.2);
     rim.target = key.target;
     this.world.add(key, key.target, rim);
+    // A backdrop gradient for the browser and VR (in AR the real room stays visible).
+    this.sky = skyDome();
+    this.world.add(this.sky);
 
     // The bench: the Blender model (bench-local: y = 0 is its top).
     const bench = (this.bench = new THREE.Group());
@@ -134,12 +148,15 @@ export class DockScene extends BaseScene {
     cone.userData.noFit = true;
     bench.add(cone);
     this.cone = cone;
-    const sh = blobShadow(0.5, 0.36, 0.5);
-    sh.position.set(0, 0.002, PROT.z);
-    bench.add(sh);
-    const trayShadow = blobShadow(0.55, 0.2, 0.35);
-    trayShadow.position.set(TRAY.x, 0.002, TRAY.z);
-    bench.add(trayShadow);
+    // Soft contact shadows under the protein, the tray and the devices (one draw call).
+    bench.add(contactShadows([
+      [0, PROT.z, 0.52, 0.38, 0.55], [TRAY.x, TRAY.z, 0.6, 0.22, 0.45], [PLATE.x, -0.87, 0.3, 0.26, 0.6],
+      [-0.28, -0.9, 0.3, 0.1, 0.5], [-0.5, -0.88, 0.13, 0.13, 0.55], [FLASK.x, FLASK.z, 0.17, 0.17, 0.55],
+    ]));
+    // An invisible stand-in for the bench top (the desktop camera frames it).
+    this.deckProxy = new THREE.Mesh(new THREE.BoxGeometry(1.28, 0.04, 0.54), this.kit.hidden);
+    this.deckProxy.position.set(0, -0.02, BENCH_Z);
+    bench.add(this.deckProxy);
 
     // The protein's holder (the protein itself is built per pocket).
     this.prot = new THREE.Group();
@@ -168,6 +185,9 @@ export class DockScene extends BaseScene {
     const root = parts.DockBenchSet;
     if (!root) return;
     this.deck.removeFromParent();
+    // Static parts merged by material: far fewer draw calls (the headset renders twice).
+    mergeStatic(root, ['DockColumn', 'DockFlaskStar', 'DockFlaskLiquid', 'DockTray']);
+    if (this.shadows) polish(root, this.engine.renderer);
     this.bench.add(root);
     this.parts = parts;
     this.column = parts.DockColumn;
@@ -456,6 +476,8 @@ export class DockScene extends BaseScene {
     this.builds[i] = null;
     this.protein = built.protein;
     this.protMesh = new THREE.Mesh(built.geo, this.protMat);
+    this.protMesh.castShadow = this.shadows;
+    this.protMesh.receiveShadow = this.shadows; // the pocket's own shade
     this.prot.add(this.protMesh);
     // The pocket frame and its spot markers.
     const F = (this.F = new THREE.Object3D());
@@ -514,6 +536,7 @@ export class DockScene extends BaseScene {
       old.group.removeFromParent();
       old.dispose();
     }
+    if (this.shadows) [v.atoms, v.bonds].forEach((m) => { if (m) m.castShadow = true; });
     c.view = v;
     c.trayScale = Math.min(this.touch ? 0.78 : 0.62, (this.touch ? 0.06 : TRAY.size) / c.mol.radius);
     const proxy = v.proxy;
@@ -898,8 +921,9 @@ export class DockScene extends BaseScene {
       if (!this.isXR) this.bench.visible = false;
     }
     // The bench column reaches down to the floor (not in AR: the bench floats over the real room).
+    const ar = e.isXR && e.xrMode === 'immersive-ar';
+    this.sky.visible = !ar;
     if (this.column) {
-      const ar = e.isXR && e.xrMode === 'immersive-ar';
       this.column.visible = !ar && !this.touch;
       const topY = this.bench.getWorldPosition(_v).y - 0.04;
       this.column.scale.y = Math.max(0.05, topY - e.floorY);
@@ -1183,7 +1207,7 @@ export class DockScene extends BaseScene {
       };
       this.ui.children.forEach(add);
       this.group.children.filter((o) => o.userData.hud).forEach(add);
-      add(this.parts?.DockDeck ?? this.deck);
+      add(this.deckProxy);
       const all = new THREE.Box3().setFromPoints(pts);
       const center = all.getCenter(V());
       center.x = this.group.localToWorld(V()).x;
@@ -1368,8 +1392,6 @@ export class DockScene extends BaseScene {
     this.app.echo?.suppress(false);
     this.engine.fitEnabled = true;
     if (!this.isXR) this.engine.camera.rotation.set(0, 0, 0);
-    this.engine.scene.environment = this.prevEnvironment ?? null;
-    this.envTarget?.dispose();
     super.dispose();
   }
 }

@@ -16,6 +16,7 @@ import { music } from '../music.js';
 import { drawIcon } from '../icons.js';
 import { VERSION } from '../version.js';
 import { CHRISTMAS, makeTree, makeLightString } from '../christmas.js';
+import { sceneLook, contactShadow } from '../gfx.js';
 
 const ALL_GAMES = [
   { key: 'parkour', name: 'parkourName', tag: 'parkourTag', group: 'play' },
@@ -186,6 +187,9 @@ export class MenuScene extends BaseScene {
   constructor(app) {
     super(app);
     const { eye, dist } = this;
+    // Look: a soft studio environment for reflections (tree baubles, Echo), neutral tone mapping
+    // that keeps the token colors; the coins bring their own reflections (menu-coins.js).
+    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.08, env: 'studio', envIntensity: 0.55, shadows: false }));
     const cloud = this.add(neuralCloud({ radius: 0.45 }), this.group);
     cloud.position.set(0, eye + 0.92, -dist - 0.6);
     this.onUpdate(cloud.userData.tick);
@@ -212,6 +216,10 @@ export class MenuScene extends BaseScene {
     tree.group.rotation.y = -0.8;
     // Phones: the menu fills the screen; the tree may stand partly outside it.
     if (this.engine.touchUI) tree.group.userData.noFit = true;
+    // A soft shadow grounds it on the (real) floor.
+    const blob = contactShadow(0.55, 0.55);
+    blob.position.y = 0.003;
+    tree.group.add(blob);
     this.group.add(tree.group);
     const lights = makeLightString({ x0: -0.68, x1: 0.68, y: eye + 0.625, z: -dist + 0.03, sag: 0.045, swags: 3, bulbs: 36 });
     this.group.add(lights);

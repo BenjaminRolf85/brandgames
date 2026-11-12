@@ -36,24 +36,24 @@ const STREETS = [
 
 // Material name (Blender) -> token and surface. snow: how much snow it takes in winter.
 const MAT = {
-  GreenGrass: { t: 'xr-green-grass', r: 0.95, tint: true },
-  GreenHill: { t: 'xr-green-hill', r: 0.95, snow: 1, snowY: 0.07 },
-  GreenRock: { t: 'xr-green-rock', r: 0.9, snow: 0.8, snowY: 0.06 },
-  GreenSand: { t: 'xr-green-sand', r: 0.95 },
-  GreenBank: { t: 'xr-green-bank', r: 0.95 },
+  GreenGrass: { t: 'xr-green-grass', r: 0.95, tint: true, grain: 1.0 },
+  GreenHill: { t: 'xr-green-hill', r: 0.95, snow: 1, snowY: 0.07, grain: 1 },
+  GreenRock: { t: 'xr-green-rock', r: 0.9, snow: 0.8, snowY: 0.06, grain: 1.8 },
+  GreenSand: { t: 'xr-green-sand', r: 0.95, grain: 0.6 },
+  GreenBank: { t: 'xr-green-bank', r: 0.95, grain: 1.0 },
   GreenSeabed: { t: 'xr-green-seabed', r: 0.95 },
-  GreenSoil: { t: 'xr-green-soil', r: 0.95 },
-  GreenSoilDark: { t: 'xr-green-soil-dark', r: 0.95 },
-  GreenStrata: { t: 'xr-green-strata', r: 0.95 },
-  GreenPlinth: { t: 'xr-green-plinth', r: 0.38, m: 0.15 },
-  GreenTrim: { t: 'xr-green-trim', r: 0.28, m: 1, env: 1 },
+  GreenSoil: { t: 'xr-green-soil', r: 0.95, grain: 1.4 },
+  GreenSoilDark: { t: 'xr-green-soil-dark', r: 0.95, grain: 1.4 },
+  GreenStrata: { t: 'xr-green-strata', r: 0.95, grain: 1.8 },
+  GreenPlinth: { t: 'xr-green-plinth', r: 0.38, m: 0.15, coat: 0.8 },
+  GreenTrim: { t: 'xr-green-trim', r: 0.28, m: 1, env: 1, coat: 0.5 },
   GreenWaterSide: { t: 'xr-green-water-side', r: 0.08, opacity: 0.78 },
-  GreenField1: { t: 'xr-green-field-1', r: 0.95 },
-  GreenField2: { t: 'xr-green-field-2', r: 0.95 },
-  GreenField3: { t: 'xr-green-field-3', r: 0.95 },
+  GreenField1: { t: 'xr-green-field-1', r: 0.95, grain: 0.9 },
+  GreenField2: { t: 'xr-green-field-2', r: 0.95, grain: 0.9 },
+  GreenField3: { t: 'xr-green-field-3', r: 0.95, grain: 1.1 },
   GreenHedge: { t: 'xr-green-pine', r: 0.9 },
-  GreenRoad: { t: 'xr-green-road', r: 0.85 },
-  GreenPlaza: { t: 'xr-green-plaza', r: 0.85 },
+  GreenRoad: { t: 'xr-green-road', r: 0.85, grain: 0.5 },
+  GreenPlaza: { t: 'xr-green-plaza', r: 0.85, grain: 0.5 },
   GreenStone: { t: 'xr-green-stone', r: 0.85 },
   GreenWall1: { t: 'xr-green-wall-1', r: 0.8 },
   GreenWall2: { t: 'xr-green-wall-2', r: 0.8 },
@@ -68,10 +68,10 @@ const MAT = {
   GreenLeaf: { t: 'xr-green-leaf', r: 0.9 },
   GreenLeaf2: { t: 'xr-green-leaf-2', r: 0.9 },
   GreenTrunk: { t: 'xr-green-trunk', r: 0.9 },
-  GreenTurbine: { t: 'xr-green-turbine', r: 0.35, m: 0.05, env: 0.7 },
+  GreenTurbine: { t: 'xr-green-turbine', r: 0.35, m: 0.05, env: 0.7, coat: 0.35 },
   GreenMark: { t: 'xr-green-mark', r: 0.4 },
   GreenConcrete: { t: 'xr-green-concrete', r: 0.9 },
-  GreenSolarCell: { t: 'xr-green-solar-cell', r: 0.16, m: 0.55, glint: true, env: 1 },
+  GreenSolarCell: { t: 'xr-green-solar-cell', r: 0.16, m: 0.55, glint: true, env: 1, coat: 1 },
   GreenSolarFrame: { t: 'xr-green-solar-frame', r: 0.3, m: 0.8, env: 0.8 },
   GreenSchoolWall: { t: 'xr-green-school-wall', r: 0.8 },
   GreenSchoolAccent: { t: 'xr-green-school-accent', r: 0.6 },
@@ -102,8 +102,8 @@ float gNoise(vec3 x) {
 `;
 
 /** Shader patches on a standard material: snow (k), meadow tint, solar glint, lit windows, water. */
-function patch(mat, U, { snow = 0, snowY = -1, patchy = 0.55, tint = false, glint = false, window = false, water = false }) {
-  const key = `g${snow}|${snowY}|${patchy}|${tint}|${glint}|${window}|${water}`;
+function patch(mat, U, { snow = 0, snowY = -1, patchy = 0.55, tint = false, glint = false, window = false, water = false, grain = 0 }) {
+  const key = `g${snow}|${snowY}|${patchy}|${tint}|${glint}|${window}|${water}|${grain}`;
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader
@@ -143,6 +143,18 @@ function patch(mat, U, { snow = 0, snowY = -1, patchy = 0.55, tint = false, glin
       totalEmissiveRadiance += uGlintColor * uGlint * pow(gb, 14.0) * 1.4; }\n`;
     if (window) emissive += `totalEmissiveRadiance += uLitColor * uLit * (0.45 + 0.55 * step(0.35, gHash(floor(vGP * 260.0 + 0.5))));\n`;
     frag = frag.replace('#include <emissivemap_fragment>', emissive);
+    if (grain > 0) {
+      // Fine surface grain (grass tufts, crop rows, rock): a bump from noise, with the normal
+      // tilted along its screen-space slope (no texture, no extra draw call).
+      frag = frag.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        { float gh = gNoise(vGP * 520.0) * 0.6 + gNoise(vGP * 1500.0) * 0.4;
+          vec3 gdx = dFdx(-vViewPosition); vec3 gdy = dFdy(-vViewPosition);
+          float hx = dFdx(gh) * ${(0.0007 * grain).toFixed(5)}; float hy = dFdy(gh) * ${(0.0007 * grain).toFixed(5)};
+          vec3 r1 = cross(gdy, normal); vec3 r2 = cross(normal, gdx);
+          float gdet = dot(gdx, r1);
+          normal = normalize(abs(gdet) * normal - sign(gdet) * (hx * r1 + hy * r2)); }`)
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = clamp(roughnessFactor * (0.9 + 0.2 * gNoise(vGP * 700.0)), 0.0, 1.0);');
+    }
     if (water) {
       frag = frag.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         { vec2 q = vGP.xz * 70.0;
@@ -269,13 +281,15 @@ function personGeometry() {
 export class Region {
   constructor(gltf, renderer, { xr = false } = {}) {
     this.xr = xr;
+    this.renderer = renderer;
+    this.tier = gfxTier(); // 'high' | 'medium' | 'low' (gfx.js)
     this.root = new THREE.Group();
     this.root.name = 'GreenRegion';
     this.cloudY = 0.27; // clouds float this high (lower in the browser's tilted view)
     this.turbineYaw = -0.35; // rotors face the player (a phone held upright turns the map)
     this.showSun = true;
     this.time = 0;
-    this.lite = quality.lite;
+    this.lite = quality.lite || this.tier === 'low';
     this.U = {
       uUp: { value: new THREE.Vector3(0, 1, 0) },
       uSnow: { value: CHRISTMAS ? 0.7 : 0 },
@@ -308,7 +322,8 @@ export class Region {
       const water = waterSrc.clone(true);
       // A little light of its own, so the water reads as water from every angle (not only as a
       // reflection of a dark room).
-      const wmat = patch(new THREE.MeshStandardMaterial({ name: 'GreenWater', color: hex('xr-green-water'), emissive: hex('xr-green-water'), emissiveIntensity: 0.12, roughness: 0.3, metalness: 0.05, transparent: true, opacity: 0.8, envMapIntensity: 0.45, side: THREE.DoubleSide }), this.U, { water: true });
+      const hi = this.tier === 'high';
+      const wmat = patch(new THREE.MeshStandardMaterial({ name: 'GreenWater', color: hex('xr-green-water'), emissive: hex('xr-green-water'), emissiveIntensity: 0.12, roughness: hi ? 0.12 : 0.3, metalness: 0.05, transparent: true, opacity: 0.8, envMapIntensity: hi ? 0.9 : 0.45, side: THREE.DoubleSide }), this.U, { water: true });
       this.mats.GreenWater = wmat;
       water.traverse((m) => {
         if (!m.isMesh) return;
@@ -341,7 +356,7 @@ export class Region {
       const pos = e ? e.position.clone() : new THREE.Vector3(p.x, this.heights.at(p.x, p.z), p.z);
       this.addPlot(p, pos);
     }
-    this.buildLights(renderer);
+    this.buildLights();
     this.buildOverlay();
     this.buildWeather();
     this.buildPeople();
@@ -357,11 +372,16 @@ export class Region {
     if (!d) m = new THREE.MeshStandardMaterial({ color: hex('xr-green-wall-1'), vertexColors: true, roughness: 0.8 });
     else if (d.basic) m = new THREE.MeshBasicMaterial({ color: hex(d.t), toneMapped: false });
     else {
-      m = new THREE.MeshStandardMaterial({ name, color: hex(d.t), roughness: d.r ?? 0.8, metalness: d.m ?? 0, vertexColors: !d.cloud, envMapIntensity: d.env ?? 0.35 });
+      const props = { name, color: hex(d.t), roughness: d.r ?? 0.8, metalness: d.m ?? 0, vertexColors: !d.cloud, envMapIntensity: d.env ?? 0.35 };
+      // A glossy coat (lacquered plinth, glass over the solar cells) where the device affords it.
+      m = d.coat && this.tier === 'high'
+        ? new THREE.MeshPhysicalMaterial({ ...props, clearcoat: d.coat, clearcoatRoughness: 0.18 })
+        : new THREE.MeshStandardMaterial(props);
       if (d.opacity) { m.transparent = true; m.opacity = d.opacity; }
       if (d.cloud) { m.transparent = true; m.opacity = 0.96; }
       if (d.window) { m.emissive = new THREE.Color(); }
-      if (d.snow || d.tint || d.glint || d.window) patch(m, this.U, { snow: CHRISTMAS ? d.snow ?? 0 : 0, snowY: d.snowY ?? -1, patchy: d.patchy ?? 0.55, tint: !!d.tint, glint: !!d.glint, window: !!d.window });
+      const grain = this.tier === 'high' ? d.grain ?? 0 : 0;
+      if (d.snow || d.tint || d.glint || d.window || grain) patch(m, this.U, { snow: CHRISTMAS ? d.snow ?? 0 : 0, snowY: d.snowY ?? -1, patchy: d.patchy ?? 0.55, tint: !!d.tint, glint: !!d.glint, window: !!d.window, grain });
     }
     m.name = name;
     this.mats[name] = m;
@@ -380,27 +400,37 @@ export class Region {
 
   // ---------- light ----------
 
-  buildLights(renderer) {
-    const key = new THREE.DirectionalLight(hex('xr-green-key-light'), 1.25);
+  /**
+   * A warm low sun (key, the only shadow caster), a cool rim light from behind for crisp
+   * silhouettes ('high' only) and a soft sky/ground fill; reflections come from the studio
+   * environment (sceneLook in the scene). Shadow map 2048 on 'high', 1024 on 'medium', none on
+   * 'low' (contact shadows under the projects instead).
+   */
+  buildLights() {
+    const key = new THREE.DirectionalLight(hex('xr-green-key-light'), 1.5);
     key.position.set(-0.45, 0.95, 0.6);
     key.target.position.set(0, 0, 0);
     this.root.add(key, key.target);
     this.key = key;
+    this.keyBase = 1.5;
     this.keyColor = new THREE.Color(hex('xr-green-key-light'));
     this.heatColor = new THREE.Color(hex('xr-green-heat-light'));
     this.stormColor = new THREE.Color(hex('xr-green-storm-light'));
-    if (!this.lite) {
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      key.castShadow = true;
-      key.shadow.mapSize.set(this.xr ? 1024 : 2048, this.xr ? 1024 : 2048);
-      Object.assign(key.shadow.camera, { left: -0.66, right: 0.66, top: 0.6, bottom: -0.6, near: 0.3, far: 2.2 });
+    if (this.tier !== 'low') {
+      softSun(key, { size: 1.32, near: 0.3, far: 2.2, bias: -0.0004, normalBias: 0.004, radius: 2 });
+      key.shadow.camera.top = 0.6;
+      key.shadow.camera.bottom = -0.6;
       key.shadow.camera.updateProjectionMatrix();
-      key.shadow.bias = -0.0004;
-      key.shadow.normalBias = 0.004;
     }
-    const fill = new THREE.HemisphereLight(hex('xr-green-key-light'), hex('xr-green-soil-dark'), 0.25);
+    if (this.tier === 'high') {
+      this.rim = new THREE.DirectionalLight(hex('xr-green-rim-light'), 0.7);
+      this.rim.position.set(0.35, 0.55, -0.9);
+      this.rim.target.position.set(0, 0, 0);
+      this.root.add(this.rim, this.rim.target);
+    }
+    const fill = new THREE.HemisphereLight(hex('xr-green-sky-fill'), hex('xr-green-soil-dark'), 0.35);
     this.root.add(fill);
+    this.fill = fill;
   }
 
   // ---------- the AI map ----------
@@ -533,21 +563,20 @@ export class Region {
     const g = new THREE.Group();
     g.position.copy(pos);
     this.root.add(g);
-    const plate = new THREE.Mesh(new THREE.ExtrudeGeometry(roundRect(size - 0.006, size - 0.006, 0.008), { depth: 0.0018, bevelEnabled: true, bevelThickness: 0.0006, bevelSize: 0.0008, bevelSegments: 1, curveSegments: 4 }).rotateX(-Math.PI / 2),
-      new THREE.MeshStandardMaterial({ color: hex('xr-green-plot'), roughness: 0.9, transparent: true, opacity: 0.82, envMapIntensity: 0.3 }));
+    // The pad with its corner stakes (one mesh, one shared material) and a frame with little
+    // flags that lights up in the state's color (one mesh): two draw calls per plot.
+    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => [(sx * size) / 2.15, (sz * size) / 2.15]);
+    const pad = new THREE.ExtrudeGeometry(roundRect(size - 0.006, size - 0.006, 0.008), { depth: 0.0018, bevelEnabled: true, bevelThickness: 0.0006, bevelSize: 0.0008, bevelSegments: 1, curveSegments: 4 }).rotateX(-Math.PI / 2);
+    const stakeGeo = corners.map(([x, z]) => new THREE.CylinderGeometry(0.0008, 0.0008, 0.012, 5).translate(x, 0.006, z).toNonIndexed());
+    this.plateMat ??= new THREE.MeshStandardMaterial({ color: hex('xr-green-plot'), roughness: 0.9, envMapIntensity: 0.3 });
+    const plate = new THREE.Mesh(mergeGeometries([pad.toNonIndexed(), ...stakeGeo]), this.plateMat);
     plate.receiveShadow = true;
-    // A frame that lights up in the state's color.
     const ringShape = roundRect(size - 0.004, size - 0.004, 0.009);
     ringShape.holes.push(roundRect(size - 0.009, size - 0.009, 0.007));
-    const frame = new THREE.Mesh(new THREE.ShapeGeometry(ringShape, 4).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: hex('xr-green-plot-edge'), transparent: true, opacity: 0.9, toneMapped: false }));
+    const ring = new THREE.ShapeGeometry(ringShape, 4).rotateX(-Math.PI / 2).toNonIndexed();
+    const flags = corners.map(([x, z]) => new THREE.PlaneGeometry(0.005, 0.0035).translate(x + 0.0025, 0.0105 - 0.0029, z).toNonIndexed());
+    const frame = new THREE.Mesh(mergeGeometries([ring, ...flags]), new THREE.MeshBasicMaterial({ color: hex('xr-green-plot-edge'), transparent: true, opacity: 0.9, side: THREE.DoubleSide, toneMapped: false }));
     frame.position.y = 0.0029;
-    // Corner stakes with little flags, like a real building site (one mesh each).
-    const stakeMat = new THREE.MeshStandardMaterial({ color: hex('xr-green-wood'), roughness: 0.8 });
-    const flagMat = new THREE.MeshBasicMaterial({ color: hex('xr-green-plot-ok'), side: THREE.DoubleSide, toneMapped: false });
-    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => [(sx * size) / 2.15, (sz * size) / 2.15]);
-    const stakes = new THREE.Group();
-    stakes.add(new THREE.Mesh(mergeGeometries(corners.map(([x, z]) => new THREE.CylinderGeometry(0.0008, 0.0008, 0.012, 5).translate(x, 0.006, z))), stakeMat));
-    stakes.add(new THREE.Mesh(mergeGeometries(corners.map(([x, z]) => new THREE.PlaneGeometry(0.005, 0.0035).translate(x + 0.0025, 0.0105, z))), flagMat));
     const glow = new THREE.Mesh(new THREE.PlaneGeometry(size * 1.7, size * 1.7).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-green-plot-ok'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
     glow.position.y = 0.003;
     glow.userData.noFit = true;
@@ -558,8 +587,9 @@ export class Region {
     box.userData.label = `plot ${p.id}`;
     box.userData.plot = p.id;
     this.setBoxHeight(box, 0.05);
-    g.add(plate, frame, stakes, glow, box);
-    this.plots.set(p.id, { id: p.id, area: p.area, pos, group: g, plate, frame, stakes, flagMat, glow, box, model: null, tag: null, state: 'idle', k: 0 });
+    glow.visible = false;
+    g.add(plate, frame, glow, box);
+    this.plots.set(p.id, { id: p.id, area: p.area, pos, group: g, plate, frame, glow, box, model: null, tag: null, state: 'idle', k: 0 });
   }
 
   setBoxHeight(box, h) {
@@ -574,7 +604,6 @@ export class Region {
     P.state = state;
     const tok = { idle: 'xr-green-plot-edge', ok: 'xr-green-plot-ok', best: 'xr-green-plot-ok', hover: 'xr-green-plot-hover', off: 'xr-green-plot-off', built: 'xr-green-plot-edge' }[state] ?? 'xr-green-plot-edge';
     P.frame.material.color.setHex(hex(tok));
-    P.flagMat.color.setHex(hex(tok));
     P.frame.material.opacity = state === 'off' ? 0.35 : 0.95;
     P.glow.material.color.setHex(hex(tok));
   }
@@ -645,13 +674,14 @@ export class Region {
     else if (type === 'school') h = 0.03;
     else if (type === 'kita') h = 0.026;
     else if (type === 'homes') h = 0.044;
+    // Without a shadow map ('low'): a soft blob grounds the project.
+    if (this.tier === 'low') g.add(contactShadow(type === 'wind' ? 0.022 : 0.045, 0.4));
     P.group.add(g);
     P.model = g;
     P.modelH = h;
     P.type = type;
     P.plate.visible = false;
     P.frame.visible = false;
-    P.stakes.visible = false;
     P.glow.visible = false;
     this.setBoxHeight(P.box, h);
     if (animate) {
@@ -672,8 +702,6 @@ export class Region {
     P.type = null;
     P.plate.visible = true;
     P.frame.visible = true;
-    P.stakes.visible = true;
-    P.glow.visible = true;
     this.setBoxHeight(P.box, 0.05);
   }
 
@@ -928,7 +956,7 @@ export class Region {
     this.root.updateMatrixWorld();
     this.U.uUp.value.set(0, 1, 0).transformDirection(this.root.matrixWorld);
     // Light: the sun's strength and a cooler, dimmer light in storms and at night.
-    const bright = 0.3 + 1.05 * Math.min(1.2, vis.sun) * (1 - 0.45 * vis.cloud) * (1 - 0.6 * vis.night);
+    const bright = (0.3 + 1.05 * Math.min(1.2, vis.sun) * (1 - 0.45 * vis.cloud) * (1 - 0.6 * vis.night)) * (this.keyBase / 1.25);
     this.key.intensity += (bright - this.key.intensity) * Math.min(1, dt * 3);
     this.key.color.copy(this.keyColor).lerp(this.stormColor, Math.min(1, vis.storm * 0.8 + vis.night * 0.6)).lerp(this.heatColor, Math.min(1, (vis.heat ?? 0) * 0.6));
     // The sun crosses the sky with the months (higher in summer); hidden behind storms.
@@ -950,6 +978,7 @@ export class Region {
       const edge = Math.min(1, (0.62 - Math.abs(c.position.x)) / 0.12);
       const s = Math.max(0.001, c.userData.base * c.userData.k * edge);
       c.scale.set(s, s, s);
+      c.visible = s > 0.01; // no draw calls (nor shadow passes) for clouds that are gone
       c.position.y = this.cloudY + c.userData.y * 0.08 - vis.storm * 0.04 + Math.sin(T * 0.4 + i) * 0.005;
       c.position.z = c.userData.z;
     });
@@ -1029,6 +1058,7 @@ export class Region {
       const on = P.state === 'ok' || P.state === 'best' || P.state === 'hover';
       const pulse = P.state === 'hover' ? 0.9 : P.state === 'best' ? 0.55 + 0.35 * Math.sin(T * 5) : on ? 0.3 + 0.15 * Math.sin(T * 3 + P.pos.x * 10) : 0;
       P.glow.material.opacity += (pulse - P.glow.material.opacity) * Math.min(1, dt * 8);
+      P.glow.visible = P.glow.material.opacity > 0.01; // no draw call while it is dark
       P.group.position.y = P.pos.y + (P.state === 'hover' ? 0.003 : 0);
     }
     // The AI map fades in and out.
@@ -1232,6 +1262,7 @@ export class Region {
     const broken = [...this.plots.values()].filter((P) => P.model?.userData.broken);
     this.smoke.forEach((sp, i) => {
       const P = broken[i % Math.max(1, broken.length)];
+      sp.visible = !!P;
       if (!P) { sp.material.opacity = 0; return; }
       sp.userData.t = (sp.userData.t + dt * 0.5) % 1;
       const u = sp.userData.t;
@@ -1252,8 +1283,7 @@ export class Region {
 
   /** Shadow maps back off; the shared radial texture stays. */
   dispose(renderer) {
-    renderer.shadowMap.enabled = false;
-    this.fieldTex.dispose();
+    this.fieldTex.dispose(); // the shadow map goes back with the scene's look (sceneLook)
   }
 }
 
