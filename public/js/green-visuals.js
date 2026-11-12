@@ -59,9 +59,9 @@ const MAT = {
   GreenWall2: { t: 'xr-green-wall-2', r: 0.8 },
   GreenWall3: { t: 'xr-green-wall-3', r: 0.8 },
   GreenWall4: { t: 'xr-green-wall-4', r: 0.8 },
-  GreenRoof1: { t: 'xr-green-roof-1', r: 0.7, snow: 1, patchy: 0.18, snowTilt: 0.16 },
-  GreenRoof2: { t: 'xr-green-roof-2', r: 0.7, snow: 1, patchy: 0.18, snowTilt: 0.16 },
-  GreenRoof3: { t: 'xr-green-roof-3', r: 0.6, snow: 1, patchy: 0.18, snowTilt: 0.16 },
+  GreenRoof1: { t: 'xr-green-roof-1', r: 0.7, snow: 1, patchy: 0.5, snowTilt: 0.1, snowFreq: 40 },
+  GreenRoof2: { t: 'xr-green-roof-2', r: 0.7, snow: 1, patchy: 0.5, snowTilt: 0.1, snowFreq: 40 },
+  GreenRoof3: { t: 'xr-green-roof-3', r: 0.6, snow: 1, patchy: 0.5, snowTilt: 0.1, snowFreq: 40 },
   GreenWindow: { t: 'xr-green-window', r: 0.2, window: true },
   GreenWood: { t: 'xr-green-wood', r: 0.8 },
   GreenPine: { t: 'xr-green-pine', r: 0.9, snow: 0.8, snowY: 0.06 },
@@ -102,8 +102,8 @@ float gNoise(vec3 x) {
 `;
 
 /** Shader patches on a standard material: snow (k), meadow tint, solar glint, lit windows, water. */
-function patch(mat, U, { snow = 0, snowY = -1, patchy = 0.55, snowTilt = 0, tint = false, glint = false, window = false, water = false, grain = 0 }) {
-  const key = `g${snow}|${snowY}|${patchy}|${snowTilt}|${tint}|${glint}|${window}|${water}|${grain}`;
+function patch(mat, U, { snow = 0, snowY = -1, patchy = 0.55, snowTilt = 0, snowFreq = 140, tint = false, glint = false, window = false, water = false, grain = 0 }) {
+  const key = `g${snow}|${snowY}|${patchy}|${snowTilt}|${snowFreq}|${tint}|${glint}|${window}|${water}|${grain}`;
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader
@@ -128,7 +128,7 @@ function patch(mat, U, { snow = 0, snowY = -1, patchy = 0.55, snowTilt = 0, tint
     }
     if (snow > 0) {
       color += `{ float gup = dot(normalize(vGN), uUp);
-        float gn = gNoise(vGP * 140.0) * 0.6 + gNoise(vGP * 420.0) * 0.4;
+        float gn = gNoise(vGP * ${snowFreq.toFixed(1)}) * 0.75 + gNoise(vGP * ${(snowFreq * 3).toFixed(1)}) * 0.25;
         gS = smoothstep(0.5, 0.78, gup - ${snowTilt.toFixed(2)} + (gn - 0.5) * ${patchy.toFixed(2)}) * smoothstep(0.0, 0.15, uSnow) * clamp(uSnow * 1.25, 0.0, 1.0) * ${snow.toFixed(2)};
         ${snowY >= 0 ? `gS *= smoothstep(${(snowY - 0.025).toFixed(3)} + (1.0 - uSnow) * 0.04, ${snowY.toFixed(3)} + (1.0 - uSnow) * 0.04, vGP.y + (gn - 0.5) * 0.02);` : ''}
         vec3 gsc = mix(uSnowShade, uSnowColor, clamp(gAo.r * 1.25 - 0.1, 0.0, 1.0));
@@ -381,7 +381,7 @@ export class Region {
       if (d.cloud) { m.transparent = true; m.opacity = 0.96; }
       if (d.window) { m.emissive = new THREE.Color(); }
       const grain = this.tier === 'high' ? d.grain ?? 0 : 0;
-      if (d.snow || d.tint || d.glint || d.window || grain) patch(m, this.U, { snow: CHRISTMAS ? d.snow ?? 0 : 0, snowY: d.snowY ?? -1, patchy: d.patchy ?? 0.55, snowTilt: d.snowTilt ?? 0, tint: !!d.tint, glint: !!d.glint, window: !!d.window, grain });
+      if (d.snow || d.tint || d.glint || d.window || grain) patch(m, this.U, { snow: CHRISTMAS ? d.snow ?? 0 : 0, snowY: d.snowY ?? -1, patchy: d.patchy ?? 0.55, snowTilt: d.snowTilt ?? 0, snowFreq: d.snowFreq ?? 140, tint: !!d.tint, glint: !!d.glint, window: !!d.window, grain });
     }
     m.name = name;
     this.mats[name] = m;
@@ -407,9 +407,10 @@ export class Region {
    * 'low' (contact shadows under the projects instead).
    */
   buildLights() {
-    // Low (about 37 degrees) from the front left: long, readable shadows like a late winter sun.
+    // Low (about 36 degrees) from the left, a little in front: long shadows fall to the side, so
+    // you see them from the player's side (a late winter sun).
     const key = new THREE.DirectionalLight(hex('xr-green-key-light'), 1.6);
-    key.position.set(-0.6, 0.62, 0.42);
+    key.position.set(-0.8, 0.6, 0.14);
     key.target.position.set(0, 0, 0);
     this.root.add(key, key.target);
     this.key = key;
@@ -425,7 +426,7 @@ export class Region {
     }
     if (this.tier === 'high') {
       this.rim = new THREE.DirectionalLight(hex('xr-green-rim-light'), 0.7);
-      this.rim.position.set(0.35, 0.55, -0.9);
+      this.rim.position.set(0.7, 0.5, -0.65);
       this.rim.target.position.set(0, 0, 0);
       this.root.add(this.rim, this.rim.target);
     }

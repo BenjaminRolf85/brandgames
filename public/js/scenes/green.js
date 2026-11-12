@@ -786,7 +786,7 @@ export class GreenScene extends BaseScene {
         // Nothing chosen: the wind map faintly (its hatching marks where the AI is unsure) and
         // the plots that take a bet against the AI.
         this.mapMode = 'wind';
-        R.showMap('wind', null, 0.5);
+        R.showMap('wind', null, 0.36);
         this.bestPlot = null;
         R.setTags(g.plots.filter((p) => g.canBet(p.id)).map((p) => {
           const b = g.bet?.id === p.id ? g.bet : null;
