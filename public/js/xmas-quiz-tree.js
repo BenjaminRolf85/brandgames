@@ -299,6 +299,51 @@ function sponsorMedal() {
   return g;
 }
 
+let snowTex = null;
+/** Bump relief and roughness specks for the snow on the island (built once). */
+function snowTextures() {
+  if (snowTex) return snowTex;
+  const N = 256;
+  const make = (fill) => {
+    const c = document.createElement('canvas');
+    c.width = c.height = N;
+    const ctx = c.getContext('2d');
+    fill(ctx);
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(2, 2);
+    tex.anisotropy = 4;
+    return tex;
+  };
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  // Grey levels only (data textures, not colors): soft drifts for the bump map.
+  const bump = make((ctx) => {
+    ctx.fillStyle = 'rgb(128,128,128)';
+    ctx.fillRect(0, 0, N, N);
+    for (let i = 0; i < 90; i++) {
+      const x = rnd() * N;
+      const y = rnd() * N;
+      const r = 8 + rnd() * 30;
+      const v = rnd() < 0.5 ? 255 : 0;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, `rgba(${v},${v},${v},0.16)`);
+      g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+  });
+  // Mostly matte, with tiny glossy specks that glitter.
+  const rough = make((ctx) => {
+    ctx.fillStyle = 'rgb(225,225,225)';
+    ctx.fillRect(0, 0, N, N);
+    ctx.fillStyle = 'rgb(40,40,40)';
+    for (let i = 0; i < 420; i++) ctx.fillRect(Math.floor(rnd() * N), Math.floor(rnd() * N), 1, 1);
+  });
+  snowTex = { bump, rough };
+  return snowTex;
+}
+
 /** Decorations per stage: one stage per correct answer (fresh objects every time). */
 function stages(tree) {
   return [
@@ -319,8 +364,16 @@ export class QuizTree extends KnowledgeHouse {
   constructor(scene) {
     super(scene);
     // Snow on the island instead of a lawn.
-    this.grassColor = new THREE.Color(hex('xr-snow'));
+    this.grassColor = new THREE.Color(hex('xr-snow')).multiplyScalar(0.86); // lit snow stays below white, so shadows show
     this.grassMat.color.copy(this.grassColor);
+    // Snow with a soft relief and glittering specks (they catch the studio light).
+    const snow = snowTextures();
+    this.grassMat.bumpMap = snow.bump;
+    this.grassMat.bumpScale = 1.2;
+    this.grassMat.roughnessMap = snow.rough;
+    this.grassMat.roughness = 1;
+    this.grassMat.metalness = 0;
+    this.grassMat.needsUpdate = true;
     this.holder = new THREE.Group();
     this.holder.scale.setScalar(S);
     this.model.add(this.holder);
@@ -338,6 +391,7 @@ export class QuizTree extends KnowledgeHouse {
         o.castShadow = true;
       });
       this.holder.add(tree);
+      this.onPart?.(tree); // the quiz's key light: shadows on the snow and between the tiers
     }).catch((e) => console.warn('Quiz tree not loaded', e));
     this.label.redraw();
   }
@@ -408,6 +462,7 @@ export class QuizTree extends KnowledgeHouse {
     parts.forEach((p) => stage.add(p));
     this.holder.add(stage);
     this.built.push(stage);
+    this.onPart?.(stage);
     parts.forEach((part, i) => {
       part.scale.setScalar(0.01);
       this.delay(i * 0.18, () => this.popIn(part));
@@ -417,6 +472,7 @@ export class QuizTree extends KnowledgeHouse {
   addPart(obj) {
     this.holder.add(obj);
     this.built.push(obj);
+    this.onPart?.(obj);
     this.popIn(obj);
   }
 
@@ -456,21 +512,24 @@ export class QuizTree extends KnowledgeHouse {
     const marker = obj ?? new THREE.Group();
     marker.userData.kind = kind;
     this.holder.add(marker);
+    if (obj) this.onPart?.(obj);
     this.damage.push(marker);
   }
 
   needlesOnSnow() {
     const g = new THREE.Group();
-    const m = std('xr-xmas-needle-dry', 0.8);
-    const geo = new THREE.BoxGeometry(0.05, 0.006, 0.006);
+    // One instanced mesh for all 40 needles (one draw call).
+    const n = new THREE.InstancedMesh(new THREE.BoxGeometry(0.05, 0.006, 0.006), std('xr-xmas-needle-dry', 0.8), 40);
+    const d = new THREE.Object3D();
     for (let i = 0; i < 40; i++) {
       const a = Math.random() * Math.PI * 2;
       const r = 0.25 + Math.random() * 0.45;
-      const n = new THREE.Mesh(geo, m);
-      n.position.set(Math.cos(a) * r, 0.004, Math.sin(a) * r);
-      n.rotation.y = Math.random() * Math.PI;
-      g.add(n);
+      d.position.set(Math.cos(a) * r, 0.004, Math.sin(a) * r);
+      d.rotation.set(0, Math.random() * Math.PI, 0);
+      d.updateMatrix();
+      n.setMatrixAt(i, d.matrix);
     }
+    g.add(n);
     return g;
   }
 

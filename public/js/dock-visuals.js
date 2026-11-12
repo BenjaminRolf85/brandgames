@@ -6,10 +6,11 @@
 import * as THREE from 'three';
 import { color, hex, num, font } from './tokens.js';
 import { t } from './i18n.js';
-import { roundRect, wrap } from './ui3d.js';
+import { roundRect, wrap, Panel } from './ui3d.js';
 import { loadGLTF } from './models.js';
 import { radialTexture } from './robot-visuals.js';
-import { ELEMENTS, SPOTS, B } from './dock-chem.js';
+import { mergeGeometries } from '../vendor/addons/utils/BufferGeometryUtils.js';
+import { ELEMENTS, SPOTS, B, DESIGN_ATOMS } from './dock-chem.js';
 
 export const DOCK_URL = 'assets/models/dock.glb';
 const col = (token) => new THREE.Color(hex(token));
@@ -381,13 +382,18 @@ export function loadBench() {
         const vc = !!o.geometry.attributes.color;
         if (GLOW_TOKENS[m.name]) out = new THREE.MeshBasicMaterial({ name: m.name, color: hex(GLOW_TOKENS[m.name]), toneMapped: false });
         else if (m.name === 'DockGlass') out = new THREE.MeshPhysicalMaterial({ name: m.name, color: hex('xr-dock-glass'), roughness: 0.06, metalness: 0, transparent: true, opacity: 0.32, clearcoat: 1, depthWrite: false });
-        else if (MAT_TOKENS[m.name]) {
+        else if (m.name === 'DockBench' || m.name === 'DockScreen' || m.name === 'DockPlate') {
+          // Lab surfaces: a clear lacquer that catches the studio light.
+          out = new THREE.MeshPhysicalMaterial({
+            name: m.name, color: hex(MAT_TOKENS[m.name]), roughness: m.name === 'DockScreen' ? 0.12 : 0.38, metalness: m.name === 'DockScreen' ? 0.3 : 0,
+            clearcoat: m.name === 'DockPlate' ? 0.3 : 0.75, clearcoatRoughness: 0.18, vertexColors: vc,
+          });
+        } else if (MAT_TOKENS[m.name]) {
           out = new THREE.MeshStandardMaterial({ name: m.name, color: hex(MAT_TOKENS[m.name]), roughness: m.roughness ?? 0.5, metalness: m.metalness ?? 0, vertexColors: vc });
           if (m.name.startsWith('DockLiquid') || m.name === 'DockNeedle') {
             out.emissive.setHex(hex(MAT_TOKENS[m.name]));
             Object.assign(out, { emissiveIntensity: 0.3, roughness: 0.15, transparent: true, opacity: 0.9 });
           }
-          if (m.name === 'DockScreen') Object.assign(out, { roughness: 0.15, metalness: 0.4 });
         }
         mats.set(m.name, out);
         return out;
@@ -522,10 +528,11 @@ export function drawAIPanel(ctx, c, st) {
     ctx.fillStyle = color('xr-button-bg');
     ctx.fill();
     ctx.lineWidth = c.m(0.003);
-    ctx.strokeStyle = color(i === 0 ? 'xr-warning' : 'xr-panel-border');
+    const top = cand === L.top;
+    ctx.strokeStyle = color(top ? 'xr-warning' : cand.kind === 'scaffold' ? 'xr-dock-you' : 'xr-panel-border');
     ctx.stroke();
     text(ctx, c, cand.letter, bx, y + 0.002, { size: 'xr-text-sm', weight: 'black', align: 'center' });
-    if (i === 0) star(ctx, c.m(bx + 0.024), c.m(y - 0.022), c.m(0.012), color('xr-warning'));
+    if (top) star(ctx, c.m(bx + 0.024), c.m(y - 0.022), c.m(0.012), color('xr-warning'));
     const bx0 = pad + 0.062;
     const bw = compact ? 0.24 : 0.25;
     bar(ctx, c, bx0, y, bw, 0.02, (cand.ai / 100) * k, color('xr-dock-ai'));
@@ -546,10 +553,12 @@ export function drawAIPanel(ctx, c, st) {
   if (compact) return;
   // Footer: what the star means and that predictions are probabilities.
   const fy = R.y0 + R.h * 4 + 0.035;
-  star(ctx, c.m(pad + 0.012), c.m(fy - 0.002), c.m(0.012), color('xr-warning'));
-  text(ctx, c, t('dockAITip'), pad + 0.03, fy, { size: 'xr-text-min', weight: 'bold', fill: color('xr-warning') });
+  if (L.top) {
+    star(ctx, c.m(pad + 0.012), c.m(fy - 0.002), c.m(0.012), color('xr-warning'));
+    text(ctx, c, t('dockAITip'), pad + 0.03, fy, { size: 'xr-text-min', weight: 'bold', fill: color('xr-warning') });
+  } else text(ctx, c, t('dockWorkshop'), pad, fy, { size: 'xr-text-min', weight: 'bold', fill: color('xr-dock-you') });
   ctx.font = font('regular', c.m(S('xr-text-min')));
-  const lines = wrap(ctx, t('dockAINote'), c.m(w - pad * 2));
+  const lines = wrap(ctx, t(L.design ? 'dockDesignNote' : 'dockAINote'), c.m(w - pad * 2));
   lines.slice(0, 2).forEach((ln, i) => text(ctx, c, ln, pad, fy + 0.045 + i * 0.04, { size: 'xr-text-min', weight: 'regular', fill: color('xr-panel-muted') }));
 }
 
@@ -616,6 +625,15 @@ export function labPanelSize() {
 
 export function drawLabPanel(ctx, c, st) {
   const cand = st.cand;
+  if (!cand && st.build) {
+    // Pockets 3 and 4: the molecule workshop with the AI's live estimate for your design.
+    c.surface({ stroke: color('xr-dock-you') });
+    text(ctx, c, t('dockWorkshop'), 0.03, 0.05, { size: 'xr-text-md', weight: 'black', fill: color('xr-dock-you') });
+    text(ctx, c, t('dockEstimate', { n: st.build.est }), 0.03, 0.115, { size: 'xr-text-lg', weight: 'black', fill: color('xr-dock-ai') });
+    ctx.font = font('regular', c.m(S('xr-text-min')));
+    wrap(ctx, st.build.hint, c.m(c.w - 0.06)).slice(0, 5).forEach((ln, i) => text(ctx, c, ln, 0.03, 0.175 + i * 0.04, { size: 'xr-text-min', weight: 'regular', fill: color('xr-panel-muted') }));
+    return;
+  }
   if (!cand) {
     // Waiting: what the lab is for.
     c.surface({ stroke: color('xr-panel-border') });
@@ -629,7 +647,7 @@ export function drawLabPanel(ctx, c, st) {
   const ok = done && value >= 70;
   c.surface({ stroke: done ? color(ok ? 'xr-dock-good' : 'xr-dock-bad') : color('xr-dock-lab') });
   const pad = 0.03;
-  text(ctx, c, t('dockLabTitle', { c: cand.letter }), pad, 0.045, { size: 'xr-text-sm', weight: 'black', fill: color('xr-dock-lab') });
+  text(ctx, c, cand.kind === 'scaffold' ? t('dockLabTitleOwn') : t('dockLabTitle', { c: cand.letter }), pad, 0.045, { size: 'xr-text-sm', weight: 'black', fill: color('xr-dock-lab') });
   // Curve: binding over the dose (log scale), with the AI's prediction as a dashed line.
   const x0 = pad + 0.01;
   const y0 = 0.075;
@@ -725,4 +743,222 @@ export function drawLegend(ctx, c, st) {
     pair(pad + 0.014, y, spot, el, 0.012);
     text(ctx, c, t(key), pad + 0.085, y, { size: 'xr-text-min', weight: 'bold', maxW: c.w - pad * 2 - 0.085 });
   });
+}
+
+// ---------- the molecule workshop (pockets 3 and 4) ----------
+
+/**
+ * Markers on the attachment points of a scaffold (molecule frame): a glowing ring, a short stub
+ * from the atom it hangs on, and an invisible sphere to point at. tick(time, sel, choices, faceQ)
+ * turns the rings to the viewer (faceQ: the camera's rotation in the molecule frame).
+ */
+export function makePointMarkers(kit, points, c0) {
+  const g = new THREE.Group();
+  g.userData.noFit = true;
+  const ringGeo = new THREE.TorusGeometry(0.018, 0.0028, 8, 36);
+  const stubMat = new THREE.MeshBasicMaterial({ color: hex('xr-dock-glow'), transparent: true, opacity: 0.55, toneMapped: false });
+  const glow = new THREE.Color(hex('xr-dock-glow'));
+  const sel = new THREE.Color(hex('xr-warning'));
+  const items = points.map((pt, k) => {
+    const pos = pt.p.clone().sub(c0);
+    const from = pt.from.clone().sub(c0);
+    const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: glow, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false }));
+    ring.position.copy(pos);
+    ring.renderOrder = 4;
+    const d = pos.clone().sub(from);
+    const stub = new THREE.Mesh(kit.cyl, stubMat);
+    stub.position.copy(from);
+    stub.quaternion.setFromUnitVectors(UP, d.clone().normalize());
+    stub.scale.set(0.0026, d.length() * 0.6, 0.0026);
+    const hit = new THREE.Mesh(kit.proxy, kit.hidden);
+    hit.scale.setScalar(0.024);
+    hit.position.copy(pos);
+    hit.userData.interactive = true;
+    g.add(ring, stub, hit);
+    return { k, ring, stub, hit, pos };
+  });
+  g.userData.items = items;
+  g.userData.tick = (time, selected, choices, faceQ) => {
+    for (const it of items) {
+      const filled = !!choices[it.k];
+      const on = it.k === selected;
+      it.ring.visible = !filled || on;
+      it.stub.visible = !filled;
+      it.ring.quaternion.copy(faceQ);
+      it.ring.scale.setScalar(on ? 1.35 + 0.12 * Math.sin(time * 8) : 1 + 0.1 * Math.sin(time * 3 + it.k));
+      it.ring.material.color.copy(on ? sel : glow);
+      it.ring.material.opacity = on ? 1 : 0.75;
+    }
+  };
+  return g;
+}
+
+/** A round tile for the atom menu: the element in its color (null: remove, a red cross). */
+export function atomTile(el, size = 0.072) {
+  let hover = false;
+  const p = new Panel(size, size, (ctx, c) => {
+    const W = c.canvas.width;
+    const r = W / 2 - c.m(0.004);
+    ctx.beginPath();
+    ctx.arc(W / 2, W / 2, r, 0, Math.PI * 2);
+    ctx.fillStyle = el ? color(ELEMENTS[el].token) : color('xr-button-bg');
+    ctx.fill();
+    ctx.lineWidth = c.m(hover ? 0.006 : 0.003);
+    ctx.strokeStyle = color(hover ? 'xr-warning' : 'xr-panel-border');
+    ctx.stroke();
+    if (el) {
+      ctx.font = font('black', c.m(size * 0.52));
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = c.m(0.006);
+      ctx.strokeStyle = color('xr-bg-preview');
+      ctx.strokeText(el, W / 2, W / 2 + c.m(0.002));
+      ctx.fillStyle = color('xr-panel-text');
+      ctx.fillText(el, W / 2, W / 2 + c.m(0.002));
+    } else cross(ctx, W / 2, W / 2, c.m(size * 0.42), color('xr-dock-bad'));
+  });
+  p.userData.interactive = true;
+  p.userData.noFit = true;
+  p.userData.setHover = (v) => { hover = v; p.scale.setScalar(v ? 1.12 : 1); p.redraw(); };
+  p.renderOrder = 6;
+  p.material.depthTest = false;
+  return p;
+}
+
+/** The headset's parts dish: one ball per element to grab and plug onto the scaffold. */
+export function makePartsDish(kit) {
+  const g = new THREE.Group();
+  g.userData.noFit = true;
+  const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.12, 0.012, 48), new THREE.MeshStandardMaterial({ color: hex('xr-dock-trim'), roughness: 0.4, metalness: 0.3 }));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.131, 0.003, 8, 64), new THREE.MeshBasicMaterial({ color: hex('xr-dock-you'), toneMapped: false }));
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.006;
+  g.add(dish, ring);
+  const balls = DESIGN_ATOMS.map((el, i) => {
+    const mesh = new THREE.Mesh(kit.sphere, new THREE.MeshPhysicalMaterial({ color: hex(ELEMENTS[el].token), roughness: 0.25, clearcoat: 1 }));
+    const r = ELEMENTS[el].r * 1.35;
+    mesh.scale.setScalar(r);
+    const home = new THREE.Vector3((i - 2) * 0.05, 0.006 + r, -0.012);
+    mesh.position.copy(home);
+    const label = new Panel(0.045, 0.036, (ctx, c) => {
+      ctx.font = font('black', c.m(0.034));
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = color('xr-panel-text');
+      ctx.fillText(el, c.canvas.width / 2, c.canvas.height / 2);
+    });
+    label.rotation.x = -Math.PI / 2;
+    label.position.set(home.x, 0.0075, 0.055); // lying on the dish, in front of its atom
+    g.add(mesh, label);
+    return { el, mesh, home, label };
+  });
+  g.userData.balls = balls;
+  return g;
+}
+
+// ---------- graphics: fewer draw calls, grounding, backdrop ----------
+
+/**
+ * Merges the bench's static parts by material (one draw call per material instead of one per
+ * part). keep: names of parts that stay separate (scaled, toggled or recolored at runtime).
+ * Returns the merged meshes (bench-local, children of root).
+ */
+export function mergeStatic(root, keep) {
+  root.updateMatrixWorld(true);
+  const inv = root.matrixWorld.clone().invert();
+  const byMat = new Map();
+  const kept = new Set();
+  for (const name of keep) root.getObjectByName(name)?.traverse((o) => kept.add(o));
+  const victims = [];
+  root.traverse((o) => {
+    if (!o.isMesh || kept.has(o) || o.isInstancedMesh) return;
+    const g = o.geometry.clone();
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
+    g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+    const list = byMat.get(o.material) ?? [];
+    list.push(g.index ? g.toNonIndexed() : g);
+    byMat.set(o.material, list);
+    victims.push(o);
+  });
+  victims.forEach((o) => o.removeFromParent());
+  const out = [];
+  for (const [mat, list] of byMat) {
+    const merged = mergeGeometries(list, false);
+    list.forEach((g) => g.dispose());
+    if (!merged) continue;
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.name = `DockMerged${mat.name}`;
+    if (mat.name === 'DockGlass') mesh.renderOrder = 3;
+    if (mat.isMeshBasicMaterial || mat.transparent) mesh.userData.noShadow = true;
+    root.add(mesh);
+    out.push(mesh);
+  }
+  return out;
+}
+
+/** Soft contact shadows under several props in one draw call. spots: [[x, z, w, d, opacity]]. */
+export function contactShadows(spots) {
+  const geos = spots.map(([x, z, w, d, o]) => {
+    const g = new THREE.PlaneGeometry(w, d);
+    g.rotateX(-Math.PI / 2);
+    g.translate(x, 0.0015, z);
+    const n = g.attributes.position.count;
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(o), 3));
+    return g;
+  });
+  const geo = mergeGeometries(geos, false);
+  geos.forEach((g) => g.dispose());
+  // The opacity per blob rides in the vertex color (a grey level that scales the texture alpha).
+  const mat = new THREE.MeshBasicMaterial({ color: hex('xr-dock-shadow'), alphaMap: shadowAlpha(), transparent: true, depthWrite: false, toneMapped: false });
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 color;\nvarying float vShade;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvShade = color.r;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vShade;').replace('#include <alphamap_fragment>', '#include <alphamap_fragment>\ndiffuseColor.a *= vShade;');
+  };
+  const m = new THREE.Mesh(geo, mat);
+  m.renderOrder = -1;
+  m.userData.noFit = true;
+  m.userData.noShadow = true;
+  return m;
+}
+
+let alphaTex = null;
+function shadowAlpha() {
+  if (alphaTex) return alphaTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgb(255,255,255)');
+  g.addColorStop(0.45, 'rgb(150,150,150)');
+  g.addColorStop(1, 'rgb(0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  alphaTex = new THREE.CanvasTexture(c);
+  return alphaTex;
+}
+
+/** A backdrop gradient around the lab (VR and the browser view; never in AR passthrough). */
+export function skyDome(radius = 9) {
+  const geo = new THREE.SphereGeometry(radius, 32, 16);
+  const top = col('xr-dock-sky-top');
+  const mid = col('xr-dock-sky-mid');
+  const bottom = col('xr-dock-sky-bottom');
+  const pos = geo.attributes.position;
+  const c = new THREE.Color();
+  const cols = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / radius;
+    const front = Math.max(0, -pos.getZ(i) / radius); // the haze glows behind the protein
+    if (y > 0) c.copy(mid).lerp(top, Math.min(1, y * 1.6));
+    else c.copy(mid).lerp(bottom, Math.min(1, -y * 2.4));
+    c.lerp(mid, front * front * 0.35 * (1 - Math.abs(y)));
+    cols.set([c.r, c.g, c.b], i * 3);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false }));
+  m.renderOrder = -10;
+  m.userData.noFit = true;
+  m.userData.noShadow = true;
+  m.frustumCulled = false;
+  return m;
 }

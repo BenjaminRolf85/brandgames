@@ -1,16 +1,20 @@
 // "Gipfelgespräch" / "Summit Talk": a climbing wall that is a sales conversation. Five sections
 // of the wall are the five stages of the talk (opening, needs, value, objections, closing at
 // the summit). The customer waits at the summit and says something; the holds within Echo's
-// reach are the possible replies. Strong replies are solid holds (Echo climbs, trust rises),
-// acceptable ones wobble, weak ones crumble (Echo slips, trust and strength drop; pick again).
-// Strength drains while you think. Three customers of different types (analytical,
+// reach are the possible replies. Choosing a reply means taking hold of it and pulling yourself
+// up on it: strong replies are solid holds (a soft click, Echo climbs, trust rises), acceptable
+// ones wobble, weak ones break in the hand (a jolt, Echo slips, trust and strength drop; pick
+// again). Strength drains while you hesitate, and every pull costs a little. Three customers of different types (analytical,
 // relationship-oriented, decisive), each a full climb.
 // The AI idea: an AI coach reads the customer's words (a small lexicon-based sentiment and
 // customer-type analysis, summit-ai.js) and shows mood and type with its confidence, the signal
 // words it reacted to and a tip; after the reply it shows whether it read the customer right.
 // It misses irony, hesitation and problem words that are not aimed at you: the human reads more.
-// Controls: Quest: reach out and grab a hold (trigger, squeeze or pinch near it) or point and
-// press; desktop: click a hold or a reply, keys 1 to 3; phones: big answer buttons (or tap a hold).
+// Controls: Quest: grab a hold (grip, trigger or pinch near it, or point at it) and pull the hand
+// down: the wall moves with the hand; let go and grab the next one. Comfort option in the intro:
+// moves in jumps behind a short fade instead of continuous; a vignette while the wall moves.
+// Desktop and phones: press on a hold (or its reply) and drag it down; a ring shows how far.
+// Keys 1 to 3, a click without dragging and the answer buttons pull by themselves.
 import * as THREE from 'three';
 import { BaseScene } from '../scene.js';
 import { textPanel, Button } from '../ui3d.js';
@@ -21,13 +25,13 @@ import { music } from '../music.js';
 import { quality } from '../quality.js';
 import { EVENT } from '../event.js';
 import { WINTER, makeSnowfall } from '../snow.js';
-import { makeEnvironment } from '../robot-visuals.js';
+import { sceneLook, softSun, contactShadow, gfxTier } from '../gfx.js';
 import '../summit-text.js';
 import { CUSTOMERS, STAGES } from '../summit-talks.js';
 import { readLine, readType, isUnsure } from '../summit-ai.js';
 import {
   loadSummitModels, makeMountain, Hold, makeDecorHolds, makeShards, Rope, ClimberEcho, makeSummitDecor,
-  makeSky, makePeaks, makeClouds, surfaceZ, cutUniform, TOP, PLATEAU_Y, BOLTS,
+  makeSky, makePeaks, makeClouds, surfaceZ, cutUniform, makePullHint, makeDuskEnvironment, setRockHaze, TOP, PLATEAU_Y, BOLTS,
 } from '../summit-visuals.js';
 import { holder, makeBubble, makeLabel, makeFeedback, makeCoach, makeStatus } from '../summit-panels.js';
 import { phoneTalk } from '../summit-phone.js';
@@ -52,7 +56,10 @@ const STAND_TO_HANG = new THREE.Vector3(0, 0.15, -0.075); // grip point standing
 // plus 4 per % of trust, 200 more when every deal closes with at least 80 % trust: max 5000.
 const PTS = { solid: 140, speed: 60, solidRetry: 70, ok: 60, okRetry: 30, summit: 200, trust: 4, bonus: 200 };
 const TRUST = { start: 20, good: 16, ok: 6, bad: -10 };
-const STAMINA = { drain: 1.1, grace: 1.5, bad: -20, good: 8, ok: 3 };
+const STAMINA = { drain: 1.1, grace: 1.5, bad: -20, good: 8, ok: 3, pull: 4 }; // pulling costs a little
+const PULL_M = num('xr-summit-pull-reach'); // hand travel for one move (headset)
+const BREAK_AT = 0.3; // a weak hold breaks when this much of the pull is on it
+const COMFORT_KEY = 'kiar.summitComfort';
 const clamp = THREE.MathUtils.clamp;
 const ease = (k) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
 const shuffle = (a) => { const r = [...a]; for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; };
@@ -77,20 +84,16 @@ export class SummitScene extends BaseScene {
     this.CLOUD_Y = this.eye - 0.8;
     this.ar = this.engine.isXR && this.engine.xrMode === 'immersive-ar';
 
-    // Lighting and the room: a dusk sky replaces the preview room (not in AR).
-    this.envTarget = makeEnvironment(this.engine.renderer);
-    this.prevEnvironment = this.engine.scene.environment;
-    this.engine.scene.environment = this.envTarget.texture;
+    // Lighting and the room: a dusk sky replaces the preview room (not in AR). The look: neutral
+    // tone mapping (keeps the token colors), the dusk sky as image-based light, soft shadows.
+    this.envTarget = makeDuskEnvironment(this.engine.renderer);
+    this.shadows = !quality.lite;
+    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.0, env: this.envTarget.texture, envIntensity: 0.5, shadows: this.shadows ? 'soft' : false }));
+    setRockHaze(!this.ar);
     this.prevBackdrop = this.engine.backdrop.visible;
     this.engine.backdrop.visible = false;
     this.prevFog = this.engine.scene.fog?.color.getHex();
     this.engine.scene.fog?.color.setHex(hex('xr-summit-sky-mid'));
-    this.shadows = !quality.lite;
-    if (this.shadows) {
-      this.prevShadow = this.engine.renderer.shadowMap.enabled;
-      this.engine.renderer.shadowMap.enabled = true;
-      this.engine.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    }
 
     this.world = new THREE.Group();
     this.world.userData.noFit = true;
@@ -112,6 +115,57 @@ export class SummitScene extends BaseScene {
     this.onUpdate((dt) => this.update(dt));
     const hint = this.engine.isXR ? 'summitIntroXR' : this.engine.touchUI ? 'summitIntroTouch' : 'summitIntroScreen';
     this.intro(t('summitName'), `${t('summitIntro')} ${t(hint)}`, () => this.start());
+    try { this.comfortSnap = localStorage.getItem(COMFORT_KEY) === 'snap'; } catch { this.comfortSnap = false; }
+    if (this.engine.isXR) {
+      this.addComfortButton();
+      this.buildVignette();
+    }
+  }
+
+  /** Headset: below the start button, continuous moves or moves in jumps (comfort). */
+  addComfortButton() {
+    const go = this.layer.children.find((o) => o instanceof Button && o.opts?.label === t('start'));
+    if (!go) return;
+    const label = () => t('summitComfort', { mode: t(this.comfortSnap ? 'summitComfortSnap' : 'summitComfortSmooth') });
+    const btn = this.add(new Button(0.5, 0.09, {
+      label: label(),
+      onClick: (_, b) => {
+        this.comfortSnap = !this.comfortSnap;
+        try { localStorage.setItem(COMFORT_KEY, this.comfortSnap ? 'snap' : 'smooth'); } catch { /* private mode */ }
+        b.opts.label = label();
+        b.redraw();
+      },
+    }));
+    btn.position.set(0, go.position.y - go.h / 2 - 0.04 - btn.h / 2, go.position.z);
+    this.popIn(btn, 0.2);
+    this.comfortBtn = btn;
+  }
+
+  /** Headset: a dark ring around the view while the wall moves (and a short fade for jumps). */
+  buildVignette() {
+    const mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      uniforms: { uA: { value: 0 }, uB: { value: 0 }, uColor: { value: new THREE.Color(hex('xr-summit-vignette')) } },
+      vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform float uA; uniform float uB; uniform vec3 uColor; varying vec2 vUv;
+        void main() {
+          float r = length(vUv - 0.5);
+          float a = max(smoothstep(0.1, 0.3, r) * uA, uB);
+          if (a < 0.004) discard;
+          gl_FragColor = vec4(uColor, a);
+          #include <colorspace_fragment>
+        }`,
+    });
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), mat);
+    m.position.z = -0.25;
+    m.renderOrder = 9999;
+    m.frustumCulled = false;
+    m.visible = false;
+    this.engine.camera.add(m);
+    this.vignette = m;
+    this.blinkT = 0;
   }
 
   /** One customer of every type (shuffled), the B2B or B2C one at random. */
@@ -124,21 +178,22 @@ export class SummitScene extends BaseScene {
 
   buildLights() {
     const { eye } = this;
-    const sun = new THREE.DirectionalLight(hex('xr-summit-sun'), 1.5);
-    sun.position.set(1.1, eye + 1.3, 0.7);
+    // Key: the low warm sun from the right. Fill: cool sky light from the left. Rim: the glow of
+    // the sunset behind the wall, which outlines the rock, Echo and the customer.
+    const sun = new THREE.DirectionalLight(hex('xr-summit-sun'), 2.5);
+    sun.position.set(1.5, eye + 1.1, 0.35);
     sun.target.position.set(0, eye - 0.2, WALL_Z);
-    if (this.shadows) {
-      sun.castShadow = true;
-      sun.shadow.mapSize.set(1024, 1024);
-      const s = sun.shadow.camera;
-      s.left = -0.75; s.right = 0.75; s.top = 0.8; s.bottom = -0.8; s.near = 0.3; s.far = 3.5;
-      sun.shadow.bias = -0.0008;
-      sun.shadow.normalBias = 0.01;
-    }
-    const fill = new THREE.DirectionalLight(hex('xr-summit-fill'), 0.55);
+    if (this.shadows) softSun(sun, { size: 1.6, near: 0.3, far: 3.5, bias: -0.0006, normalBias: 0.012, radius: 4 });
+    const fill = new THREE.DirectionalLight(hex('xr-summit-fill'), 0.4);
     fill.position.set(-1.4, eye + 0.4, 0.4);
     fill.target.position.set(0, eye - 0.2, WALL_Z);
     this.group.add(sun, sun.target, fill, fill.target);
+    if (gfxTier() !== 'low' && !quality.lite) {
+      const rim = new THREE.DirectionalLight(hex('xr-summit-rim'), 1.1);
+      rim.position.set(0.9, eye + 0.5, WALL_Z - 1.8);
+      rim.target.position.set(-0.1, eye - 0.1, WALL_Z + 0.2);
+      this.group.add(rim, rim.target);
+    }
   }
 
   /** A round window with the customer's close-up (head and chest), next to the speech bubble. */
@@ -192,6 +247,10 @@ export class SummitScene extends BaseScene {
       || Math.abs(y) < 0.06 || BOLTS.some((b) => Math.abs(x - b.x) < 0.05 && Math.abs(y - b.y) < 0.06)));
     this.decor = makeSummitDecor(M.wall, this.mats);
     this.mountain.add(this.decor);
+    // A soft shadow where the customer stands (grounds the figure, also without shadow maps).
+    const blob = contactShadow(0.085, 0.38);
+    blob.position.set(CUSTOMER_SPOT.x, PLATEAU_Y + 0.003, CUSTOMER_SPOT.z);
+    this.mountain.add(blob);
     const peaks = makePeaks(M.wall, this.mats);
     peaks.position.y = this.CLOUD_Y;
     if (this.ar) { peaks.scale.setScalar(0.5); peaks.position.z = -0.4; }
@@ -252,15 +311,29 @@ export class SummitScene extends BaseScene {
       }
     };
     window.addEventListener('keydown', this.onKey);
-    // Quest: reach out and grab a hold (trigger, squeeze or pinch while the hand is near it).
+    // Quest: reach out and grab a hold (grip, trigger or pinch while the hand is near it), then
+    // pull the hand down; letting go before the end finishes the move by itself.
     this.grabbers = [];
     for (const p of this.engine.pointers) {
       if (p.kind !== 'xr' || !p.controller) continue;
       const fn = () => this.tryGrab(p);
+      const up = () => this.releasePull(p);
       p.controller.addEventListener('selectstart', fn);
       p.controller.addEventListener('squeezestart', fn);
-      this.grabbers.push([p.controller, fn]);
+      p.controller.addEventListener('selectend', up);
+      p.controller.addEventListener('squeezeend', up);
+      this.grabbers.push([p.controller, fn, up]);
     }
+    // Mouse and finger: where the press started, so a drag downward pulls.
+    const c = this.engine.canvas;
+    this.onDown = (e) => { this.downY = e.clientY; };
+    this.onMove = (e) => {
+      const P = this.pull;
+      if (!P || P.via !== 'drag' || this.downY == null) return;
+      P.dragP = clamp((e.clientY - this.downY) / this.pullPx(), 0, 1);
+    };
+    c.addEventListener('pointerdown', this.onDown);
+    c.addEventListener('pointermove', this.onMove);
     // Phones: the talk with big answer buttons.
     if (this.engine.touchUI) {
       this.talk = phoneTalk({ onPick: (i) => this.choose(i), onNext: () => this.next() });
@@ -272,7 +345,23 @@ export class SummitScene extends BaseScene {
   tryGrab(p) {
     if (this.mode !== 'choose') return;
     const near = this.options.find((o) => o.nearBy === p && !o.gone);
-    if (near) this.choose(this.options.indexOf(near));
+    if (near) this.choose(this.options.indexOf(near), 'hand', p);
+  }
+
+  /** A hold was taken by a pointer: headset hands pull, mouse and finger drag. */
+  grabOption(opt, p) {
+    const i = this.options.indexOf(opt);
+    if (p?.kind === 'xr') this.choose(i, 'hand', p);
+    else this.choose(i, this.engine.isXR ? 'auto' : 'drag');
+  }
+
+  /** Let go: a move that was pulled only part of the way finishes by itself. */
+  releasePull(p) {
+    const P = this.pull;
+    if (!P || this.mode !== 'pull') return;
+    if (P.via === 'hand' && P.hand !== p) return;
+    if (P.via === 'drag') this.downY = null;
+    P.release = true;
   }
 
   // ---------- flow ----------
@@ -534,13 +623,16 @@ export class SummitScene extends BaseScene {
     hold.setState('option');
     this.mountain?.add(hold.group);
     const opt = { reply, n, hold, gone: false, nearBy: null, x, y, z };
-    hold.hit.userData.onClick = () => this.choose(this.options.indexOf(opt));
+    hold.hit.userData.onGrab = (p) => this.grabOption(opt, p);
+    hold.hit.userData.onRelease = (p) => this.releasePull(p);
     hold.hit.userData.label = L(reply.text);
     hold.group.scale.setScalar(0.001);
     this.anim(0.35, (k) => hold.group.scale.setScalar(Math.max(0.001, k)), null, 0.1 + i * 0.08);
     // Reply plate above the hold (not on phones: the answers are on the screen there).
     if (!this.engine.touchUI) {
       const label = makeLabel(n, L(reply.text), () => this.choose(this.options.indexOf(opt)));
+      label.userData.onGrab = (p) => this.grabOption(opt, p);
+      label.userData.onRelease = (p) => this.releasePull(p);
       const h = holder(label, LS);
       h.position.set(x, y + 0.05 + (label.h * LS) / 2, this.stepIndex === 4 ? 0.2 : z + 0.09);
       this.mountain?.add(h);
@@ -550,16 +642,18 @@ export class SummitScene extends BaseScene {
     return opt;
   }
 
-  /** The player picks reply i (click, key, grab or tap). */
-  choose(i) {
+  /**
+   * The player takes hold of reply i: via 'hand' (Quest, the hand pulls), 'drag' (mouse or
+   * finger drags the hold down) or 'auto' (click, key, answer button, pointing: pulls by itself).
+   * A solid hold clicks, a wobbly one wobbles, a weak one breaks as soon as weight comes on it.
+   */
+  choose(i, via = 'auto', hand = null) {
     if (this.mode !== 'choose') return;
     const opt = this.options[i];
     if (!opt || opt.gone) return;
-    this.mode = 'move';
+    this.mode = 'pull';
     const q = opt.reply.q;
     const kind = q === 2 ? 'good' : q === 1 ? 'ok' : 'bad';
-    sfx.grab();
-    this.engine.haptic(opt.nearBy ?? this.engine.pointers.find((p) => p.kind === 'xr' && p.active), 0.5, 40);
     // Did the AI coach read the customer right? (counted once per stage)
     if (this.firstPick) {
       this.firstPick = false;
@@ -570,13 +664,50 @@ export class SummitScene extends BaseScene {
       this.coach.userData.set({ verdict });
       this.talk?.setCoach({ verdict });
     }
-    this.showFeedback(opt, i, kind);
     this.talk?.lock(true);
-    this.both((f) => { f.react(kind); f.setTrust(this.trust); });
-    if (kind === 'bad') this.crumble(opt);
-    else this.climbTo(opt, kind);
+    const cl = this.climber;
+    this.toWall();
+    const next = this.stepIndex + 1 < FOCUS.length ? FOCUS[this.stepIndex + 1] : VIEW_TOP;
+    this.pull = { opt, i, kind, via, hand, p: 0, dragP: 0, release: false, tick: 0, from: cl.grip.clone(), to: new THREE.Vector3(opt.x, opt.y, opt.z), base: this.focusTo, next, startY: null };
+    if (hand) this.pull.startY = this.handPos(hand).y;
+    cl.reach = Math.sign(opt.x - cl.grip.x);
+    cl.pose = 'climb';
+    cl.focus();
+    opt.hold.setPull(0);
+    sfx.grab();
+    if (kind === 'good') {
+      // Solid: a soft click and a tick in the hand.
+      this.after(0.06, () => sfx.tick());
+      this.buzz(0.35, 25);
+    } else {
+      this.buzz(0.2, 30);
+      if (kind === 'ok') opt.hold.shake = 1.0;
+    }
+    if (kind !== 'bad') {
+      opt.hold.setState(kind);
+      this.showFeedback(opt, i, kind);
+      this.both((f) => { f.react(kind); f.setTrust(this.trust); });
+      // The other holds fade away; this one stays on the wall as part of the route.
+      for (const o of this.options) {
+        if (o === opt) continue;
+        if (o.label) { const l = o.label; o.label = null; l.removeFromParent(); l.userData.panel.dispose(); }
+        if (o.gone) continue;
+        o.gone = true;
+        const h = o.hold;
+        this.anim(0.35, (k) => h.group.scale.setScalar(Math.max(0.001, 1 - k)), () => h.dispose());
+      }
+    }
+    // Pulling by hand or by dragging: a hint below the hold.
+    if (via !== 'auto') {
+      const hint = makePullHint(t(via === 'hand' ? 'summitPullHintXR' : 'summitPullHint'));
+      const hh = holder(hint, LS);
+      hh.position.set(opt.x, opt.y - 0.075, opt.z + 0.11);
+      this.mountain.add(hh);
+      this.pullHint = hh;
+    }
   }
 
+  /** The reply plate turns into the verdict with a tip (on phones: the answer button). */
   showFeedback(opt, i, kind) {
     const tip = L(opt.reply.tip);
     this.talk?.mark(i, kind, tip);
@@ -593,97 +724,145 @@ export class SummitScene extends BaseScene {
     }
   }
 
-  crumble(opt) {
-    const cl = this.climber;
-    this.stepFails += 1;
-    this.addTrust(TRUST.bad);
-    this.stamina = Math.max(0, this.stamina + STAMINA.bad);
-    sfx.wrong();
-    opt.hold.setState('bad');
-    opt.hold.shake = 0.6;
-    // Echo reaches for it, it breaks, Echo slips and the rope catches.
-    this.toWall();
-    const from = cl.grip.clone();
-    cl.reach = Math.sign(opt.x - from.x);
-    const reachTo = from.clone().lerp(new THREE.Vector3(opt.x, opt.y, opt.z), 0.45);
-    this.anim(0.4, (k) => cl.grip.lerpVectors(from, reachTo, ease(k)), () => {
-      opt.gone = true;
-      opt.hold.group.visible = false;
-      const at = new THREE.Vector3(opt.x, opt.y, opt.z + 0.03);
-      const sh = makeShards('xr-summit-hold-bad', at);
-      this.mountain.add(sh);
-      this.shards.push(sh);
-      sfx.shatter();
-      sfx.crash();
-      this.engine.haptic(this.engine.pointers.find((p) => p.kind === 'xr' && p.active), 0.9, 120);
-      cl.pose = 'slip';
-      cl.hurt();
-      const low = from.clone().add(new THREE.Vector3(0, -0.11, 0.02));
-      this.anim(0.35, (k) => cl.grip.lerpVectors(reachTo, low, k * k), () => {
-        cl.swing = 1;
-        this.anim(0.6, (k) => cl.grip.lerpVectors(low, from, ease(k)), () => {
-          cl.grip.copy(from);
-          cl.pose = 'hang';
-          cl.reach = 0;
-          if (opt.label) { opt.label.visible = true; }
-          if (this.stamina <= 0) { this.fallOff(); return; }
-          this.mode = 'choose';
-          this.talk?.lock(false);
-          this.chooseT = STAMINA.grace;
-        }, 0.25);
-      });
-    });
+  /** A haptic pulse in the pulling hand (or any active controller). */
+  buzz(strength, ms) {
+    const hand = this.pull?.hand ?? this.engine.pointers.find((p) => p.kind === 'xr' && p.active);
+    this.engine.haptic(hand, strength, ms);
   }
 
-  climbTo(opt, kind) {
+  handPos(p, out = new THREE.Vector3()) {
+    return out.setFromMatrixPosition(p.controller.matrixWorld);
+  }
+
+  removePullHint() {
+    if (!this.pullHint) return;
+    const h = this.pullHint;
+    this.pullHint = null;
+    h.removeFromParent();
+    h.userData.panel.dispose();
+  }
+
+  /** Every frame while pulling: progress from the hand, the drag or by itself. */
+  updatePull(dt) {
+    const P = this.pull;
+    if (!P || this.mode !== 'pull') return;
+    let want = P.p;
+    if (P.via === 'auto' || P.release) want = Math.min(1, P.p + dt / 0.8);
+    else if (P.via === 'drag') want = Math.max(P.p, P.dragP);
+    else if (P.via === 'hand' && P.hand?.active) {
+      const d = P.startY - this.handPos(P.hand).y;
+      want = Math.max(P.p, clamp(d / PULL_M, 0, 1));
+    } else if (P.via === 'hand') want = Math.min(1, P.p + dt / 0.8);
+    P.p = want;
+    P.opt.hold.setPull(P.p);
+    this.pullHint?.userData.panel.userData.tick(this.time);
+    if (P.p > 0.12) this.removePullHint();
+    // A little tick in the hand every quarter of the way.
+    const q = Math.floor(P.p * 4);
+    if (q > P.tick && P.p < 1) { P.tick = q; if (P.kind !== 'bad') { this.buzz(0.15, 12); sfx.bounce(); } }
+    // A weak hold breaks as soon as weight comes on it.
+    if (P.kind === 'bad' && P.p >= BREAK_AT) { this.breakHold(); return; }
+    // Echo follows the pull, and so does the wall (in the headset it moves with the hand).
+    const cl = this.climber;
+    cl.grip.lerpVectors(P.from, P.to, ease(P.p));
+    cl.grip.z += Math.sin(P.p * Math.PI) * 0.03;
+    if (!this.snapMoves()) {
+      this.focusTo = P.base + (P.next - P.base) * (P.via === 'hand' ? P.p : ease(P.p));
+      if (P.via === 'hand') this.focus = this.focusTo;
+    }
+    if (P.p >= 1) this.arrive();
+  }
+
+  /** Arrived on the hold: points, trust, strength, and on to the next stage. */
+  arrive() {
+    const P = this.pull;
+    const { opt, kind } = P;
+    this.pull = null;
+    this.removePullHint();
+    opt.hold.setPull(-1);
+    this.mode = 'move';
     const cl = this.climber;
     const good = kind === 'good';
     const speed = good && !this.stepFails ? Math.round(PTS.speed * clamp(1 - (this.chooseT - 2) / 9, 0, 1)) : 0;
     const pts = good ? (this.stepFails ? PTS.solidRetry : PTS.solid + speed) : (this.stepFails ? PTS.okRetry : PTS.ok);
     this.addScore(pts);
     this.addTrust(good ? TRUST.good : TRUST.ok);
-    this.stamina = Math.min(100, this.stamina + (good ? STAMINA.good : STAMINA.ok));
+    this.stamina = clamp(this.stamina + (good ? STAMINA.good : STAMINA.ok) - STAMINA.pull, 0, 100);
+    this.both((f) => f.setTrust(this.trust));
     if (good) sfx.correct(); else sfx.point();
-    opt.hold.setState(kind);
-    if (!good) opt.hold.shake = 1.4;
+    this.buzz(0.5, 40);
+    sfx.flap();
     this.popScore(`+${pts}`, new THREE.Vector3(opt.x, opt.y + 0.02, opt.z + 0.08), good ? 'xr-summit-hold-good' : 'xr-summit-hold-ok');
-    // The other holds fade away; this one stays on the wall as part of the route.
-    for (const o of this.options) {
-      if (o === opt) continue;
-      if (o.label) { const l = o.label; o.label = null; l.removeFromParent(); l.userData.panel.dispose(); }
-      if (o.gone) continue;
-      o.gone = true;
-      const h = o.hold;
-      this.anim(0.35, (k) => h.group.scale.setScalar(Math.max(0.001, 1 - k)), () => h.dispose());
-    }
-    this.toWall();
-    const from = cl.grip.clone();
-    const to = new THREE.Vector3(opt.x, opt.y, opt.z);
-    cl.reach = Math.sign(opt.x - from.x);
-    cl.pose = 'climb';
-    cl.focus();
-    this.after(0.25, () => sfx.flap());
-    this.anim(0.85, (k) => {
-      const e = ease(k);
-      cl.grip.lerpVectors(from, to, e);
-      cl.grip.z += Math.sin(k * Math.PI) * 0.03;
-    }, () => {
-      cl.grip.copy(to);
-      cl.pose = 'hang';
-      cl.reach = 0;
-      if (good) cl.happy(1.3);
-      this.route.push(opt);
-      this.stepIndex += 1;
-      this.focusTo = this.stepIndex < FOCUS.length ? FOCUS[this.stepIndex] : VIEW_TOP;
-      this.after(good ? 0.9 : 1.3, () => {
-        if (opt.label) { const l = opt.label; opt.label = null; l.removeFromParent(); l.userData.panel.dispose(); }
-        opt.hold.setState('route');
-        const last = this.stepIndex >= this.customer.steps.length;
-        this.coach.userData.set(last ? { phase: 'shown', reveal: 1, mood: null, words: [], verdict: null, unsure: false } : { phase: 'idle', verdict: null });
-        if (this.stepIndex >= this.customer.steps.length) this.reachSummit();
-        else this.beginStep();
-      });
+    cl.grip.copy(P.to);
+    cl.pose = 'hang';
+    cl.reach = 0;
+    if (good) cl.happy(1.3);
+    this.route.push(opt);
+    this.stepIndex += 1;
+    this.focusTo = this.stepIndex < FOCUS.length ? FOCUS[this.stepIndex] : VIEW_TOP;
+    this.after(good ? 0.9 : 1.3, () => {
+      if (opt.label) { const l = opt.label; opt.label = null; l.removeFromParent(); l.userData.panel.dispose(); }
+      opt.hold.setState('route');
+      const last = this.stepIndex >= this.customer.steps.length;
+      this.coach.userData.set(last ? { phase: 'shown', reveal: 1, mood: null, words: [], verdict: null, unsure: false } : { phase: 'idle', verdict: null });
+      if (last) this.reachSummit();
+      else this.beginStep();
     });
+  }
+
+  /** The weak hold breaks in the hand: shards, a jolt, Echo slips into the rope; pick again. */
+  breakHold() {
+    const P = this.pull;
+    const { opt, i } = P;
+    this.pull = null;
+    this.removePullHint();
+    this.mode = 'move';
+    const cl = this.climber;
+    this.stepFails += 1;
+    this.addTrust(TRUST.bad);
+    this.stamina = Math.max(0, this.stamina + STAMINA.bad);
+    sfx.wrong();
+    opt.hold.setState('bad');
+    opt.hold.setPull(-1);
+    this.showFeedback(opt, i, 'bad');
+    this.both((f) => { f.react('bad'); f.setTrust(this.trust); });
+    opt.gone = true;
+    opt.hold.group.visible = false;
+    const sh = makeShards('xr-summit-hold-bad', new THREE.Vector3(opt.x, opt.y, opt.z + 0.03));
+    this.mountain.add(sh);
+    this.shards.push(sh);
+    sfx.shatter();
+    sfx.crash();
+    this.engine.haptic(P.hand ?? this.engine.pointers.find((p) => p.kind === 'xr' && p.active), 1.0, 180);
+    // The wall drops back (a jolt below where it was) and settles again.
+    this.focusTo = P.base;
+    if (!this.snapMoves()) this.focus = P.base - 0.06;
+    cl.pose = 'slip';
+    cl.hurt();
+    const at = cl.grip.clone();
+    const low = P.from.clone().add(new THREE.Vector3(0, -0.11, 0.02));
+    this.anim(0.3, (k) => cl.grip.lerpVectors(at, low, k * k), () => {
+      cl.swing = 1;
+      this.anim(0.6, (k) => cl.grip.lerpVectors(low, P.from, ease(k)), () => {
+        cl.grip.copy(P.from);
+        cl.pose = 'hang';
+        cl.reach = 0;
+        if (this.stamina <= 0) { this.fallOff(); return; }
+        this.mode = 'choose';
+        this.talk?.lock(false);
+        this.chooseT = STAMINA.grace;
+      }, 0.25);
+    });
+  }
+
+  /** Comfort setting in the headset: moves as quick jumps behind a short fade. */
+  snapMoves() {
+    return this.engine.isXR && this.comfortSnap;
+  }
+
+  /** How far (CSS px) a drag goes for one move. */
+  pullPx() {
+    return clamp(window.innerHeight * 0.18, 70, 170);
   }
 
   addTrust(d) { this.trust = clamp(this.trust + d, 0, 100); }
@@ -881,8 +1060,31 @@ export class SummitScene extends BaseScene {
     this.tickTimers(dt);
     const e = this.engine;
     // The wall scrolls with the climb, so the holds within reach stay at arm's length.
-    this.focus += (this.focusTo - this.focus) * (1 - Math.exp(-dt * 3.2));
-    this.depth += (this.depthTo - this.depth) * (1 - Math.exp(-dt * 2.4));
+    const was = this.focus;
+    this.updatePull(dt);
+    if (this.snapMoves()) {
+      // Comfort: the wall jumps to its new place behind a short fade.
+      const off = Math.abs(this.focusTo - this.focus) + Math.abs(this.depthTo - this.depth);
+      if (off > 0.003 && !this.blinkT) this.blinkT = 0.001;
+    } else {
+      this.focus += (this.focusTo - this.focus) * (1 - Math.exp(-dt * 3.2));
+      this.depth += (this.depthTo - this.depth) * (1 - Math.exp(-dt * 2.4));
+    }
+    if (this.vignette) {
+      let blink = 0;
+      if (this.blinkT) {
+        const b0 = this.blinkT;
+        this.blinkT += dt;
+        if (b0 < 0.12 && this.blinkT >= 0.12) { this.focus = this.focusTo; this.depth = this.depthTo; }
+        blink = this.blinkT < 0.12 ? this.blinkT / 0.12 : clamp(1 - (this.blinkT - 0.12) / 0.18, 0, 1);
+        if (this.blinkT > 0.3) this.blinkT = 0;
+      }
+      const speed = Math.abs(this.focus - was) / Math.max(dt, 1e-3);
+      const u = this.vignette.material.uniforms;
+      u.uA.value += (clamp(speed / 0.25, 0, 1) * 0.75 - u.uA.value) * (1 - Math.exp(-dt * 10));
+      u.uB.value = blink;
+      this.vignette.visible = this.engine.isXR && (u.uA.value > 0.01 || blink > 0);
+    }
     this.placeMountain();
     cutUniform.value = this.group.localToWorld(new THREE.Vector3(0, this.CLOUD_Y + 0.02, 0)).y;
     this.sky?.userData.tick(this.time);
@@ -1025,17 +1227,25 @@ export class SummitScene extends BaseScene {
   dispose() {
     this.mode = 'over';
     window.removeEventListener('keydown', this.onKey);
-    for (const [c, fn] of this.grabbers ?? []) {
+    for (const [c, fn, up] of this.grabbers ?? []) {
       c.removeEventListener('selectstart', fn);
       c.removeEventListener('squeezestart', fn);
+      c.removeEventListener('selectend', up);
+      c.removeEventListener('squeezeend', up);
+    }
+    this.engine.canvas.removeEventListener('pointerdown', this.onDown);
+    this.engine.canvas.removeEventListener('pointermove', this.onMove);
+    this.removePullHint();
+    if (this.vignette) {
+      this.vignette.removeFromParent();
+      this.vignette.geometry.dispose();
+      this.vignette.material.dispose();
     }
     this.app.echo?.suppress(false);
     this.engine.fitEnabled = true;
     this.engine.backdrop.visible = this.prevBackdrop;
     if (this.prevFog !== undefined) this.engine.scene.fog?.color.setHex(this.prevFog);
-    if (this.shadows) this.engine.renderer.shadowMap.enabled = this.prevShadow;
     if (!this.engine.isXR) this.engine.camera.rotation.set(0, 0, 0);
-    this.engine.scene.environment = this.prevEnvironment ?? null;
     this.envTarget?.dispose();
     this.climber?.dispose();
     this.rope?.dispose();

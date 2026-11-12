@@ -14,6 +14,7 @@ import { line } from './echo-host.js';
 import { music } from './music.js';
 import { MUSIC } from './config.js';
 import { screenHud, touchButtons, dragPad } from './touch-ui.js';
+import { gameUrl } from './deep-link.js';
 
 export class BaseScene {
   constructor(app) {
@@ -253,10 +254,32 @@ export class BaseScene {
       const qr = new Button(0.5, 0.11, { label: t('eventScan'), variant: 'sponsor', labelSize: 'xr-text-sm', onClick: () => this.showTakeaway() });
       qr.position.set(0, by - btnH - 0.03 - qr.h / 2, -dist);
       buttons.push(qr);
+    } else if (!this.engine.isXR && score > 0 && (navigator.share || navigator.clipboard)) {
+      // Browser and phones: share the result as a link that opens this game with the score to beat.
+      const share = new Button(0.42, 0.1, { label: t('shareResult'), labelSize: 'xr-text-sm', onClick: () => this.shareResult(share) });
+      share.position.set(0, by - btnH - 0.03 - share.h / 2, -dist);
+      buttons.push(share);
     }
     [scorePanel, recapPanel, sponsor, ...buttons].forEach((o, i) => this.popIn(this.add(o), i * 0.06));
     if (celebrate && correct / total >= 0.7) this.burst(scorePanel.getWorldPosition(new THREE.Vector3()), 'xr-warning', 40);
     if (celebrate && this.resultData.badge) this.app.host?.badge(this, this.resultData.badge, scorePanel);
+  }
+
+  /** Shares the result (system share sheet on phones, else the link goes to the clipboard). */
+  async shareResult(button) {
+    const { gameKey, score } = this.resultData;
+    const game = t(`${gameKey}Name`);
+    const url = gameUrl(gameKey, { score });
+    const text = t('shareText', { score, game });
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: t('appTitle'), text, url });
+        return;
+      }
+      await navigator.clipboard.writeText(`${text} ${url}`);
+      button.opts.label = t('shareCopied');
+      button.redraw();
+    } catch { /* cancelled by the player, or not allowed */ }
   }
 
   /** Event mode: QR code and certificate code for the phone, with a thank-you from Echo. */

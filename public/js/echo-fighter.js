@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { hex } from './tokens.js';
 import { radialTexture } from './robot-visuals.js';
-import { POSES } from './fight-visuals.js';
+import { POSES, projectorBeam } from './fight-visuals.js';
 import { loadEchoParts, bendWing } from './echo-mascot.js';
 import { EchoFace } from './echo-face.js';
 import { loadGlove, makeGlove } from './fight-gloves.js';
@@ -106,6 +106,8 @@ export class EchoFighter {
     this.root.add(shadow, glow);
     this.shadow = shadow;
     this.underGlow = glow;
+    this.beamUp = projectorBeam(token, 0.62);
+    if (this.beamUp) this.root.add(this.beamUp);
     // Anchors for hits and effects (wing tips, feet, belly, rings) once the model is in.
     this.anchors = {};
     loadEchoParts().then((parts) => this.attach(parts)).catch((e) => console.warn('Echo fighter not loaded', e));
@@ -196,6 +198,7 @@ export class EchoFighter {
     this.shadow.position.x = this.facing * c.f;
     this.underGlow.position.x = this.facing * c.f;
     this.underGlow.material.opacity = 0.4 + Math.sin(this.time * 3) * 0.08 + this.flashT * 0.4;
+    if (this.beamUp) { this.beamUp.position.x = this.underGlow.position.x; this.beamUp.userData.tick(this.time, this.flashT); }
 
     // Wings: pose angle + flapping, folded forward for the shield, bent towards the tips.
     this.flapPhase += dt * (4 + c.flap * 4) * Math.PI * 2;

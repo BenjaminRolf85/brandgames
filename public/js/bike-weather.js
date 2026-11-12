@@ -4,7 +4,7 @@
 // Colors from the --xr-bike-* tokens; course units like bike-world.js.
 import * as THREE from 'three';
 import { hex, color } from './tokens.js';
-import { seeded } from './bike-world.js';
+import { seeded, FX_AREA } from './bike-world.js';
 
 const TAU = Math.PI * 2;
 
@@ -165,35 +165,45 @@ export function makeWeatherLayer(course, w, clip) {
 /** Rain streaks around the bike (course units). update(dt, s, amount 0..1). */
 export function makeRain(count = 320, clip = null) {
   const pos = new Float32Array(count * 6);
+  const col = new Float32Array(count * 8).fill(1);
   const seed = new Float32Array(count * 3);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const mat = new THREE.LineBasicMaterial({ color: hex('xr-bike-rain'), transparent: true, opacity: 0, depthWrite: false, clippingPlanes: clip });
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 4));
+  const mat = new THREE.LineBasicMaterial({ color: hex('xr-bike-rain'), vertexColors: true, transparent: true, opacity: 0, depthWrite: false, clippingPlanes: clip });
   const lines = new THREE.LineSegments(geo, mat);
   lines.frustumCulled = false;
   lines.userData.noFit = true;
   const p = new THREE.Vector3();
   let init = false;
-  lines.userData.update = (dt, course, s, amount) => {
+  /** area { back, front, side, top }: the volume the rain falls in (it fades out near the top). */
+  lines.userData.update = (dt, course, s, amount, area = FX_AREA) => {
     mat.opacity += (amount * 0.6 - mat.opacity) * Math.min(1, dt * 2);
     lines.visible = mat.opacity > 0.02;
     if (!lines.visible) { init = false; return; }
+    const { back, front, side, top } = area;
     for (let i = 0; i < count; i++) {
       let y = seed[i * 3 + 2];
-      if (!init || seed[i * 3] < s - 2.5) {
-        seed[i * 3] = s + (init ? 6 + Math.random() * 10 : -2 + Math.random() * 18);
-        seed[i * 3 + 1] = -5 + Math.random() * 10;
-        y = Math.random() * 6;
+      const out = seed[i * 3] < s - back || seed[i * 3] > s + front + 0.5 || Math.abs(seed[i * 3 + 1]) > side || y > top;
+      if (!init || out) {
+        seed[i * 3] = init && seed[i * 3] < s - back ? s + front * (0.4 + Math.random() * 0.6) : s - back + Math.random() * (back + front);
+        seed[i * 3 + 1] = (Math.random() * 2 - 1) * side;
+        y = Math.random() * top;
       }
       y -= dt * 13;
-      if (y < 0) y += 6;
+      if (y < 0) y += top;
       seed[i * 3 + 2] = y;
       course.point(seed[i * 3], seed[i * 3 + 1], p);
       const hy = course.h(seed[i * 3]);
-      pos.set([p.x, hy + y, p.z, p.x + 0.04, hy + y + 0.45, p.z + 0.08], i * 6);
+      const len = Math.min(0.45, Math.max(0.05, top - y));
+      pos.set([p.x, hy + y, p.z, p.x + 0.04, hy + y + len, p.z + 0.08], i * 6);
+      const a = 1 - THREE.MathUtils.smoothstep(y, top * 0.6, top);
+      col[i * 8 + 3] = a;
+      col[i * 8 + 7] = a * 0.4;
     }
     init = true;
     geo.attributes.position.needsUpdate = true;
+    geo.attributes.color.needsUpdate = true;
   };
   return lines;
 }

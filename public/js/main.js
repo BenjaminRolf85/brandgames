@@ -8,7 +8,9 @@ import { LEADERBOARD_MODES, OVERALL, fetchTop, track } from './api.js';
 import { sfx } from './sfx.js';
 import { music } from './music.js';
 import { VERSION } from './version.js';
-import { VISIBLE_MODES } from './config.js';
+import { VISIBLE_MODES, CLIENT_GAMES } from './config.js';
+import { readLink } from './deep-link.js';
+import { CARD_ART } from './menu-coins.js';
 import { getSkin, setSkin, onSkinChange, loadSkinFonts } from './skin.js';
 import { iconSVG } from './icons.js';
 import { EchoMascot } from './echo-mascot.js';
@@ -95,6 +97,14 @@ class App {
     else this.showMenu();
     // Christmas edition: "Danke" plays when the app opens (once per visit to the 3D view).
     if (!this.welcomed) { this.welcomed = true; music.welcome(); }
+    // A direct link (?spiel=...) or a game picked on the page: straight into that game, once.
+    // Afterwards the menu opens the clients' view for their games.
+    const game = this.pendingGame;
+    if (game && !EVENT) {
+      this.pendingGame = null;
+      if (CLIENT_GAMES.includes(game)) MenuScene.lastView = 'clients';
+      this.startGame(game);
+    }
   }
 
   /** Event mode: a new guest starts (straight into the lobby). */
@@ -290,6 +300,57 @@ async function loadPageLeaderboard() {
   }
 }
 
+// ---------- direct links and the clients' games on the page ----------
+
+/**
+ * A direct link (?spiel=pannenfrei&fuer=Team%20Nord&score=3200) shows a personal invitation in
+ * the hero and opens that game (in the browser and in the headset); the clients' section lists
+ * their seven games as coins that open the game directly.
+ */
+function setupClientGames(app) {
+  const link = readLink();
+  const invite = document.getElementById('invite');
+  if (link && invite) {
+    app.pendingGame = link.game;
+    const render = () => {
+      const game = t(`${link.game}Name`);
+      document.getElementById('invite-coin').src = CARD_ART[link.game] ?? CARD_ART.clients;
+      document.getElementById('invite-title').textContent = link.name ? t('inviteGreeting', { name: link.name }) : game;
+      document.getElementById('invite-text').textContent = link.score
+        ? t('inviteScore', { score: link.score.toLocaleString(getLang() === 'de' ? 'de-DE' : 'en-US'), game })
+        : t('inviteText', { game });
+      document.getElementById('invite-play').textContent = t('invitePlay', { game });
+    };
+    render();
+    onLangChange(render);
+    invite.hidden = false;
+    document.getElementById('invite-play').addEventListener('click', () => { app.pendingGame = link.game; app.openPreview(); });
+  }
+  const section = document.getElementById('clients');
+  const grid = document.getElementById('clients-grid');
+  const games = CLIENT_GAMES.filter((k) => VISIBLE_MODES.includes(k));
+  if (!section || !grid || !games.length) return;
+  const build = () => {
+    grid.replaceChildren(...games.map((key) => {
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'clients__item';
+      const img = Object.assign(document.createElement('img'), { className: 'clients__coin', src: CARD_ART[key] ?? '', width: 104, height: 104, alt: '', loading: 'lazy', decoding: 'async' });
+      const name = Object.assign(document.createElement('span'), { className: 'clients__name', textContent: t(`${key}Name`) });
+      const tag = Object.assign(document.createElement('span'), { className: 'clients__tag', textContent: t(`${key}Tag`) });
+      b.append(img, name, tag);
+      b.setAttribute('aria-label', `${t('clientsPlay')}: ${t(`${key}Name`)}`);
+      b.addEventListener('click', () => { app.pendingGame = key; app.openPreview(); });
+      li.append(b);
+      return li;
+    }));
+  };
+  build();
+  onLangChange(build);
+  section.hidden = false;
+}
+
 async function boot() {
   await loadSkinFonts();
 
@@ -314,6 +375,7 @@ async function boot() {
   document.getElementById('btn-ar').addEventListener('click', () => app.enterXR('immersive-ar'));
   document.getElementById('btn-vr').addEventListener('click', () => app.enterXR('immersive-vr'));
   document.getElementById('btn-preview').addEventListener('click', () => app.openPreview());
+  setupClientGames(app);
   document.querySelectorAll('[data-lab-open]').forEach((el) => el.addEventListener('click', () => app.openPreview(Number(el.dataset.labOpen))));
   document.getElementById('btn-close').addEventListener('click', () => app.closeStage());
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !app.stage.hidden) app.closeStage(); });

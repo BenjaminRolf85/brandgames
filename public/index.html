@@ -58,6 +58,16 @@
           <p class="byline"><a class="byline__link" href="https://www.echomotion.ai" target="_blank" rel="noopener">by Echomotion - AI Trainings &amp; More</a></p>
           <p class="hero__lead" data-i18n="pageLead" data-i18n-xmas="pageLeadXmas"></p>
           <p class="hero__sign" data-xmas hidden data-i18n="heroSignXmas"></p>
+          <!-- A direct link to a game (?spiel=...): a personal invitation with the game's coin. -->
+          <div class="invite" id="invite" hidden>
+            <img class="invite__coin" id="invite-coin" src="" width="96" height="96" alt="">
+            <div class="invite__body">
+              <p class="invite__eyebrow" data-i18n="inviteEyebrow"></p>
+              <p class="invite__title" id="invite-title"></p>
+              <p class="invite__text" id="invite-text"></p>
+              <button type="button" class="btn btn--primary" id="invite-play"></button>
+            </div>
+          </div>
           <div class="actions">
             <button type="button" class="btn btn--primary btn--lg" id="btn-ar" hidden data-i18n="startAR"></button>
             <button type="button" class="btn btn--secondary btn--lg" id="btn-vr" hidden data-i18n="startVR"></button>
@@ -70,6 +80,13 @@
         </figure>
       </section>
       </div>
+
+      <!-- The games for our clients: a coin each; a click opens that game in the browser. -->
+      <section class="container section clients" id="clients" aria-labelledby="clients-title" hidden>
+        <h2 class="section__title" id="clients-title" data-i18n="clientsPageTitle"></h2>
+        <p class="section__lead" data-i18n="clientsPageText"></p>
+        <ul class="clients__grid" id="clients-grid"></ul>
+      </section>
 
       <section class="container section" aria-labelledby="ar-title">
         <aside class="callout callout--feature">

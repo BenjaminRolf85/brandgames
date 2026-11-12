@@ -11,8 +11,46 @@ import { EchoFace } from './echo-face.js';
 import { loadGLTF } from './models.js';
 import { makeRainCurtain } from './pong-rain.js';
 import { RibbonTrail } from './pong-shaders.js';
+import { sceneLook, bloom, gfxTier } from './gfx.js';
 
 export const GOGGLES_URL = 'assets/models/echo-goggles.glb';
+
+// ---------- scene look (graphics pass, Nov 2026) ----------
+
+/**
+ * Tone mapping and a soft studio environment (reflections on Echo's goggles, the coins, the
+ * hacker's laptop and the mothership's hull), a warm key light and a rim light in the current
+ * world's color from the vortex, and bloom on the desktop (threshold above white, so only the
+ * glowing data and neon glow, not the UI). Scales with gfxTier(); the headset never gets post
+ * effects. Returns { neon, setRim(color) }.
+ */
+export function flightLook(scene) {
+  const e = scene.engine;
+  const tier = gfxTier();
+  scene.onSceneDispose(sceneLook(e, { tone: 'neutral', exposure: 1.08, env: 'studio', envIntensity: 0.6, shadows: false }));
+  // The preview's flat white lights give way to the key and the world-colored rim light.
+  const sun = e.scene.children.find((o) => o.isDirectionalLight);
+  const prev = { hemi: e.hemi.intensity, sun: sun?.intensity };
+  e.hemi.intensity = 0.6;
+  if (sun) sun.intensity = 0.3;
+  scene.onSceneDispose(() => {
+    e.hemi.intensity = prev.hemi;
+    if (sun) sun.intensity = prev.sun;
+  });
+  const key = new THREE.DirectionalLight(hex('xr-flight-key-light'), 1.5);
+  key.position.set(0.6, scene.eye + 1.4, 0.8); // above and behind the player
+  key.target.position.set(0, scene.eye - 0.3, -2);
+  const rim = new THREE.DirectionalLight(hex('xr-flight-good'), 2.2);
+  rim.position.set(0, scene.eye + 0.4, -6); // from the vortex, towards the player
+  rim.target.position.set(0, scene.eye - 0.2, 0);
+  scene.group.add(key, key.target, rim, rim.target);
+  let neon = 1;
+  if (tier === 'high' && !e.isXR && !e.touchUI) {
+    neon = 1.6;
+    scene.onSceneDispose(bloom(e, { strength: 0.6, radius: 0.55, threshold: 1.0 }));
+  }
+  return { neon, setRim: (c) => rim.color.copy(c) };
+}
 const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
 const col = (token) => new THREE.Color(hex(token));
 
@@ -901,7 +939,20 @@ export function makeCircuitFloor({ width = 3.4, far = -11, near = 1.2 }) {
 
 /** The deep violet data space around everything (dims the room in passthrough). */
 export function makeSpace(opacity = 0.6) {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(14, 32, 16), new THREE.MeshBasicMaterial({ color: hex('xr-flight-space'), side: THREE.BackSide, transparent: true, opacity, depthWrite: false, fog: false }));
+  // Depth: brighter towards the vortex ahead, darker above, below and behind (vertex colors
+  // that shade the world's space color; no extra cost).
+  const geo = new THREE.SphereGeometry(14, 32, 16);
+  const pos = geo.attributes.position;
+  const shade = new Float32Array(pos.count * 3);
+  const d = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    d.fromBufferAttribute(pos, i).normalize();
+    const ahead = Math.max(0, -d.z) ** 1.5;
+    const f = (0.42 + 0.78 * ahead) * (1 - 0.45 * Math.abs(d.y));
+    shade.set([f, f, f], i * 3);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(shade, 3));
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: hex('xr-flight-space'), vertexColors: true, side: THREE.BackSide, transparent: true, opacity, depthWrite: false, fog: false }));
   m.renderOrder = -10;
   m.userData.noFit = true;
   return m;
@@ -1001,12 +1052,12 @@ export const HACKER_URL = 'assets/models/hacker.glb';
  * The hacker (blender/build_hacker.py): a hooded figure on a floating laptop. Own materials per
  * hacker (the eyes flash when it fires). userData: flash(), tick(dt, time, shake).
  */
-export function makeHacker(gltf) {
+export function makeHacker(gltf, neon = 1) {
   const group = new THREE.Group();
   group.userData.noFit = true;
   const body = new THREE.Group();
   group.add(body);
-  const glowColor = new THREE.Color(hex('xr-flight-hacker-glow'));
+  const glowColor = new THREE.Color(hex('xr-flight-hacker-glow')).multiplyScalar(neon); // neon > 1: bloom on the desktop
   const glowMat = new THREE.MeshBasicMaterial({ color: glowColor.clone(), toneMapped: false });
   const mats = {
     HackerHoodie: new THREE.MeshStandardMaterial({ color: hex('xr-flight-hacker-hoodie'), roughness: 0.75, vertexColors: true }),
@@ -1015,7 +1066,7 @@ export function makeHacker(gltf) {
     HackerString: new THREE.MeshStandardMaterial({ color: hex('xr-flight-hacker-string'), roughness: 0.6, vertexColors: true }),
     HackerLaptop: new THREE.MeshStandardMaterial({ color: hex('xr-flight-hacker-laptop'), metalness: 0.8, roughness: 0.3, vertexColors: true }),
     HackerGlow: glowMat,
-    HackerScreen: new THREE.MeshBasicMaterial({ color: hex('xr-flight-hacker-screen'), toneMapped: false }),
+    HackerScreen: new THREE.MeshBasicMaterial({ color: new THREE.Color(hex('xr-flight-hacker-screen')).multiplyScalar(neon), toneMapped: false }),
   };
   const model = gltf?.scene.getObjectByName('Hacker')?.clone(true);
   if (model) {
@@ -1036,10 +1087,11 @@ export function makeHacker(gltf) {
   glow.position.z = -0.05;
   group.add(glow);
   let flashT = 0;
+  const flashWhite = new THREE.Color(0xffffff).multiplyScalar(neon);
   group.userData.flash = () => { flashT = 1; };
   group.userData.tick = (dt, time, shake = 0) => {
     flashT = Math.max(0, flashT - dt * 4);
-    glowMat.color.copy(glowColor).lerp(new THREE.Color(0xffffff), flashT * 0.7);
+    glowMat.color.copy(glowColor).lerp(flashWhite, flashT * 0.7);
     glow.material.opacity = 0.25 + flashT * 0.4 + shake * 0.2 * (0.5 + 0.5 * Math.sin(time * 30));
     body.position.set(Math.sin(time * 47) * 0.012 * shake, Math.sin(time * 2.6) * 0.02, 0);
     body.rotation.z = Math.sin(time * 1.7) * 0.08;

@@ -8,8 +8,16 @@ import { radialTexture } from './robot-visuals.js';
 import { buildHuman, buildAndroid } from './fighter-models.js';
 import { attachModel } from './fighter-glb.js';
 import { loadGlove, attachRigGloves } from './fight-gloves.js';
+import { gfxTier } from './gfx.js';
 
 const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+// Pure light for shader effects that output alpha 1: adds color but keeps the framebuffer's
+// alpha, so in AR (transparent canvas over passthrough) it glows instead of turning into a dark
+// shape, and in VR and the browser it looks like additive blending.
+const lightAdd = {
+  transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
+  blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+};
 
 // ---------- poses ----------
 // Joint rotations in radians [x, y, z]. The figure faces +z; arms and legs hang along -y.
@@ -179,6 +187,8 @@ export class Fighter {
     this.root.add(shadow, glow);
     this.shadow = shadow;
     this.underGlow = glow;
+    this.beamUp = projectorBeam(this.token, this.style.scale * 1.9);
+    if (this.beamUp) this.root.add(this.beamUp);
   }
 
   /** Plays a sequence of [poseName, seconds, speed] steps, then returns to guard. */
@@ -235,6 +245,7 @@ export class Fighter {
     this.core.scale.setScalar(1 + Math.sin(this.time * 4) * 0.12 + this.flashT * 0.5);
     if (this.halo) { this.halo.rotation.z += dt * 2; this.halo.position.y = 0.32 + Math.sin(this.time * 2) * 0.02; }
     this.underGlow.material.opacity = 0.45 + Math.sin(this.time * 3) * 0.1 + this.flashT * 0.4;
+    this.beamUp?.userData.tick(this.time, this.flashT);
   }
 
   apply() {
@@ -281,6 +292,60 @@ export class Fighter {
   chestPos() { return this.worldOf(this.core); }
 }
 
+// ---------- projector beam ----------
+
+const projVert = /* glsl */ `
+  varying vec2 vUv;
+  varying float vRim;
+  void main() {
+    vUv = uv;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vec3 n = normalize(normalMatrix * normal);
+    vRim = 1.0 - abs(dot(n, normalize(-mv.xyz)));
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+const projFrag = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uTime;
+  uniform float uPower;
+  varying vec2 vUv;
+  varying float vRim;
+  void main() {
+    float up = vUv.y;                                   // 0 at the table, 1 at the top
+    float fade = pow(1.0 - up, 1.7) * smoothstep(0.0, 0.04, up);
+    float rays = 0.65 + 0.35 * sin(vUv.x * 75.0 + uTime * 1.3) * sin(vUv.x * 31.0 - uTime * 0.7);
+    float rise = 0.75 + 0.25 * sin(up * 26.0 - uTime * 5.0);
+    float a = fade * rays * rise * (0.35 + 0.65 * vRim * vRim) * uPower;
+    gl_FragColor = vec4(uColor * a, 1.0);
+  }
+`;
+
+/**
+ * A soft cone of projector light rising from the table around a hologram figure (additive,
+ * one draw call). Not on the lowest effects tier. tick(time, flash).
+ */
+export function projectorBeam(token, height = 0.76) {
+  if (gfxTier() === 'low') return null;
+  const geo = new THREE.CylinderGeometry(0.15, 0.1, height, 28, 1, true);
+  geo.translate(0, height / 2 + 0.004, 0);
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(hex(token)) }, uTime: { value: 0 }, uPower: { value: 0.15 } },
+    vertexShader: projVert,
+    fragmentShader: projFrag,
+    side: THREE.DoubleSide,
+    ...lightAdd,
+  });
+  const m = new THREE.Mesh(geo, mat);
+  m.renderOrder = 3; // after the (transparent) holograms
+  m.userData.noFit = true;
+  m.userData.tick = (time, flash = 0) => {
+    mat.uniforms.uTime.value = time;
+    mat.uniforms.uPower.value = 0.14 + 0.025 * Math.sin(time * 2.3) + flash * 0.25;
+  };
+  return m;
+}
+
 // ---------- arena ----------
 
 const boardFragment = /* glsl */ `
@@ -322,10 +387,46 @@ const boardFragment = /* glsl */ `
       float band = exp(-pow((d - age * 2.2) / 0.08, 2.0)) * (1.0 - age) * h.z;
       col += mix(uLeft, uRight, h.w) * band * (0.6 + line * 1.5);
     }
+    // A slow radar sweep around the board and a faint micro grid (scanned surface).
+    float sw = fract((ang / 6.2831853) - uTime * 0.12);
+    col += uGrid * pow(sw, 14.0) * 0.18 * step(0.27, r) * step(r, 0.95);
+    vec2 mg = abs(fract(p * 28.0) - 0.5);
+    float micro = 1.0 - smoothstep(0.0, fwidth(p.x * 28.0) * 1.2 + 0.001, min(mg.x, mg.y));
+    col += uGrid * micro * 0.035 * step(r, 0.95);
+    col *= 1.0 - 0.25 * smoothstep(0.55, 1.05, r);                  // a touch darker at the rim
     col += uGrid * uFlash * 0.25;
     gl_FragColor = vec4(col, 1.0);
   }
 `;
+
+let brushedTex = null;
+/** Roughness detail for brushed metal (fine horizontal streaks), built once. */
+function brushedTexture() {
+  if (brushedTex) return brushedTex;
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 256;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(256, 256);
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const rows = Array.from({ length: 256 }, () => rnd());
+  for (let y = 0; y < 256; y++) {
+    for (let x = 0; x < 256; x++) {
+      // Grey levels around the mid roughness; the material's roughness scales them.
+      const v = 150 + rows[y] * 70 + (rnd() - 0.5) * 30;
+      const i = (y * 256 + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  brushedTex = new THREE.CanvasTexture(c);
+  brushedTex.wrapS = brushedTex.wrapT = THREE.RepeatWrapping;
+  brushedTex.repeat.set(6, 1);
+  brushedTex.anisotropy = 4;
+  return brushedTex;
+}
 
 /** Holographic arena: hex floor with impact ripples, rim, pylons and floating rings. */
 /**
@@ -335,33 +436,49 @@ const boardFragment = /* glsl */ `
  */
 export function makeArena(radius, leftToken, rightToken) {
   const g = new THREE.Group();
-  const metal = (token, rough = 0.38) => new THREE.MeshStandardMaterial({ color: hex(token), metalness: 0.75, roughness: rough });
+  const tier = gfxTier();
+  // Brushed metal: fine streaks in the roughness give the table edges a real sheen.
+  const brushed = tier === 'low' ? null : brushedTexture();
+  const metal = (token, rough = 0.38) => new THREE.MeshStandardMaterial({ color: hex(token), metalness: 0.8, roughness: rough, roughnessMap: brushed });
 
   // Table top: board inset in a thick rim
   const top = new THREE.Mesh(new THREE.CylinderGeometry(radius * 1.13, radius * 1.1, 0.07, 96), metal('xr-fight-table'));
   top.position.y = -0.036;
-  const lip = new THREE.Mesh(new THREE.TorusGeometry(radius * 1.075, 0.022, 14, 128), metal('xr-fight-table-rim', 0.28));
+  // The chrome lip: clear-coated where the GPU can afford it.
+  const lipMat = tier === 'high'
+    ? new THREE.MeshPhysicalMaterial({ color: hex('xr-fight-table-rim'), metalness: 0.9, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.08 })
+    : metal('xr-fight-table-rim', 0.24);
+  const lip = new THREE.Mesh(new THREE.TorusGeometry(radius * 1.075, 0.022, 14, 128), lipMat);
   lip.rotation.x = Math.PI / 2;
   lip.position.y = 0.004;
   const skirt = new THREE.Mesh(new THREE.CylinderGeometry(radius * 1.1, radius * 0.92, 0.07, 96), metal('xr-fight-table'));
   skirt.position.y = -0.105;
-  const glowLine = new THREE.Mesh(new THREE.TorusGeometry(radius * 1.112, 0.0035, 6, 128), new THREE.MeshBasicMaterial({ color: hex('xr-fight-holo') }));
+  const glowLine = new THREE.Mesh(new THREE.TorusGeometry(radius * 1.112, 0.0035, 6, 128), new THREE.MeshBasicMaterial({ color: new THREE.Color(hex('xr-fight-holo')).multiplyScalar(1.6), toneMapped: false }));
   glowLine.rotation.x = Math.PI / 2;
   glowLine.position.y = -0.055;
   g.add(top, lip, skirt, glowLine);
 
-  // Indicator lights around the rim
-  const lights = [];
-  const lightGeo = new THREE.BoxGeometry(0.022, 0.008, 0.012);
+  // Indicator lights around the rim: one instanced mesh (one draw call), twinkling by color.
+  const LIGHTS = 36;
   const tokens = ['xr-fight-holo', 'xr-fight-energy', 'xr-fight-holo', leftToken, 'xr-fight-holo', rightToken];
-  for (let i = 0; i < 36; i++) {
-    const a = (i / 36) * Math.PI * 2;
-    const m = new THREE.Mesh(lightGeo, new THREE.MeshBasicMaterial({ color: hex(tokens[i % tokens.length]), transparent: true }));
-    m.position.set(Math.cos(a) * radius * 1.128, -0.03, Math.sin(a) * radius * 1.128);
-    m.rotation.y = -a;
-    g.add(m);
-    lights.push(m);
+  const lights = new THREE.InstancedMesh(new THREE.BoxGeometry(0.022, 0.008, 0.012), new THREE.MeshBasicMaterial({ toneMapped: false }), LIGHTS);
+  const lightBase = [];
+  const dummy = new THREE.Object3D();
+  for (let i = 0; i < LIGHTS; i++) {
+    const a = (i / LIGHTS) * Math.PI * 2;
+    dummy.position.set(Math.cos(a) * radius * 1.128, -0.03, Math.sin(a) * radius * 1.128);
+    dummy.rotation.set(0, -a, 0);
+    dummy.updateMatrix();
+    lights.setMatrixAt(i, dummy.matrix);
+    lightBase.push(new THREE.Color(hex(tokens[i % tokens.length])));
+    lights.setColorAt(i, lightBase[i]);
   }
+  lights.userData.noShadow = true;
+  g.add(lights);
+  const lightColor = new THREE.Color();
+  const setLightSide = (side, token) => {
+    for (let i = 0; i < LIGHTS; i++) if (i % tokens.length === (side ? 5 : 3)) lightBase[i].setHex(hex(token));
+  };
 
   // The board
   const uniforms = {
@@ -426,11 +543,16 @@ export function makeArena(radius, leftToken, rightToken) {
       next = (next + 1) % 4;
     },
     flash(k) { uniforms.uFlash.value = Math.max(uniforms.uFlash.value, k); },
+    setLightSide, // (1, token): the opponent's lights take its color
     update(dt, t) {
       uniforms.uTime.value = t;
       uniforms.uFlash.value = Math.max(0, uniforms.uFlash.value - dt * 1.5);
       rings.rotation.y += dt * 0.25;
-      lights.forEach((m, i) => { m.material.opacity = 0.35 + 0.65 * (Math.sin(t * 2.4 + i * 0.9) > 0.2 ? 1 : 0.3); });
+      for (let i = 0; i < LIGHTS; i++) {
+        const on = Math.sin(t * 2.4 + i * 0.9) > 0.2;
+        lights.setColorAt(i, lightColor.copy(lightBase[i]).multiplyScalar(on ? 1.5 : 0.3));
+      }
+      lights.instanceColor.needsUpdate = true;
     },
   };
   return g;
@@ -461,7 +583,7 @@ export function makeBeam(token) {
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: beamFragment,
     side: THREE.DoubleSide,
-    ...additive,
+    ...lightAdd,
   });
   const geo = new THREE.PlaneGeometry(0.09, 1).rotateX(Math.PI / 2); // length along z, uv.y along the beam
   const a = new THREE.Mesh(geo, mat);

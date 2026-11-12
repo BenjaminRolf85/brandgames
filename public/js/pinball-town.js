@@ -8,6 +8,7 @@
 // the ATM next to the branch spits out coins, coins roll down the coin chute, the megaphone turns
 // on the advertising column, the mailbox sits on the e-mail bank.
 import * as THREE from 'three';
+import { mergeGeometries } from '../vendor/addons/utils/BufferGeometryUtils.js';
 import { color, font, hex } from './tokens.js';
 import { t } from './i18n.js';
 import { drawGlyph } from './pinball-visuals.js';
@@ -16,6 +17,83 @@ import { HQ, VAULT } from './pinball-layout.js';
 import { ICON } from './pinball-fx.js';
 
 const fp = (x, y, h = 0) => new THREE.Vector3(x, h, -y);
+
+/** A float copy of an attribute (Draco attributes may be quantized or interleaved). */
+function toFloat(attr, size = attr.itemSize) {
+  const out = new Float32Array(attr.count * size);
+  for (let i = 0; i < attr.count; i++) {
+    for (let k = 0; k < size; k++) out[i * size + k] = k < attr.itemSize ? attr.getComponent(i, k) : 1;
+  }
+  return new THREE.BufferAttribute(out, size);
+}
+
+/**
+ * Merges the meshes of toys that never move into one mesh per material (a few draw calls
+ * instead of dozens, also in the shadow pass). Children marked userData.keep stay as they are.
+ */
+function mergeStatic(objs, parent, { cast }) {
+  parent.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(parent.matrixWorld).invert();
+  const buckets = new Map();
+  const mtx = new THREE.Matrix4();
+  for (const obj of objs) {
+    if (!obj) continue;
+    obj.updateMatrixWorld(true);
+    const meshes = [];
+    const walk = (o) => {
+      if (o.userData.keep) return;
+      if (o.isMesh && !o.isInstancedMesh) meshes.push(o);
+      for (const c of o.children) walk(c);
+    };
+    walk(obj);
+    for (const o of meshes) {
+      const mats = [].concat(o.material);
+      const src = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry;
+      const groups = Array.isArray(o.material) && o.geometry.groups.length ? o.geometry.groups : [{ start: 0, count: src.attributes.position.count, materialIndex: 0 }];
+      mtx.multiplyMatrices(inv, o.matrixWorld);
+      for (const gr of groups) {
+        const mat = mats[gr.materialIndex ?? 0];
+        if (!mat) continue;
+        const g = new THREE.BufferGeometry();
+        for (const name of ['position', 'normal', 'color', 'uv']) {
+          const attr = src.attributes[name];
+          if (!attr) continue;
+          const f = toFloat(attr, name === 'color' ? 4 : attr.itemSize);
+          const size = f.itemSize;
+          g.setAttribute(name, new THREE.BufferAttribute(f.array.slice(gr.start * size, (gr.start + gr.count) * size), size));
+        }
+        g.applyMatrix4(mtx);
+        if (!buckets.has(mat)) buckets.set(mat, []);
+        buckets.get(mat).push(g);
+      }
+      // Moving parts on a merged toy (rollers, the coin stack) stay, at the same place.
+      for (const c of [...o.children]) if (c.userData.keep) parent.attach(c);
+      o.parent?.remove(o);
+    }
+  }
+  const out = [];
+  for (const [mat, list] of buckets) {
+    // Same attributes in every piece: colors (white where missing), UVs only for textured materials.
+    const textured = !!(mat.map || mat.emissiveMap);
+    for (const g of list) {
+      const n = g.attributes.position.count;
+      if (!g.attributes.normal) g.computeVertexNormals();
+      if (!g.attributes.color) g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 4).fill(1), 4));
+      if (textured && !g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
+      if (!textured && g.attributes.uv) g.deleteAttribute('uv');
+    }
+    const merged = mergeGeometries(list);
+    list.forEach((g) => g.dispose());
+    if (!merged) continue;
+    const m = new THREE.Mesh(merged, mat);
+    m.castShadow = cast;
+    m.receiveShadow = true;
+    m.userData.noFit = true;
+    parent.add(m);
+    out.push(m);
+  }
+  return out;
+}
 
 /** Where the toys stand (field x, y; height above the playfield; turn about y). */
 export const TOYS = {
@@ -153,7 +231,7 @@ export function buildTown({ field, parts, lite, burst, chute }) {
   vaultGrp.position.copy(fp(TOYS.vault.x, TOYS.vault.y, 0));
   vaultGrp.rotation.y = TOYS.vault.rot;
   group.add(vaultGrp);
-  place('PinVault', {}, vaultGrp);
+  const vaultFrame = place('PinVault', {}, vaultGrp);
   const door = place('PinVaultDoor', { x: -0.0195, y: 0, h: 0.028 }, vaultGrp);
   door?.position.set(-0.0195, 0.028, 0.001);
 
@@ -178,7 +256,7 @@ export function buildTown({ field, parts, lite, burst, chute }) {
   if (press) {
     for (const [z, h] of [[-0.004, 0.03], [0.006, 0.0405]]) {
       const r = place('PinRoller', { x: 0, y: 0, h }, press);
-      if (r) { r.position.set(0, h, z); rollers.push(r); }
+      if (r) { r.position.set(0, h, z); r.userData.keep = true; rollers.push(r); }
     }
   }
 
@@ -206,7 +284,7 @@ export function buildTown({ field, parts, lite, burst, chute }) {
   deskGrp.position.copy(fp(TOYS.desk.x, TOYS.desk.y, 0));
   deskGrp.rotation.y = TOYS.desk.rot;
   group.add(deskGrp);
-  place('PinDesk', {}, deskGrp);
+  const desk = place('PinDesk', {}, deskGrp);
   const consultant = figurePlane('founders', owned, false);
   const customer = figurePlane('seniors', owned, true);
   consultant.position.set(-0.03, 0.006, 0.004);
@@ -270,7 +348,10 @@ export function buildTown({ field, parts, lite, burst, chute }) {
   group.add(bird);
   const flight = { t: 1, from: fp(TOYS.agency.x, TOYS.agency.y, 0.07), to: fp(HQ.x, HQ.y, 0.16), next: 3 };
   const mega = place('PinMegaphone', TOYS.megaphone);
-  place('PinMailbox', TOYS.mailbox);
+  const mailbox = place('PinMailbox', TOYS.mailbox);
+  // Everything that never moves: one mesh per material (stack, rollers, door, figures stay apart).
+  stack.userData.keep = true;
+  mergeStatic([hq, agency, billboard, desk, piggy, atm, mailbox, vaultFrame, press], group, { cast: !lite });
   // Coins rolling down the coin chute (one draw call).
   const runners = new THREE.InstancedMesh(coinPart.children[0]?.geometry ?? coinPart.geometry, (coinPart.children[0] ?? coinPart).material, 6);
   runners.userData.noFit = true;

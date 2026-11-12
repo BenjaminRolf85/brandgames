@@ -56,6 +56,9 @@
   --xr-dock-well-off:      var(--p-coral-500); /* well that shows none */
   --xr-dock-shadow:        #05070f;          /* soft contact shadows on the bench */
   --xr-dock-env-top:       #2b2f5e;          /* reflection dome */
+  --xr-dock-sky-top:       #0b0f24;          /* backdrop gradient (VR and browser, never in AR) */
+  --xr-dock-sky-mid:       #2a2063;          /* violet haze behind the protein */
+  --xr-dock-sky-bottom:    #05070f;
   --xr-dock-env-bottom:    #0b0e1c;
   --xr-dock-key-light:     #fff6ec;          /* warm key light */
   --xr-dock-rim-light:     var(--p-violet-400);

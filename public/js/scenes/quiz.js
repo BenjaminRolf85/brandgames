@@ -5,13 +5,14 @@ import * as THREE from 'three';
 import { BaseScene, layoutRow } from '../scene.js';
 import { useHouse } from '../quiz-decor.js';
 import { Button, textPanel } from '../ui3d.js';
-import { color } from '../tokens.js';
+import { color, hex } from '../tokens.js';
 import { t, L } from '../i18n.js';
 import { QUIZ, FACT_MYTH, EVENTS, SPONSOR_QUIZ, TOPICS, shuffle, toMC } from '../content.js';
 import { pick, record, reviewIds } from '../progress.js';
 import { sfx } from '../sfx.js';
 import { AnswerBubble, QuizBot, makeQuestionMarks } from '../quiz-visuals.js';
 import { faceOrigin } from '../ui3d.js';
+import { sceneLook, softSun, contactShadow, polish, gfxTier } from '../gfx.js';
 
 const ROUND = 6;
 // Missed questions coming back at the end would make rounds longer than 6, so it is off for now.
@@ -32,6 +33,7 @@ export class QuizScene extends BaseScene {
     // The robot buddy on the right (the knowledge house is on the left), question marks around.
     this.bot = new QuizBot(this.group);
     this.placeBot();
+    this.lookAndLight();
     this.marks = makeQuestionMarks([[-0.74, this.eye + 0.48, -1.35, 0.14], [0.72, this.eye + 0.56, -1.35, 0.11], [-0.62, this.eye + 0.7, -1.45, 0.08], [0.86, this.eye + 0.34, -1.25, 0.09]]);
     this.group.add(this.marks);
     this.onUpdate((dt) => {
@@ -39,6 +41,63 @@ export class QuizScene extends BaseScene {
       this.marks.userData.tick(this.bot.time);
     });
     this.intro(this.name, `${t(mode === 'review' ? 'reviewIntro' : 'quizIntro')} ${t(this.house.introKey)}`, () => this.begin());
+  }
+
+  /**
+   * Look: a soft studio environment (reflections on the robot, the baubles and the metal),
+   * neutral tone mapping, and a warm key light that casts soft shadows over the house or the
+   * tree on its island (not on the lowest effects tier: a contact shadow grounds it there).
+   */
+  lookAndLight() {
+    const tier = gfxTier();
+    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.0, env: 'studio', envIntensity: 0.45, shadows: tier === 'low' ? false : 'soft' }));
+    const house = this.house.group;
+    if (tier !== 'low') {
+      // From the upper left front: the shadows fall to the right over the visible snow.
+      // The key light carries the scene (so its shadows read); the engine's sky light is
+      // turned down while the quiz runs (restored on dispose).
+      const hemi = this.engine.hemi;
+      const hemiWas = hemi.intensity;
+      hemi.intensity = hemiWas * 0.5;
+      this.onSceneDispose(() => { hemi.intensity = hemiWas; });
+      const key = new THREE.DirectionalLight(hex('xr-quiz-key'), 1.85);
+      key.position.set(-0.85, 1.15, 0.55);
+      key.target.position.set(0, 0.2, 0);
+      softSun(key, { size: 1.1, near: 0.2, far: 4, bias: -0.0006, normalBias: 0.012, radius: 4 });
+      house.add(key, key.target);
+      this.keyLight = key;
+      // The island is still most of the time: its shadow map is only redrawn while something
+      // grows, falls or tilts (saves the shadow pass, about as many draw calls as the tree has).
+      const sm = this.engine.renderer.shadowMap;
+      const auto = sm.autoUpdate;
+      sm.autoUpdate = false;
+      sm.needsUpdate = true;
+      this.onSceneDispose(() => { sm.autoUpdate = auto; sm.needsUpdate = true; });
+      let live = 3; // the tree loads in the first seconds
+      this.wakeShadows = (sec = 2) => { live = Math.max(live, sec); };
+      this.onUpdate((dt) => {
+        if (live <= 0) return;
+        live -= dt;
+        sm.needsUpdate = true;
+      });
+    } else {
+      const blob = contactShadow(0.36, 0.5);
+      blob.position.y = 0.002;
+      this.house.model.add(blob);
+    }
+    // Solid parts cast and receive shadows (also the ones that grow later); glows do not.
+    const shade = (obj) => {
+      obj.traverse((o) => {
+        if (o.isMesh && [].concat(o.material).some((m) => m.isMeshBasicMaterial || m.isShaderMaterial)) o.userData.noShadow = true;
+      });
+      polish(obj, this.engine.renderer);
+    };
+    shade(this.house.model);
+    this.house.onPart = (obj) => { shade(obj); this.wakeShadows?.(2); };
+    // The robot buddy: a soft shadow under it (it hovers a little).
+    const botBlob = contactShadow(0.17, 0.42);
+    botBlob.position.y = -0.005;
+    this.bot.group.add(botBlob);
   }
 
   /** Right of the question, facing you; below the quiz on a phone held upright. */
@@ -81,6 +140,7 @@ export class QuizScene extends BaseScene {
       return;
     }
     this.house.reset();
+    this.wakeShadows?.(1);
     this.state = { queue: items, total: items.length, i: 0, score: 0, streak: 0, correct: 0, learned: new Map(), retried: new Set() };
     this.ask();
   }
@@ -148,6 +208,7 @@ export class QuizScene extends BaseScene {
       this.bot.setMood('happy', 2.4);
     } else {
       this.house.bad();
+      this.wakeShadows?.(2.5);
       this.bot.setMood('sad', 2.4);
       state.streak = 0;
       sfx.wrong();

@@ -26,10 +26,11 @@ import { sfx } from '../sfx.js';
 import { music } from '../music.js';
 import { quality } from '../quality.js';
 import { EVENT } from '../event.js';
-import { makeEnvironment, radialTexture } from '../robot-visuals.js';
+import { radialTexture } from '../robot-visuals.js';
+import { sceneLook, gfxTier } from '../gfx.js';
 import { TIRES, PRESSURES, BEST, planScans, rate, sensorText, liveScan } from '../bike-ai.js';
 import {
-  makeCourse, makeTerrain, Scatter, makeSky, makeBase, makeScanFx, makeGuideDots, makeSnow, makeMist, makeSparks, makeCurtains, vergeHeight,
+  makeCourse, makeTerrain, Scatter, makeSky, makeBase, makeScanFx, makeGuideDots, makeSnow, makeMist, makeSparks, makeCurtains, vergeHeight, FX_AREA, makeOutdoorEnv,
   HZ, ITEMS, RAMPS, RAMP_H, S0, STOP_GAP, HALF, EDGE,
 } from '../bike-world.js';
 import {
@@ -120,9 +121,25 @@ export class BikeScene extends BaseScene {
     this.btn = { left: false, right: false };
     this.inputMode = 'none';
     this.win = { ...this.windowTarget() };
-    this.envTarget = makeEnvironment(this.engine.renderer);
+    // Graphics tier: 'high' (desktop, Quest 3 with full effects), 'medium' (phones, Quest 3
+    // lite, Quest 2), 'low' (lite elsewhere). Sharper textures, bigger shadow maps, more
+    // particles and bloom (browser only) where the GPU can afford them.
+    this.tier = gfxTier();
+    this.envTarget = makeOutdoorEnv(this.engine.renderer);
     this.prevEnvironment = this.engine.scene.environment;
-    this.engine.scene.environment = this.envTarget.texture;
+    // Filmic look: neutral tone mapping keeps the token colors but no longer blows out the
+    // snow and the sunny gravel; the outdoor environment gives the PBR materials sky light.
+    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.15, env: this.envTarget.texture, envIntensity: 0.9, shadows: quality.lite ? false : 'soft' }));
+    // The engine's flat default lights give way to this scene's sun, sky fill and bounce.
+    const eng = this.engine;
+    const engSun = eng.scene.children.filter((o) => o.isDirectionalLight);
+    const prevLights = { hemi: eng.hemi && [eng.hemi.intensity, eng.hemi.color.clone(), eng.hemi.groundColor.clone()], suns: engSun.map((l) => l.intensity) };
+    if (eng.hemi) { eng.hemi.intensity = 0.95; eng.hemi.color.setHex(hex('xr-bike-fill-sky')); eng.hemi.groundColor.setHex(hex('xr-bike-fill-ground')); }
+    engSun.forEach((l) => { l.intensity = 0; });
+    this.onSceneDispose(() => {
+      if (eng.hemi && prevLights.hemi) { eng.hemi.intensity = prevLights.hemi[0]; eng.hemi.color.copy(prevLights.hemi[1]); eng.hemi.groundColor.copy(prevLights.hemi[2]); }
+      engSun.forEach((l, i) => { l.intensity = prevLights.suns[i]; });
+    });
     this.prevBackdrop = this.engine.backdrop.visible;
     if (!this.engine.isXR) this.engine.backdrop.visible = false;
     this.prevFog = this.engine.scene.fog;
@@ -148,6 +165,9 @@ export class BikeScene extends BaseScene {
     // Clipping planes (stage space, then world space every frame): the diorama window.
     this.clipLocal = [new THREE.Plane(new THREE.Vector3(0, 0, -1), 0), new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), new THREE.Plane(new THREE.Vector3(1, 0, 0), 0), new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0)];
     this.clip = this.clipLocal.map((p) => p.clone());
+    // Particles (snow, rain, spray, speed lines) are also cut at the base's top in the headset.
+    this.floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 1e4);
+    this.clipFx = [...this.clip, this.floor];
     this.prevClipping = this.engine.renderer.localClippingEnabled;
     this.engine.renderer.localClippingEnabled = true;
     // Course group: course units, scaled down; moved so the bike stays at the stage origin.
@@ -155,17 +175,17 @@ export class BikeScene extends BaseScene {
     cg.scale.setScalar(S);
     cg.userData.noFit = true;
     st.add(cg);
-    this.terrain = makeTerrain(this.course, this.clip);
+    this.terrain = makeTerrain(this.course, this.clip, { res: this.tier === 'high' ? 2 : 1, aniso: { high: 8, medium: 4, low: 2 }[this.tier] });
     cg.add(this.terrain);
     this.fx = makeScanFx(this.course);
     cg.add(this.fx.group);
     this.dots = makeGuideDots();
     cg.add(this.dots);
-    this.snow = makeSnow(this.course, 260, this.clip);
+    this.snow = makeSnow(this.course, { high: 340, medium: 260, low: 150 }[this.tier], this.clipFx);
     cg.add(this.snow);
     this.mist = makeMist();
     cg.add(this.mist);
-    this.sparks = makeSparks();
+    this.sparks = makeSparks(260, this.clipFx);
     cg.add(this.sparks);
     // Weather: the new ground per event (shown when it turns) and rain streaks.
     this.wLayers = this.course.weather.map((w) => {
@@ -173,15 +193,15 @@ export class BikeScene extends BaseScene {
       if (layer) cg.add(layer);
       return layer;
     });
-    this.rain = makeRain(320, this.clip);
+    this.rain = makeRain({ high: 400, medium: 320, low: 180 }[this.tier], this.clipFx);
     cg.add(this.rain);
     // Tire tracks (one recycled ribbon per wheel) and speed lines on fast descents.
     this.tracks = makeTracks(this.clip);
     cg.add(this.tracks.group);
-    this.speedLines = makeSpeedLines(70, this.clip);
+    this.speedLines = makeSpeedLines(70, this.clipFx);
     cg.add(this.speedLines);
     // A soft shadow under the bike that stays on the ground: it shows the height of a jump.
-    this.blob = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.9).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-bike-hole'), transparent: true, opacity: 0.5, depthWrite: false }));
+    this.blob = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.9, 2, 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-bike-hole'), transparent: true, opacity: 0.5, depthWrite: false }));
     this.blob.userData.noFit = true;
     this.blob.renderOrder = 1;
     cg.add(this.blob);
@@ -194,21 +214,20 @@ export class BikeScene extends BaseScene {
     this.curtains = makeCurtains(this.base.userData.earth);
     st.add(this.curtains);
     // Light: a key light with a shadow over the window around the bike, a cool rim light.
-    const key = new THREE.DirectionalLight(hex('xr-bike-key-light'), 1.55);
+    this.keyBase = 2.3;
+    const key = new THREE.DirectionalLight(hex('xr-bike-key-light'), this.keyBase);
     key.position.set(-0.55, 1.4, 0.5);
     key.target.position.set(0, 0, -0.55);
-    const rim = new THREE.DirectionalLight(hex('xr-bike-sky-1-low'), 0.6);
+    const rim = new THREE.DirectionalLight(hex('xr-bike-sky-1-low'), 0.9);
     rim.position.set(0.6, 0.6, -1.6);
     rim.target = key.target;
     st.add(key, key.target, rim);
     this.key = key;
     if (!quality.lite) {
-      const r = this.engine.renderer;
-      this.prevShadow = r.shadowMap.enabled;
-      r.shadowMap.enabled = true;
-      r.shadowMap.type = THREE.PCFSoftShadowMap;
       key.castShadow = true;
-      key.shadow.mapSize.set(1024, 1024);
+      // One shadow-casting light; 2048 where the GPU can afford it, else 1024.
+      const map = this.tier === 'high' ? 2048 : 1024;
+      key.shadow.mapSize.set(map, map);
       Object.assign(key.shadow.camera, { left: -0.75, right: 0.75, top: 1.2, bottom: -1.0, near: 0.1, far: 3.2 });
       key.shadow.camera.updateProjectionMatrix();
       key.shadow.bias = -0.0015;
@@ -1568,6 +1587,7 @@ export class BikeScene extends BaseScene {
     }
     this.positionCourse();
     this.updateCurtains();
+    this.updateFloor();
     this.updateActors(gdt);
     if (!e.isXR) this.updateCamera(dt);
     this.layoutUI(dt);
@@ -1594,6 +1614,19 @@ export class BikeScene extends BaseScene {
     this.rideT += dt;
     this.speed = 0;
     this.pumpAnim = Math.max(0, (this.pumpAnim ?? 0) - dt * 3);
+  }
+
+  /** The particles' floor: the base's top while the diorama has one, else far below. */
+  updateFloor() {
+    if (!this.base.visible) { this.floor.set(new THREE.Vector3(0, 1, 0), 1e4); return; }
+    this.floor.set(new THREE.Vector3(0, 1, 0), -this.base.position.y).applyMatrix4(this.stage.matrixWorld);
+  }
+
+  /** The volume snow and rain fall in: the diorama's footprint, about 0.5 m high (headset). */
+  fxArea() {
+    if (!this.base.visible) return FX_AREA;
+    this.area ??= {};
+    return Object.assign(this.area, { back: this.win.back, front: this.win.front, side: this.win.side - 0.15, top: 0.5 / this.S });
   }
 
   /** Headset: the diorama's cut edges follow the hills down to the base. */
@@ -2028,9 +2061,18 @@ export class BikeScene extends BaseScene {
       this.bike.root.position.copy(c.point(s, this.u));
       const groundY = c.h(s) + ramp0(c, s, this.u);
       this.blob.position.set(this.bike.root.position.x, groundY + 0.04, this.bike.root.position.z);
-      this.blob.rotation.set(Math.atan(c.dh(s)), c.yaw(s), 0, 'YXZ');
+      this.blob.rotation.set(0, c.yaw(s), 0, 'YXZ');
       const lift = this.inAir ? Math.max(0, this.y) : 0;
-      this.blob.scale.setScalar(1 / (1 + lift * 0.6));
+      const bs = 1 / (1 + lift * 0.6);
+      this.blob.scale.setScalar(bs);
+      // It bends with the ground (over crests and into dips) instead of cutting into it.
+      const bp = this.blob.geometry.attributes.position;
+      const along = bs / Math.sqrt(1 + c.dcx(s) ** 2);
+      for (let i = 0; i < bp.count; i++) {
+        const sz = s - bp.getZ(i) * along;
+        bp.setY(i, (c.h(sz) + ramp0(c, sz, this.u) - groundY) / bs);
+      }
+      bp.needsUpdate = true;
       this.blob.material.opacity = 0.5 / (1 + lift * 0.8);
       this.bike.root.position.y = this.inAir ? this.Y : groundY;
       // Along the slope (nose up on a ramp), along the flight in the air, plus the wheelie.
@@ -2142,13 +2184,13 @@ export class BikeScene extends BaseScene {
     const wOn = w && w.triggered && this.mode !== 'intro' && this.mode !== 'over' && s < w.end + 2;
     this.weatherK = lerp(this.weatherK ?? 0, wOn ? 1 : 0, Math.min(1, dt * 0.9));
     this.wLayers.forEach((layer, i) => layer?.userData.setK(w && w.i === i ? this.weatherK : 0));
-    this.rain.userData.update(dt, c, s, w && (w.kind === 'rain' || w.kind === 'thaw') ? this.weatherK : 0);
+    this.rain.userData.update(dt, c, s, w && (w.kind === 'rain' || w.kind === 'thaw') ? this.weatherK : 0, this.fxArea());
     const look = w ? WEATHER_LOOK[w.kind] : null;
-    this.key.intensity = 1.55 * (1 + ((look?.light ?? 1) - 1) * this.weatherK);
+    this.key.intensity = this.keyBase * (1 + ((look?.light ?? 1) - 1) * this.weatherK);
 
     // Snow over the snow section, mist where the scanner was blinded.
     const kind = c.sectionAt(s + 4).kind;
-    this.snow.userData.update(dt, s, kind === 'snow' && this.mode !== 'intro', this.S);
+    this.snow.userData.update(dt, s, kind === 'snow' && this.mode !== 'intro', this.S, this.fxArea());
     const sec = c.sections[this.sec ?? 0];
     const fogEv = this.wEv?.kind === 'fog' && this.wEv.triggered && s < this.wEv.s + 30;
     const mistWant = fogEv || (this.mistOn && (this.mode === 'scan' || this.mode === 'choose' || (riding && s < sec.b0 + 14))) ? 1 : 0;
@@ -2471,7 +2513,6 @@ export class BikeScene extends BaseScene {
     this.engine.backdrop.visible = this.prevBackdrop;
     this.engine.scene.fog = this.engine.isXR && this.engine.xrMode === 'immersive-ar' ? null : (this.prevFog ?? null);
     if (!this.engine.isXR) this.engine.camera.rotation.set(0, 0, 0);
-    if (this.prevShadow !== undefined) this.engine.renderer.shadowMap.enabled = this.prevShadow;
     this.engine.renderer.localClippingEnabled = !!this.prevClipping;
     this.engine.scene.environment = this.prevEnvironment ?? null;
     this.envTarget?.dispose();

@@ -16,12 +16,12 @@
 import * as THREE from 'three';
 import { BaseScene } from '../scene.js';
 import { placeOnArc } from '../ui3d.js';
-import { num } from '../tokens.js';
+import { num, color } from '../tokens.js';
 import { t } from '../i18n.js';
 import { sfx } from '../sfx.js';
 import { music } from '../music.js';
 import { CHRISTMAS } from '../christmas.js';
-import { makeEnvironment } from '../robot-visuals.js';
+import { sceneLook, gfxTier } from '../gfx.js';
 import '../green-text.js';
 import { GreenGame, TYPES, TYPE_KEYS, YEARS, WEATHER, MONTH_WIND, MONTH_SUN, CHEAPEST, LIVE } from '../green-sim.js';
 import { Region, loadGreen } from '../green-visuals.js';
@@ -50,12 +50,7 @@ export class GreenScene extends BaseScene {
     this.game = new GreenGame();
     this.vis = { wind: 0.55, sun: 1, cloud: 0.35, rain: 0, snowfall: CHRISTMAS ? 0.25 : 0, snow: 0.65, night: 0, storm: 0, heat: 0, month: 2.4, cutout: false, throttle: false, blackout: false };
     const r = this.engine.renderer;
-    // The diorama has its own sun: the room's light a little softer meanwhile.
-    this.prevHemi = this.engine.hemi.intensity;
-    this.engine.hemi.intensity = this.prevHemi * 0.6;
-    this.envTarget = makeEnvironment(r);
-    this.prevEnvironment = this.engine.scene.environment;
-    this.engine.scene.environment = this.envTarget.texture;
+    this.setLook();
     this.board = new THREE.Group(); // the diorama's place (table in the headset, tilted easel in the browser)
     this.group.add(this.board);
     this.ui = new THREE.Group(); // panels and cards, kept between the steps
@@ -73,6 +68,42 @@ export class GreenScene extends BaseScene {
     const hint = this.engine.isXR ? 'greenIntroXR' : this.engine.touchUI ? 'greenIntroTouch' : 'greenIntroScreen';
     this.intro(t('greenName'), `${t('greenIntro')} ${t(hint)}`, () => this.start());
     this.layout(true);
+  }
+
+  // ---------- the look (gfx.js) ----------
+
+  /**
+   * Tone mapping, the studio environment for reflections and soft shadows (none on 'low'); the
+   * room's own lights softer (the diorama has its own sun); in the browser a night-sky gradient
+   * behind the diorama. No bloom: the snow and the white speech bubbles would haze the miniature.
+   * In the headset no post effects, and in AR the real room stays visible.
+   */
+  setLook() {
+    const e = this.engine;
+    const tier = gfxTier();
+    this.onSceneDispose(sceneLook(e, { tone: 'neutral', exposure: 1.0, env: 'studio', envIntensity: 0.45, shadows: tier === 'low' ? false : 'soft' }));
+    const sun = e.scene.children.find((o) => o.isDirectionalLight);
+    const prev = { hemi: e.hemi.intensity, sun: sun?.intensity };
+    e.hemi.intensity = prev.hemi * 0.45;
+    if (sun) sun.intensity = prev.sun * 0.35;
+    this.onSceneDispose(() => { e.hemi.intensity = prev.hemi; if (sun) sun.intensity = prev.sun; });
+    if (!e.isXR) {
+      const c = document.createElement('canvas');
+      c.width = 4;
+      c.height = 256;
+      const ctx = c.getContext('2d');
+      const g = ctx.createLinearGradient(0, 0, 0, 256);
+      g.addColorStop(0, color('xr-green-sky-top'));
+      g.addColorStop(0.55, color('xr-green-sky-mid'));
+      g.addColorStop(1, color('xr-green-sky-bottom'));
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 4, 256);
+      const sky = new THREE.CanvasTexture(c);
+      sky.colorSpace = THREE.SRGBColorSpace;
+      const prevBg = e.scene.background;
+      e.scene.background = sky;
+      this.onSceneDispose(() => { if (e.scene.background === sky) e.scene.background = prevBg; sky.dispose(); });
+    }
   }
 
   // ---------- layout ----------
@@ -755,7 +786,7 @@ export class GreenScene extends BaseScene {
         // Nothing chosen: the wind map faintly (its hatching marks where the AI is unsure) and
         // the plots that take a bet against the AI.
         this.mapMode = 'wind';
-        R.showMap('wind', null, 0.5);
+        R.showMap('wind', null, 0.36);
         this.bestPlot = null;
         R.setTags(g.plots.filter((p) => g.canBet(p.id)).map((p) => {
           const b = g.bet?.id === p.id ? g.bet : null;
@@ -1034,9 +1065,6 @@ export class GreenScene extends BaseScene {
     this.mode = 'over';
     window.removeEventListener('keydown', this.onKey);
     this.region?.dispose(this.engine.renderer);
-    this.engine.hemi.intensity = this.prevHemi;
-    this.engine.scene.environment = this.prevEnvironment ?? null;
-    this.envTarget?.dispose();
     super.dispose();
   }
 }

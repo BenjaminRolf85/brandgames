@@ -22,6 +22,7 @@ import { music } from '../music.js';
 import { quality } from '../quality.js';
 import { EVENT } from '../event.js';
 import { SPONSOR } from '../content.js';
+import { sceneLook, bloom, gfxTier } from '../gfx.js';
 import { makeEnvironment } from '../robot-visuals.js';
 import { WINTER, makeSnowfall, makeSnowCover, setSnowAmount, snowSettled, winterize } from '../snow.js';
 import { buildTable, setPlunger, inShooterLane, launchSpeed, CHANNELS, GROUPS, LANE_X, PLUNGER_Y, BALL_R } from '../pinball-layout.js';
@@ -69,9 +70,18 @@ export class PinballScene extends BaseScene {
     this.xrHeld = new Map(); // input source -> { select, squeeze }
     this.pull = 0;
     this.popups = [];
+    // The look: neutral tone mapping, the soft studio environment for the chrome and the clear
+    // coats, soft shadows (by graphics tier: Quest 3 and desktop 'high', phones and Quest lite
+    // 'medium', 'low' without shadows); bloom on the inserts and flashers in the desktop browser.
+    this.tier = gfxTier();
+    // Shadows: 'high', and 'medium' with full effects (phones, Quest 2); Quest 3 lite keeps none.
+    this.shadows = this.tier === 'high' || (this.tier === 'medium' && !quality.lite);
+    // The machine's own dark blue environment keeps the cabinet's colors deep (a bright studio
+    // room washes the clear coat out); neutral tone mapping softens only the hottest lights.
     this.envTarget = makeEnvironment(this.engine.renderer);
-    this.prevEnvironment = this.engine.scene.environment;
-    this.engine.scene.environment = this.envTarget.texture;
+    this.onSceneDispose(() => this.envTarget?.dispose());
+    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.18, env: this.envTarget.texture, envIntensity: 1, shadows: this.shadows ? 'soft' : false }));
+    if (this.tier === 'high' && !this.engine.isXR && !this.engine.touchUI) this.onSceneDispose(bloom(this.engine, { strength: 0.35, radius: 0.3, threshold: 0.97 }));
     this.table = buildTable();
     this.table.world.paused = true;
     this.table.world.on((type, obj, info) => this.onPhysics(type, obj, info));
@@ -93,16 +103,19 @@ export class PinballScene extends BaseScene {
   // ---------- world ----------
 
   setupLights() {
-    const key = (this.key = new THREE.DirectionalLight(hex('xr-pinball-light'), 1.15));
+    // Key light (warm, casts the shadows) and a cool rim light from behind the head.
+    const key = (this.key = new THREE.DirectionalLight(hex('xr-pinball-light'), 1.05));
     key.position.set(0.35, this.eye + 1.2, -0.2);
     key.target.position.set(0, this.eye - DROP, FRONT_Z - 0.5);
     this.group.add(key, key.target);
-    if (!quality.lite) {
-      const r = this.engine.renderer;
-      r.shadowMap.enabled = true;
-      r.shadowMap.type = THREE.PCFSoftShadowMap;
+    const rim = new THREE.DirectionalLight(hex('xr-pinball-rim'), 0.7);
+    rim.position.set(-0.4, this.eye + 0.6, FRONT_Z - 2.2);
+    rim.target.position.set(0, this.eye - DROP, FRONT_Z - 0.6);
+    this.group.add(rim, rim.target);
+    if (this.shadows) {
       key.castShadow = true;
-      key.shadow.mapSize.set(1024, 1024);
+      const map = this.tier === 'high' ? 2048 : 1024;
+      key.shadow.mapSize.set(map, map);
       Object.assign(key.shadow.camera, { left: -0.55, right: 0.55, top: 0.75, bottom: -0.75, near: 0.3, far: 3.2 });
       key.shadow.camera.updateProjectionMatrix();
       key.shadow.bias = -0.0004;
@@ -114,7 +127,7 @@ export class PinballScene extends BaseScene {
   }
 
   buildWorld(model) {
-    const m = (this.machine = buildMachine(this.table, model, { lite: quality.lite }));
+    const m = (this.machine = buildMachine(this.table, model, { lite: quality.lite || this.tier !== 'high', tier: this.tier, renderer: this.engine.renderer }));
     const root = m.root;
     root.scale.setScalar(this.S);
     this.machineY = this.eye - DROP;
@@ -1514,9 +1527,6 @@ export class PinballScene extends BaseScene {
     this.app.echo?.suppress(false);
     this.engine.fitEnabled = true;
     if (!this.engine.isXR) this.engine.camera.rotation.set(0, 0, 0);
-    this.engine.renderer.shadowMap.enabled = false;
-    this.engine.scene.environment = this.prevEnvironment ?? null;
-    this.envTarget?.dispose();
     for (const s of this.popups ?? []) s?.tex?.dispose?.();
     this.planPanel?.dispose?.();
     this.machine?.dispose?.(); // every ball's trail, the effects and what the machine made itself

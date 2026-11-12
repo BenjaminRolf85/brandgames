@@ -30,6 +30,7 @@ import { EVENT, EVENT_ROUNDS } from '../event.js';
 import { WINTER, makeSnowfall, makeSnowCover, winterizeTree, setSnowAmount, snowSettled } from '../snow.js';
 import { CHRISTMAS } from '../christmas.js';
 import { santaColors, grumpyHat } from '../xmas-fighters.js';
+import { sceneLook, bloom, gfxTier } from '../gfx.js';
 
 const MOVES = ['punch', 'kick', 'block', 'duck', 'throw', 'special'];
 const ICON = { punch: 'punch', kick: 'kick', block: 'block', duck: 'duck', throw: 'throw', special: 'special' };
@@ -237,9 +238,13 @@ export class FightScene extends BaseScene {
     this.hud.position.set(0, this.eye - ARENA_DROP + HUD_UP, ARENA_Z - 0.25);
     this.group.add(this.hud);
 
+    // Look: the arena's own cool environment for the metal, neutral tone mapping (keeps the
+    // token colors) and, on the desktop, a soft bloom on the neon lines, lights and beams.
     this.envTarget = makeEnvironment(this.engine.renderer);
-    this.prevEnvironment = this.engine.scene.environment;
-    this.engine.scene.environment = this.envTarget.texture;
+    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.05, env: this.envTarget.texture, envIntensity: 1.1, shadows: false }));
+    if (gfxTier() === 'high' && !this.engine.isXR && !this.engine.touchUI) {
+      this.onSceneDispose(bloom(this.engine, { strength: 0.32, radius: 0.35, threshold: 0.9 }));
+    }
   }
 
   /** Hologram projection: the figure grows up from the table with a flicker. */
@@ -304,6 +309,7 @@ export class FightScene extends BaseScene {
     this.ai.onModel = () => holoize(this.ai.root, this.holoA); // e.g. when the gloves arrive
     this.lightA.color.setHex(hex(this.opp.token));
     this.arena.userData.uniforms.uRight.value.setHex(hex(this.opp.token));
+    this.arena.userData.setLightSide(1, this.opp.token);
     this.hp = { p: PLAYER_HP, a: this.opp.hp };
     this.energy = { p: 0, a: 0 };
     this.player.ko = false;
@@ -1576,9 +1582,8 @@ export class FightScene extends BaseScene {
     this.app.echo?.suppress(false);
     music.stop();
     this.announcer.stop();
-    this.engine.scene.environment = this.prevEnvironment ?? null;
-    this.envTarget?.dispose();
     this.room?.dispose();
     super.dispose();
+    this.envTarget?.dispose(); // after the look is restored (onSceneDispose)
   }
 }

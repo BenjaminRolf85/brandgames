@@ -60,8 +60,8 @@ const SPEC = {
   BkIce: { t: 'xr-bike-ice', type: 'ice' },
   BkIceCrack: { t: 'xr-bike-ice-crack', r: 0.3 },
   BkMudWater: { t: 'xr-bike-mud-water', type: 'water' },
-  BkGold: { t: 'xr-bike-gold', r: 0.25, m: 1, glow: 0.18 },
-  BkCartridge: { t: 'xr-bike-cartridge', r: 0.2, m: 1 },
+  BkGold: { t: 'xr-bike-gold', type: 'metal', r: 0.22, m: 1, glow: 0.2 },
+  BkCartridge: { t: 'xr-bike-cartridge', type: 'metal', r: 0.2, m: 1 },
   BkCartridgeBand: { t: 'xr-bike-cartridge-band', r: 0.3, glow: 0.25 },
   BkShieldGlow: { t: 'xr-bike-shield', type: 'glow' },
   BkShieldCore: { t: 'xr-bike-shield-core', r: 0.3, m: 0.6 },
@@ -130,6 +130,10 @@ function makeMaterial(name, vc, clip) {
       break;
     case 'ice':
       m = new THREE.MeshPhysicalMaterial({ ...base, color: c, roughness: 0.06, metalness: 0.05, transparent: true, opacity: 0.88, clearcoat: 1, clearcoatRoughness: 0.02, emissive: c, emissiveIntensity: 0.12 });
+      break;
+    case 'metal':
+      // Polished metal with a lacquer coat (stars, cartridges): crisp highlights.
+      m = new THREE.MeshPhysicalMaterial({ ...base, color: c, roughness: s.r, metalness: s.m ?? 1, clearcoat: 1, clearcoatRoughness: 0.08, ...(s.glow ? { emissive: c, emissiveIntensity: s.glow } : {}) });
       break;
     case 'water':
       m = new THREE.MeshPhysicalMaterial({ ...base, color: c, roughness: 0.04, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.03 });

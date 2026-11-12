@@ -754,9 +754,10 @@ const TRAIL_DETAIL = {
   },
 };
 const NORMAL_K = { asphalt: 1.4, gravel: 3.2, mud: 2.2, snow: 1.3 };
+const VERGE_NORMAL_K = { asphalt: 2.2, gravel: 2.2, mud: 1.8, snow: 0.9 };
 
 /** A normal map from the luminance of a painting (Sobel), tiling along v. */
-function normalMap(src, strength) {
+function normalMap(src, strength, aniso = 8) {
   const W = src.width;
   const H = src.height;
   const d = src.getContext('2d').getImageData(0, 0, W, H).data;
@@ -772,33 +773,39 @@ function normalMap(src, strength) {
     for (let x = 0; x < W; x++) {
       const dx = (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1) - at(x - 1, y - 1) - 2 * at(x - 1, y) - at(x - 1, y + 1)) * strength;
       const dy = (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1) - at(x - 1, y - 1) - 2 * at(x, y - 1) - at(x + 1, y - 1)) * strength;
-      const n = new THREE.Vector3(-dx, dy, 1).normalize();
+      const l = 1 / Math.sqrt(dx * dx + dy * dy + 1);
       const k = (y * W + x) * 4;
-      out.data[k] = (n.x * 0.5 + 0.5) * 255;
-      out.data[k + 1] = (n.y * 0.5 + 0.5) * 255;
-      out.data[k + 2] = (n.z * 0.5 + 0.5) * 255;
+      out.data[k] = (-dx * l * 0.5 + 0.5) * 255;
+      out.data[k + 1] = (dy * l * 0.5 + 0.5) * 255;
+      out.data[k + 2] = (l * 0.5 + 0.5) * 255;
       out.data[k + 3] = 255;
     }
   }
   ctx.putImageData(out, 0, 0);
   const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.anisotropy = 8;
+  tex.anisotropy = aniso;
   return tex;
 }
 
-/** The trail's painting with its detail, a roughness mask and a normal map. */
-function trailTextures(kind, rnd, rough) {
+/**
+ * The trail's painting with its detail, a roughness mask and a normal map. res: 1 (256 x 512)
+ * or 2 (twice as sharp, for the 'high' graphics tier); the painting itself stays the same.
+ */
+function trailTextures(kind, rnd, rough, res = 1, aniso = 8) {
   const W = 256;
   const H = 512;
   const c = document.createElement('canvas');
-  c.width = W;
-  c.height = H;
+  c.width = W * res;
+  c.height = H * res;
   const ctx = c.getContext('2d');
+  ctx.scale(res, res);
   const g = document.createElement('canvas');
-  g.width = W;
-  g.height = H;
+  g.width = W * res;
+  g.height = H * res;
   const gl = g.getContext('2d');
+  gl.scale(res, res);
   gl.fillStyle = grey(rough);
   gl.fillRect(0, 0, W, H);
   TRAIL_PAINT[kind](ctx, W, H, rnd);
@@ -815,10 +822,11 @@ function trailTextures(kind, rnd, rough) {
   const map = new THREE.CanvasTexture(c);
   map.colorSpace = THREE.SRGBColorSpace;
   map.wrapT = THREE.RepeatWrapping;
-  map.anisotropy = 8;
+  map.anisotropy = aniso;
   const roughnessMap = new THREE.CanvasTexture(g);
   roughnessMap.wrapT = THREE.RepeatWrapping;
-  return { map, roughnessMap, normalMap: normalMap(c, NORMAL_K[kind]) };
+  roughnessMap.anisotropy = aniso;
+  return { map, roughnessMap, normalMap: normalMap(c, NORMAL_K[kind] * res, aniso) };
 }
 
 // ---------------------------------------------------------------- terrain meshes
@@ -875,7 +883,8 @@ function ribbon(course, s0, s1, cols, yFn, uvFn, step = 0.5) {
 }
 
 /** Terrain meshes of all four sections (trail strip and the ground around it). */
-export function makeTerrain(course, clip) {
+/** opts: res (texture sharpness 1 or 2), aniso (anisotropic filtering). */
+export function makeTerrain(course, clip, { res = 1, aniso = 8 } = {}) {
   const group = new THREE.Group();
   group.userData.noFit = true;
   const rnd = seeded(77);
@@ -885,10 +894,13 @@ export function makeTerrain(course, clip) {
     const s0 = sec.i === 0 ? -10 : sec.b0;
     const s1 = sec.i === 3 ? course.length + 8 : sec.b1;
     const [rt, rv] = ROUGH[sec.kind];
-    const tt = trailTextures(sec.kind, rnd, rt);
-    const vergeTex = canvasTexture(256, 256, (ctx, w, h) => VERGE_PAINT[sec.kind](ctx, w, h, rnd));
+    const tt = trailTextures(sec.kind, rnd, rt, res, aniso);
+    const vergeTex = canvasTexture(256 * res, 256 * res, (ctx) => { ctx.scale(res, res); VERGE_PAINT[sec.kind](ctx, 256, 256, rnd); });
+    vergeTex.anisotropy = aniso;
+    // Grass blades, needles and snow crust catch the light: a normal map from the painting.
+    const vergeNormal = normalMap(vergeTex.image, VERGE_NORMAL_K[sec.kind] * res, aniso);
     const trailMat = new THREE.MeshStandardMaterial({ map: tt.map, roughnessMap: tt.roughnessMap, normalMap: tt.normalMap, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 1, metalness: 0, clippingPlanes: clip });
-    const vergeMat = new THREE.MeshStandardMaterial({ map: vergeTex, roughness: rv, metalness: 0, clippingPlanes: clip });
+    const vergeMat = new THREE.MeshStandardMaterial({ map: vergeTex, normalMap: vergeNormal, normalScale: new THREE.Vector2(0.8, 0.8), roughness: rv, metalness: 0, clippingPlanes: clip });
     // In chunks, so only the pieces near the bike are drawn.
     for (let a = s0; a < s1 - 0.01; a += CHUNK) {
       const b = Math.min(s1, a + CHUNK);
@@ -901,7 +913,7 @@ export function makeTerrain(course, clip) {
       }
       chunks.push({ a, b, meshes: [trail, verge] });
     }
-    disposables.push(tt.map, tt.roughnessMap, tt.normalMap, vergeTex);
+    disposables.push(tt.map, tt.roughnessMap, tt.normalMap, vergeTex, vergeNormal);
   }
   group.userData.dispose = () => disposables.forEach((t) => t.dispose());
   /** Shows only the chunks that reach into [s0, s1]. */
@@ -1007,6 +1019,39 @@ export function makeSky() {
   return mesh;
 }
 
+/**
+ * Image-based light for the outdoor trail: a sky dome (cool blue above, a bright warm horizon,
+ * green-brown ground below) with a warm sun patch, so PBR materials get warm and cool contrast.
+ * Returns a PMREM render target (dispose it with the scene).
+ */
+export function makeOutdoorEnv(renderer) {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const env = new THREE.Scene();
+  const dome = new THREE.SphereGeometry(10, 32, 16);
+  const top = new THREE.Color(hex('xr-bike-env-sky'));
+  const horizon = new THREE.Color(hex('xr-bike-env-horizon'));
+  const ground = new THREE.Color(hex('xr-bike-env-ground'));
+  const pos = dome.attributes.position;
+  const colors = [];
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const k = pos.getY(i) / 10;
+    if (k >= 0) c.copy(horizon).lerp(top, smooth(0, 0.6, k));
+    else c.copy(horizon).lerp(ground, smooth(0, 0.25, -k));
+    colors.push(c.r, c.g, c.b);
+  }
+  dome.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  env.add(new THREE.Mesh(dome, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const sun = new THREE.Mesh(new THREE.CircleGeometry(1.6, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color(hex('xr-bike-env-sun')).multiplyScalar(4) }));
+  sun.position.set(-3.5, 6.5, 4);
+  sun.lookAt(0, 0, 0);
+  env.add(sun);
+  const target = pmrem.fromScene(env, 0.035);
+  pmrem.dispose();
+  env.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+  return target;
+}
+
 /** The diorama's base in the headset: an earth block cut like a model, with a dark rim. */
 export function makeBase(w, z0, z1, depth) {
   const g = new THREE.Group();
@@ -1032,7 +1077,8 @@ export function makeBase(w, z0, z1, depth) {
     ctx.fillRect(0, 0, W, 6);
   });
   const len = z0 - z1;
-  const side = new THREE.MeshStandardMaterial({ map: earth, roughness: 0.95 });
+  // The cut faces glow a little from within, so the earth layers read from any side and light.
+  const side = new THREE.MeshStandardMaterial({ map: earth, roughness: 0.95, emissive: hex('xr-bike-earth-glow'), emissiveMap: earth, emissiveIntensity: 0.3 });
   const dark = new THREE.MeshStandardMaterial({ color: hex('xr-bike-earth-dark'), roughness: 1 });
   const box = new THREE.Mesh(new THREE.BoxGeometry(w, depth, len), [side, side, dark, dark, side, side]);
   box.position.set(0, -depth / 2 - 0.0015, (z0 + z1) / 2);
@@ -1180,40 +1226,52 @@ export function makeGuideDots(n = 9) {
   return mesh;
 }
 
-/** Snowflakes falling over the snow section near the bike (course units). update(dt, s, on). */
+/**
+ * Snowflakes falling over the snow section near the bike (course units).
+ * update(dt, s, on, scale, area): area { back, front, side, top } is the volume they fall in
+ * (behind/ahead of the bike, to each side, height above the ground); they fade out near the top.
+ */
+export const FX_AREA = { back: 2.5, front: 14, side: 5, top: 6 };
 export function makeSnow(course, count = 260, clip = null) {
   const pos = new Float32Array(count * 3);
+  const col = new Float32Array(count * 4).fill(1);
   const seed = new Float32Array(count * 3); // s, v, phase
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const mat = new THREE.PointsMaterial({ color: hex('xr-snow-flake'), map: radialTexture(), size: 0.012, transparent: true, depthWrite: false, opacity: 0, clippingPlanes: clip });
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 4));
+  const mat = new THREE.PointsMaterial({ color: hex('xr-snow-flake'), map: radialTexture(), size: 0.012, vertexColors: true, transparent: true, depthWrite: false, opacity: 0, clippingPlanes: clip });
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
   points.userData.noFit = true;
   const p = new THREE.Vector3();
   const ys = new Float32Array(count);
   let init = false;
-  points.userData.update = (dt, s, on, scale) => {
+  points.userData.update = (dt, s, on, scale, area = FX_AREA) => {
     mat.opacity += ((on ? 0.9 : 0) - mat.opacity) * Math.min(1, dt * 1.5);
     mat.size = 0.11 * scale;
     points.visible = mat.opacity > 0.02;
-    if (!points.visible) return;
+    if (!points.visible) { init = false; return; }
+    const { back, front, side, top } = area;
     for (let i = 0; i < count; i++) {
-      if (!init || seed[i * 3] < s - 2.5) {
-        seed[i * 3] = s + (init ? 8 + Math.random() * 6 : -2 + Math.random() * 16);
-        seed[i * 3 + 1] = -5 + Math.random() * 10;
+      const out = seed[i * 3] < s - back || seed[i * 3] > s + front + 0.5 || Math.abs(seed[i * 3 + 1]) > side || ys[i] > top;
+      if (!init || out) {
+        seed[i * 3] = init && seed[i * 3] < s - back ? s + front * (0.55 + Math.random() * 0.45) : s - back + Math.random() * (back + front);
+        seed[i * 3 + 1] = (Math.random() * 2 - 1) * side;
         seed[i * 3 + 2] = Math.random() * TAU;
-        ys[i] = init ? 5 + Math.random() * 1.5 : Math.random() * 6;
+        ys[i] = init ? top * (0.7 + Math.random() * 0.3) : Math.random() * top;
       }
       ys[i] -= dt * (0.7 + (i % 5) * 0.08);
-      if (ys[i] < 0) ys[i] += 6;
+      if (ys[i] < 0) ys[i] += top;
       course.point(seed[i * 3], seed[i * 3 + 1] + Math.sin(ys[i] * 1.3 + seed[i * 3 + 2]) * 0.25, p);
       pos[i * 3] = p.x;
       pos[i * 3 + 1] = ys[i] + course.h(seed[i * 3]);
       pos[i * 3 + 2] = p.z;
+      // Soft at the top of the volume and where they touch the ground.
+      col[i * 4 + 3] = (1 - THREE.MathUtils.smoothstep(ys[i], top * 0.6, top)) * THREE.MathUtils.smoothstep(ys[i], 0, 0.25);
     }
     init = true;
     geo.attributes.position.needsUpdate = true;
+    geo.attributes.color.needsUpdate = true;
   };
   return points;
 }
@@ -1250,9 +1308,9 @@ export function makeMist(count = 9) {
 }
 
 /** Small sparks in course units (hits, stars, confetti), driven by update(dt). emit(pos, token, n). */
-export function makeSparks(max = 260) {
+export function makeSparks(max = 260, clip = null) {
   const geo = new THREE.IcosahedronGeometry(0.07, 0);
-  const mat = new THREE.MeshBasicMaterial({ toneMapped: false });
+  const mat = new THREE.MeshBasicMaterial({ toneMapped: false, clippingPlanes: clip });
   const mesh = new THREE.InstancedMesh(geo, mat, max);
   mesh.frustumCulled = false;
   mesh.userData.noFit = true;
@@ -1303,7 +1361,7 @@ export function makeCurtains(earth) {
   const C = 24;
   const g = new THREE.Group();
   g.userData.noFit = true;
-  const mat = new THREE.MeshStandardMaterial({ map: earth, roughness: 0.95, side: THREE.DoubleSide });
+  const mat = new THREE.MeshStandardMaterial({ map: earth, roughness: 0.95, side: THREE.DoubleSide, emissive: hex('xr-bike-earth-glow'), emissiveMap: earth, emissiveIntensity: 0.3 });
   const strips = [0, 1, 2, 3].map(() => {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((C + 1) * 2 * 3), 3));

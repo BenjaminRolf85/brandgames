@@ -18,6 +18,8 @@ import { loadOfficeModels, makeOffice, makeCables, timeOfDay } from '../parkour-
 import { loadForestModels, makeForestBlocks, makeForestBackdrop, makeForestGags, makeForestWeather, makeForestCanopy, makeEagle, forestSky, stormAt } from '../parkour-forest.js';
 import { loadCityModels, makeCityBlocks, makeCityBackdrop, makeCityGags, makeCityNight, makeCityObstacles, makeCitySpikes, citySky, makeHelicopter, makeRaven, hazardHalo } from '../parkour-city.js';
 import { quality } from '../quality.js';
+import { parkourLook, makeHaze, makeShafts } from '../parkour-look.js';
+import { nightAt } from '../parkour-city.js';
 import { ParkourEcho } from '../parkour-echo.js';
 import { makeEnvironment } from '../robot-visuals.js';
 import { echoVoice } from '../echo-voice.js';
@@ -76,10 +78,10 @@ export class ParkourScene extends BaseScene {
     this.ready = false;
     this.refreshHud = this.hud(() => `${t(`${this.lv.key}Name`)}  ·  ${t('parkourCoins', { n: this.coinsTaken ?? 0, total: this.total })}  ·  ${t('parkourTime', { s: fmt(this.time ?? 0) })}`);
 
-    // Glossy reflections for Echo and the blocks (restored when the scene closes).
+    // Glossy reflections for Echo and the blocks, tone mapping, the light rig of the world,
+    // shadows; all restored when the scene closes (parkour-look.js).
     this.envTarget = makeEnvironment(this.engine.renderer);
-    this.prevEnvironment = this.engine.scene.environment;
-    this.engine.scene.environment = this.envTarget.texture;
+    this.look = parkourLook(this.engine, this.lv.world, this.envTarget.texture);
 
     // Input: any press that is not on a button, plus the keyboard.
     this.engine.onEmptyPress = () => this.press();
@@ -146,7 +148,7 @@ export class ParkourScene extends BaseScene {
     course.userData.noFit = true; // the long course must not pull the browser camera back
     stage.add(course);
 
-    // Key light with a real shadow map for the stage (off in lite mode).
+    // Key light with a real shadow map for the stage (off in lite mode), warm in every world.
     const key = new THREE.DirectionalLight(0xffffff, 1.3);
     key.position.set(-0.6, 1.3, 1.0);
     key.target.position.set(0, 0.15, 0);
@@ -156,16 +158,14 @@ export class ParkourScene extends BaseScene {
     rim.target = key.target;
     stage.add(key, key.target, rim);
     if (!quality.lite) {
-      const r = this.engine.renderer;
-      r.shadowMap.enabled = true;
-      r.shadowMap.type = THREE.PCFSoftShadowMap;
       key.castShadow = true;
-      key.shadow.mapSize.set(1024, 1024);
       Object.assign(key.shadow.camera, { left: -(this.halfW + 0.15), right: this.halfW + 0.15, top: 0.85, bottom: -0.85, near: 0.2, far: 3.5 });
       key.shadow.camera.updateProjectionMatrix();
       key.shadow.bias = -0.0005;
       key.shadow.normalBias = 0.012;
     }
+    this.look.light(key, rim); // colors, strengths and the shadow map size of this world
+    this.keyScale = key.intensity / 1.3; // the office's time of day scales from here
     this.key = key;
     this.rim = rim;
 
@@ -178,6 +178,18 @@ export class ParkourScene extends BaseScene {
       // Storm with rain and lightning in the last third, clearing up before the goal.
       this.weather = makeForestWeather({ F, back: s.back, key, fireflies: this.fx.points, bottom: -2.6, top: STAGE_TOP, backZ: s.backZ, lite: quality.lite });
       course.add(this.weather.group);
+    }
+
+    // Depth haze between the backdrop and the track, light shafts (forest and city).
+    if (F || CM) {
+      this.haze = makeHaze(this.lv.world, s.half, -2.6, STAGE_TOP);
+      if (this.haze) s.units.add(this.haze.mesh);
+      this.shafts = makeShafts(this.lv.world, s.half, STAGE_TOP, -2.6);
+      if (this.shafts) s.units.add(this.shafts.mesh);
+      if (CM && this.haze) {
+        this.hazeDay = this.haze.mat.color.clone();
+        this.hazeNight = new THREE.Color(hex('xr-city-night-bottom'));
+      }
     }
 
     // Collision: every solid box sits in the buckets of the whole units it covers.
@@ -668,7 +680,9 @@ export class ParkourScene extends BaseScene {
       const d = timeOfDay((this.e.x - this.c.start) / (this.c.finish - this.c.start), this.day);
       this.setSky(d.top, d.bottom);
       this.office?.setGlow(d.glow);
-      this.key.intensity = d.key;
+      // Sunlight through the windows: strong at noon, gone at night.
+      this.office?.setDaylight(d.bottom, THREE.MathUtils.clamp((d.key - 0.85) / 0.55, 0, 1));
+      this.key.intensity = d.key * this.keyScale;
       this.rim.color.copy(d.bottom);
     }
     const show = (obj, x, hidden = false) => {
@@ -713,6 +727,11 @@ export class ParkourScene extends BaseScene {
     if (show(this.finishGate, this.c.finish) && this.finishGate.userData.size) this.finishGate.scale.multiplyScalar(this.finishGate.userData.size);
     this.skyline?.update(camX);
     this.fx.update(dt, camX, half);
+    // Haze and light shafts: the city's dawn rays go out and its haze turns violet at night,
+    // the forest's moonbeams fade in the storm.
+    const dark = this.lv.world === 'city' ? nightAt(camX) : this.lv.world === 'forest' ? stormAt(camX) : 0;
+    if (this.hazeDay) this.haze.mat.color.copy(this.hazeDay).lerp(this.hazeNight, dark);
+    this.shafts?.update(time, 1 - dark);
 
     // Echo and its shadow
     const e = this.e;
@@ -739,14 +758,13 @@ export class ParkourScene extends BaseScene {
   dispose() {
     this.app.echo?.suppress(false);
     if (this.runner) this.runner.disposed = true;
-    this.engine.renderer.shadowMap.enabled = false;
     this.engine.renderer.localClippingEnabled = false;
     this.night?.dispose(); // the city's shared materials back to day colors
     this.engine.onEmptyPress = null;
     window.removeEventListener('keydown', this.keydown);
     music.stop();
     this.card?.dispose();
-    this.engine.scene.environment = this.prevEnvironment ?? null;
+    this.look.dispose(); // tone mapping, environment, shadows, room lights back
     this.envTarget?.dispose();
     super.dispose();
   }

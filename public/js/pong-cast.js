@@ -5,12 +5,13 @@ import * as THREE from 'three';
 import { loadEchoParts, bendWing } from './echo-mascot.js';
 import { Fighter } from './fight-visuals.js';
 import { color, hex } from './tokens.js';
+import { gfxTier } from './gfx.js';
 
 /** Which Arena robot plays which Pong opponent. */
 export const ROBOT_FOR = { gpt: 'light', gemini: 'heavy', claude: 'boss' };
 
-/** Echo at the handle of the player's paddle (a child of the paddle group); swing() on a hit. */
-export function makePaddleEcho(paddle, hw, hh) {
+/** Echo at the handle of the player's paddle (a child of the paddle group); swing() on a hit. onLoad(model) once loaded. */
+export function makePaddleEcho(paddle, hw, hh, onLoad = null) {
   const holder = new THREE.Group();
   holder.position.set(-hw * 0.75, -hh - 0.07, 0.03);
   paddle.add(holder);
@@ -21,6 +22,7 @@ export function makePaddleEcho(paddle, hw, hh) {
     p.model.rotation.y = Math.PI + 0.6; // towards the AI, a little turned so you see Echo's face
     p.model.traverse((o) => { if (o.isMesh) o.userData.noFit = true; });
     holder.add(p.model);
+    onLoad?.(p.model);
   }).catch(() => {});
   let swing = 0;
   return {
@@ -75,6 +77,7 @@ export function makeGridFloor(hw, hh, len) {
   const grid = new THREE.CanvasTexture(c);
   grid.colorSpace = THREE.SRGBColorSpace;
   grid.wrapS = grid.wrapT = THREE.RepeatWrapping;
+  grid.anisotropy = { high: 8, medium: 4, low: 2 }[gfxTier()]; // sharp lines at grazing angles
   const w = hw * 10;
   const l = len * 3;
   grid.repeat.set(w / 0.12, l / 0.12);
@@ -132,8 +135,16 @@ export function makeSkyline(hw, hh, z) {
 }
 
 /** A table-tennis handle under a paddle (looks only). */
+let handleGeo = null;
 export function makeHandle(hh) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.075, 0.014), new THREE.MeshStandardMaterial({ color: hex('xr-pong-handle'), roughness: 0.6 }));
+  // A turned, flared handle (lathe profile, flattened like a real one) with a varnished finish.
+  if (!handleGeo) {
+    const prof = [[0, -0.0375], [0.012, -0.0375], [0.0145, -0.033], [0.013, -0.026], [0.0105, -0.012], [0.0105, 0.012], [0.0125, 0.026], [0.0155, 0.0355], [0.0145, 0.0375], [0, 0.0375]]
+      .map(([x, y]) => new THREE.Vector2(x, y));
+    handleGeo = new THREE.LatheGeometry(prof, 20);
+    handleGeo.scale(1, 1, 0.55);
+  }
+  const mesh = new THREE.Mesh(handleGeo, new THREE.MeshPhysicalMaterial({ color: hex('xr-pong-handle'), roughness: 0.5, clearcoat: 0.6, clearcoatRoughness: 0.35 }));
   mesh.position.set(0, -hh - 0.03, -0.004);
   return mesh;
 }

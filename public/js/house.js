@@ -474,6 +474,7 @@ export class KnowledgeHouse {
     const stage = group(...parts);
     this.model.add(stage);
     this.built.push(stage);
+    this.onPart?.(stage); // e.g. the quiz turns on shadows for it
     parts.forEach((part, i) => {
       part.scale.setScalar(0.01);
       this.delay(i * 0.14, () => this.animateIn(part));
@@ -497,6 +498,7 @@ export class KnowledgeHouse {
   addPart(obj) {
     this.model.add(obj);
     this.built.push(obj);
+    this.onPart?.(obj);
     const box3 = new THREE.Box3().setFromObject(obj);
     const center = box3.getCenter(new THREE.Vector3());
     obj.position.y += 0.12;

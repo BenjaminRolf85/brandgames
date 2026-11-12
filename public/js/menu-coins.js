@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { loadGLTF } from './models.js';
 import { color, hex } from './tokens.js';
 import { drawIcon } from './icons.js';
+import { gfxTier } from './gfx.js';
 
 export const COIN_URL = 'assets/models/coin.glb';
 export const CARD_ART = {
@@ -119,7 +120,7 @@ function faceTexture(key) {
   }
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.flipY = false; // glTF UVs (top left origin)
-  tex.anisotropy = 4;
+  tex.anisotropy = gfxTier() === 'high' ? 8 : 4; // the coins turn: sharp art at an angle
   faces.set(key, tex);
   return tex;
 }
@@ -138,6 +139,19 @@ export function makeCoin(key, d) {
     vertexColors: true, map, emissiveMap: map, emissive: 0xffffff, emissiveIntensity: 0.38,
     roughness: 0.45, clearcoat: 0.55, clearcoatRoughness: 0.2, envMap, envMapIntensity: 0.5,
   });
+  // A glint sweeps diagonally across the picture now and then (each coin at its own time).
+  const shine = { value: -1 };
+  art.onBeforeCompile = (shader) => {
+    shader.uniforms.uShine = shine;
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uShine;')
+      .replace('#include <dithering_fragment>', `#include <dithering_fragment>
+#ifdef USE_MAP
+  float sweep = vMapUv.x + vMapUv.y - uShine;
+  gl_FragColor.rgb += vec3(0.32 * exp(-sweep * sweep * 90.0) + 0.1 * exp(-sweep * sweep * 8.0));
+#endif`);
+  };
+  art.customProgramCacheKey = () => 'menu-coin-shine';
   const glowBase = new THREE.Color(hex('xr-coin-glow'));
   const seam = new THREE.MeshBasicMaterial({ color: glowBase.clone(), toneMapped: false });
   coin.traverse((o) => {
@@ -150,6 +164,8 @@ export function makeCoin(key, d) {
   let t = 0;
   let hover = false;
   let h = 0; // hover blend 0..1
+  let glint = 9; // seconds since the pointer arrived (glint sweep)
+  let wasHover = false;
   return {
     group,
     setHover(v) { hover = v; },
@@ -163,6 +179,12 @@ export function makeCoin(key, d) {
       coin.position.y = Math.sin(t * 1.3 + phase) * d * 0.012;
       coin.scale.setScalar(d * (1 + 0.08 * h));
       art.emissiveIntensity = 0.38 + 0.2 * h;
+      // Glint: crosses the face in about 0.8 s every 7 s, and once more when pointed at.
+      if (hover && !wasHover) glint = 0;
+      wasHover = hover;
+      glint += dt;
+      const cycle = (t * 0.14 + phase / (Math.PI * 2)) % 1;
+      shine.value = glint < 0.7 ? -0.3 + (glint / 0.7) * 2.6 : -0.4 + cycle * 18;
       seam.color.copy(glowBase).multiplyScalar(1 + 1.5 * h);
     },
     dispose() {

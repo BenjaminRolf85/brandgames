@@ -10,6 +10,8 @@ import { instanced, edgeFactor } from './parkour-visuals.js';
 import { roundRect } from './ui3d.js';
 import { t } from './i18n.js';
 import { font } from './tokens.js';
+import { gfxTier } from './gfx.js';
+import { beamTexture } from './parkour-look.js';
 
 export const OFFICE_URL = 'assets/models/office.glb';
 
@@ -53,14 +55,21 @@ export function loadOfficeModels() {
   return promise;
 }
 
+// Canvas pictures on screens: twice the resolution on 'high' (Quest 3 full, desktop), sharp
+// with anisotropic filtering at grazing angles.
+const sharpness = () => (gfxTier() === 'high' ? 2 : 1);
+const sharpen = (tex) => { tex.anisotropy = gfxTier() === 'high' ? 8 : 4; return tex; };
+
 /** Monitor picture: an agent chat (header, messages, input line), drawn with the tokens. */
 let screenTex = null;
 function screenTexture() {
-  if (screenTex) return screenTex;
+  const R = sharpness();
+  if (screenTex?.userData.R === R) return screenTex;
   const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 150;
+  c.width = 256 * R;
+  c.height = 150 * R;
   const ctx = c.getContext('2d');
+  ctx.scale(R, R);
   ctx.fillStyle = color('xr-parkour-back');
   ctx.fillRect(0, 0, 256, 150);
   ctx.fillStyle = color('xr-office-fabric');
@@ -80,7 +89,8 @@ function screenTexture() {
   ctx.fillStyle = color('xr-parkour-back');
   [[104, 70, 120], [104, 78, 90]].forEach(([x, y, w]) => ctx.fillRect(x, y, w, 3));
   bubble(10, 126, 236, 16, color('xr-office-dark'));
-  screenTex = new THREE.CanvasTexture(c);
+  screenTex = sharpen(new THREE.CanvasTexture(c));
+  screenTex.userData.R = R;
   screenTex.colorSpace = THREE.SRGBColorSpace;
   screenTex.flipY = false; // glTF UVs (top left origin)
   return screenTex;
@@ -136,11 +146,14 @@ function makeProp(O, pr, C) {
 /** The workshop screen: title, welcome line, the Echomotion logo and a few agenda bars. */
 let workshopTex = null;
 function workshopTexture() {
-  if (workshopTex) return workshopTex;
+  const R = sharpness();
+  if (workshopTex?.userData.R === R) return workshopTex;
   const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 288;
+  c.width = 512 * R;
+  c.height = 288 * R;
   const ctx = c.getContext('2d');
+  ctx.scale(R, R);
+  let tex = null;
   const draw = (logo) => {
     ctx.fillStyle = color('xr-parkour-back');
     ctx.fillRect(0, 0, 512, 288);
@@ -159,16 +172,18 @@ function workshopTexture() {
       ctx.fill();
     });
     if (logo) ctx.drawImage(logo, 372, 140, 112, 112);
-    if (workshopTex) workshopTex.needsUpdate = true;
+    if (tex) tex.needsUpdate = true;
   };
   draw(null);
   const img = new Image();
   img.onload = () => draw(img);
   img.src = 'assets/echomotion-logo.png';
-  workshopTex = new THREE.CanvasTexture(c);
-  workshopTex.colorSpace = THREE.SRGBColorSpace;
-  workshopTex.flipY = false; // glTF UVs (top left origin)
-  return workshopTex;
+  tex = sharpen(new THREE.CanvasTexture(c));
+  tex.userData.R = R;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.flipY = false; // glTF UVs (top left origin)
+  workshopTex = tex;
+  return tex;
 }
 
 /** Cable tangle with sparks (the office's hazard, 1 unit wide). */
@@ -212,6 +227,55 @@ export function timeOfDay(p, out = { top: new THREE.Color(), bottom: new THREE.C
   return out;
 }
 
+/**
+ * Sunlight falling in through the windows: one soft beam per window, slanted down into the room
+ * towards the player (instanced, one draw call, additive). 'high' only (Quest 3 full, desktop).
+ */
+function makeWindowBeams(course, clip) {
+  if (gfxTier() !== 'high') return null;
+  const wins = course.walls.filter((w) => w.type === 'WallWindow');
+  if (!wins.length) return null;
+  // The window opening is 3.1 wide from y 1.6 to 5.4 in the back wall (z -1.45).
+  const pos = [-1.45, 5.3, -1.3, 1.45, 5.3, -1.3, -0.35, 0.05, 0.45, 2.55, 0.05, 0.45];
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 1, 1, 1, 0, 0, 1, 0], 2));
+  geo.setIndex([0, 2, 1, 1, 2, 3]);
+  const mat = new THREE.MeshBasicMaterial({
+    map: beamTexture(), color: 0xffffff, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending,
+    depthWrite: false, toneMapped: false, side: THREE.DoubleSide, clippingPlanes: clip, fog: false,
+  });
+  const mesh = new THREE.InstancedMesh(geo, mat, wins.length);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 2;
+  mesh.userData.noFit = true;
+  mesh.userData.noShadow = true;
+  const group = new THREE.Group();
+  group.add(mesh);
+  const m = new THREE.Matrix4();
+  const sun = new THREE.Color(hex('xr-office-light'));
+  let strength = 1;
+  return {
+    group,
+    update(camX, half) {
+      let n = 0;
+      for (const w of wins) {
+        if (Math.abs(w.x - camX) > half + 3) continue;
+        mesh.setMatrixAt(n++, m.makeTranslation(w.x, 0, 0));
+      }
+      mesh.count = n;
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.visible = n > 0 && strength > 0.01;
+    },
+    set(col, k) {
+      mat.color.copy(sun).lerp(col, 0.35); // warm sunlight, tinted by the sky
+
+      strength = k;
+      mat.opacity = 0.28 * k;
+    },
+  };
+}
+
 /** The office in course units: room modules, furniture and logo signs. */
 export function makeOffice(course, O, clip = null) {
   const C = course.ceiling;
@@ -230,6 +294,8 @@ export function makeOffice(course, O, clip = null) {
     group.add(obj);
     return { ...pr, obj, blades: obj.getObjectByName('FanBlades'), base: obj.position.y };
   });
+  const beams = makeWindowBeams(course, clip);
+  if (beams) group.add(beams.group);
   let cheering = 0;
   // Echomotion sign on the logo walls
   const logoMat = new THREE.MeshBasicMaterial({ map: logoTexture(), toneMapped: false, transparent: true, clippingPlanes: clip });
@@ -285,7 +351,10 @@ export function makeOffice(course, O, clip = null) {
         if (pr.type === 'participant' && cheering) pr.obj.position.y = pr.base + Math.abs(Math.sin(time * 9 + pr.x)) * 0.25;
       }
       for (const l of logos) l.obj.visible = Math.abs(l.x - camX) < half + 1;
+      beams?.update(camX, half);
     },
+    /** Daylight through the windows: color of the sky at the horizon and strength (0 at night). */
+    setDaylight(col, k) { beams?.set(col, k); },
     /** Echo arrived at the workshop: the participants cheer. */
     cheer() { cheering = 1; },
     /** Office lights for the time of day (0..1.2 brightness). */

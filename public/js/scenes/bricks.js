@@ -21,10 +21,10 @@ import { color, hex, num } from '../tokens.js';
 import { t } from '../i18n.js';
 import { sfx } from '../sfx.js';
 import { music } from '../music.js';
-import { quality } from '../quality.js';
-import { makeEnvironment } from '../robot-visuals.js';
+import { sceneLook, softSun, bloom, contactShadow, gfxTier } from '../gfx.js';
 import { CHRISTMAS, makeLightString, makeBulbs } from '../christmas.js';
 import { makeSnowfall, setSnowAmount } from '../snow.js';
+import { radialTexture } from '../robot-visuals.js';
 import { EVENTS, EVENT_INHERIT, EVENT_PARENTS, STYLES } from '../bricks-text.js';
 import { Plan, L, H, D, GAP, TOP, FOUND, HOUSE_Z, RIDGE, EAVE, OX, OZ, ZH, ANNEX_COURSES, BASE_TARGET } from '../bricks-plan.js';
 import { Forecaster } from '../bricks-ai.js';
@@ -61,6 +61,8 @@ const BAG_AT = new THREE.Vector3(0.3, 0, 0.3);
 const FIR = new THREE.Vector3(-0.4, 0, 0.27);
 const CHIMNEY = new THREE.Vector3(0.12, TOP + RIDGE * 1.15 + 0.012, -0.07); // house-local
 const DRAG_Y = 0.28;
+// Plot materials that only receive shadows.
+const GROUND = ['Grass', 'GrassDark', 'Soil', 'SoilDark', 'Gravel', 'Concrete', 'Stone'];
 const BH = H - GAP;
 // Height of a part's origin above the pallet when it stands there.
 const REST_Y = { window: 0.05, door: 0.078, truss: 0.0 };
@@ -99,9 +101,7 @@ export class BricksScene extends BaseScene {
     this.opts = { annex: false, dormer: true, solar: false, garden: false };
     this.rooms = 5;
 
-    this.envTarget = makeEnvironment(this.engine.renderer);
-    this.prevEnvironment = this.engine.scene.environment;
-    this.engine.scene.environment = this.envTarget.texture;
+    this.setupLook();
 
     this.world = new THREE.Group();
     this.world.userData.noFit = true;
@@ -138,33 +138,106 @@ export class BricksScene extends BaseScene {
 
   // ---------- world ----------
 
+  /**
+   * The look: neutral tone mapping with a soft studio environment for reflections, a warm
+   * evening key light with soft shadows (none with "lite" effects), the app's general lights
+   * dimmed so the scene has contrast; in the browser and in VR a winter-evening sky with stars
+   * (never in AR, where the real room stays visible); bloom for the lights in the desktop browser. Scaled by gfxTier().
+   */
+  setupLook() {
+    const e = this.engine;
+    // What the device affords: 'high' (Quest 3 full, desktop), 'medium' (phones, Quest 3 lite,
+    // Quest 2), 'low' (lite elsewhere: no shadows, no surface detail).
+    this.tier = gfxTier();
+    this.onSceneDispose(sceneLook(e, { tone: 'neutral', exposure: 1.0, env: 'studio', envIntensity: 0.55, shadows: this.tier === 'low' ? false : 'soft' }));
+    const lights = [e.hemi, ...e.scene.children.filter((o) => o.isDirectionalLight)];
+    const prev = lights.map((l) => l.intensity);
+    e.hemi.intensity = 0.5;
+    lights.slice(1).forEach((l) => { l.intensity = 0.35; });
+    this.onSceneDispose(() => lights.forEach((l, i) => { l.intensity = prev[i]; }));
+    // On 'medium' the shadow map is drawn only when the house changes (a piece lands, a load
+    // swings in on the crane, the door opens), not every frame: the shadow pass costs nothing
+    // while nothing that casts moves. The item in hand casts no shadow there.
+    if (this.tier === 'medium') {
+      const sm = e.renderer.shadowMap;
+      const auto = sm.autoUpdate;
+      sm.autoUpdate = false;
+      sm.needsUpdate = true;
+      this.shadowSig = '';
+      this.onSceneDispose(() => { sm.autoUpdate = auto; sm.needsUpdate = true; });
+    }
+    const ar = e.isXR && e.xrMode === 'immersive-ar';
+    if (!ar) this.makeSky();
+    // Bloom only catches real light sources: the threshold sits above lit snow and the white
+    // panels, and the lamps and windows shine brighter than that while it is on (glowBoost).
+    const glow = this.tier === 'high' && !e.isXR && !e.touchUI;
+    this.glowBoost = glow ? 3 : 1;
+    if (glow) this.onSceneDispose(bloom(e, { strength: 0.55, radius: 0.5, threshold: 2.8 }));
+  }
+
+  /** A winter-evening sky: a gradient dome and a few stars (browser and VR only). */
+  makeSky() {
+    const e = this.engine;
+    const sky = new THREE.Group();
+    sky.userData.noFit = true;
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(16, 32, 16), new THREE.ShaderMaterial({
+      side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false,
+      uniforms: { uTop: { value: new THREE.Color(hex('xr-bricks-sky-top')) }, uMid: { value: new THREE.Color(hex('xr-bricks-sky-mid')) }, uLow: { value: new THREE.Color(hex('xr-bricks-sky-low')) } },
+      vertexShader: 'varying float vH; void main() { vH = normalize(position).y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uLow; varying float vH;
+        void main() { vec3 c = vH > 0.0 ? mix(uMid, uTop, smoothstep(0.0, 0.55, vH)) : mix(uMid, uLow, smoothstep(0.0, 0.3, -vH));
+          gl_FragColor = vec4(c, 1.0);
+          #include <colorspace_fragment>
+        }`,
+    }));
+    dome.renderOrder = -10;
+    dome.userData.noFit = true;
+    dome.frustumCulled = false;
+    const n = this.tier === 'high' ? 320 : 140;
+    const pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const h = 0.08 + Math.random() * 0.9;
+      const r = Math.sqrt(1 - h * h) * 14;
+      pos.set([Math.cos(a) * r, h * 14, Math.sin(a) * r], i * 3);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this.stars = new THREE.Points(geo, new THREE.PointsMaterial({ color: hex('xr-bricks-star'), size: 0.09, map: radialTexture(), transparent: true, depthWrite: false, fog: false, toneMapped: false, sizeAttenuation: true }));
+    this.stars.userData.noFit = true;
+    this.stars.frustumCulled = false;
+    sky.add(dome, this.stars);
+    sky.position.y = this.eye;
+    this.group.add(sky);
+    const back = e.backdrop.visible;
+    e.backdrop.visible = false;
+    this.onSceneDispose(() => { e.backdrop.visible = back; });
+  }
+
   addLights() {
-    const key = new THREE.DirectionalLight(hex('xr-bricks-key-light'), 1.5);
-    key.position.set(-0.55, 1.25, 0.75);
+    // Warm evening key light from the left (the only shadow caster: its shadows fall to the
+    // right, where the player sees them), a cool rim from behind.
+    const key = new THREE.DirectionalLight(hex('xr-bricks-key-light'), 2.6);
+    key.position.set(-0.95, 1.05, 0.3);
     key.target.position.set(0.05, 0, 0);
-    const rim = new THREE.DirectionalLight(hex('xr-bricks-rim-light'), 0.7);
+    const rim = new THREE.DirectionalLight(hex('xr-bricks-rim-light'), 1.1);
     rim.position.set(0.7, 0.8, -0.9);
     rim.target = key.target;
     this.plotRoot.add(key, key.target, rim);
-    if (!quality.lite) {
-      const r = this.engine.renderer;
-      r.shadowMap.enabled = true;
-      r.shadowMap.type = THREE.PCFSoftShadowMap;
-      key.castShadow = true;
-      key.shadow.mapSize.set(1024, 1024);
-      Object.assign(key.shadow.camera, { left: -0.75, right: 0.75, top: 0.75, bottom: -0.75, near: 0.3, far: 3 });
-      key.shadow.camera.updateProjectionMatrix();
-      key.shadow.bias = -0.0004;
-      key.shadow.normalBias = 0.006;
-    }
+    // Shadow map 2048 on 'high' (Quest 3 full, desktop), 1024 on 'medium', none on 'low'.
+    if (this.tier !== 'low') softSun(key, { size: 1.5, near: 0.3, far: 3, bias: -0.0004, normalBias: 0.006, radius: 3 });
   }
 
   build(M) {
     this.M = M;
     const plot = M.make('Plot') ?? plainPlot(M.mats);
-    plot.traverse((o) => { if (o.isMesh) { o.receiveShadow = true; o.castShadow = true; } });
+    // Ground parts only receive shadows (fewer shadow draw calls); props cast them on 'high'.
+    // On 'medium' only the house, the pieces and the item in hand cast, to keep the shadow pass small.
+    const props = this.tier === 'high';
+    plot.traverse((o) => { if (o.isMesh) { o.receiveShadow = true; o.castShadow = props && !GROUND.includes(o.material.name); } });
     this.plotRoot.add(plot);
     // The house's glass lights up at the end (own material for frames and roof).
+    if (this.glowBoost > 1) M.mats.LampGlow.color.multiplyScalar(4);
     this.glass = M.mats.Glass.clone();
     this.glass.emissive = new THREE.Color(hex('xr-bricks-window-light'));
     this.glass.emissiveIntensity = 0;
@@ -204,6 +277,7 @@ export class BricksScene extends BaseScene {
     this.hookPad = this.grabPad(new THREE.SphereGeometry(0.11, 12, 8), HOOK_AT.clone());
     this.hookPad.visible = false;
     this.crane = new Crane(M, this.plotRoot, CRANE_AT);
+    if (!props) this.crane.root.traverse((o) => { o.castShadow = false; });
     this.crane.root.visible = false;
     if (CHRISTMAS) {
       const pts = [];
@@ -317,7 +391,12 @@ export class BricksScene extends BaseScene {
     nb.family = makeFamily();
     nb.family.group.position.set(-0.05, 0, 0.27);
     nb.family.group.scale.setScalar(1.5);
+    const blob = contactShadow(0.07, 0.35);
+    blob.position.y = 0.002;
+    nb.family.group.add(blob);
     root.add(nb.family.group);
+    // The neighbors are outside the shadow map: no shadow casting (fewer draw calls).
+    root.traverse((o) => { if (o.isMesh) o.castShadow = false; });
     nb.sign = new Panel(num('xr-bricks-sign-w'), 0.11, (ctx, p) => drawSign(ctx, p, { style: nb.style, share: nb.saved / nb.target, done: nb.done }));
     nb.sign.userData.noFit = true;
     nb.sign.visible = false; // with the start
@@ -395,7 +474,7 @@ export class BricksScene extends BaseScene {
       if (this.disposed || !nb.roof) return;
       nb.roof.visible = true;
       nb.roof.scale.setScalar(0.001);
-      this.tween(0.4, (k) => nb.roof.scale.setScalar(Math.max(0.001, k)), { onDone: () => { nb.glass.emissiveIntensity = 1.4; } });
+      this.tween(0.4, (k) => nb.roof.scale.setScalar(Math.max(0.001, k)), { onDone: () => { nb.glass.emissiveIntensity = 1.4 * this.glowBoost; } });
     });
     nb.sign.redraw();
   }
@@ -870,7 +949,7 @@ export class BricksScene extends BaseScene {
       obj.traverse((o) => { if (o.isMesh) o.material = own(o.material); });
     }
     obj.userData.noFit = true;
-    obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.userData.noFit = true; } });
+    obj.traverse((o) => { if (o.isMesh) { o.castShadow = this.tier === 'high'; o.userData.noFit = true; } });
     for (const m of mats) {
       if (!m.isMeshStandardMaterial) continue;
       m.emissive = new THREE.Color(hex(kind === 'gold' ? 'xr-bricks-gold' : 'xr-bricks-ghost-hot'));
@@ -1363,6 +1442,7 @@ export class BricksScene extends BaseScene {
   }
 
   settleAll() {
+    this.settled = (this.settled ?? 0) + 1;
     for (const p of this.plan.settle()) { this.field.setTilt(p, this.plan.filled.get(p.id).skew ?? null); this.warn(p, false); }
   }
 
@@ -1504,6 +1584,7 @@ export class BricksScene extends BaseScene {
       const EY = TOP - (EAVE * RIDGE) / OZ;
       this.eaveLights = makeLightString({ x0: -RX, x1: RX, y: EY - 0.014, z: OZ + EAVE + 0.008, sag: 0.022, swags: 3, bulbs: 24 });
       this.eaveLights.visible = false;
+      this.eaveLights.traverse((o) => { o.castShadow = false; });
       this.home.add(this.eaveLights);
     }
   }
@@ -1559,7 +1640,7 @@ export class BricksScene extends BaseScene {
     this.parkCrane();
     await this.wait(0.3);
     bsfx.lights();
-    this.tween(1.2, (k) => { this.glass.emissiveIntensity = 1.6 * k; });
+    this.tween(1.2, (k) => { this.glass.emissiveIntensity = 1.6 * this.glowBoost * k; });
     if (this.eaveLights) this.eaveLights.visible = true;
     await this.wait(0.7);
     bsfx.door();
@@ -1625,8 +1706,20 @@ export class BricksScene extends BaseScene {
 
   // ---------- frame loop ----------
 
+  /** 'medium': redraw the frozen shadow map while the house changes (see setupLook). */
+  updateShadows() {
+    if (this.shadowSig === undefined || !this.plan) return;
+    const sig = `${this.plan.filled.size}|${this.home.children.length}|${this.doorPivot?.rotation.y.toFixed(2)}|${this.settled ?? 0}`;
+    if (sig !== this.shadowSig) { this.shadowSig = sig; this.shadowFrames = 45; }
+    if (this.carry || this.shadowFrames > 0) {
+      this.shadowFrames = Math.max(0, (this.shadowFrames ?? 0) - 1);
+      this.engine.renderer.shadowMap.needsUpdate = true;
+    }
+  }
+
   update(dt) {
     this.time += dt;
+    this.updateShadows();
     const playing = this.mode === 'play';
     if (playing || this.mode === 'loan') {
       if (!this.card) this.monthT += dt;
@@ -2054,9 +2147,6 @@ export class BricksScene extends BaseScene {
     for (const p of this.engine.pointers) if (p.line && p.kind === 'xr') p.line.visible = p.source?.targetRayMode !== 'screen';
     this.exitPlayView();
     setSnowAmount(0.6);
-    this.engine.renderer.shadowMap.enabled = false;
-    this.engine.scene.environment = this.prevEnvironment ?? null;
-    this.envTarget?.dispose();
     this.chart?.dispose();
     super.dispose();
   }

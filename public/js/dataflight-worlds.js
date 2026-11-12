@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { hex, color } from './tokens.js';
 import { radialTexture } from './robot-visuals.js';
+import { gfxTier } from './gfx.js';
 
 const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
 const col = (token) => new THREE.Color(hex(token));
@@ -332,27 +333,94 @@ export function makeMagnetRings() {
  * the model is loaded) and three cores at the front that Echo's antivirus pulses destroy.
  * userData: cores [{ mesh, glow, hp }], tick(dt, time), hitCore(i), coreWorld(i, v).
  */
-export function makeBoss(hacker = null, coreHp = 4) {
+/**
+ * Hull detail of the mothership (canvas, no extra draw calls): plate seams and brushed patches
+ * in the roughness map, rows of lit windows and glowing seams in the emissive map. Lathe uvs:
+ * u around the hull, v along the profile. null on the cheapest devices.
+ */
+function hullMaps() {
+  const tier = gfxTier();
+  if (tier === 'low') return null;
+  const W = tier === 'high' ? 1024 : 512;
+  const H = W / 4;
+  let seed = 11;
+  const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const rough = document.createElement('canvas');
+  rough.width = W;
+  rough.height = H;
+  const rc = rough.getContext('2d');
+  rc.fillStyle = 'rgb(110,110,110)';
+  rc.fillRect(0, 0, W, H);
+  const glow = document.createElement('canvas');
+  glow.width = W;
+  glow.height = H;
+  const gc = glow.getContext('2d');
+  gc.fillStyle = 'black';
+  gc.fillRect(0, 0, W, H);
+  // Rings of plates along the profile, each split into panels around the hull.
+  const rings = [0, 0.12, 0.27, 0.42, 0.5, 0.62, 0.8, 1].map((v) => v * H);
+  for (let i = 0; i < rings.length - 1; i++) {
+    const y0 = rings[i];
+    const y1 = rings[i + 1];
+    const n = 8 + Math.floor(r() * 3) * 4;
+    for (let k = 0; k < n; k++) {
+      const x0 = (k / n) * W;
+      const v = 70 + Math.floor(r() * 90);
+      rc.fillStyle = `rgb(${v},${v},${v})`;
+      rc.fillRect(x0 + 2, y0 + 2, W / n - 4, y1 - y0 - 4);
+    }
+    rc.fillStyle = 'rgb(235,235,235)'; // seams: rough and dark
+    rc.fillRect(0, y0 - 1.5, W, 3);
+  }
+  for (let k = 0; k < 48; k++) {
+    rc.fillStyle = 'rgb(225,225,225)';
+    rc.fillRect((k / 48) * W, 0, 2, H);
+  }
+  // Window rows on the upper hull and a glowing seam above the rim.
+  gc.fillStyle = color('xr-flight-boss-core');
+  for (const y of [0.33, 0.37]) {
+    for (let x = 0; x < W; x += W / 96) if (r() > 0.35) gc.fillRect(x, y * H, W / 220, H * 0.018);
+  }
+  gc.fillStyle = color('xr-flight-boss-rim');
+  gc.globalAlpha = 0.85;
+  gc.fillRect(0, 0.5 * H - 1, W, 2.5);
+  gc.globalAlpha = 1;
+  const make = (c, srgb) => {
+    const t = new THREE.CanvasTexture(c);
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = tier === 'high' ? 8 : 4;
+    t.wrapS = THREE.RepeatWrapping;
+    return t;
+  };
+  return { roughnessMap: make(rough, false), emissiveMap: make(glow, true) };
+}
+
+/** neon > 1 pushes the rim and the running lights above white (bloom on the desktop). */
+export function makeBoss(hacker = null, coreHp = 4, { neon = 1 } = {}) {
   const g = new THREE.Group();
   g.userData.noFit = true;
   const ship = new THREE.Group();
   g.add(ship);
   const profile = [[0, 0.2], [0.18, 0.19], [0.42, 0.14], [0.78, 0.06], [1.0, 0.0], [0.9, -0.05], [0.62, -0.1], [0.3, -0.15], [0, -0.17]].map(([x, y]) => new THREE.Vector2(x, y));
-  const hull = new THREE.Mesh(new THREE.LatheGeometry(profile, 64), new THREE.MeshStandardMaterial({ color: hex('xr-flight-boss-hull'), metalness: 0.75, roughness: 0.32 }));
+  const maps = hullMaps();
+  const hull = new THREE.Mesh(new THREE.LatheGeometry(profile, 64), new THREE.MeshStandardMaterial({
+    color: hex('xr-flight-boss-hull'), metalness: 0.75, roughness: maps ? 0.75 : 0.32,
+    ...(maps ? { roughnessMap: maps.roughnessMap, emissiveMap: maps.emissiveMap, emissive: 0xffffff, emissiveIntensity: 1.2 * neon } : {}),
+  }));
   ship.add(hull);
   // Panel ring: a darker metal band with ridges.
   const band = new THREE.Mesh(new THREE.CylinderGeometry(0.86, 0.96, 0.05, 64, 1, true), new THREE.MeshStandardMaterial({ color: hex('xr-flight-boss-metal'), metalness: 0.8, roughness: 0.4, side: THREE.DoubleSide }));
   band.position.y = 0.025;
   ship.add(band);
-  const rimMat = new THREE.MeshBasicMaterial({ color: hex('xr-flight-boss-rim'), toneMapped: false });
+  const rimMat = new THREE.MeshBasicMaterial({ color: col('xr-flight-boss-rim').multiplyScalar(neon), toneMapped: false });
   const rim = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.018, 10, 96), rimMat);
   rim.rotation.x = Math.PI / 2;
   ship.add(rim);
   // Running lights along the rim.
   const NL = 24;
   const lights = new THREE.InstancedMesh(new THREE.SphereGeometry(0.022, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), NL);
-  const lc = col('xr-flight-boss-rim');
-  const lc2 = col('xr-flight-boss-core');
+  const lc = col('xr-flight-boss-rim').multiplyScalar(neon);
+  const lc2 = col('xr-flight-boss-core').multiplyScalar(neon);
   ship.add(lights);
   // Dome with the pilot.
   const dome = new THREE.Mesh(new THREE.SphereGeometry(0.3, 40, 20, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshPhysicalMaterial({ color: hex('xr-flight-boss-core'), transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, clearcoat: 1, depthWrite: false }));

@@ -1,6 +1,7 @@
 // Rendering, WebXR session handling and unified pointer input
 // (Quest controllers, hand-tracking pinch, phone AR taps, mouse and touch).
 import * as THREE from 'three';
+import { xrProfile, applyFrameRate, XrGovernor, setInXR } from './xr-device.js';
 import { quality } from './quality.js';
 import { num, hex } from './tokens.js';
 
@@ -10,12 +11,39 @@ const easeOutCubic = (k) => 1 - Math.pow(1 - k, 3);
 const TOUCH = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 const FOV = 60;
 
+/**
+ * Additive glows only add light; they must not change the framebuffer's alpha. three.js blends
+ * alpha with the same factors as color, so an additive shader that outputs alpha 1 (color fading
+ * to black at its edges) would make its whole shape opaque: in AR (transparent canvas over the
+ * passthrough) that shows as a dark patch over the real room. This routes every AdditiveBlending
+ * material through the same color blend with the alpha left untouched. Color is unchanged, so
+ * the browser and VR look exactly as before.
+ */
+function keepAlphaOnAdditive(renderer) {
+  const state = renderer.state;
+  const setMaterial = state.setMaterial.bind(state);
+  state.setMaterial = (m, frontFaceCW) => {
+    if (m.blending !== THREE.AdditiveBlending) return setMaterial(m, frontFaceCW);
+    const keep = [m.blending, m.blendEquation, m.blendSrc, m.blendDst, m.blendEquationAlpha, m.blendSrcAlpha, m.blendDstAlpha];
+    m.blending = THREE.CustomBlending;
+    m.blendEquation = THREE.AddEquation;
+    m.blendSrc = m.premultipliedAlpha ? THREE.OneFactor : THREE.SrcAlphaFactor;
+    m.blendDst = THREE.OneFactor;
+    m.blendEquationAlpha = THREE.AddEquation;
+    m.blendSrcAlpha = THREE.ZeroFactor;
+    m.blendDstAlpha = THREE.OneFactor;
+    setMaterial(m, frontFaceCW);
+    [m.blending, m.blendEquation, m.blendSrc, m.blendDst, m.blendEquationAlpha, m.blendSrcAlpha, m.blendDstAlpha] = keep;
+  };
+}
+
 export class Engine {
   constructor(host) {
     const r = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     r.setPixelRatio(Math.min(window.devicePixelRatio, quality.lite ? 1.25 : 2));
     r.setSize(window.innerWidth, window.innerHeight);
     r.xr.enabled = true;
+    keepAlphaOnAdditive(r);
     host.appendChild(r.domElement);
     this.renderer = r;
     this.canvas = r.domElement;
@@ -103,9 +131,11 @@ export class Engine {
   }
 
   async enterXR(sessionMode) {
-    // Lite effects: slightly lower resolution and stronger foveated rendering in the headset.
-    this.renderer.xr.setFramebufferScaleFactor(quality.lite ? 0.85 : 1);
-    this.renderer.xr.setFoveation(quality.lite ? 1 : 0.5);
+    // Resolution, foveation and refresh rate per headset (xr-device.js): the Quest 3 renders
+    // sharper and at 90 Hz; lite effects and older headsets keep cheaper settings.
+    const profile = xrProfile();
+    this.renderer.xr.setFramebufferScaleFactor(profile.scale);
+    this.renderer.xr.setFoveation(profile.foveation);
     const session = await navigator.xr.requestSession(sessionMode, {
       // plane-detection: real walls, floor and tables from the Quest's room setup (AR effects).
       optionalFeatures: ['local-floor', 'hand-tracking', 'hit-test', 'plane-detection'],
@@ -116,6 +146,9 @@ export class Engine {
     this.renderer.xr.setReferenceSpaceType(floor ? 'local-floor' : 'local');
     await this.renderer.xr.setSession(session);
     this.session = session;
+    setInXR(true);
+    await applyFrameRate(session, profile.hz);
+    this.governor = new XrGovernor(this.renderer, session, profile);
     this.mode = 'xr';
     this.xrMode = sessionMode;
     const ar = sessionMode === 'immersive-ar';
@@ -134,6 +167,8 @@ export class Engine {
       this.canPlace = false;
       this.roomPlanes.clear();
       this.session = null;
+      this.governor = null;
+      setInXR(false);
       this.mode = 'preview';
       this.scene.background = this.previewBg;
       this.scene.fog = new THREE.Fog(hex('xr-bg-preview'), 6, 18);
@@ -641,10 +676,13 @@ export class Engine {
       }
     }
     this.updaters.forEach((fn) => fn(dt));
+    if (this.mode === 'xr') this.governor?.tick(dt);
     if (this.mode !== 'xr' && this.fitEnabled !== false) {
       this.root.updateMatrixWorld(true);
       this._autoFit(dt);
     }
-    this.renderer.render(this.scene, this.camera);
+    // Post effects (gfx.js bloom) only in the browser view; the headset renders directly.
+    if (this.post && this.mode !== 'xr') this.post(dt);
+    else this.renderer.render(this.scene, this.camera);
   }
 }

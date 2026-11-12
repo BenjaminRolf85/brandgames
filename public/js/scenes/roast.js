@@ -23,14 +23,15 @@ import { sfx } from '../sfx.js';
 import { music } from '../music.js';
 import { quality } from '../quality.js';
 import { CHRISTMAS, makeLightString, makeTree } from '../christmas.js';
-import { makeEnvironment, radialTexture } from '../robot-visuals.js';
+import { radialTexture } from '../robot-visuals.js';
+import { sceneLook, contactShadow, gfxTier } from '../gfx.js';
 import '../roast-text.js';
 import {
   GUESTS, BASKET_GUEST, BEANS, RATIOS, ITEMS, CUES, FIRST_CRACK, SECOND_CRACK, Recommender,
   cupFlavor, rate, guestPoints, basketResult, basketFor, mapPos,
 } from '../roast-ai.js';
 import {
-  loadShop, part, shopMaterials, makeJar, Roaster, makeScale, makeCup, makeItem, makeBasket, Puffs, BeanFlight, Guest, makeLights,
+  loadShop, part, shopMaterials, shopDetail, makeJar, Roaster, makeScale, makeCup, makeItem, makeBasket, Puffs, BeanFlight, Guest, makeLights, beanColor,
 } from '../roast-visuals.js';
 import {
   bubblePanel, jarTag, itemTag, AiPanel, blendPanel, gaugePanel, starSprite, scoreSprite, beanName, stageName, ratioIndex,
@@ -104,22 +105,22 @@ export class RoastScene extends BaseScene {
     this.sel = [];
     this.ratioIdx = 2;
 
-    const r = this.engine.renderer;
-    this.envTarget = makeEnvironment(r);
-    this.prevEnvironment = this.engine.scene.environment;
-    this.engine.scene.environment = this.envTarget.texture;
-    this.prevShadow = r.shadowMap.enabled;
-    if (!quality.lite) {
-      r.shadowMap.enabled = true;
-      r.shadowMap.type = THREE.PCFSoftShadowMap;
-    }
+    // The look by graphics tier ('high': desktop and Quest 3, 'medium': phones and Quest 3 lite,
+    // 'low': lite elsewhere): neutral tone mapping, image based light from the studio environment
+    // (brass, copper, glass and porcelain reflect it), one soft shadow map unless effects are lite.
+    this.tier = gfxTier();
+    this.shadows = !quality.lite;
+    this.onSceneDispose(sceneLook(this.engine, {
+      tone: 'neutral', exposure: 1.0, env: 'studio', envIntensity: this.shadows ? 0.28 : 0.45, shadows: this.shadows ? 'soft' : false,
+    }));
+    shopDetail(this.tier);
 
     // The shop: counter top at eye height - DROP; everything in it is in "shop space".
     this.shop = new THREE.Group();
     this.shop.position.set(0, this.eye - DROP, 0);
     this.shop.userData.noFit = true; // the browser camera frames this.fit and the panels instead
     this.group.add(this.shop);
-    this.lights = makeLights(quality.lite);
+    this.lights = makeLights(this.tier, this.shadows);
     this.shop.add(this.lights);
     // Game panels live here (not in the layer, which the intro and results clear).
     this.ui = new THREE.Group();
@@ -146,6 +147,9 @@ export class RoastScene extends BaseScene {
       this.fit.visible = true;
     }
   }
+
+  /** Phones and tablets in the browser: big screen buttons and the order strip instead of small 3D text. */
+  get phone() { return !this.engine.isXR && this.engine.touchUI; }
 
   /** Like BaseScene.intro, but higher, so the counter in front never covers it. */
   showIntro(title, text) {
@@ -177,12 +181,15 @@ export class RoastScene extends BaseScene {
     this.plinth = this.counter.getObjectByName('CounterPlinth');
     const garland = this.counter.getObjectByName('CounterGarland');
     if (garland) garland.visible = CHRISTMAS;
+    // small, busy shapes cast no shadow (a cheaper shadow pass, no speckles on the counter)
+    garland?.traverse((o) => { o.castShadow = false; });
     if (CHRISTMAS) {
       this.string = makeLightString({ x0: -0.68, x1: 0.48, y: 0.335, z: -0.035, sag: 0.03, swags: 4, bulbs: 30 });
       this.counter.add(this.string);
       this.tree = makeTree();
       this.tree.group.scale.setScalar(0.72);
       this.tree.group.position.set(-1.22, 0, -1.78);
+      this.tree.group.traverse((o) => { o.castShadow = false; });
       s.add(this.tree.group);
     }
     // the roaster on a pedestal, turned towards the player
@@ -199,6 +206,28 @@ export class RoastScene extends BaseScene {
       this.floorShadow.position.set(0, -1, -1.2);
       this.floorShadow.receiveShadow = true;
       s.add(this.floorShadow);
+    }
+    // soft contact shadows on the (real) floor: under the counter, the roaster and the tree
+    this.contacts = [];
+    const blob = (x, z, sx, sz, op) => {
+      const m = contactShadow(0.5, op);
+      m.scale.set(sx, sz, 1);
+      m.position.set(x, -1, z);
+      s.add(m);
+      this.contacts.push(m);
+      return m;
+    };
+    blob(COUNTER_AT.x - 0.1, COUNTER_AT.z - 0.05, 3.0, 1.5, 0.5);
+    blob(ROASTER_AT.x, ROASTER_AT.z, 1.3, 1.3, 0.5);
+    if (this.tree) blob(-1.22, -1.78, 1.0, 1.0, 0.4);
+    // a warm haze behind the counter (shop light in the dark): in the browser, and in VR on Quest 3
+    // with full effects; never in AR (the real room stays visible)
+    {
+      this.haze = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 2.8), new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-roast-light'), transparent: true, opacity: 0.2, depthWrite: false, toneMapped: false }));
+      this.haze.position.set(0.1, 0.35, -2.9);
+      this.haze.userData.noFit = true;
+      this.haze.renderOrder = -2;
+      s.add(this.haze);
     }
     this.smoke = new Puffs(s, { count: 22, token: 'xr-roast-smoke', size: 0.16, rise: 0.3, life: 2.6 });
     this.steam = new Puffs(s, { count: 18, token: 'xr-roast-steam', size: 0.05, rise: 0.12, life: 1.4 });
@@ -274,6 +303,7 @@ export class RoastScene extends BaseScene {
     this.ui.visible = true;
     this.fit.visible = !this.engine.isXR;
     this.buildUi();
+    this.buildStrip();
     this.mode = 'play';
     this.startWave('calm');
   }
@@ -324,6 +354,7 @@ export class RoastScene extends BaseScene {
     this.next = i + 1;
     this.spawnCool = 0.8;
     const vis = new Guest(this.G, def.model, def.look);
+    this.groundGuest(vis);
     vis.group.position.set(ENTER_X, this.floorShop ?? -1, LANE_Z);
     vis.group.rotation.y = Math.PI / 2;
     this.shop.add(vis.group);
@@ -378,7 +409,10 @@ export class RoastScene extends BaseScene {
     g.bubbleActive = g === this.active;
     g.bubble?.removeFromParent();
     g.bubble?.dispose();
-    const b = bubblePanel({ name: t(`roastGuest_${g.def.id}`), body: data.body, sub: data.sub ?? null, stars: data.stars ?? 0, w: 0.44, active: g.bubbleActive, tail: 'center', bodySize: 'xr-text-sm' });
+    // phones: a compact bubble (the name, stars after the cup); the request and the order's state are in the order strip
+    const b = this.phone
+      ? bubblePanel({ name: short(g.def.id), body: data.keep ? data.body : null, stars: data.stars ?? 0, w: data.keep || data.stars ? 0.26 : 0.2, active: g.bubbleActive, tail: 'center', bodySize: 'xr-text-sm' })
+      : bubblePanel({ name: t(`roastGuest_${g.def.id}`), body: data.body, sub: data.sub ?? null, stars: data.stars ?? 0, w: 0.44, active: g.bubbleActive, tail: 'center', bodySize: 'xr-text-sm' });
     b.userData.interactive = true;
     b.userData.label = t(`roastGuest_${g.def.id}`);
     b.userData.onClick = () => this.selectGuest(g, true);
@@ -399,7 +433,7 @@ export class RoastScene extends BaseScene {
     if (!b) return;
     const portrait = this.layoutKind === 'portrait';
     const active = g === this.active;
-    const s = active ? (portrait ? 1.14 : 1.06) : portrait ? 0.84 : 0.92;
+    const s = this.phone ? (active ? 2.2 : 1.95) : active ? (portrait ? 1.14 : 1.06) : portrait ? 0.84 : 0.92;
     b.scale.setScalar(s);
     const x = SLOT_X[g.slot];
     const y = this.eye + 0.05 + (b.h * s) / 2; // clear of tall hats, also when a head hangs
@@ -466,7 +500,7 @@ export class RoastScene extends BaseScene {
     g.vis.react('sad');
     g.vis.slump = true;
     sfx.wrong();
-    this.setBubble(g, { body: t('roastTooLong') });
+    this.setBubble(g, { body: t('roastTooLong'), keep: true });
     if (this.active === g) { this.active = null; this.ensureActive(true); }
     // a little grey cloud over the head
     this.burst(g.vis.main.head.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.22, 0)), 'xr-roast-smoke-dark', 14);
@@ -496,11 +530,21 @@ export class RoastScene extends BaseScene {
     }, { ease: (k) => k, onDone: () => this.removeGuest(g) });
   }
 
+  /** A soft contact shadow at the guest's feet (walks with them). */
+  groundGuest(vis) {
+    const m = contactShadow(0.24, 0.5);
+    m.position.y = 0.004;
+    vis.group.add(m);
+    vis.blob = m;
+  }
+
   removeGuest(g) {
     const i = this.guests.indexOf(g);
     if (i >= 0) this.guests.splice(i, 1);
     g.vis.group.removeFromParent();
     g.vis.dispose();
+    g.vis.blob?.geometry.dispose();
+    g.vis.blob?.material.dispose();
     g.hit.geometry.dispose();
     g.bar.removeFromParent();
     g.bar.userData.dispose();
@@ -614,6 +658,7 @@ export class RoastScene extends BaseScene {
     this.aiBtn.visible = !this.engine.touchUI && (this.mode === 'basket' ? !!this.sugAvailable() : canAI);
     this.stopBtn.set({ disabled: this.drumBatch?.state !== 'roasting' });
     this.updatePads();
+    this.refreshStrip();
   }
 
   sugAvailable() {
@@ -674,6 +719,7 @@ export class RoastScene extends BaseScene {
     this.delay(POUR_TIME, () => {
       if (this.disposed || this.drumBatch !== batch) return;
       batch.state = 'roasting';
+      if (this.flashes) delete this.flashes.drum; // a crack of the batch before
       this.r = 0;
       this.cracked = 0;
       this.roaster.showDrum(true);
@@ -924,6 +970,13 @@ export class RoastScene extends BaseScene {
 
   /** A light dot flies from the guest to the AI panel; the new cup appears on the taste map. */
   learnFx(stars, g) {
+    if (this.phone) {
+      sfx.build();
+      this.stripFlash('ai', t('roastAiLearned', { name: short(g.def.id), n: stars }));
+      if (this.mode === 'play' && this.active) this.showAI(this.active);
+      this.aiPanel.show({ count: this.ai.count, dots: this.dots() });
+      return;
+    }
     const from = g.vis.main.head.getWorldPosition(new THREE.Vector3());
     const to = this.aiPanel.getWorldPosition(new THREE.Vector3());
     const dot = starSprite(true, 0.05);
@@ -970,9 +1023,9 @@ export class RoastScene extends BaseScene {
   }
 
   /** Pops a 3D model in by its scale only (its materials are shared with the rest of the shop). */
-  popScale(obj, delay = 0) {
+  popScale(obj, delay = 0, size = 1) {
     obj.scale.setScalar(0.001);
-    this.delay(delay, () => this.tween(0.35, (k) => obj.scale.setScalar(Math.max(0.001, k * (1 + 0.15 * Math.sin(k * Math.PI))))));
+    this.delay(delay, () => this.tween(0.35, (k) => obj.scale.setScalar(Math.max(0.001, size * k * (1 + 0.15 * Math.sin(k * Math.PI))))));
   }
 
   pulse(obj) {
@@ -1027,6 +1080,7 @@ export class RoastScene extends BaseScene {
     });
     // the student comes back for her grandma's present
     const vis = new Guest(this.G, BASKET_GUEST.model);
+    this.groundGuest(vis);
     vis.group.position.set(ENTER_X, this.floorShop ?? -1, LANE_Z);
     vis.group.rotation.y = Math.PI / 2;
     this.shop.add(vis.group);
@@ -1067,12 +1121,16 @@ export class RoastScene extends BaseScene {
   sayBasket(body, stars = 0) {
     this.basketBubble?.removeFromParent();
     this.basketBubble?.dispose();
-    const b = bubblePanel({ name: t('roastGuest_student'), body, stars, w: 0.62, active: true, tail: 'center', bodySize: 'xr-text-sm' });
+    const b = this.phone
+      ? bubblePanel({ name: short('student'), body: null, stars, w: stars ? 0.26 : 0.2, active: true, tail: 'center' })
+      : bubblePanel({ name: t('roastGuest_student'), body, stars, w: 0.62, active: true, tail: 'center', bodySize: 'xr-text-sm' });
+    if (this.phone) b.scale.setScalar(2.2);
     const x = SLOT_X[1];
-    b.position.set(x, this.eye + 0.01 + b.h / 2, SLOT_Z + 0.16);
+    b.position.set(x, this.eye + 0.01 + (b.h * b.scale.y) / 2, SLOT_Z + 0.16);
     b.rotation.set(0, this.engine.isXR ? Math.atan2(-x, -b.position.z) : 0, 0);
     this.ui.add(b);
-    this.popIn(b);
+    if (this.phone) this.popScale(b, 0, 2.2);
+    else this.popIn(b);
     this.basketBubble = b;
   }
 
@@ -1141,6 +1199,7 @@ export class RoastScene extends BaseScene {
     this.ui.visible = false;
     this.fit.visible = false;
     this.updatePads();
+    if (this.strip) this.strip.el.hidden = true;
     // the shop makes way for the results
     const s = this.shop;
     this.tween(0.5, (k) => s.scale.setScalar(Math.max(0.001, 1 - k)), { onDone: () => { s.visible = false; } });
@@ -1178,7 +1237,14 @@ export class RoastScene extends BaseScene {
       ? t('roastHudBasket', { name, basket: basketWord(), score: this.score })
       : t('roastHud', { name, wave, done: this.stats?.length ?? 0, total: GUESTS.length, score: this.score });
     s = s.replace(/^ · /, '');
-    // Phones: the line that matters most right now comes first in the status bar (it holds two lines).
+    // Phones: the order strip shows the request, the AI and the drum; the status bar the round.
+    if (this.strip) {
+      if (this.mode !== 'play' || window.innerWidth <= window.innerHeight) return s;
+      const d = this.drumState();
+      const drum = d.stage === t('roastDrumFree') ? [d.stage, ...d.lines] : [`${t('roastStripDrum')}: ${d.stage}`, ...d.lines];
+      return `${drum.join(' · ')} · ${s}`;
+    }
+    // (touch without the strip) the line that matters most right now comes first
     if (touch && this.mode === 'play') {
       let first = '';
       if (this.drumBatch?.state === 'roasting') first = `${t('roastRoasting')}: ${stageName(this.r)}`;
@@ -1234,9 +1300,10 @@ export class RoastScene extends BaseScene {
   /** Which station panels are visible: 'play' (blend and drum), 'basket' or 'none'. */
   showControls(which) {
     this.controls = which;
-    this.blend.visible = which === 'play';
-    this.gauge.visible = which === 'play';
-    this.basketInfo.visible = which === 'basket';
+    // phones: the order strip shows the blend and the roast stage (the 3D text would be too small)
+    this.blend.visible = which === 'play' && !this.phone;
+    this.gauge.visible = which === 'play' && !this.phone;
+    this.basketInfo.visible = which === 'basket' && !this.phone;
     // phones use the big screen buttons instead of the 3D ones
     const touch = this.engine.touchUI;
     [this.moreA, this.moreB, this.roastBtn, this.stopBtn, this.packBtn].forEach((b) => { b.visible = !touch; });
@@ -1245,6 +1312,7 @@ export class RoastScene extends BaseScene {
 
   /** Short message above the drum (or the basket). */
   toast(text, token = 'xr-accent') {
+    if (this.phone) { this.stripFlash(this.mode === 'play' ? 'drum' : 'ai', text); return; }
     this.toastPanel?.removeFromParent();
     this.toastPanel?.dispose();
     const p = textPanel(0.56, 0.08, [{ text, size: 'xr-text-sm', weight: 'black', color: color(token) }], { surface: { stroke: color(token) } });
@@ -1315,7 +1383,7 @@ export class RoastScene extends BaseScene {
         { icon: 'special', label: t('roastStop'), onPress: () => this.stopRoast(), group: 'right', primary: true },
       ];
       // the bean and its main note ("Ethiopia · fruity"), since the 3D tags are small on a phone
-      const note = (i) => `${beanName(i)} · ${t(`roastBeanNote_${BEANS[i].key}`).split(',')[0]}`;
+      const note = (i) => `${beanName(i)}\n${t(`roastBeanNote_${BEANS[i].key}`).split(',')[0]}`;
       let items = null;
       if (kind === 'jars') items = [0, 1, 2, 3].map((i) => ({ icon: '', label: note(i), onPress: () => this.toggleJar(i), group: 'left' })).concat(station);
       else if (kind === 'blend') {
@@ -1336,6 +1404,7 @@ export class RoastScene extends BaseScene {
       if (items) {
         this.pads = this.touchButtons(items, { grid: true });
         this.padEl = [...document.querySelectorAll('#stage > .mtouch')].pop() ?? null;
+        this.padEl?.classList.add('roast-pads');
         this.pads?.show(true);
         // four bean buttons: one row of four when upright, a 2 x 2 block when sideways
         const left = this.padEl?.querySelector('.mtouch__group--left');
@@ -1373,6 +1442,165 @@ export class RoastScene extends BaseScene {
     } else if (kind === 'items') ITEMS.forEach((_, i) => mark(i, this.picks.includes(i)));
   }
 
+  // ---------- phones: the order strip ----------
+
+  /**
+   * Phones: a strip of screen cards that stays readable however small the 3D view is: the active
+   * guest's request (their speech bubble), the AI's suggestion with its confidence, the drum with
+   * the roast stage. Upright under the status bar; sideways in two columns above the thumb buttons.
+   */
+  buildStrip() {
+    if (!this.phone || this.strip) return;
+    const el = document.createElement('div');
+    el.className = 'roast-strip';
+    el.innerHTML = `
+      <section class="roast-strip__card roast-strip__guest"><p class="roast-strip__name"></p><p class="roast-strip__ask"></p><p class="roast-strip__sub"></p><div class="roast-strip__bar"><i></i></div></section>
+      <section class="roast-strip__card roast-strip__ai"><p class="roast-strip__label"></p><p class="roast-strip__main"></p><p class="roast-strip__conf"></p></section>
+      <section class="roast-strip__card roast-strip__drum"><p class="roast-strip__label"></p><p class="roast-strip__main"><span class="roast-strip__chip"></span><span class="roast-strip__stage"></span></p><p class="roast-strip__sub"></p></section>`;
+    document.getElementById('stage')?.append(el);
+    const q = (sel) => el.querySelector(sel);
+    const guest = q('.roast-strip__guest');
+    const ai = q('.roast-strip__ai');
+    const drum = q('.roast-strip__drum');
+    this.strip = {
+      el, guest, ai, drum,
+      name: guest.querySelector('.roast-strip__name'), ask: guest.querySelector('.roast-strip__ask'), sub: guest.querySelector('.roast-strip__sub'),
+      bar: guest.querySelector('.roast-strip__bar'), fill: guest.querySelector('.roast-strip__bar > i'),
+      aiLabel: ai.querySelector('.roast-strip__label'), aiMain: ai.querySelector('.roast-strip__main'), aiConf: ai.querySelector('.roast-strip__conf'),
+      drumLabel: drum.querySelector('.roast-strip__label'), chip: drum.querySelector('.roast-strip__chip'), stage: drum.querySelector('.roast-strip__stage'), drumSub: drum.querySelector('.roast-strip__sub'),
+    };
+    this.flashes = {};
+    this.refreshStrip();
+  }
+
+  /** A short message in a card of the strip (a crack, a hint, what the AI just learned). */
+  stripFlash(card, text) {
+    this.flashes[card] = { text, until: this.time + 2.4 };
+    this.refreshStrip();
+    this.refreshHud?.();
+  }
+
+  refreshStrip() {
+    const S = this.strip;
+    if (!S) return;
+    const show = this.mode === 'play' || this.mode === 'basket' || this.mode === 'pack';
+    S.el.hidden = !show;
+    if (!show) return;
+    const put = (node, text) => { if (node.textContent !== text) node.textContent = text; node.hidden = !text; };
+    const flash = (k) => (this.flashes[k] && this.flashes[k].until > this.time ? this.flashes[k] : null);
+    const basket = this.mode !== 'play';
+    const land = window.innerWidth > window.innerHeight;
+    // the guest you prepare for: their request, your blend, their patience
+    let name = '';
+    let ask = '';
+    let sub = '';
+    let frac = null;
+    if (basket) {
+      name = t('roastGuest_student');
+      ask = t(CHRISTMAS ? 'roastAsk_basket' : 'roastAsk_basket_plain');
+      sub = t('roastBasketChosen', { list: (this.picks ?? []).map((k) => t(`roastItem_${ITEMS[k].key}`)).join(', ') || '–' });
+    } else if (this.active) {
+      const g = this.active;
+      name = t(`roastGuest_${g.def.id}`);
+      ask = g.ask ?? '';
+      const recipe = this.sel.length === 2 ? this.recipeText({ a: this.sel[0], b: this.sel[1], ratio: RATIOS[this.ratioIdx] }) : null;
+      sub = !recipe ? t('roastStripPick') : land ? recipe : t('roastStripBlend', { recipe });
+      frac = clamp(g.patience / g.patienceMax, 0, 1);
+    } else if (this.ready.length) ask = t('roastHudReady', { name: short(this.ready[0].g.def.id) });
+    else {
+      // nobody to prepare for: the guest whose cup is on its way, else nobody
+      const g = this.guests.find((x) => x.state === 'wait' && x.batch);
+      if (g) { name = t(`roastGuest_${g.def.id}`); ask = g.ask ?? ''; sub = this.orderStatus(g) ?? ''; } else ask = t('roastNobody');
+    }
+    put(S.name, name);
+    put(S.ask, ask);
+    put(S.sub, sub);
+    S.bar.hidden = frac === null;
+    if (frac !== null) {
+      S.fill.style.width = `${Math.round(frac * 100)}%`;
+      S.fill.style.background = `var(--${frac > 0.5 ? 'xr-success' : frac > 0.25 ? 'xr-warning' : 'xr-danger'})`;
+    }
+    // the AI: its suggestion and how sure it is (or what it just learned)
+    let main = '';
+    let conf = null;
+    const fa = flash('ai');
+    if (fa) main = fa.text;
+    else if (basket) {
+      if (this.bsug?.profile) { main = t('roastStripBasketAi', { list: this.bsug.pick.map((k) => t(`roastItem_${k}`)).join(', ') }); conf = this.bsug.conf; } else main = t('roastAiBasketCold');
+    } else if (this.active && this.sug) {
+      const sg = this.sug;
+      if (sg.recipe) { main = `${this.recipeText(sg.recipe)}, ${stageName(sg.roast)}`; conf = sg.conf; } else if (sg.avoid) main = t('roastAiAvoid', { name: short(sg.avoid.id), recipe: this.recipeText(sg.avoid.recipe) });
+      else main = t('roastStripCold');
+    } else main = this.ai.count === 1 ? t('roastAiCount1') : t('roastAiCount', { n: this.ai.count });
+    put(S.aiLabel, t('roastStripAi'));
+    put(S.aiMain, main);
+    put(S.aiConf, conf === null ? '' : `${t('roastAiConf', { n: Math.round(conf * 100) })}${conf < 0.3 ? ` · ${t('roastAiUnsure')}` : ''}`);
+    S.aiConf.className = `roast-strip__conf roast-strip__conf--${conf >= 0.6 ? 'high' : conf >= 0.3 ? 'mid' : 'low'}`;
+    S.ai.classList.toggle('is-flash', !!fa);
+    // the drum: the stage while it roasts (with its color), who it is for, who is next
+    // (sideways it is the first line of the status bar instead, see hudText)
+    S.drum.hidden = basket || land;
+    S.el.classList.toggle('is-basket', basket);
+    if (!S.drum.hidden) {
+      const d = this.drumState();
+      put(S.drumLabel, t('roastStripDrum'));
+      put(S.stage, d.stage);
+      S.chip.hidden = !d.col;
+      if (d.col) S.chip.style.background = `#${d.col.getHexString()}`;
+      put(S.drumSub, d.lines.join(' · '));
+      S.drum.classList.toggle('is-flash', d.flash);
+    }
+    this.placeStrip();
+  }
+
+  /** The drum for the strip and the status bar: stage (and its color), who it roasts for, who is next. */
+  drumState() {
+    const b = this.drumBatch;
+    const fd = this.flashes?.drum && this.flashes.drum.until > this.time ? this.flashes.drum : null;
+    let stage = t('roastDrumFree');
+    let col = null;
+    const lines = [];
+    if (b?.state === 'roasting') {
+      stage = stageName(this.r);
+      col = beanColor(this.r);
+      lines.push(t('roastRoastFor', { name: short(b.g.def.id) }));
+    } else if (b?.state === 'pour') lines.push(t('roastRoastFor', { name: short(b.g.def.id) }));
+    else if (this.cooling.length) stage = t('roastStripCooling', { name: short(this.cooling[0].g.def.id) });
+    if (this.nextBatch) lines.push(t('roastNext', { name: short(this.nextBatch.g.def.id) }));
+    if (fd) lines.unshift(fd.text);
+    return { stage, col, lines, flash: !!fd };
+  }
+
+  /** Under the status bar; sideways the columns end above the thumb buttons. */
+  placeStrip() {
+    const S = this.strip;
+    if (!S || S.el.hidden) return;
+    const H = window.innerHeight;
+    const land = window.innerWidth > H;
+    const hud = document.querySelector('#stage > .mhud');
+    const top = Math.round((hud?.getBoundingClientRect().bottom ?? 56) + 8);
+    S.el.style.top = `${top}px`;
+    if (land) {
+      const groups = this.padEl ? [...this.padEl.querySelectorAll('.mtouch__group')] : [];
+      const padTop = groups.length ? Math.min(...groups.map((g) => g.getBoundingClientRect().top)) : H;
+      S.el.style.bottom = `${Math.round(H - padTop + 8)}px`;
+      delete S.el.dataset.inset;
+    } else {
+      S.el.style.bottom = '';
+      S.el.dataset.inset = 'top'; // the 3D view is framed below it
+    }
+  }
+
+  /** Landscape on phones: the screen width the strip's columns cover on the left and right. */
+  stripSides() {
+    const S = this.strip;
+    if (!S || S.el.hidden || window.innerWidth <= window.innerHeight) return { left: 0, right: 0 };
+    const W = window.innerWidth;
+    const g = S.guest.getBoundingClientRect();
+    const right = [S.ai, S.drum].filter((c) => !c.hidden).map((c) => c.getBoundingClientRect().left);
+    return { left: g.width ? g.right + 6 : 0, right: right.length ? W - Math.min(...right) + 6 : 0 };
+  }
+
   // ---------- layout ----------
 
   /**
@@ -1405,6 +1633,7 @@ export class RoastScene extends BaseScene {
       this.aiPanel = fresh;
     }
     const ai = this.aiPanel;
+    ai.visible = !this.phone; // phones: the order strip shows the AI's suggestion
     if (kind === 'portrait') {
       ai.rotation.set(0, 0, 0);
       ai.scale.setScalar(1.2);
@@ -1443,6 +1672,11 @@ export class RoastScene extends BaseScene {
     this.roastBtn.position.set(this.blend.w / 2 + 0.02 + this.roastBtn.w / 2, -0.03, 0.002);
     this.stopBtn.position.set(0, -this.gauge.h / 2 - 0.014 - this.stopBtn.h / 2, 0.002);
     this.aiBtn.position.set(0, -ai.h / 2 - 0.012 - this.aiBtn.h / 2, 0.002);
+    // phones: the camera frames just the counter and the guests (the strip carries the panels' text)
+    if (this.phone) {
+      this.fit.position.set(-0.08, top + 0.08, -0.96);
+      this.fit.scale.set(1.3, 0.55, 0.68);
+    }
     this.guests.forEach((g) => this.placeBubble(g));
     this.updatePads();
   }
@@ -1481,6 +1715,9 @@ export class RoastScene extends BaseScene {
       b0 = Math.min(b0, b); b1 = Math.max(b1, b);
     }
     const H = window.innerHeight;
+    const W = window.innerWidth;
+    const side = this.stripSides();
+    const freeW = Math.max(0.35, 1 - (side.left + side.right) / W);
     const free = Math.max(0.35, 1 - (ins.top + ins.bottom) / H);
     const center = (ins.bottom - ins.top) / H;
     const tv = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
@@ -1494,9 +1731,10 @@ export class RoastScene extends BaseScene {
     for (const p of pts) {
       const q = p.clone().sub(T);
       const f = q.dot(fwd);
-      need = Math.max(need, (margin * Math.abs(q.x)) / th - f, (margin * Math.abs(q.dot(up))) / (tv * free) - f);
+      need = Math.max(need, (margin * Math.abs(q.x)) / (th * freeW) - f, (margin * Math.abs(q.dot(up))) / (tv * free) - f);
     }
     const want = T.clone().addScaledVector(fwd, -need).addScaledVector(up, -center * need * tv);
+    want.x += ((side.right - side.left) / W) * need * th;
     const k = this.camReady ? Math.min(1, dt * 4) : 1;
     this.camReady = true;
     cam.position.lerp(want, k);
@@ -1520,6 +1758,8 @@ export class RoastScene extends BaseScene {
     this.floorShop = e.floorY - e.root.position.y - this.group.position.y - this.shop.position.y;
     if (this.plinth) this.plinth.scale.y = Math.max(0.001, -0.9 - this.floorShop);
     if (this.floorShadow) this.floorShadow.position.y = this.floorShop + 0.002;
+    this.contacts?.forEach((m) => { if (!m.userData.guest) m.position.y = this.floorShop + 0.003; });
+    if (this.haze) this.haze.visible = !e.isXR || (!!e.scene.background && gfxTier() === 'high');
     if (this.roaster) {
       const base = Math.max(this.floorShop, ROASTER_BASE_MIN);
       this.roaster.group.position.y = base;
@@ -1607,6 +1847,7 @@ export class RoastScene extends BaseScene {
       if (this.mode !== 'intro' && this.mode !== 'over') {
         this.refreshHud?.();
         this.updatePads();
+        this.refreshStrip();
       }
     }
   }
@@ -1633,13 +1874,16 @@ export class RoastScene extends BaseScene {
     this.audio.stop();
     music.stop();
     this.pads?.remove();
+    this.strip?.el.remove();
     for (const g of [...this.guests]) this.removeGuest(g);
     this.basketGuest?.dispose();
+    this.basketGuest?.blob?.geometry.dispose();
+    this.basketGuest?.blob?.material.dispose();
     this.smoke?.dispose();
     this.steam?.dispose();
-    this.engine.renderer.shadowMap.enabled = this.prevShadow;
-    this.engine.scene.environment = this.prevEnvironment ?? null;
-    this.envTarget?.dispose();
+    this.contacts?.forEach((m) => { m.geometry.dispose(); m.material.dispose(); });
+    this.haze?.geometry.dispose();
+    this.haze?.material.dispose();
     super.dispose();
   }
 }

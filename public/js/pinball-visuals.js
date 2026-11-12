@@ -23,6 +23,7 @@ import { drawStudio, makeKpiChart, BG_W, BG_H, CHART } from './pinball-backglass
 import { buildDetails, drawDetailArt, detailInserts } from './pinball-details.js';
 import { drawCity, drawShots } from './pinball-art.js';
 import { buildTown, PEOPLE_SPOTS, PEOPLE_SCALE } from './pinball-town.js';
+import { contactShadow } from './gfx.js';
 
 export const MODEL_URL = 'assets/models/pinball.glb';
 export const TOYS_URL = 'assets/models/pinball-toys.glb';
@@ -418,8 +419,9 @@ function makeSling(sl, mats) {
 
 const PF = { w: BOARD.x1 - BOARD.x0, h: BOARD.y1 - BOARD.y0 };
 
-function drawPlayfield(table, lite = false) {
-  const PPM = lite ? 1900 : 3150; // canvas pixels per meter (about 1800 x 4060 px)
+function drawPlayfield(table, tier = 'high') {
+  // Canvas pixels per meter: about 1800 x 4060 px on the 'high' tier (Quest 3, desktop).
+  const PPM = { high: 3150, medium: 2400, low: 1900 }[tier] ?? 2400;
   const W = Math.round(PF.w * PPM);
   const H = Math.round(PF.h * PPM);
   const c = document.createElement('canvas');
@@ -732,7 +734,7 @@ export class Dmd {
  * Builds the whole machine from the Blender parts and the table. Returns an object with the
  * root (machine frame, scaled by the scene), the field group and handles for the animation.
  */
-export function buildMachine(table, model, { lite = false } = {}) {
+export function buildMachine(table, model, { lite = false, tier = lite ? 'medium' : 'high', renderer = null } = {}) {
   const { parts, anchors } = model;
   const root = new THREE.Group();
   root.userData.noFit = true;
@@ -767,12 +769,12 @@ export function buildMachine(table, model, { lite = false } = {}) {
     legs.push({ leg, foot, top: a.y });
   }
   // The playfield board with its art (a little self-lit, so it reads well in a dark room).
-  const pfTex = drawPlayfield(table, lite);
+  const pfTex = drawPlayfield(table, tier);
   // A clear coat over the art (a wear-free shine that mirrors the room); plain in the lite mode.
   const boardOpts = { map: pfTex, emissiveMap: pfTex, emissive: hex('xr-pinball-white'), emissiveIntensity: 0.42, roughness: 0.32, metalness: 0.05 };
-  const board = new THREE.Mesh(new THREE.PlaneGeometry(PF.w, PF.h), lite
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(PF.w, PF.h), tier === 'low'
     ? new THREE.MeshStandardMaterial(boardOpts)
-    : new THREE.MeshPhysicalMaterial({ ...boardOpts, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.06, envMapIntensity: 0.9 }));
+    : new THREE.MeshPhysicalMaterial({ ...boardOpts, roughness: 0.45, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.1 }));
   owned.push(board.material, pfTex);
   board.rotation.x = -Math.PI / 2;
   board.position.set((BOARD.x0 + BOARD.x1) / 2, 0, -(BOARD.y0 + BOARD.y1) / 2);
@@ -919,17 +921,48 @@ export function buildMachine(table, model, { lite = false } = {}) {
   // Insert lights (additive overlays) and their halos.
   const halo = radialTexture();
   const inserts = {};
+  // All insert lights and their halos are two merged meshes (two draw calls in all): each insert
+  // owns a range of vertices whose colors (additive: color x level) the update writes.
+  const lightGeo = [];
+  const haloGeo = [];
+  let lightN = 0;
+  let haloN = 0;
   const addLight = (key, shape, token, hx, hy, size) => {
-    const mat = new THREE.MeshBasicMaterial({ color: hex(token), ...additive, opacity: 0, polygonOffset: true, polygonOffsetFactor: -2 });
-    const m = flatMesh(shape, 0.0008, mat);
-    field.add(m);
-    const gm = new THREE.MeshBasicMaterial({ map: halo, color: hex(token), ...additive, opacity: 0 });
-    const g = new THREE.Mesh(new THREE.PlaneGeometry(size, size).rotateX(-Math.PI / 2), gm);
-    g.position.copy(fp(hx, hy, 0.0012));
-    g.userData.noFit = true;
-    field.add(g);
-    owned.push(mat, gm);
-    inserts[key] = { mat, gm, level: 0 };
+    const g = new THREE.ShapeGeometry(shape, 24).rotateX(-Math.PI / 2).translate(0, 0.0008, 0).toNonIndexed();
+    g.deleteAttribute('uv');
+    const h = new THREE.PlaneGeometry(size, size).rotateX(-Math.PI / 2).toNonIndexed();
+    const hp = fp(hx, hy, 0.0012);
+    h.translate(hp.x, hp.y, hp.z);
+    for (const q of [g, h]) q.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(q.attributes.position.count * 3), 3));
+    inserts[key] = { level: 0, last: -1, base: col(token), a: [lightN, g.attributes.position.count], h: [haloN, h.attributes.position.count] };
+    lightN += g.attributes.position.count;
+    haloN += h.attributes.position.count;
+    lightGeo.push(g);
+    haloGeo.push(h);
+  };
+  let lightMesh = null;
+  let haloMesh = null;
+  const finishLights = () => {
+    lightMesh = new THREE.Mesh(mergeGeometries(lightGeo), new THREE.MeshBasicMaterial({ vertexColors: true, ...additive, polygonOffset: true, polygonOffsetFactor: -2 }));
+    haloMesh = new THREE.Mesh(mergeGeometries(haloGeo.map((q) => { q.deleteAttribute('normal'); return q; })), new THREE.MeshBasicMaterial({ map: halo, vertexColors: true, ...additive }));
+    for (const mm of [lightMesh, haloMesh]) {
+      mm.userData.noFit = true;
+      mm.frustumCulled = false;
+      owned.push(mm.material, mm.geometry);
+      field.add(mm);
+    }
+    lightGeo.forEach((q) => q.dispose());
+    haloGeo.forEach((q) => q.dispose());
+  };
+  const setLight = (ins) => {
+    if (Math.abs(ins.level - ins.last) < 0.004) return;
+    ins.last = ins.level;
+    for (const [mesh, [start, n], k] of [[lightMesh, ins.a, 0.9], [haloMesh, ins.h, 0.6]]) {
+      const c = mesh.geometry.attributes.color;
+      const f = ins.level * k;
+      for (let i = start; i < start + n; i++) c.setXYZ(i, ins.base.r * f, ins.base.g * f, ins.base.b * f);
+      c.needsUpdate = true;
+    }
   };
   for (const ch of CHANNELS) {
     const ins = INSERTS[ch];
@@ -989,6 +1022,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
     r.absarc(x - w / 2 + h / 2, y, h / 2, Math.PI / 2, Math.PI * 1.5, false);
     addLight('save', r, 'xr-pinball-accent-glow', x, y, 0.1);
   }
+  finishLights();
   // General illumination: lamps along the walls (chases and light shows run over them).
   const giPts = [];
   const outer = table.walls[0].pts;
@@ -1100,6 +1134,22 @@ export function buildMachine(table, model, { lite = false } = {}) {
     root.add(railBulbs);
   }
 
+  // A soft contact shadow under the machine on the floor (grounds it, also in AR passthrough).
+  const ground = contactShadow(0.8, 0.55);
+  ground.scale.set(0.5, 1.05, 1);
+  ground.position.set(0.025, -10, -0.69);
+  owned.push(ground.geometry, ground.material);
+  root.add(ground);
+  // Sharp textures at grazing angles (playfield art, cards, signs): anisotropic filtering by tier.
+  if (renderer) {
+    const aniso = Math.min({ high: 8, medium: 4, low: 2 }[tier] ?? 4, renderer.capabilities.getMaxAnisotropy());
+    root.traverse((o) => {
+      for (const mm of [].concat(o.material ?? [])) {
+        for (const k of ['map', 'emissiveMap']) if (mm?.[k] && mm[k].anisotropy < aniso) { mm[k].anisotropy = aniso; mm[k].needsUpdate = true; }
+      }
+    });
+  }
+
   // ---------- animation ----------
 
   const tmp = new THREE.Vector3();
@@ -1109,6 +1159,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
     fx, phone, tv, branch, chars, chart, balls, det, town,
     /** Legs reach down to the floor (y in the root's parent space, scale of the machine). */
     setFloor(floorLocalY) {
+      ground.position.y = floorLocalY + 0.003;
       for (const l of legs) {
         const len = Math.max(0.05, l.top - floorLocalY);
         l.leg.scale.set(1, len, 1);
@@ -1188,10 +1239,7 @@ export function buildMachine(table, model, { lite = false } = {}) {
       poster.spin += dt * (poster.flip >= 0 ? Math.PI * 2 / 0.6 : 0.35);
       column.rotation.y = poster.spin;
       gateWire.rotation.x = Math.max(0, (gateWire.rotation.x || 0) - dt * 3);
-      for (const ins of Object.values(inserts)) {
-        ins.mat.opacity = ins.level * 0.9;
-        ins.gm.opacity = ins.level * 0.6;
-      }
+      for (const ins of Object.values(inserts)) setLight(ins);
       // General illumination.
       gi.pulse = Math.max(0, gi.pulse - dt * 4);
       for (let i = 0; i < lamps.n; i++) {
