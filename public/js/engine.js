@@ -1,6 +1,7 @@
 // Rendering, WebXR session handling and unified pointer input
 // (Quest controllers, hand-tracking pinch, phone AR taps, mouse and touch).
 import * as THREE from 'three';
+import { xrProfile, applyFrameRate, XrGovernor, setInXR } from './xr-device.js';
 import { quality } from './quality.js';
 import { num, hex } from './tokens.js';
 
@@ -103,9 +104,11 @@ export class Engine {
   }
 
   async enterXR(sessionMode) {
-    // Lite effects: slightly lower resolution and stronger foveated rendering in the headset.
-    this.renderer.xr.setFramebufferScaleFactor(quality.lite ? 0.85 : 1);
-    this.renderer.xr.setFoveation(quality.lite ? 1 : 0.5);
+    // Resolution, foveation and refresh rate per headset (xr-device.js): the Quest 3 renders
+    // sharper and at 90 Hz; lite effects and older headsets keep cheaper settings.
+    const profile = xrProfile();
+    this.renderer.xr.setFramebufferScaleFactor(profile.scale);
+    this.renderer.xr.setFoveation(profile.foveation);
     const session = await navigator.xr.requestSession(sessionMode, {
       // plane-detection: real walls, floor and tables from the Quest's room setup (AR effects).
       optionalFeatures: ['local-floor', 'hand-tracking', 'hit-test', 'plane-detection'],
@@ -116,6 +119,9 @@ export class Engine {
     this.renderer.xr.setReferenceSpaceType(floor ? 'local-floor' : 'local');
     await this.renderer.xr.setSession(session);
     this.session = session;
+    setInXR(true);
+    await applyFrameRate(session, profile.hz);
+    this.governor = new XrGovernor(this.renderer, session, profile);
     this.mode = 'xr';
     this.xrMode = sessionMode;
     const ar = sessionMode === 'immersive-ar';
@@ -134,6 +140,8 @@ export class Engine {
       this.canPlace = false;
       this.roomPlanes.clear();
       this.session = null;
+      this.governor = null;
+      setInXR(false);
       this.mode = 'preview';
       this.scene.background = this.previewBg;
       this.scene.fog = new THREE.Fog(hex('xr-bg-preview'), 6, 18);
@@ -641,6 +649,7 @@ export class Engine {
       }
     }
     this.updaters.forEach((fn) => fn(dt));
+    if (this.mode === 'xr') this.governor?.tick(dt);
     if (this.mode !== 'xr' && this.fitEnabled !== false) {
       this.root.updateMatrixWorld(true);
       this._autoFit(dt);

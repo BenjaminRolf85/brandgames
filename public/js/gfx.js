@@ -12,6 +12,8 @@
 //   this.onSceneDispose(bloom(engine, { strength: 0.5, threshold: 0.85 }));
 import * as THREE from 'three';
 import { quality } from './quality.js';
+import { gfxTier } from './xr-device.js';
+export { gfxTier };
 import { RoomEnvironment } from '../vendor/addons/environments/RoomEnvironment.js';
 
 const TONES = {
@@ -55,7 +57,7 @@ export function sceneLook(engine, { tone = 'neutral', exposure = 1, env = 'studi
   if (shadows) {
     r.shadowMap.enabled = true;
     // Soft shadows cost more: the headset with "lite" effects keeps the cheaper filter.
-    r.shadowMap.type = shadows === 'soft' && !(quality.lite && engine.isXR) ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    r.shadowMap.type = shadows === 'soft' && gfxTier() !== 'low' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     r.shadowMap.needsUpdate = true;
   }
   return () => {
@@ -79,7 +81,8 @@ export function softSun(light, { size = 2, near = 0.1, far = 12, bias = -0.0004,
   cam.left = -size / 2; cam.right = size / 2; cam.top = size / 2; cam.bottom = -size / 2;
   cam.near = near; cam.far = far;
   cam.updateProjectionMatrix();
-  const map = quality.lite ? 1024 : 2048;
+  // 2048 where the GPU can afford it (desktop, Quest 3 with full effects), else 1024.
+  const map = gfxTier() === 'high' ? 2048 : 1024;
   light.shadow.mapSize.set(map, map);
   light.shadow.bias = bias;
   light.shadow.normalBias = normalBias;
@@ -93,7 +96,7 @@ export function softSun(light, { size = 2, near = 0.1, far = 12, bias = -0.0004,
  * userData.noShadow).
  */
 export function polish(root, renderer, { cast = true, receive = true } = {}) {
-  const aniso = Math.min(quality.lite ? 4 : 8, renderer.capabilities.getMaxAnisotropy());
+  const aniso = Math.min({ high: 8, medium: 4, low: 2 }[gfxTier()], renderer.capabilities.getMaxAnisotropy());
   root.traverse((o) => {
     if (!o.isMesh) return;
     if (!o.userData.noShadow) { o.castShadow = cast; o.receiveShadow = receive; }
