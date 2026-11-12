@@ -645,6 +645,8 @@ export class Engine {
       this.root.updateMatrixWorld(true);
       this._autoFit(dt);
     }
-    this.renderer.render(this.scene, this.camera);
+    // Post effects (gfx.js bloom) only in the browser view; the headset renders directly.
+    if (this.post && this.mode !== 'xr') this.post(dt);
+    else this.renderer.render(this.scene, this.camera);
   }
 }
