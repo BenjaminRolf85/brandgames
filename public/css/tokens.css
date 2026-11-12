@@ -609,7 +609,7 @@
   --xr-quiz-d:            var(--p-pink-400);
   --xr-quiz-badge-text:   var(--p-ink-950);     /* the letter on its badge */
   --xr-quiz-mark:         var(--p-sun-300);     /* floating question marks */
-  --xr-quiz-key:          #fff1dc;              /* warm key light over the house / tree */
+  --xr-quiz-key:          var(--p-sand-100);    /* warm key light over the house / tree */
   --xr-bot-shell:         var(--p-ink-50);      /* the robot buddy */
   --xr-bot-joint:         var(--p-chrome-400);
   --xr-bot-dark:          var(--p-ink-900);

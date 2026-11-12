@@ -19,7 +19,7 @@ export const BRICKS_URL = 'assets/models/bricks.glb';
 // Blender material name -> [token, roughness, metalness, extra]
 const MATS = {
   BrickClay: ['xr-bricks-clay', 0.88, 0],
-  BrickGold: ['xr-bricks-gold', 0.24, 1, { emissive: 'xr-bricks-gold', emissiveIntensity: 0.22 }],
+  BrickGold: ['xr-bricks-gold', 0.26, 0.6, { emissive: 'xr-bricks-gold', emissiveIntensity: 0.22 }],
   Concrete: ['xr-bricks-concrete', 0.92, 0],
   Grass: ['xr-bricks-grass', 0.95, 0],
   GrassDark: ['xr-bricks-grass-dark', 0.95, 0],
@@ -62,7 +62,7 @@ const SNOWY = ['Grass', 'GrassDark', 'Leaf', 'LeafDark', 'Fence', 'Stone', 'Sand
 const COAT = { BrickGold: 1, Door: 0.5, Machine: 0.6, SolarCell: 0.8, Mailbox: 0.4, Crane: 0.3 };
 // Fine surface detail (procedural, object space): [scale of the blotches, of the grain, strength].
 const DETAIL = {
-  Grass: [14, 120, 0.22], GrassDark: [14, 120, 0.2], Soil: [30, 160, 0.25], SoilDark: [30, 160, 0.25],
+  Grass: [14, 120, 0.34], GrassDark: [14, 120, 0.3], Soil: [30, 160, 0.25], SoilDark: [30, 160, 0.25],
   Gravel: [40, 260, 0.3], Stone: [25, 200, 0.18], Sand: [20, 180, 0.15], BrickClay: [60, 300, 0.16],
   Roof: [20, 220, 0.12], Concrete: [18, 240, 0.14], Wood: [12, 300, 0.14], Quoin: [60, 300, 0.12],
 };

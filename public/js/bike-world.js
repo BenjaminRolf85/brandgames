@@ -754,7 +754,7 @@ const TRAIL_DETAIL = {
   },
 };
 const NORMAL_K = { asphalt: 1.4, gravel: 3.2, mud: 2.2, snow: 1.3 };
-const VERGE_NORMAL_K = { asphalt: 2.2, gravel: 2.2, mud: 1.8, snow: 1.6 };
+const VERGE_NORMAL_K = { asphalt: 2.2, gravel: 2.2, mud: 1.8, snow: 0.9 };
 
 /** A normal map from the luminance of a painting (Sobel), tiling along v. */
 function normalMap(src, strength, aniso = 8) {
@@ -1077,7 +1077,8 @@ export function makeBase(w, z0, z1, depth) {
     ctx.fillRect(0, 0, W, 6);
   });
   const len = z0 - z1;
-  const side = new THREE.MeshStandardMaterial({ map: earth, roughness: 0.95 });
+  // The cut faces glow a little from within, so the earth layers read from any side and light.
+  const side = new THREE.MeshStandardMaterial({ map: earth, roughness: 0.95, emissive: hex('xr-bike-earth-glow'), emissiveMap: earth, emissiveIntensity: 0.3 });
   const dark = new THREE.MeshStandardMaterial({ color: hex('xr-bike-earth-dark'), roughness: 1 });
   const box = new THREE.Mesh(new THREE.BoxGeometry(w, depth, len), [side, side, dark, dark, side, side]);
   box.position.set(0, -depth / 2 - 0.0015, (z0 + z1) / 2);
@@ -1360,7 +1361,7 @@ export function makeCurtains(earth) {
   const C = 24;
   const g = new THREE.Group();
   g.userData.noFit = true;
-  const mat = new THREE.MeshStandardMaterial({ map: earth, roughness: 0.95, side: THREE.DoubleSide });
+  const mat = new THREE.MeshStandardMaterial({ map: earth, roughness: 0.95, side: THREE.DoubleSide, emissive: hex('xr-bike-earth-glow'), emissiveMap: earth, emissiveIntensity: 0.3 });
   const strips = [0, 1, 2, 3].map(() => {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((C + 1) * 2 * 3), 3));

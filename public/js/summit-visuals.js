@@ -136,7 +136,7 @@ function patchRock(mat, { grain = 0, bump = 0, octaves = 1, tint = 0, cracks = 0
       .replace('#include <tonemapping_fragment>', `${haze > 0 || mist > 0 ? `{
           // Distance haze toward the sky, and mist just above the sea of clouds.
           float hz = smoothstep(${f(hazeNear)}, ${f(hazeFar)}, length(vRockW - cameraPosition)) * ${f(haze)} * uHazeAmt;
-          float ms = (1.0 - smoothstep(uCutY, uCutY + 0.5, vRockW.y)) * ${f(mist)};
+          float ms = (1.0 - smoothstep(uCutY, uCutY + 0.34, vRockW.y)) * ${f(mist)};
           gl_FragColor.rgb = mix(gl_FragColor.rgb, uHaze, clamp(hz, 0.0, 1.0));
           gl_FragColor.rgb = mix(gl_FragColor.rgb, uMist, clamp(ms * ms * (3.0 - 2.0 * ms), 0.0, 1.0));
         }` : ''}

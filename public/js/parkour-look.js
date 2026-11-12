@@ -20,8 +20,8 @@ const wt = (token) => (WINTER ? `${token}-winter` : token);
 // Key light (color, intensity), hemisphere fill (sky, ground, intensity), rim strength, exposure.
 const RIG = {
   forest: { key: 'xr-parkour-key-forest', keyI: 1.6, sky: 'xr-parkour-sky-forest', ground: 'xr-parkour-ground-forest', hemi: 0.75, rim: 1.0, exposure: 1.0, haze: () => wt('xr-forest-sky-bottom'), shafts: 'xr-parkour-shaft-forest' },
-  city: { key: 'xr-parkour-key-city', keyI: 1.6, sky: 'xr-parkour-sky-city', ground: 'xr-parkour-ground-city', hemi: 0.8, rim: 0.9, exposure: 1.0, haze: () => wt('xr-city-sky-bottom'), shafts: 'xr-parkour-shaft-city' },
-  office: { key: 'xr-parkour-key-office', keyI: 1.55, sky: 'xr-parkour-sky-office', ground: 'xr-parkour-ground-office', hemi: 0.85, rim: 0.7, exposure: 1.0, haze: null, shafts: null },
+  city: { key: 'xr-parkour-key-city', keyI: 1.6, sky: 'xr-parkour-sky-city', ground: 'xr-parkour-ground-city', hemi: 0.95, rim: 0.9, exposure: 1.05, haze: () => wt('xr-city-sky-bottom'), shafts: 'xr-parkour-shaft-city' },
+  office: { key: 'xr-parkour-key-office', keyI: 1.55, sky: 'xr-parkour-sky-office', ground: 'xr-parkour-ground-office', hemi: 1.0, rim: 0.7, exposure: 1.05, haze: null, shafts: null },
 };
 
 /**
@@ -115,8 +115,34 @@ export function makeHaze(world, half, bottom, top, opacity = 0.34) {
 }
 
 let shaftTex = null;
+let beamTex = null;
+/** A window beam: soft across, even along its length, fading in at the window and out at the floor. */
+export function beamTexture() {
+  if (beamTex) return beamTex;
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 128;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(64, 128);
+  const smooth = (k) => { k = Math.min(1, Math.max(0, k)); return k * k * (3 - 2 * k); };
+  for (let y = 0; y < 128; y++) {
+    const v = y / 127; // 0 at the window, 1 at the floor
+    const along = smooth(v / 0.12) * (1 - smooth((v - 0.55) / 0.45));
+    for (let x = 0; x < 64; x++) {
+      const u = Math.abs(x - 31.5) / 31.5;
+      const a = (1 - smooth((u - 0.45) / 0.55)) * along;
+      const o = (y * 64 + x) * 4;
+      img.data[o] = img.data[o + 1] = img.data[o + 2] = 255;
+      img.data[o + 3] = Math.round(a * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  beamTex = new THREE.CanvasTexture(c);
+  return beamTex;
+}
+
 /** One soft beam: bright core across, fading out along its length. */
-function shaftTexture() {
+export function shaftTexture() {
   if (shaftTex) return shaftTex;
   const c = document.createElement('canvas');
   c.width = 64;

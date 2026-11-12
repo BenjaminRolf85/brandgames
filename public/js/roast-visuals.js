@@ -812,15 +812,15 @@ export class Guest {
 export function makeLights(tier, shadows) {
   const g = new THREE.Group();
   g.userData.noFit = true;
-  // warm key from the front left (the shop's lamps), a cool rim from behind (the window light),
+  // warm key from the upper left (the shop's lamps), a cool rim from behind (the window light),
   // a soft warm fill close to the counter
-  const key = new THREE.DirectionalLight(hex('xr-roast-light'), 1.7);
-  key.position.set(-0.8, 1.6, 0.9);
+  const key = new THREE.DirectionalLight(hex('xr-roast-light'), 2.3);
+  key.position.set(-1.35, 1.9, 0.15); // from the left and above: shadows fall to the right, visible on the counter
   key.target.position.set(0.1, 0, -1.1);
   const rim = new THREE.DirectionalLight(hex('xr-roast-glass'), tier === 'low' ? 0.7 : 1.1);
   rim.position.set(0.6, 1.4, -2.4);
   rim.target = key.target;
-  const fill = new THREE.PointLight(hex('xr-roast-light'), 0.7, 2.2, 2);
+  const fill = new THREE.PointLight(hex('xr-roast-light'), 0.5, 2.2, 2);
   fill.position.set(-0.2, 0.55, -0.6);
   g.add(key, key.target, rim, fill);
   // one shadow-casting light; the map size follows the tier (2048 on desktop and Quest 3, else 1024)

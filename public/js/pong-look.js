@@ -108,10 +108,22 @@ export function pongLook(scene, arena, { hw, hh, len }) {
   return {
     neon,
     shadows,
-    /** Lets these meshes throw shadows (when shadows are on). */
-    casters(root) {
+    /**
+     * Lets the largest limit meshes of root throw shadows (when shadows are on): small parts
+     * add a shadow draw call each but barely change the shadow's shape.
+     */
+    casters(root, limit = 8) {
       if (!shadows || !root) return;
-      root.traverse((o) => { if (o.isMesh && !o.material?.transparent) o.castShadow = true; });
+      root.updateMatrixWorld(true);
+      const list = [];
+      const box = new THREE.Box3();
+      const size = new THREE.Vector3();
+      root.traverse((o) => {
+        if (!o.isMesh || o.material?.transparent || o.isInstancedMesh) return;
+        box.setFromObject(o).getSize(size);
+        list.push({ o, s: size.x * size.y + size.y * size.z + size.x * size.z });
+      });
+      list.sort((a, b) => b.s - a.s).slice(0, limit).forEach(({ o }) => { o.castShadow = true; });
     },
   };
 }

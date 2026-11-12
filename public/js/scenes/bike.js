@@ -129,7 +129,7 @@ export class BikeScene extends BaseScene {
     this.prevEnvironment = this.engine.scene.environment;
     // Filmic look: neutral tone mapping keeps the token colors but no longer blows out the
     // snow and the sunny gravel; the outdoor environment gives the PBR materials sky light.
-    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.25, env: this.envTarget.texture, envIntensity: 0.9, shadows: quality.lite ? false : 'soft' }));
+    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.15, env: this.envTarget.texture, envIntensity: 0.9, shadows: quality.lite ? false : 'soft' }));
     // The engine's flat default lights give way to this scene's sun, sky fill and bounce.
     const eng = this.engine;
     const engSun = eng.scene.children.filter((o) => o.isDirectionalLight);

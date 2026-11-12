@@ -23,6 +23,7 @@ import { quality } from '../quality.js';
 import { EVENT } from '../event.js';
 import { SPONSOR } from '../content.js';
 import { sceneLook, bloom, gfxTier } from '../gfx.js';
+import { makeEnvironment } from '../robot-visuals.js';
 import { WINTER, makeSnowfall, makeSnowCover, setSnowAmount, snowSettled, winterize } from '../snow.js';
 import { buildTable, setPlunger, inShooterLane, launchSpeed, CHANNELS, GROUPS, LANE_X, PLUNGER_Y, BALL_R } from '../pinball-layout.js';
 import { Planner, makeTruth, respond, rng } from '../pinball-ai.js';
@@ -73,8 +74,14 @@ export class PinballScene extends BaseScene {
     // coats, soft shadows (by graphics tier: Quest 3 and desktop 'high', phones and Quest lite
     // 'medium', 'low' without shadows); bloom on the inserts and flashers in the desktop browser.
     this.tier = gfxTier();
-    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.1, env: 'studio', envIntensity: 0.9, shadows: this.tier === 'low' ? false : 'soft' }));
-    if (this.tier === 'high' && !this.engine.isXR && !this.engine.touchUI) this.onSceneDispose(bloom(this.engine, { strength: 0.5, radius: 0.45, threshold: 0.86 }));
+    // Shadows: 'high', and 'medium' with full effects (phones, Quest 2); Quest 3 lite keeps none.
+    this.shadows = this.tier === 'high' || (this.tier === 'medium' && !quality.lite);
+    // The machine's own dark blue environment keeps the cabinet's colors deep (a bright studio
+    // room washes the clear coat out); neutral tone mapping softens only the hottest lights.
+    this.envTarget = makeEnvironment(this.engine.renderer);
+    this.onSceneDispose(() => this.envTarget?.dispose());
+    this.onSceneDispose(sceneLook(this.engine, { tone: 'neutral', exposure: 1.18, env: this.envTarget.texture, envIntensity: 1, shadows: this.shadows ? 'soft' : false }));
+    if (this.tier === 'high' && !this.engine.isXR && !this.engine.touchUI) this.onSceneDispose(bloom(this.engine, { strength: 0.35, radius: 0.3, threshold: 0.97 }));
     this.table = buildTable();
     this.table.world.paused = true;
     this.table.world.on((type, obj, info) => this.onPhysics(type, obj, info));
@@ -105,7 +112,7 @@ export class PinballScene extends BaseScene {
     rim.position.set(-0.4, this.eye + 0.6, FRONT_Z - 2.2);
     rim.target.position.set(0, this.eye - DROP, FRONT_Z - 0.6);
     this.group.add(rim, rim.target);
-    if (this.tier !== 'low') {
+    if (this.shadows) {
       key.castShadow = true;
       const map = this.tier === 'high' ? 2048 : 1024;
       key.shadow.mapSize.set(map, map);

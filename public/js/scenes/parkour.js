@@ -79,7 +79,7 @@ export class ParkourScene extends BaseScene {
     this.refreshHud = this.hud(() => `${t(`${this.lv.key}Name`)}  ·  ${t('parkourCoins', { n: this.coinsTaken ?? 0, total: this.total })}  ·  ${t('parkourTime', { s: fmt(this.time ?? 0) })}`);
 
     // Glossy reflections for Echo and the blocks, tone mapping, the light rig of the world,
-    // shadows and (desktop only) bloom; all restored when the scene closes (parkour-look.js).
+    // shadows; all restored when the scene closes (parkour-look.js).
     this.envTarget = makeEnvironment(this.engine.renderer);
     this.look = parkourLook(this.engine, this.lv.world, this.envTarget.texture);
 
@@ -680,6 +680,8 @@ export class ParkourScene extends BaseScene {
       const d = timeOfDay((this.e.x - this.c.start) / (this.c.finish - this.c.start), this.day);
       this.setSky(d.top, d.bottom);
       this.office?.setGlow(d.glow);
+      // Sunlight through the windows: strong at noon, gone at night.
+      this.office?.setDaylight(d.bottom, THREE.MathUtils.clamp((d.key - 0.85) / 0.55, 0, 1));
       this.key.intensity = d.key * this.keyScale;
       this.rim.color.copy(d.bottom);
     }
@@ -762,7 +764,7 @@ export class ParkourScene extends BaseScene {
     window.removeEventListener('keydown', this.keydown);
     music.stop();
     this.card?.dispose();
-    this.look.dispose(); // tone mapping, environment, shadows, room lights and bloom back
+    this.look.dispose(); // tone mapping, environment, shadows, room lights back
     this.envTarget?.dispose();
     super.dispose();
   }

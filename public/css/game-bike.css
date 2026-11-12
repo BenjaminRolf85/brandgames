@@ -48,6 +48,7 @@
   --xr-bike-env-horizon:    #f3ead8;
   --xr-bike-env-ground:     #4d5a32;
   --xr-bike-env-sun:        #fff2d2;
+  --xr-bike-earth-glow:     #ffffff;   /* self-light of the diorama's earth cut faces */
   --xr-bike-snow-track:     #b6c6dc;
   --xr-bike-grass:          #5f9e3a;
   --xr-bike-grass-dark:     #3d7a2a;

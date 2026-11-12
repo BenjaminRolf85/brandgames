@@ -11,6 +11,13 @@ import { loadGlove, attachRigGloves } from './fight-gloves.js';
 import { gfxTier } from './gfx.js';
 
 const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+// Pure light for shader effects that output alpha 1: adds color but keeps the framebuffer's
+// alpha, so in AR (transparent canvas over passthrough) it glows instead of turning into a dark
+// shape, and in VR and the browser it looks like additive blending.
+const lightAdd = {
+  transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
+  blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+};
 
 // ---------- poses ----------
 // Joint rotations in radians [x, y, z]. The figure faces +z; arms and legs hang along -y.
@@ -323,18 +330,18 @@ export function projectorBeam(token, height = 0.76) {
   const geo = new THREE.CylinderGeometry(0.15, 0.1, height, 28, 1, true);
   geo.translate(0, height / 2 + 0.004, 0);
   const mat = new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: new THREE.Color(hex(token)) }, uTime: { value: 0 }, uPower: { value: 0.13 } },
+    uniforms: { uColor: { value: new THREE.Color(hex(token)) }, uTime: { value: 0 }, uPower: { value: 0.15 } },
     vertexShader: projVert,
     fragmentShader: projFrag,
     side: THREE.DoubleSide,
-    ...additive,
+    ...lightAdd,
   });
   const m = new THREE.Mesh(geo, mat);
   m.renderOrder = 3; // after the (transparent) holograms
   m.userData.noFit = true;
   m.userData.tick = (time, flash = 0) => {
     mat.uniforms.uTime.value = time;
-    mat.uniforms.uPower.value = 0.12 + 0.025 * Math.sin(time * 2.3) + flash * 0.25;
+    mat.uniforms.uPower.value = 0.14 + 0.025 * Math.sin(time * 2.3) + flash * 0.25;
   };
   return m;
 }
@@ -576,7 +583,7 @@ export function makeBeam(token) {
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: beamFragment,
     side: THREE.DoubleSide,
-    ...additive,
+    ...lightAdd,
   });
   const geo = new THREE.PlaneGeometry(0.09, 1).rotateX(Math.PI / 2); // length along z, uv.y along the beam
   const a = new THREE.Mesh(geo, mat);

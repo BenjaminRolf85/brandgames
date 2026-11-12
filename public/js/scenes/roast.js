@@ -111,7 +111,7 @@ export class RoastScene extends BaseScene {
     this.tier = gfxTier();
     this.shadows = !quality.lite;
     this.onSceneDispose(sceneLook(this.engine, {
-      tone: 'neutral', exposure: 1.0, env: 'studio', envIntensity: this.tier === 'low' ? 0.5 : 0.62, shadows: this.shadows ? 'soft' : false,
+      tone: 'neutral', exposure: 0.97, env: 'studio', envIntensity: this.tier === 'low' ? 0.45 : 0.5, shadows: this.shadows ? 'soft' : false,
     }));
     shopDetail(this.tier);
 
@@ -181,12 +181,15 @@ export class RoastScene extends BaseScene {
     this.plinth = this.counter.getObjectByName('CounterPlinth');
     const garland = this.counter.getObjectByName('CounterGarland');
     if (garland) garland.visible = CHRISTMAS;
+    // small, busy shapes cast no shadow (a cheaper shadow pass, no speckles on the counter)
+    garland?.traverse((o) => { o.castShadow = false; });
     if (CHRISTMAS) {
       this.string = makeLightString({ x0: -0.68, x1: 0.48, y: 0.335, z: -0.035, sag: 0.03, swags: 4, bulbs: 30 });
       this.counter.add(this.string);
       this.tree = makeTree();
       this.tree.group.scale.setScalar(0.72);
       this.tree.group.position.set(-1.22, 0, -1.78);
+      this.tree.group.traverse((o) => { o.castShadow = false; });
       s.add(this.tree.group);
     }
     // the roaster on a pedestal, turned towards the player
@@ -217,8 +220,9 @@ export class RoastScene extends BaseScene {
     blob(COUNTER_AT.x - 0.1, COUNTER_AT.z - 0.05, 3.0, 1.5, 0.5);
     blob(ROASTER_AT.x, ROASTER_AT.z, 1.3, 1.3, 0.5);
     if (this.tree) blob(-1.22, -1.78, 1.0, 1.0, 0.4);
-    // the browser view: a warm haze behind the counter (shop light in the dark); not in the headset
-    if (!this.engine.isXR) {
+    // a warm haze behind the counter (shop light in the dark): in the browser, and in VR on Quest 3
+    // with full effects; never in AR (the real room stays visible)
+    {
       this.haze = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 2.8), new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-roast-light'), transparent: true, opacity: 0.2, depthWrite: false, toneMapped: false }));
       this.haze.position.set(0.1, 0.35, -2.9);
       this.haze.userData.noFit = true;
@@ -1755,7 +1759,7 @@ export class RoastScene extends BaseScene {
     if (this.plinth) this.plinth.scale.y = Math.max(0.001, -0.9 - this.floorShop);
     if (this.floorShadow) this.floorShadow.position.y = this.floorShop + 0.002;
     this.contacts?.forEach((m) => { if (!m.userData.guest) m.position.y = this.floorShop + 0.003; });
-    if (this.haze) this.haze.visible = !this.engine.isXR;
+    if (this.haze) this.haze.visible = !e.isXR || (!!e.scene.background && gfxTier() === 'high');
     if (this.roaster) {
       const base = Math.max(this.floorShop, ROASTER_BASE_MIN);
       this.roaster.group.position.y = base;

@@ -354,7 +354,7 @@ export class PongScene extends BaseScene {
     this.player.add(makeHandle(PPH));
     this.ai.add(makeHandle(PH));
     this.player.children.concat(this.ai.children).forEach((o) => this.look.casters(o));
-    this.paddleEcho = makePaddleEcho(this.player, PPW, PPH, (model) => this.look.casters(model));
+    this.paddleEcho = makePaddleEcho(this.player, PPW, PPH, (model) => this.look.casters(model, 6));
     arena.add(makeGridFloor(HW, HH, LEN));
     if (!quality.lite) arena.add(makeSkyline(HW, HH, ZA - 0.95));
 
@@ -385,7 +385,7 @@ export class PongScene extends BaseScene {
       if (this.disposed) return;
       this.ballModels = set;
       for (const { root } of Object.values(set)) {
-        this.look.casters(root);
+        this.look.casters(root, 3);
         root.scale.setScalar(R);
         root.visible = false;
         this.ballBody.add(root);
@@ -393,7 +393,7 @@ export class PongScene extends BaseScene {
       if (this.ballType) this.showBallModel(this.ballType);
     }).catch((e) => console.warn('Pong ball models not loaded', e));
     this.ballType = null;
-    this.look.casters(this.ball);
+    this.look.casters(this.ball, 2);
     arena.add(this.ball, this.ballGlow, this.ballLight);
 
     // Depth cue: a bright frame that runs along the tunnel at the ball's depth,
@@ -474,7 +474,7 @@ export class PongScene extends BaseScene {
     // The opponent as one of the Arena's robots, in its color, behind the AI paddle.
     this.robot?.dispose();
     this.robot = makePaddleRobot(ROBOT_FOR[opp.key] ?? 'light', opp.token, { hh: HH, hw: HW, z: ZA - 0.08 });
-    this.look.casters(this.robot.group);
+    this.look.casters(this.robot.group, 10);
     this.arena.add(this.robot.group);
     this.ease = { ...PONG_EASE, ...(opp.ease ?? {}) };
     this.reaction = opp.reaction + this.ease.reaction;
