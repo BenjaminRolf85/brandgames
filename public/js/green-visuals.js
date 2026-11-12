@@ -19,6 +19,7 @@ import { radialTexture } from './robot-visuals.js';
 import { mergeGeometries } from '../vendor/addons/utils/BufferGeometryUtils.js';
 import { CHRISTMAS, makeBulbs } from './christmas.js';
 import { quality } from './quality.js';
+import { gfxTier, softSun, contactShadow } from './gfx.js';
 import { PLOTS, TYPES, OUTLINE, DISTRICTS, LIVE, windAt, sunAt, windConfAt, sunConfAt, inside, coastX } from './green-sim.js';
 
 export const GREEN_URL = 'assets/models/green.glb';
@@ -206,6 +207,37 @@ class HeightGrid {
     if (i < 0 || j < 0 || i >= W || j >= H) return 0;
     return this.y[j * W + i];
   }
+}
+
+/**
+ * A canvas for text in 3D (tags, bubbles, the warning marker): drawn in logical pixels (lw x lh),
+ * stored at a higher resolution where the device can afford it, so letters stay crisp up close.
+ */
+function hiCanvas(lw, lh) {
+  const k = { high: 2, medium: 1.5, low: 1 }[gfxTier()];
+  const c = document.createElement('canvas');
+  c.width = Math.round(lw * k);
+  c.height = Math.round(lh * k);
+  c.lw = lw;
+  c.lh = lh;
+  c.k = k;
+  return c;
+}
+
+/** Starts drawing on a hiCanvas in its logical pixels. */
+function begin(canvas) {
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(canvas.k ?? 1, 0, 0, canvas.k ?? 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.lw ?? canvas.width, canvas.lh ?? canvas.height);
+  return ctx;
+}
+
+/** A crisp texture for a hiCanvas: mipmaps and anisotropic filtering. */
+function textTexture(canvas, renderer) {
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = Math.min({ high: 8, medium: 4, low: 2 }[gfxTier()], renderer?.capabilities.getMaxAnisotropy() ?? 4);
+  return tex;
 }
 
 /** A rounded rectangle shape (centered). */
@@ -556,12 +588,9 @@ export class Region {
       const t = want.get(P.id);
       if (!t) { if (P.tag) P.tag.visible = false; continue; }
       if (!P.tag) {
-        const c = document.createElement('canvas');
-        c.width = 192;
-        c.height = 88;
-        const tex = new THREE.CanvasTexture(c);
-        tex.colorSpace = THREE.SRGBColorSpace;
-        const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+        const c = hiCanvas(192, 88);
+        const tex = textTexture(c, this.renderer);
+        const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
         s.renderOrder = 20;
         s.userData.noFit = true;
         s.userData.canvas = c;
@@ -1029,11 +1058,9 @@ export class Region {
     this.festive = new Map(); // district -> fairy lights after a fulfilled wish
     this.bubbles = new Map(); // district -> speech bubble sprite
     // The event marker: an icon over the place the warning is about (tap it to react).
-    const c = document.createElement('canvas');
-    c.width = c.height = 128;
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    this.marker = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+    const c = hiCanvas(128, 128);
+    const tex = textTexture(c, this.renderer);
+    this.marker = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
     this.marker.renderOrder = 22;
     this.marker.userData.canvas = c;
     this.marker.visible = false;
@@ -1088,9 +1115,7 @@ export class Region {
     this.markerHalo.position.copy(pos);
     this.markerHit.position.copy(pos);
     this.markerType = type;
-    const c = this.marker.userData.canvas;
-    const ctx = c.getContext('2d');
-    ctx.clearRect(0, 0, 128, 128);
+    const ctx = begin(this.marker.userData.canvas);
     ctx.beginPath();
     ctx.arc(64, 64, 58, 0, Math.PI * 2);
     ctx.fillStyle = color('xr-panel-bg');
@@ -1131,12 +1156,9 @@ export class Region {
     for (const [k, w] of want) {
       let b = this.bubbles.get(k);
       if (!b) {
-        const c = document.createElement('canvas');
-        c.width = 360;
-        c.height = 150;
-        const tex = new THREE.CanvasTexture(c);
-        tex.colorSpace = THREE.SRGBColorSpace;
-        b = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+        const c = hiCanvas(360, 150);
+        const tex = textTexture(c, this.renderer);
+        b = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
         b.renderOrder = 19;
         b.userData.canvas = c;
         b.userData.noFit = true;
@@ -1237,10 +1259,9 @@ export class Region {
 
 /** A citizen's speech bubble: louder (warmer color, capitals) the longer the wish is ignored. */
 function drawBubble(canvas, { text, level, met }) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width;
-  const H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
+  const ctx = begin(canvas);
+  const W = canvas.lw;
+  const H = canvas.lh;
   const tok = met ? 'xr-green-up' : ['xr-green-social', 'xr-warning', 'xr-danger'][Math.min(2, level - 1)];
   ctx.beginPath();
   ctx.roundRect(6, 6, W - 12, H - 40, 30);
@@ -1277,10 +1298,9 @@ function drawBubble(canvas, { text, level, met }) {
 
 /** A value tag over a plot: a pill with the forecast (big) and a unit or note (small). */
 function drawTag(canvas, { text, sub, token, strong }) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width;
-  const H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
+  const ctx = begin(canvas);
+  const W = canvas.lw;
+  const H = canvas.lh;
   ctx.beginPath();
   ctx.roundRect(4, 4, W - 8, H - 18, 22);
   ctx.fillStyle = color('xr-panel-bg');
