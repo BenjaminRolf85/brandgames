@@ -818,7 +818,7 @@ export function makeLights(tier, shadows) {
   key.position.set(-1.35, 1.9, 0.15); // from the left and above: shadows fall to the right, visible on the counter
   key.target.position.set(0.1, 0, -1.1);
   const rim = new THREE.DirectionalLight(hex('xr-roast-glass'), tier === 'low' ? 0.7 : 1.1);
-  rim.position.set(0.6, 1.4, -2.4);
+  rim.position.set(0.7, 0.75, -3.2); // low behind the guests: outlines, without washing out the counter top
   rim.target = key.target;
   const fill = new THREE.PointLight(hex('xr-roast-light'), shadows ? 0.35 : 0.6, 3, 2);
   fill.position.set(0.2, 1.2, 0.3); // high in front: lifts the guests' faces, keeps the key's shadows on the counter

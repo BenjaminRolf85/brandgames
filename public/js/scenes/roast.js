@@ -111,7 +111,7 @@ export class RoastScene extends BaseScene {
     this.tier = gfxTier();
     this.shadows = !quality.lite;
     this.onSceneDispose(sceneLook(this.engine, {
-      tone: 'neutral', exposure: 1.0, env: 'studio', envIntensity: this.shadows ? 0.32 : 0.45, shadows: this.shadows ? 'soft' : false,
+      tone: 'neutral', exposure: 1.0, env: 'studio', envIntensity: this.shadows ? 0.28 : 0.45, shadows: this.shadows ? 'soft' : false,
     }));
     shopDetail(this.tier);
 
