@@ -446,32 +446,45 @@ function person({ h, shirt, pants, hat, skin }, mat) {
   return { g, arms, h };
 }
 
+const P = (h, shirt, hat, skin = 1) => ({ h, shirt: `xr-bricks-family-${shirt}`, pants: 'xr-bricks-family-pants', hat: `xr-bricks-family-hat-${hat}`, skin: `xr-bricks-family-skin-${skin}` });
+// Who stands on a plot: the builders of the brief, or the Winters next door.
+const FAMILIES = {
+  winter: [P(0.17, 1, 1), P(0.16, 2, 2, 2), P(0.11, 3, 1)],
+  fam4: [P(0.17, 4, 3), P(0.165, 5, 1, 2), P(0.12, 3, 2), P(0.095, 2, 3, 2)],
+  couple: [P(0.17, 5, 3), P(0.165, 4, 2, 2)],
+  seniors: [P(0.16, 6, 4), P(0.155, 4, 4, 2)],
+  gen3: [P(0.155, 6, 4), P(0.17, 5, 3, 2), P(0.165, 4, 1), P(0.1, 3, 2, 2)],
+  dad: [P(0.175, 4, 3), P(0.14, 5, 2), P(0.13, 2, 1, 2)],
+};
+const SPOTS = [[-0.05, 0.02], [0.06, 0], [0.005, 0.055], [0.11, 0.045], [-0.1, 0.05]];
+
 /**
- * The neighbor family (two grown-ups and a child) for their front garden. tick(dt, time);
- * wave() one of them waves, cheer() all jump with their arms up, clap() a short applause.
+ * A family for the front garden (kind: a builders' id from the brief, or 'winter'). tick(dt,
+ * time); wave() one of them waves, cheer() all jump with their arms up, clap() a short
+ * applause, doubt() they look at each other and shake their heads.
  */
-export function makeFamily() {
+export function makeFamily(kind = 'winter') {
   const group = new THREE.Group();
   group.userData.noFit = true;
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.8, vertexColors: true });
-  const ppl = [
-    person({ h: 0.17, shirt: 'xr-bricks-family-1', pants: 'xr-bricks-family-pants', hat: 'xr-bricks-family-hat-1', skin: 'xr-bricks-family-skin-1' }, mat),
-    person({ h: 0.16, shirt: 'xr-bricks-family-2', pants: 'xr-bricks-family-pants', hat: 'xr-bricks-family-hat-2', skin: 'xr-bricks-family-skin-2' }, mat),
-    person({ h: 0.11, shirt: 'xr-bricks-family-3', pants: 'xr-bricks-family-pants', hat: 'xr-bricks-family-hat-1', skin: 'xr-bricks-family-skin-1' }, mat),
-  ];
-  [[-0.05, 0.02], [0.06, 0], [0.005, 0.05]].forEach(([x, z], i) => { ppl[i].g.position.set(x, 0, z); ppl[i].g.rotation.y = (i - 1) * -0.2; group.add(ppl[i].g); });
+  const ppl = (FAMILIES[kind] ?? FAMILIES.winter).map((spec) => person(spec, mat));
+  ppl.forEach((pp, i) => { pp.g.position.set(SPOTS[i][0], 0, SPOTS[i][1]); pp.turn = (i - 1) * -0.2; pp.g.rotation.y = pp.turn; group.add(pp.g); });
   let mood = null; // { kind, t, who }
   return {
     group,
-    wave() { if (!mood) mood = { kind: 'wave', t: 0, who: Math.floor(Math.random() * 3) }; },
+    count: ppl.length,
+    height: Math.max(...ppl.map((pp) => pp.h)),
+    wave() { if (!mood) mood = { kind: 'wave', t: 0, who: Math.floor(Math.random() * ppl.length) }; },
     cheer() { mood = { kind: 'cheer', t: 0 }; },
     clap() { mood = { kind: 'clap', t: 0 }; },
+    doubt() { mood = { kind: 'doubt', t: 0 }; },
     tick(dt, time) {
       if (mood) { mood.t += dt; if (mood.t > (mood.kind === 'wave' ? 2.2 : 2.6)) mood = null; }
       ppl.forEach((pp, i) => {
         let y = Math.max(0, Math.sin(time * 2 + i * 1.7)) * 0.002;
         let la = 0.15;
         let ra = -0.15;
+        let turn = pp.turn;
         if (mood?.kind === 'wave' && mood.who === i) ra = -2.6 + Math.sin(mood.t * 12) * 0.35;
         if (mood?.kind === 'cheer') {
           y = Math.abs(Math.sin(mood.t * 6 + i)) * pp.h * 0.25;
@@ -484,7 +497,14 @@ export function makeFamily() {
           ra = -1.1 - c * 0.35;
           y = Math.abs(Math.sin(mood.t * 5 + i)) * pp.h * 0.06;
         }
+        if (mood?.kind === 'doubt') {
+          // heads shake, shoulders drop, one scratches the head
+          turn += Math.sin(mood.t * 7 + i) * 0.35 * Math.max(0, 1 - mood.t / 2.4);
+          la = 0.05;
+          ra = i === 0 ? -2.3 : -0.05;
+        }
         pp.g.position.y = y;
+        pp.g.rotation.y += (turn - pp.g.rotation.y) * Math.min(1, dt * 10);
         pp.arms[0].rotation.z += (-la - pp.arms[0].rotation.z) * Math.min(1, dt * 14);
         pp.arms[1].rotation.z += (-ra - pp.arms[1].rotation.z) * Math.min(1, dt * 14);
       });

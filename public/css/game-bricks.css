@@ -62,11 +62,28 @@
   --xr-bricks-cable:          #1d2026;
   --xr-bricks-puff:           #efe6d8;   /* dust when a part lands */
   --xr-bricks-smoke:          #dfe3ea;   /* chimney smoke */
-  --xr-bricks-key-light:      #ffe2bd;   /* warm evening sun */
+  --xr-bricks-key-light:      #ffe2bd;   /* warm evening sun (the cards' little photos) */
+  /* the key light of each place */
+  --xr-bricks-key-hill:       #ffe9d2;
+  --xr-bricks-key-estate:     #ffd9a8;
+  --xr-bricks-key-lake:       #e6efe2;
+  --xr-bricks-key-meadow:     #fff0b8;
+  /* the lawn of each place */
+  --xr-bricks-grass-hill:     #6a9a66;
+  --xr-bricks-grass-estate:   #63a84e;
+  --xr-bricks-grass-lake:     #4f8a4d;
+  --xr-bricks-grass-meadow:   #86ab46;
   --xr-bricks-rim-light:      #8fa8ff;   /* cool rim from behind */
-  /* the winter-evening sky (browser and VR, never in AR) */
-  --xr-bricks-sky-top:        #0b1030;
-  --xr-bricks-sky-mid:        #3a2f6e;
+  /* the evening sky of each place (browser and VR, never in AR) */
+  --xr-bricks-sky-hill-top:   #0b1030;
+  --xr-bricks-sky-hill-mid:   #3a2f6e;
+  --xr-bricks-sky-estate-top: #1a1140;
+  --xr-bricks-sky-estate-mid: #7a3b5e;
+  --xr-bricks-sky-lake-top:   #071a2c;
+  --xr-bricks-sky-lake-mid:   #1f4e5c;
+  --xr-bricks-sky-meadow-top: #1c1a4a;
+  --xr-bricks-sky-meadow-mid: #6a4a78;
+  --xr-bricks-sky-mid:        #3a2f6e;   /* behind the schematic card pictures */
   --xr-bricks-sky-low:        #141029;
   --xr-bricks-star:           #fff4d6;
   /* the neighbors (their bar in the check, their sign, the family) */
@@ -74,9 +91,14 @@
   --xr-bricks-family-1:       #3f7bd6;
   --xr-bricks-family-2:       #d94f6b;
   --xr-bricks-family-3:       #53b36b;
+  --xr-bricks-family-4:       #7d6ad8;
+  --xr-bricks-family-5:       #e39a3b;
+  --xr-bricks-family-6:       #3f9fa8;
   --xr-bricks-family-pants:   #3a3f52;
   --xr-bricks-family-hat-1:   #e0343c;
   --xr-bricks-family-hat-2:   #2f8f5a;
+  --xr-bricks-family-hat-3:   #f0c23a;
+  --xr-bricks-family-hat-4:   #c9ced8;
   --xr-bricks-family-skin-1:  #f1c6a0;
   --xr-bricks-family-skin-2:  #c98d64;
   /* the decision cards (opaque, so they read over a bright room in AR) */
@@ -88,6 +110,11 @@
   --xr-bricks-key-text:       #0d1222;
   --xr-bricks-price:          #ffd970;
   --xr-bricks-chip-bg:        rgb(255 255 255 / 0.06);
+  --xr-bricks-gain-bg:        rgb(47 207 138 / 0.2);    /* a chip: the money buys this criterion something */
+  --xr-bricks-loss-bg:        rgb(255 84 112 / 0.2);    /* a chip: it costs this criterion */
+  --xr-bricks-row-now:        rgb(255 255 255 / 0.08);  /* the row of the check being revealed */
+  --xr-bricks-tag-bg:         #ffffff;   /* the builders' speech tag */
+  --xr-bricks-tag-text:       #0d1222;
   --xr-bricks-strip-bg:       rgb(13 18 34 / 0.94);
   --xr-bricks-lock-veil:      rgb(8 10 20 / 0.55);
   --xr-bricks-lock-bg:        #2a2f3a;
@@ -99,6 +126,7 @@
   --xr-bricks-you:            var(--xr-accent);
   --xr-bricks-bar-bg:         rgb(255 255 255 / 0.12);
   --xr-bricks-bar-reserve:    #6b7390;   /* money kept for the cheapest remaining parts (hatched) */
+  --xr-bricks-bar-wish:       #ffb347;   /* money set aside for the wish list (dotted) */
   --xr-bricks-bar-hatch:      rgb(13 18 34 / 0.55);
   --xr-bricks-bar-free:       var(--xr-success);
 }
