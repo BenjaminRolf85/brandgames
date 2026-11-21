@@ -141,6 +141,7 @@ export class House {
     this.clear = new THREE.MeshStandardMaterial({ color: hex('xr-bricks-crane-glass'), roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.42, depthWrite: false });
     this.parts = {}; // decision -> { groups, bits, singles, geos }
     this.chosen = {};
+    this.extras = new Set();
     this.smokeAt = null; // house-local point where chimney smoke rises (wood stove)
     this.changed = 0; // counts up while something moves (for the frozen shadow map)
     this.showGarden(null);
@@ -158,12 +159,12 @@ export class House {
 
   // ---------- building blocks ----------
 
-  begin(decision) {
-    this.remove(decision);
+  begin(key) {
+    if (this.parts[key]) this.remove(...(key.startsWith('x:') ? ['extras', key.slice(2)] : [key]));
     const part = { home: new THREE.Group(), site: new THREE.Group(), bits: [], singles: [], pending: new Map() };
     this.home.add(part.home);
     this.site.add(part.site);
-    this.parts[decision] = part;
+    this.parts[key] = part;
     this.cur = part;
     return part;
   }
@@ -195,25 +196,26 @@ export class House {
     this.cur.pending.clear();
   }
 
-  remove(decision) {
-    const part = this.parts[decision];
+  /** Takes a part away again (an extra by its id). */
+  remove(decision, id = null) {
+    const key = decision === 'extras' ? `x:${id}` : decision;
+    const part = this.parts[key];
     if (!part) return;
     for (const g of [part.home, part.site]) {
       g.traverse((o) => { if (o.isInstancedMesh) o.dispose(); if (o.userData.ownGeo) o.geometry.dispose(); });
       g.removeFromParent();
     }
-    delete this.parts[decision];
-    delete this.chosen[decision];
+    delete this.parts[key];
+    if (decision === 'extras') this.extras.delete(id); else delete this.chosen[decision];
     if (decision === 'garden') this.showGarden(null);
     if (decision === 'heating') this.smokeAt = null;
     if (decision === 'door') this.doorPivot = null;
     this.changed += 1;
   }
 
-  /** Builds the part for a decision. animate false: it stands at once. Returns its build time (s). */
+  /** Builds the part for a decision (or one extra). animate false: it stands at once. Returns its build time (s). */
   build(decision, id, { animate = true, held = false } = {}) {
-    this.begin(decision);
-    this.chosen[decision] = id;
+    if (decision === 'extras') { this.begin(`x:${id}`); this.extras.add(id); } else { this.begin(decision); this.chosen[decision] = id; }
     const time = this[`build_${decision}`](id, held) ?? 1;
     this.flush();
     if (!animate) this.update(Infinity);
@@ -523,10 +525,61 @@ export class House {
     return 0.7;
   }
 
-  // ---------- one extra ----------
+  // ---------- the extras ----------
 
-  build_extra(id) {
+  build_extras(id) {
     const mats = this.M.mats;
+    if (id === 'tank') {
+      // A rainwater tank at the back corner, fed by a pipe from the roof.
+      const g = new THREE.Group();
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.085, 16), mats.Shutter);
+      tank.userData.ownGeo = true;
+      tank.position.set(OX + 0.045, 0.0425 - FOUND, -0.14);
+      const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.008, 16), mats.Dark);
+      lid.userData.ownGeo = true;
+      lid.position.set(OX + 0.045, 0.089 - FOUND, -0.14);
+      g.add(tank, lid, box(mats.Metal, 0.006, TOP - 0.07, 0.006, OX + 0.008, (TOP + 0.09) / 2, -0.14), box(mats.Metal, 0.04, 0.006, 0.006, OX + 0.026, 0.092, -0.14));
+      g.add(box(mats.Metal, 0.004, 0.012, 0.012, OX + 0.045, 0.014 - FOUND, -0.105));
+      this.one(g);
+      return 0.7;
+    }
+    if (id === 'pond') {
+      const g = new THREE.Group();
+      g.position.set(0.3, 0.003, 0.22);
+      const water = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.004, 20), this.clear);
+      water.userData.ownGeo = true;
+      water.scale.set(1.25, 1, 1);
+      const bed = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.003, 20), mats.SolarCell);
+      bed.userData.ownGeo = true;
+      bed.scale.set(1.25, 1, 1);
+      bed.position.y = -0.001;
+      g.add(bed, water);
+      const rock = new THREE.SphereGeometry(1, 8, 6);
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2;
+        const m = new THREE.Mesh(rock, mats.Stone);
+        const r = rnd(0.008, 0.013);
+        m.scale.set(r, r * 0.7, r);
+        m.position.set(Math.cos(a) * 0.064, 0.003, Math.sin(a) * 0.051);
+        g.add(m);
+      }
+      g.children[2].userData.ownGeo = true;
+      const reed = new THREE.ConeGeometry(0.006, 0.05, 6);
+      [[-0.05, -0.03], [-0.04, -0.045], [0.05, 0.035]].forEach(([x, z], i) => { const m = new THREE.Mesh(reed, mats.Sedum); m.position.set(x, 0.026, z); if (!i) m.userData.ownGeo = true; g.add(m); });
+      g.add(box(mats.FlowerA, 0.012, 0.003, 0.012, 0.01, 0.004, 0.005));
+      this.one(g, { site: true });
+      return 0.7;
+    }
+    if (id === 'smart') {
+      // What shows of a smart home: a lit panel by the door, sensors under the eaves, an antenna.
+      const g = new THREE.Group();
+      g.add(box(mats.Dark, 0.02, 0.028, 0.004, 0.058, 0.1, OZ + 0.002), box(mats.LampGlow, 0.014, 0.018, 0.002, 0.058, 0.1, OZ + 0.005));
+      for (const sx of [-1, 1]) g.add(box(mats.Unit, 0.012, 0.01, 0.012, sx * (OX - 0.02), TOP - 0.012, OZ + 0.007), box(mats.LampGlow, 0.005, 0.004, 0.002, sx * (OX - 0.02), TOP - 0.013, OZ + 0.014));
+      const top = this.roofTop ?? TOP;
+      g.add(box(mats.Metal, 0.003, 0.06, 0.003, -OX + 0.03, top + 0.012, -0.06), box(mats.Metal, 0.03, 0.003, 0.003, -OX + 0.03, top + 0.036, -0.06), box(mats.LampGlow, 0.006, 0.006, 0.006, -OX + 0.03, top + 0.045, -0.06));
+      this.one(g);
+      return 0.6;
+    }
     if (id === 'carport') {
       const g = new THREE.Group();
       g.position.set(0.48, 0.002, -0.02);
@@ -707,7 +760,7 @@ export class House {
     g.add(box(mats.Sand, 0.1, 0.008, 0.1, sx, y + 0.006, sz));
     for (const [dx, dz, w, d] of [[0, 0.055, 0.12, 0.012], [0, -0.055, 0.12, 0.012], [0.055, 0, 0.012, 0.12], [-0.055, 0, 0.012, 0.12]]) g.add(box(mats.Wood, w, 0.016, d, sx + dx, y + 0.008, sz + dz));
     g.add(box(mats.FlowerA, 0.016, 0.014, 0.016, sx + 0.015, y + 0.02, sz - 0.01), box(mats.Mailbox, 0.02, 0.006, 0.008, sx - 0.02, y + 0.014, sz + 0.02));
-    const wx = 0.2;
+    const wx = 0.14;
     for (const s of [-1, 1]) for (const f of [-1, 1]) {
       const leg = box(mats.Beam, 0.007, 0.105, 0.007, wx + s * 0.05, y + 0.05, 0.27 + f * 0.022);
       leg.rotation.x = -f * 0.42;

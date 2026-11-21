@@ -37,9 +37,9 @@ export const OPTIONS = {
   ],
   door: [
     { id: 'painted', style: null, price: 4, e: 0, u: 0, pop: 5 },
-    { id: 'canopy', style: 'trad', price: 9, e: 0, u: 0, w: { rain: 1 }, pop: 3 },
-    { id: 'glassdoor', style: 'mod', price: 10, e: 0, u: 0, gives: 'access', pop: 2 },
-    { id: 'ramp', style: null, price: 12, e: 0, u: 0, gives: 'access', pop: 1 },
+    { id: 'canopy', style: 'trad', price: 12, e: 0, u: 0, w: { rain: 1 }, pop: 3 },
+    { id: 'glassdoor', style: 'mod', price: 13, e: 0, u: 0, gives: 'access', pop: 2 },
+    { id: 'ramp', style: null, price: 14, e: 0, u: 0, gives: 'access', pop: 1 },
   ],
   heating: [
     { id: 'gas', style: null, price: 12, e: -2, u: 0, pop: 5 },
@@ -48,18 +48,18 @@ export const OPTIONS = {
   ],
   garden: [
     { id: 'gravel', style: 'mod', price: 6, e: 0, u: 1, w: { sun: -1 }, pop: 3 },
-    { id: 'hedge', style: 'nat', price: 8, e: 0, u: 0, w: { wind: 1 }, pop: 2 },
-    { id: 'playlawn', style: null, price: 12, e: 0, u: 0, gives: 'kids', pop: 3 },
-    { id: 'picket', style: 'trad', price: 14, e: 0, u: -1, pop: 4 },
+    { id: 'hedge', style: 'nat', price: 12, e: 0, u: 0, w: { wind: 1 }, pop: 2 },
+    { id: 'playlawn', style: null, price: 16, e: 0, u: 0, gives: 'kids', pop: 3 },
+    { id: 'picket', style: 'trad', price: 18, e: 0, u: -1, pop: 4 },
   ],
 };
 // The optional extras: none, one or several, as long as the money lasts.
 export const EXTRAS = [
-  { id: 'tank', style: null, price: 6, e: 1, u: 0, w: { rain: 1 }, pop: 2 },
-  { id: 'pond', style: 'nat', price: 8, e: 0, u: -1, pop: 2 },
-  { id: 'smart', style: null, price: 9, e: 1, u: 1, pop: 3 },
-  { id: 'carport', style: 'mod', price: 12, e: 0, u: 0, gives: 'car', pop: 5 },
-  { id: 'solar', style: null, price: 18, e: 2, u: 0, w: { sun: 1 }, pop: 4 },
+  { id: 'tank', style: null, price: 9, e: 1, u: 0, w: { rain: 1 }, pop: 2 },
+  { id: 'pond', style: 'nat', price: 11, e: 0, u: -1, pop: 2 },
+  { id: 'smart', style: null, price: 12, e: 1, u: 1, pop: 3 },
+  { id: 'carport', style: 'mod', price: 15, e: 0, u: 0, gives: 'car', pop: 5 },
+  { id: 'solar', style: null, price: 20, e: 2, u: 0, w: { sun: 1 }, pop: 4 },
   { id: 'cellar', style: null, price: 28, e: 0, u: 0, gives: 'space', w: { rain: -1 }, pop: 4 },
   { id: 'conservatory', style: null, price: 32, e: -1, u: 0, gives: 'light', w: { sun: 1 }, pop: 2 },
   { id: 'annex', style: null, price: 36, e: 0, u: 0, gives: 'space', pop: 2 },
@@ -86,10 +86,10 @@ export const clashes = (a, b) => PAIR[OPTION[a].n * N + OPTION[b].n] === -2;
 // Who builds: wishes (the adviser does not know them) and how much money there is beyond the
 // basic option of every part (thousand euros).
 export const PEOPLE = [
-  { id: 'fam4', needs: ['kids', 'space', 'light'], spare: 62 },
+  { id: 'fam4', needs: ['kids', 'space', 'light'], spare: 54 },
   { id: 'couple', needs: ['car', 'light'], spare: 46 },
-  { id: 'seniors', needs: ['access', 'easy'], spare: 44 },
-  { id: 'gen3', needs: ['access', 'space', 'kids'], spare: 62 },
+  { id: 'seniors', needs: ['access', 'easy'], spare: 30 },
+  { id: 'gen3', needs: ['access', 'space', 'kids'], spare: 50 },
 ];
 // Where: the style of the houses around and the weather.
 export const PLACES = [
@@ -313,22 +313,51 @@ const idsOf = (round, r, mask) => {
  */
 function table(round, brief) {
   const R = 3 ** DECISIONS.length;
-  const X = 1 << round.extras.length;
+  const ex = round.extras;
+  const X = 1 << ex.length;
   const s4 = new Int16Array(R * X);
   const cost = new Int16Array(R * X);
+  const needs = brief.needs.filter((n) => n !== 'easy');
+  const easy = brief.needs.includes('easy');
+  const giveBit = (o) => { const i = needs.indexOf(o.gives); return i < 0 ? 0 : 1 << i; };
+  const placeOf = (o) => {
+    let v = o.style && OUTSIDE.has(o.decision) ? (o.style === brief.place.style ? 12 : -8) : 0;
+    if (o.w) for (const k of brief.place.weather) { if (o.w[k] > 0) v += 18; else if (o.w[k] < 0) v -= 22; }
+    return v;
+  };
+  const pairOf = (a, b) => { const v = PAIR[a.n * N + b.n]; return v === 2 ? 1 : v; };
+  // Per set of extras, added up one extra at a time: pair sum and count, energy, upkeep,
+  // place points, wishes fulfilled, parts that are a lot of work, price.
+  const A = { sum: new Int16Array(X), n: new Int16Array(X), E: new Int16Array(X), U: new Int16Array(X), place: new Int16Array(X), give: new Int16Array(X), work: new Int16Array(X), cost: new Int16Array(X) };
   const opts = [];
-  const out = [0, 0, 0, 0];
   for (let r = 0; r < R; r++) {
     let k = r;
     for (let i = DECISIONS.length - 1; i >= 0; i--) { opts[i] = round.catalogue[DECISIONS[i]][k % 3]; k = Math.floor(k / 3); }
-    let base = 0;
-    for (let i = 0; i < DECISIONS.length; i++) base += opts[i].price;
+    for (const key in A) A[key][0] = 0;
+    A.place[0] = 40;
+    for (let i = 0; i < opts.length; i++) {
+      const a = opts[i];
+      A.E[0] += a.e; A.U[0] += a.u; A.place[0] += placeOf(a); A.give[0] |= giveBit(a); A.cost[0] += a.price;
+      if (a.u < 0) A.work[0] += 1;
+      for (let j = i + 1; j < opts.length; j++) { const v = pairOf(a, opts[j]); if (v) { A.n[0] += 1; A.sum[0] += v; } }
+    }
     for (let m = 0; m < X; m++) {
-      opts.length = DECISIONS.length;
-      let c = base;
-      for (const x of round.extras) if (m & x.bit) { opts.push(x); c += x.price; }
-      s4[r * X + m] = four(opts, brief, out);
-      cost[r * X + m] = c;
+      if (m) {
+        const xi = 31 - Math.clz32(m & -m);
+        const x = ex[xi];
+        const prev = m & (m - 1);
+        let sum = A.sum[prev];
+        let n = A.n[prev];
+        for (const a of opts) { const v = pairOf(a, x); if (v) { n += 1; sum += v; } }
+        for (let j = xi + 1; j < ex.length; j++) if (prev & (1 << j)) { const v = pairOf(ex[j], x); if (v) { n += 1; sum += v; } }
+        A.sum[m] = sum; A.n[m] = n; A.E[m] = A.E[prev] + x.e; A.U[m] = A.U[prev] + x.u; A.place[m] = A.place[prev] + placeOf(x);
+        A.give[m] = A.give[prev] | giveBit(x); A.work[m] = A.work[prev] + (x.u < 0 ? 1 : 0); A.cost[m] = A.cost[prev] + x.price;
+      }
+      let met = easy && !A.work[m] ? 1 : 0;
+      for (let g = A.give[m]; g; g &= g - 1) met += 1;
+      s4[r * X + m] = (A.n[m] ? Math.round(clamp(50 + (50 * A.sum[m]) / A.n[m])) : 100) + Math.round((100 * met) / brief.needs.length)
+        + Math.round(clamp(A.place[m])) + Math.round(clamp(50 + 9 * A.E[m] + 5 * A.U[m]));
+      cost[r * X + m] = A.cost[m];
     }
   }
   // The money criterion from the table itself: each upgrade against the cheapest part, each

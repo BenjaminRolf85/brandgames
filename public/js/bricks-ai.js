@@ -13,7 +13,7 @@ const HOUSES = 280; // houses it has seen
 const UNLIKE = 0.4; // weight of a house per earlier decision that differs from this house
 const PRIOR = 2.5; // pull towards the overall average (in houses)
 const HALF = 3.5; // similar houses for a confidence of 50 %
-const TIP = 1.5; // an extra it recommends: at least this much coherence gained
+const TIP = 0.3; // an extra it recommends: at least this much coherence gained
 
 function weighted(list, weight) {
   let r = Math.random() * list.reduce((s, x) => s + weight(x), 0);
@@ -85,8 +85,7 @@ export class Adviser {
   /**
    * Forecasts for the extras of a house with these six required parts:
    * [{ id, gain (coherence points with it, compared with similar houses without), conf, level,
-   * tip, perEuro }]. Its tips: the extras with a clear gain, best value for money first, as
-   * long as `left` (thousand euros) pays for them.
+   * tip, perEuro (gain per 1000 euros) }]; `left`: the money left (thousand euros).
    */
   adviseExtras(choices, left) {
     const out = this.round.extras.map((x) => {
@@ -99,14 +98,16 @@ export class Adviser {
         if (h.set.has(x.id)) { n1 += w; s1 += w * h.total; } else { n0 += w; s0 += w * h.total; }
       }
       const without = (s0 + PRIOR * this.mean) / (n0 + PRIOR);
-      const withIt = (s1 + PRIOR * without) / (n1 + PRIOR);
+      const withIt = (s1 + without) / (n1 + 1);
       const gain = withIt - without;
       const conf = n1 / (n1 + HALF);
       return { id: x.id, gain: Math.round(gain), raw: gain, conf, level: levelOf(conf), price: x.price, perEuro: gain / x.price, tip: false };
     });
+    // Its tips: the two extras it expects most from, if the money pays for them.
     let money = left;
-    for (const f of [...out].sort((a, b) => b.perEuro - a.perEuro)) {
-      if (f.raw >= TIP && f.price <= money) { f.tip = true; money -= f.price; }
+    let tips = 0;
+    for (const f of [...out].sort((a, b) => b.raw - a.raw)) {
+      if (tips < 2 && f.raw >= TIP && f.price <= money) { f.tip = true; money -= f.price; tips += 1; }
     }
     return out;
   }
