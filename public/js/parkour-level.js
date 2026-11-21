@@ -279,7 +279,7 @@ export function buildOfficeCourse() {
   prop('desk', 72.3);
   coin(71, 3.1); // lock-in
   prop('cabinet', 76);
-  prop('duct', 76, { len: 2.0 });
+  prop('duct', 76, { len: 1.6 }); // (a little shorter: the gap over the cabinet was the tightest of the level)
   coin(82, 4.6); // Claire
   prop('plant', 84);
   prop('printer', 88);
@@ -310,7 +310,7 @@ export function buildOfficeCourse() {
   prop('chair', 159.6);
   coin(161, 4.0); // EU data centres
   prop('shelf', 164);
-  prop('duct', 164, { len: 1.5 });
+  prop('duct', 164, { len: 1.3 });
   c.bugs.push({ x: 169, y: 3.4, amp: 1.5, period: 2.6 });
   prop('cabinet', 173);
   prop('cabinet', 174);

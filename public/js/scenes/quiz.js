@@ -315,8 +315,9 @@ export class QuizScene extends BaseScene {
     const cols = portrait ? 1 : order.length === 3 ? 3 : 2;
     const w = (W - gap * (cols - 1)) / cols;
     const label = (idx) => L(item.a[idx]);
-    // Phones: at least 44 px for a finger.
-    const h = Math.max(...order.map((idx) => AnswerBubble.measure(w, this.engine.touchUI ? 0.155 : 0.14, { label: label(idx) })));
+    // Phones: at least 44 px for a finger (the upright view shows fewer pixels per meter).
+    const minH = !this.engine.touchUI ? 0.14 : portrait ? 0.175 : 0.155;
+    const h = Math.max(...order.map((idx) => AnswerBubble.measure(w, minH, { label: label(idx) })));
     let y = top - gap - h / 2;
     this.answers = [];
     for (let r = 0; r < order.length; r += cols) {
@@ -339,7 +340,7 @@ export class QuizScene extends BaseScene {
     const { state } = this;
     const gap = 0.03;
     const w = (this.boardW - gap) / 2;
-    const h = this.engine.touchUI ? 0.155 : 0.11;
+    const h = !this.engine.touchUI ? 0.11 : this.portrait ? 0.17 : 0.155;
     const keys = !this.engine.isXR && !this.engine.touchUI;
     const item = state.queue[state.i];
     const make = (kind, labelKey, key, onClick) => {
@@ -493,7 +494,7 @@ export class QuizScene extends BaseScene {
     const last = state.i === state.queue.length - 1;
     const keys = !this.engine.isXR && !this.engine.touchUI;
     const nextW = portrait ? this.boardW : 0.3;
-    const next = this.add(new Button(nextW, portrait ? 0.155 : fb.h, {
+    const next = this.add(new Button(nextW, portrait ? 0.17 : fb.h, {
       label: last ? t('results') : t('next'),
       body: keys ? t('quizNextKey') : undefined,
       variant: 'primary',

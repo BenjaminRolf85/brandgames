@@ -217,14 +217,12 @@ export class FightScene extends BaseScene {
     this.resetRun();
     this.announcer = new Announcer(this);
     this.announcer.calm = this.calm;
-    // Browser: the big callouts appear in front of the table's edge, so they never cover the
-    // fighters, the robot's announcement or the scoreboard.
-    if (this.flat) {
-      this.announcer.place = (g, k) => {
-        g.position.set(0, this.eye - ARENA_DROP + 0.1, ARENA_Z + 0.58);
-        g.scale.setScalar(k * 0.6);
-      };
-    }
+    // The big callouts appear in front of the table's edge, so they never cover the fighters,
+    // the robot's announcement (a counter opens right after "blocked!") or the scoreboard.
+    this.announcer.place = (g, k) => {
+      g.position.set(0, this.eye - ARENA_DROP + 0.1, ARENA_Z + 0.58);
+      g.scale.setScalar(k * 0.6);
+    };
     try { this.liveMode = localStorage.getItem(MODE_KEY) !== 'tactic'; } catch { this.liveMode = true; }
     this.onKey = (e) => this.key(e);
     window.addEventListener('keydown', this.onKey);
