@@ -30,6 +30,36 @@ Live: https://brandgame.echomotion.ai (die alte Adresse https://ki-wissen-ar.net
 - **Calm motion:** the setting “Motion: Calm” (`assist.reducedMotion`): no camera shake, no flashes, fewer particles. Until the player chooses, the system's “reduce motion” setting applies.
 - **Rules for games:** an intro of at most two short sentences plus the controls, the first action within seconds, feedback on every action, nothing coded by color alone, texts that match the device (no word about headsets or hands in the browser), “Again” restarts at once.
 
+### Aufwertung der Spiele / Game upgrade (November 2026)
+
+**DE:** Jedes Spiel wurde auf Spaß, Zugänglichkeit und den Browser hin überarbeitet. Gemeinsam: Intro mit zwei Sätzen plus Steuerung, Hinweise nur beim ersten Mal und im passenden Moment, Punkte-Rückmeldung auf jede Aktion, Bewertung in drei Stufen mit den fehlenden Punkten und einem Tipp, „Nochmal“ startet sofort. Die älteren Abschnitte unten beschreiben Aufbau und Grafik; wo sie Steuerung oder Regeln anders nennen, gilt diese Liste.
+- **Echo-Parkour:** Schild (der erste Treffer kostet nur den Schild), Funken als Fluglinie mit Serie (`public/js/parkour-trail.js`), Bühne füllt den Bildschirm, Hinweise über der Bühne.
+- **KI-Pong:** Ich-Perspektive und Tastatur am Computer, Match bis 3 im Browser, 3×3-Karte der KI-Erwartung mit Überraschungsbonus, erfundene Gegner.
+- **Datenflug:** Tastatur, Punkte bei jedem Fang, Serie in der Statuszeile, größere Daten bei gleichen Trefferzonen.
+- **KI-Arena:** Konterfenster nach einem gestoppten Angriff, Coach-Zeile und Spickzettel, Grund bei jedem Treffer, Tastenreihe am Computer (`public/js/fight-text.js`).
+- **KI-Quiz:** Tastatur, Tempobonus ohne Strafe, zwei Joker (50:50 und „Roboter fragen“, der sich sicher irren kann) (`public/js/quiz-text.js`).
+- **Pannenfrei:** eine Entscheidung pro Stopp (Reifen bringt den Druck mit), Reifenwechsel unterwegs, Sternserie.
+- **Röstmeister:** Wunsch-Marker und Stoppbereich „Wunsch“, Serienbonus, KI-Sicherheit wächst mit den gelernten Bewertungen, Bildschirm-Knöpfe (`public/js/roast-screen.js`).
+- **Stein auf Stein:** Klick oder Tipp auf einen Platz statt Ziehen, „Lauf“ aus sauberen Teilen, Kranlast selbst absetzen, KI-Prognose auf jeder Lebensereignis-Karte.
+- **Grünes Portfolio:** Coach im ersten Jahr, KI-Warnungen mit zwei Antworten (reagieren oder abwarten) und kalibrierter Sicherheit von 20 bis 90 %.
+- **Andock-Labor:** Im Browser schwebt das Molekül über der Tasche, Linien zeigen die Zuordnung, ein Zug dreht es; Zeichen und Kürzel statt nur Farbe.
+- **Kampagnen-Flipper:** Coach-Zeile mit dem nächsten Schuss, nahe Spielersicht am Computer (C wechselt), Flipper mit Maustasten, Rettungspfosten im entspannten Modus.
+- **Gipfelgespräch:** Gespräch als Bildschirm-Layout mit großen Antworten, wählen statt ziehen, zwei Kunden pro Runde, Bonus „Besser gelesen als die KI“, Hilfe „Griff prüfen“.
+
+**EN:** Every game was reworked for fun, accessibility and the browser. In common: an intro of two sentences plus the controls, hints only the first time and at the moment they matter, score feedback on every action, a rating in three steps with the points missing and one tip, “Again” restarts at once. The older sections below describe structure and graphics; where they name controls or rules differently, this list applies.
+- **Echo Parkour:** a shield (the first hit only costs the shield), sparks as a flight line with a streak (`public/js/parkour-trail.js`), the stage fills the screen, hints above the stage.
+- **AI Pong:** first-person view and keyboard on desktop, matches to 3 in the browser, a 3×3 map of the AI's expectation with a surprise bonus, invented opponents.
+- **Data Flight:** keyboard, points on every catch, the streak in the status line, larger data with unchanged hit zones.
+- **AI Arena:** a counter window after a stopped attack, a coach line and cheat sheet, a reason for every hit taken, a key row on desktop (`public/js/fight-text.js`).
+- **AI Quiz:** keyboard, a speed bonus without penalty, two jokers (50:50 and “ask the robot”, which can be confidently wrong) (`public/js/quiz-text.js`).
+- **Pannenfrei:** one decision per stop (the tire brings its pressure), a tire change on the trail, star streaks.
+- **Röstmeister:** wish chips and a “wish” stop zone, streak bonus, AI confidence that grows with the ratings learned, screen buttons (`public/js/roast-screen.js`).
+- **Stein auf Stein:** click or tap a place instead of dragging, a “run” of clean parts, set the crane load down yourself, the AI's forecast on every life-event card.
+- **Grünes Portfolio:** a coach in year 1, AI warnings with two answers (react or wait) and calibrated confidence from 20 to 90 %.
+- **Andock-Labor:** in the browser the molecule hovers above the pocket, lines show what belongs where, one drag turns it; signs and letters instead of color alone.
+- **Kampagnen-Flipper:** a coach line with the next shot, a close player's view on desktop (C switches), flippers on the mouse buttons, a rescue post in relaxed mode.
+- **Gipfelgespräch:** the talk as a screen layout with large answers, choose instead of drag, two customers per round, a bonus for reading the mood better than the AI, a “test the hold” help.
+
 ## Sichtbare Modi und Rundenlänge / Visible modes and round length
 
 **DE:** Sichtbar sind Echo-Parkour (Level 1 bis 3), KI-Pong, Datenflug, KI-Arena und KI-Quiz; Datenhaushalt Bank und Fakt oder Mythos sind seit November 2026 ausgeblendet (wie Zuordnen, Zeitstrahl und Wiederholen nur aus `VISIBLE_MODES` genommen, Code und Bestenlisten bleiben). Das Menü heißt „Echomotion AR Experience“ (`menuTitle`, darunter „by Echomotion - AI Trainings & More“, ohne die frühere Wissensstand-Zeile) und zeigt die Münzen in zwei Reihen: oben Echo-Parkour und KI-Pong, darunter KI-Quiz, KI-Arena und Datenflug (`MENU_ROWS` in `public/js/scenes/menu.js`; weitere sichtbare Spiele folgen in eigenen Reihen). Der Hinweis „Neu“ steht nur bei Datenflug (`NEW_GAMES`). Die Quiz-Modi jeweils mit genau 6 Fragen (die „Zweite Chance“ ist dafür abgeschaltet: `SECOND_CHANCE` in `public/js/scenes/quiz.js`). Das Wissenshaus wird in 6 Bauabschnitten gebaut und ist nach 6 richtigen Antworten fertig. Zuordnen, Zeitstrahl und Wiederholen sind nur ausgeblendet: Zum Einschalten den Schlüssel in `VISIBLE_MODES` in `public/js/config.js` ergänzen.
