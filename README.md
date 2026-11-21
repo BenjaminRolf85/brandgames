@@ -7,10 +7,28 @@
 
 Live: https://brandgame.echomotion.ai (die alte Adresse https://ki-wissen-ar.netlify.app leitet dorthin weiter / the old address redirects there)
 
-## AR oder VR? / AR or VR?
+## Überall spielbar / Play anywhere
 
-**DE:** Das Spiel ist für AR gemacht. Mit „In AR starten“ siehst du per Passthrough deinen echten Raum. Über „Im Raum platzieren“ verankerst du das Quiz per Hit-Test auf Boden, Tisch oder Wand. VR mit virtuellem Raum ist als Alternative verfügbar.
-**EN:** The game is made for AR. “Start in AR” shows your real room through passthrough. “Place in room” anchors the quiz on your floor, a table or a wall via hit testing. VR with a virtual room is available as an alternative.
+**DE:** Alle Spiele laufen direkt im Browser auf Computer und Handy, ohne Brille und ohne Installation. Mit einer Brille (z. B. Meta Quest 3) kommen AR und VR dazu: „In AR starten“ zeigt per Passthrough den echten Raum, und über „Im Raum platzieren“ verankerst du das Spiel per Hit-Test auf Boden, Tisch oder Wand. VR mit virtuellem Raum ist die Alternative. Ohne Brille ist „Im Browser spielen“ der Hauptbutton der Startseite.
+**EN:** All games run right in the browser on desktop and phones, with no headset and no install. A headset (e.g. Meta Quest 3) adds AR and VR: “Start in AR” shows your real room through passthrough, and “Place in room” anchors the game on your floor, a table or a wall via hit testing. VR with a virtual room is the alternative. Without a headset “Play in the browser” is the landing page's main button.
+
+## Spielhilfen für alle / Play kit for everyone (`public/js/assist.js`, `public/js/pause.js`, `setControls` in `public/js/scene.js`, keyboard focus in `public/js/engine.js`)
+
+**DE:** Ein gemeinsamer Baukasten macht jedes Spiel im Browser vollwertig und zugänglich:
+- **Tastatur:** Tab und Umschalt+Tab wandern durch die sichtbaren 3D-Schaltflächen (von oben nach unten, von links nach rechts), Enter oder Leertaste drückt die gewählte, Esc hebt die Auswahl auf. Ein Ring in der Token-Farbe `--xr-focus` zeigt die Auswahl; eine `aria-live`-Zeile liest die Beschriftung (`userData.label`) vor. Eigene klickbare Objekte bekommen `userData.label` und optional `userData.setFocus(on)`; `userData.focusable = false` nimmt sie aus.
+- **Pause:** Im Browser pausieren Esc oder P, die Menü-Schaltfläche des Spiels und das Verlassen des Tabs. `engine.setPaused(true)` hält Updater und Tweens an, `music.pause()` den Ton. Der Dialog ist normales HTML (Fokusfalle, „Weiter“, „Neu starten“, „Menü“). Spielzeit läuft deshalb nur über `onUpdate(dt)`, `tween()` und `delay()`, nie über `setTimeout` oder `performance.now()`. Ein Spiel, das Esc selbst nutzt, ruft `e.preventDefault()`. In der Brille gibt es keinen Pause-Dialog.
+- **Steuerung pro Gerät:** `this.setControls({ desktop, touch, xr })` mit Paaren `[Tasten, Aktion]`; das Intro (`controlsBlocks()`) und der Pause-Dialog zeigen die Liste für das aktuelle Gerät.
+- **Entspannte Spielweise:** Einstellung „Spielweise: Entspannt“ (`assist.easy`, `assist.pick(normal, entspannt)`): mehr Zeit, mehr Hilfen, langsameres Tempo. Das Ergebnis zählt dann 80 % der Punkte (`EASY_SCORE`, in `BaseScene.results()`), damit die Bestenlisten fair bleiben; der Ergebnisbildschirm sagt das.
+- **Ruhige Bewegung:** Einstellung „Bewegung: Ruhig“ (`assist.reducedMotion`): kein Kamerawackeln, keine Blitze, weniger Partikel. Ohne eigene Wahl gilt die Systemeinstellung „Bewegung reduzieren“.
+- **Regeln für Spiele:** Intro mit höchstens zwei kurzen Sätzen plus Steuerung, erste Aktion nach wenigen Sekunden, Rückmeldung auf jede Aktion, nichts nur über Farbe erkennbar, Texte passend zum Gerät (im Browser kein Wort über Brille oder Hände), „Nochmal“ startet sofort.
+
+**EN:** A shared kit makes every game a full, accessible browser game:
+- **Keyboard:** Tab and Shift+Tab move through the visible 3D buttons (top to bottom, left to right), Enter or Space presses the focused one, Escape clears the focus. A ring in the `--xr-focus` token color shows the focus; an `aria-live` line reads the label (`userData.label`). Custom clickable objects set `userData.label` and optionally `userData.setFocus(on)`; `userData.focusable = false` skips them.
+- **Pause:** in the browser Escape or P, the game's menu button and leaving the tab pause the game. `engine.setPaused(true)` stops updaters and tweens, `music.pause()` stops the sound. The dialog is plain HTML (focus trap, “Resume”, “Restart”, “Menu”). Game time therefore runs only through `onUpdate(dt)`, `tween()` and `delay()`, never `setTimeout` or `performance.now()`. A game that uses Escape itself calls `e.preventDefault()`. There is no pause dialog in the headset.
+- **Controls per device:** `this.setControls({ desktop, touch, xr })` with pairs `[keys, action]`; the intro (`controlsBlocks()`) and the pause dialog show the list for the current device.
+- **Relaxed mode:** the setting “Play style: Relaxed” (`assist.easy`, `assist.pick(normal, relaxed)`): more time, more help, a slower pace. The result then counts 80 % of the points (`EASY_SCORE`, in `BaseScene.results()`) so the leaderboards stay fair; the result screen says so.
+- **Calm motion:** the setting “Motion: Calm” (`assist.reducedMotion`): no camera shake, no flashes, fewer particles. Until the player chooses, the system's “reduce motion” setting applies.
+- **Rules for games:** an intro of at most two short sentences plus the controls, the first action within seconds, feedback on every action, nothing coded by color alone, texts that match the device (no word about headsets or hands in the browser), “Again” restarts at once.
 
 ## Sichtbare Modi und Rundenlänge / Visible modes and round length
 
