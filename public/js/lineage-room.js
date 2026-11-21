@@ -673,7 +673,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
         pill.scale.setScalar(1 / K);
         const hit = new THREE.Mesh(new THREE.PlaneGeometry(0.21, 0.115), new THREE.MeshBasicMaterial({ visible: false }));
         if (lane) { const a = byId.get(l.a); hit.position.set(a.x + a.w / 2 + 0.105, a.y, 0.04); } // beside its page, clear of every token
-        else l.curve.getPoint(aiLines.length > 1 ? [0.5, 0.3, 0.7, 0.4, 0.6][li % 5] : 0.5, hit.position);
+        else l.curve.getPoint(aiLines.length > 1 ? [0.5, 0.42, 0.58, 0.46, 0.54][li % 5] : 0.5, hit.position); // near the middle of its beam: clear of the tokens at both ends
         hit.position.z += 0.012;
         hit.add(pill);
         const name = model.nodes.find((x) => x.id === need.ai.id).title;

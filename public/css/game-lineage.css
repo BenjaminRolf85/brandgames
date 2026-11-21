@@ -229,6 +229,7 @@
 /* A phone held sideways: one slim row for the stages and the prompt; the feedback is a toast. */
 @media (orientation: landscape) and (max-height: 520px) {
   .lin-head { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-2); }
+  .lin-bar:not(.lin-bar--desk) { right: auto; } /* as wide as its content: the stages and the prompt stand beside it */
   .lin-play--side { right: calc(max(var(--space-3), env(safe-area-inset-right)) + var(--stage-close-width) + var(--space-3)); }
   .lin-play--side .lin-head { min-height: var(--tap-min); }
   .lin-play--side .lin-prompt { font-size: var(--xr-lineage-font-small); line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
