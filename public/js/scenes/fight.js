@@ -524,8 +524,8 @@ export class FightScene extends BaseScene {
     this.app.host?.introduce(this, 'fight', p);
     // The mode: real time (react to the robot's attacks) or tactics (program three moves).
     // Phones: tiles tall enough for a finger (44 px and more).
-    const mh = this.engine.touchUI ? 0.145 : 0.1;
-    const fh = this.engine.touchUI ? 0.15 : 0.12;
+    const mh = this.engine.touchUI ? 0.2 : 0.1;
+    const fh = this.engine.touchUI ? 0.2 : 0.12;
     const modeY = p.position.y - p.h / 2 - 0.03 - mh / 2;
     const modes = [['live', 'fightModeLive', 'fightModeLiveText'], ['tactic', 'fightModeTactic', 'fightModeTacticText']].map(([key, label, text], i) => {
       const tile = iconTile(0.52, mh, (ctx, c, s) => {
@@ -1173,16 +1173,19 @@ export class FightScene extends BaseScene {
     // Larger than in the headset, so the buttons are easy to hit with a finger.
     if (con) {
       con.rotation.set(0, 0, 0);
-      con.scale.setScalar(portrait ? 1.55 : 1.3);
-      if (portrait) con.position.set(0, y0 - 0.5, ARENA_Z + 0.55);
-      else con.position.set(1.22, y0 + 0.28, ARENA_Z + 0.25);
+      const two = con.userData.rows === 2;
+      con.scale.setScalar(portrait ? 1.75 : two ? 2 : 1.3);
+      if (portrait) con.position.set(0, y0 - 0.56, ARENA_Z + 0.55);
+      else con.position.set(two ? 1.3 : 1.22, y0 + (two ? 0.5 : 0.28), ARENA_Z + 0.25);
     }
     if (ins) {
       // Real time in landscape: the thumbs' buttons take the lower corners; the insights pause.
       ins.visible = portrait || this.mode !== 'live';
       ins.rotation.set(0, 0, 0);
-      ins.scale.setScalar(portrait ? 1.35 : 1.25);
-      if (portrait) ins.position.set(0, y0 + HUD_UP + 0.14 + (this.insights.h * 1.35) / 2, ARENA_Z - 0.1);
+      // (Tactics: the taller panel a little smaller, so the move buttons below get their room.)
+      const k = !portrait ? 1.25 : this.liveMode ? 1.35 : 1.1;
+      ins.scale.setScalar(k);
+      if (portrait) ins.position.set(0, y0 + HUD_UP + 0.14 + (this.insights.h * k) / 2, ARENA_Z - 0.1);
       else ins.position.set(-1.22, y0 + 0.28, ARENA_Z + 0.25);
     }
   }
@@ -1196,9 +1199,13 @@ export class FightScene extends BaseScene {
     this.add(g);
     // Desktop, real time: a row of big buttons with their keys; else the compact console.
     const deskLive = live && this.desk;
+    // Tactics on a phone held sideways: the moves in two rows of three, so the console fits
+    // beside the table at finger size.
+    const twoRows = !live && this.engine.touchUI && window.innerWidth > window.innerHeight;
+    g.userData.rows = twoRows ? 2 : 1;
     if (!deskLive) {
-      const title = textPanel(0.66, 0.06, [{ text: live ? t(this.engine.isXR ? 'fightLiveTitleXR' : 'fightLiveTitle') : t('fightProgram', { n: this.round }), size: 'xr-text-sm', weight: 'black' }], { surface: false });
-      title.position.y = 0.2;
+      const title = textPanel(twoRows ? 0.44 : 0.66, 0.06, [{ text: live ? t(this.engine.isXR ? 'fightLiveTitleXR' : 'fightLiveTitle') : t('fightProgram', { n: this.round }), size: 'xr-text-sm', weight: 'black' }], { surface: false });
+      title.position.y = twoRows ? 0.38 - title.h / 2 + 0.03 : 0.2;
       g.add(title);
     }
     this.moveButtons = MOVES.map((m) => {
@@ -1214,6 +1221,10 @@ export class FightScene extends BaseScene {
       const row = DESK_ORDER.map((m) => this.moveButtons[MOVES.indexOf(m)]);
       layoutRow(row, 0, 0, 0.014);
       row.forEach((b, i) => { b.position.x += i < 2 ? -0.035 : i === 5 ? 0.035 : 0; });
+    } else if (twoRows) {
+      const [punch, kick, block, duck, thrw, special] = this.moveButtons;
+      layoutRow([punch, kick, thrw], 0.242, 0, 0.012);
+      layoutRow([block, duck, special], 0.09, 0, 0.012);
     } else layoutRow(this.moveButtons, 0.09, 0, 0.012);
     this.moveButtons.forEach((b) => g.add(b));
     if (live) {
@@ -1242,7 +1253,8 @@ export class FightScene extends BaseScene {
     layoutRow(this.slots, -0.07, 0, 0.02);
     this.slots.forEach((s) => g.add(s));
     // Actions
-    const clear = iconTile(0.2, 0.09, (ctx, c, s) => {
+    const ah = this.engine.touchUI ? 0.12 : 0.09; // phones: tall enough for a finger
+    const clear = iconTile(0.2, ah, (ctx, c, s) => {
       c.surface({ fill: color(s.hover ? 'xr-button-hover' : 'xr-button-bg'), stripe: false });
       ctx.fillStyle = color('xr-button-text');
       ctx.font = font('bold', c.m(num('xr-text-sm')));
@@ -1252,7 +1264,7 @@ export class FightScene extends BaseScene {
     });
     clear.userData.label = t('fightClear');
     clear.userData.onClick = () => { sfx.click(); this.queue = []; this.refreshConsole(); };
-    this.goButton = iconTile(0.36, 0.09, (ctx, c, s) => {
+    this.goButton = iconTile(0.36, ah, (ctx, c, s) => {
       c.surface({ fill: color(s.disabled ? 'xr-button-bg' : s.hover ? 'xr-primary-hover' : 'xr-primary'), stroke: color('xr-primary-hover'), stripe: false });
       ctx.globalAlpha = s.disabled ? 0.5 : 1;
       drawIcon(ctx, 'fight', c.m(0.05), c.canvas.height / 2, c.m(0.045), color(s.disabled ? 'xr-button-text' : 'xr-on-primary'));
@@ -1265,7 +1277,7 @@ export class FightScene extends BaseScene {
     });
     this.goButton.userData.label = t('fightGo');
     this.goButton.userData.onClick = () => { if (!this.goButton.userData.isDisabled()) this.execute(); };
-    layoutRow([clear, this.goButton], -0.2, 0, 0.02);
+    layoutRow([clear, this.goButton], -0.155 - ah / 2, 0, 0.02);
     g.add(clear, this.goButton);
     g.children.forEach((o, i) => this.popIn(o, 0.03 * i));
     this.console = g;
@@ -2071,7 +2083,7 @@ export class FightScene extends BaseScene {
       if (worst >= 2 || !champion) tip = worst === st.late ? 'late' : worst === st.feint ? 'feint' : worst === st.pair ? 'pair' : 'counter';
     }
     const portrait = this.flat && window.innerWidth < window.innerHeight;
-    this.zoom(!this.flat || portrait ? 1 : this.desk ? 1.2 : 1.35, 0.44);
+    this.zoom(!this.flat ? 1 : this.desk || portrait ? 1.2 : 1.35, 0.44);
     this.results({
       gameKey: 'fight', score, correct: this.wins, total: STAGES,
       line: champion ? t('fightChampion') : `${t('fightLost', { name: this.opp.name })}  ·  ${rankName}`,

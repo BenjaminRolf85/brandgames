@@ -257,7 +257,7 @@
   --xr-parkour-dust:       var(--p-cyan-400);
   --xr-parkour-spark:      var(--p-lime-400);      /* the sparks of the flight line (small diamonds) */
   --xr-parkour-shield:     var(--p-cyan-400);      /* the ring around Echo while the shield is up */
-  --xr-parkour-hint:       var(--p-amber-400);     /* frame of the one-line hints under the stage */
+  --xr-parkour-hint:       var(--p-amber-400);     /* frame of the one-line hints above the stage */
   /* light rig per world (graphics pass, parkour-look.js): warm key, cool sky fill, warm ground bounce */
   --xr-parkour-key-forest:    var(--p-sand-100);
   --xr-parkour-sky-forest:    var(--p-frost-500);

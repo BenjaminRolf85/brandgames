@@ -11,7 +11,7 @@ import { useHouse } from '../quiz-decor.js';
 import { Button, textPanel } from '../ui3d.js';
 import { color, hex } from '../tokens.js';
 import { t, L } from '../i18n.js';
-import { QUIZ, FACT_MYTH, EVENTS, SPONSOR_QUIZ, TOPICS, shuffle, toMC } from '../content.js';
+import { QUIZ, FACT_MYTH, EVENTS, SPONSOR, SPONSOR_QUIZ, TOPICS, shuffle, toMC } from '../content.js';
 import { pick, record, reviewIds } from '../progress.js';
 import { sfx } from '../sfx.js';
 import { AnswerBubble, QuizBot, SpeedBar, makeQuestionMarks, floatText, answerLetter } from '../quiz-visuals.js';
@@ -72,8 +72,28 @@ export class QuizScene extends BaseScene {
     window.addEventListener('keydown', this.onKey);
     this.onSceneDispose(() => window.removeEventListener('keydown', this.onKey));
     const deco = t(this.house.introKey === 'treeIntro' ? 'quizIntroTree' : 'quizIntroHouse');
-    this.intro(this.name, `${t(mode === 'review' ? 'reviewIntro' : 'quizIntro')} ${deco}`, () => this.begin());
+    this.showIntro(`${t(mode === 'review' ? 'reviewIntro' : 'quizIntro')} ${deco}`);
     this.zoom(this.zoomFor('intro'));
+  }
+
+  /** The intro as in BaseScene.intro(), with a start button that is finger-sized on phones. */
+  showIntro(text) {
+    this.clearLayer();
+    const touch = this.engine.touchUI;
+    const panel = this.add(textPanel(1.1, 0.4, [
+      { text: this.name, size: 'xr-text-title', weight: 'black', gap: 0.04 },
+      { text, size: 'xr-text-md', color: color('xr-panel-muted'), gap: 0.04 },
+      ...this.controlsBlocks(),
+      { text: L(SPONSOR.presentedBy), size: 'xr-text-sm', weight: 'bold', color: color('xr-warning') },
+    ]));
+    panel.position.set(0, this.eye + 0.44 - panel.h / 2, -this.dist);
+    // Quiz games: the music runs calm under the questions.
+    const go = this.add(new Button(touch ? 0.6 : 0.42, touch ? 0.17 : 0.13, { label: t('start'), variant: 'primary', labelSize: 'xr-text-lg', onClick: () => { this.startMusic(-1); this.begin(); } }));
+    go.position.set(0, panel.position.y - panel.h / 2 - 0.05 - go.h / 2, -this.dist);
+    this.popIn(panel);
+    this.popIn(go, 0.1);
+    this.app.host?.introduce(this, this.app.currentGame, panel);
+    this.prepareMusic();
   }
 
   /**
@@ -92,8 +112,10 @@ export class QuizScene extends BaseScene {
    */
   zoomFor(step) {
     const e = this.engine;
-    if (e.isXR || this.portrait) return 1;
-    if (e.touchUI) return step === 'ask' ? 1.4 : 1.3;
+    if (e.isXR) return 1;
+    // Upright phone: the questions already fill the width; intro and result grow to it.
+    if (this.portrait) return step === 'ask' ? 1 : step === 'intro' ? 1.5 : 1.2;
+    if (e.touchUI) return step === 'ask' ? 1.4 : step === 'intro' ? 1.6 : 1.3;
     return step === 'ask' ? 1.32 : 1.2;
   }
 
@@ -494,7 +516,7 @@ export class QuizScene extends BaseScene {
     const last = state.i === state.queue.length - 1;
     const keys = !this.engine.isXR && !this.engine.touchUI;
     const nextW = portrait ? this.boardW : 0.3;
-    const next = this.add(new Button(nextW, portrait ? 0.17 : fb.h, {
+    const next = this.add(new Button(nextW, portrait ? 0.2 : fb.h, {
       label: last ? t('results') : t('next'),
       body: keys ? t('quizNextKey') : undefined,
       variant: 'primary',
