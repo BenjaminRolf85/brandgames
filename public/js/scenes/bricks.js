@@ -14,13 +14,24 @@
 // band. After the allotment the loan builds along: the crane lowers whole walls, you set the
 // lintels over the openings and the roof trusses, then the roof comes, and it should be on before
 // the first snow. Then the lights go on, the door opens and Echo comes over to celebrate.
+//
+// Browser (Nov 2026 upgrade): the flat screen has its own way to build. A click or a tap on a
+// glowing place sets the fitting part there; the arrow keys move a marker from place to place and
+// Space sets; dragging still works. Parts set quickly and cleanly make a run ("Lauf"): a full
+// run earns an extra brick (your own work on the site), so skill decides the race. A
+// finished row of a wall gives a bonus. At life events the AI shows for both choices when the
+// savings goal would be reached. In the loan phase the player lowers the crane's loads: the load
+// swings over its place and is set down at the right moment. Relaxed mode and calm motion
+// (assist.js), the controls per device (setControls), pause-safe (all time runs through update).
 import * as THREE from 'three';
 import { BaseScene } from '../scene.js';
 import { Button, Panel, textPanel, placeOnArc } from '../ui3d.js';
 import { color, hex, num } from '../tokens.js';
-import { t } from '../i18n.js';
+import { t, L as loc } from '../i18n.js';
+import { SPONSOR } from '../content.js';
 import { sfx } from '../sfx.js';
 import { music } from '../music.js';
+import { assist } from '../assist.js';
 import { sceneLook, softSun, bloom, contactShadow, gfxTier } from '../gfx.js';
 import { CHRISTMAS, makeLightString, makeBulbs } from '../christmas.js';
 import { makeSnowfall, setSnowAmount } from '../snow.js';
@@ -28,18 +39,39 @@ import { radialTexture } from '../robot-visuals.js';
 import { EVENTS, EVENT_INHERIT, EVENT_PARENTS, STYLES } from '../bricks-text.js';
 import { Plan, L, H, D, GAP, TOP, FOUND, HOUSE_Z, RIDGE, EAVE, OX, OZ, ZH, ANNEX_COURSES, BASE_TARGET } from '../bricks-plan.js';
 import { Forecaster } from '../bricks-ai.js';
-import { loadBricks, plainPlot, BrickField, GhostPlan, Crane, Puffs, bsfx, drawMonthDisplay, makeFamily, warnSprite } from '../bricks-visuals.js';
+import { loadBricks, plainPlot, BrickField, GhostPlan, Crane, Puffs, bsfx, drawMonthDisplay, makeFamily, warnSprite, popSprite, DropMarker } from '../bricks-visuals.js';
 import { eventPanel, drawChart, drawSign } from '../bricks-panels.js';
 
-const MONTH = 4.5; // seconds per month
 const MAX_MONTHS = 44; // then the allotment comes anyway
-const SNOW_AT = 32; // the first snow
 const INTEREST_EVERY = 8; // a golden brick for every 8 saved
-const CREDIT_CAP = 4; // savings waiting for the pallet; more is a missed deposit
+// The pace, and what the relaxed mode changes (assist.js), read when a round starts. In the
+// headset every part is taken and set by hand, which takes longer than a click: the months stay
+// as long as they were there, and the run allows more time.
+const tuning = (xr) => ({
+  month: xr ? assist.pick(4.5, 5.6) : assist.pick(3.8, 5), // seconds per month while saving
+  loanMonth: assist.pick(5.6, 8), // seconds per month while the loan builds (the build takes months)
+  snowAt: assist.pick(32, 38), // the first snow
+  creditCap: assist.pick(6, Infinity), // savings waiting for the pallet; more is a lost deposit (never in the relaxed mode)
+  quick: assist.pick(xr ? 5 : 2.8, Infinity), // seconds to set a part for the run (relaxed: no clock)
+  runLen: assist.pick(5, 3), // parts in a row for an extra brick
+  wobble: assist.pick(40, 0), // points a wobbling part costs
+  skew: assist.pick(25, 0),
+  wet: assist.pick(250, 100), // drying a snowed-in house
+  nbPace: assist.pick(1, 0.8), // the neighbors' saving speed
+  helpers: assist.pick(12, 7), // loan phase: seconds until the helpers set a waiting part
+  swing: assist.pick(2.6, 1.3), // the crane's load: swing speed (radians per second)
+  perfect: assist.pick(0.22, 0.4), // set down this close to the middle (share of the swing): perfect
+  good: assist.pick(0.55, 0.8),
+  dropWait: assist.pick(7, 9), // seconds until the helpers set the load down
+  suggest: assist.pick(8, 3), // seconds a part waits before an arrow suggests a place
+});
+// The rating in three steps on the result.
+const RATING = [3500, 4200]; // points for the second and the third rating (times the relaxed mode's share)
 const SPOTS = 3; // rows on the pallet
 const BELT_TIME = 1.0;
 const COST = { single: 1, double: 2, half: 1, corner: 1, window: 2, door: 3 };
-const PTS = { place: 20, clean: 10, gold: 50, wobble: 40, skew: 25, hand: 20, race: 400, allot: 200, dry: 300, wet: 250, speed: 1000, room: 150 };
+// Points (a very good round with a big house stays just below the 5000 the leaderboard allows).
+const PTS = { place: 20, clean: 10, gold: 50, hand: 20, race: 400, allot: 200, dry: 300, speed: 700, room: 150, row: 20, run: 15, dropPerfect: 25, dropGood: 10 };
 const FAST = 17; // allotment month for the full speed bonus
 const SLOW = 38;
 // Headset placement: the plot below eye height within reach.
@@ -70,13 +102,17 @@ const clamp = THREE.MathUtils.clamp;
 const ease = (k) => k * k * (3 - 2 * k);
 const ONE = new THREE.Vector3(1, 1, 1);
 const UP = new THREE.Vector3(0, 1, 0);
-const rnd = (a, b) => a + Math.random() * (b - a);
 const pickOf = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 /** Piece kind a part fills (the plan's target kinds). */
 const targetKind = (kind) => (kind === 'gold' ? 'single' : kind);
 /** Parts that may be set on a place that is only partly supported (they wobble then). */
 const MAY_WOBBLE = new Set(['single', 'double', 'half', 'corner', 'gold']);
+/** States in which a click, a tap or a key can send a part to its place (browser). */
+const READY = new Set(['belt', 'hop', 'pallet', 'selected', 'hook', 'return']);
+
+// "Again" on the result starts the next round at once (no intro a second time).
+let skipIntro = false;
 
 export class BricksScene extends BaseScene {
   constructor(app) {
@@ -100,6 +136,11 @@ export class BricksScene extends BaseScene {
     this.score = 0;
     this.opts = { annex: false, dormer: true, solar: false, garden: false };
     this.rooms = 5;
+    this.T = tuning(this.engine.isXR);
+    this.monthLen = this.T.month;
+    this.calm = assist.reducedMotion; // no flashes, no camera sway, fewer particles
+    this.cursor = null; // browser: the place the mouse, a finger or the arrow keys point at
+    this.cursorBy = null; // 'mouse' | 'keys'
 
     this.setupLook();
 
@@ -115,6 +156,7 @@ export class BricksScene extends BaseScene {
     this.home.position.copy(HOUSE);
     this.plotRoot.add(this.home);
     this.puffs = new Puffs(this.plotRoot);
+    this.pops = [];
     this.addLights();
     // Screen elements in the 3D view: holders the layout moves around.
     this.chartHolder = this.holder();
@@ -125,8 +167,39 @@ export class BricksScene extends BaseScene {
     this.ready = loadBricks().then((M) => { if (!this.disposed) this.build(M); });
     this.setupInput();
     this.onUpdate((dt) => this.update(dt));
-    const hint = t(this.engine.isXR ? 'bricksIntroXR' : this.engine.touchUI ? 'bricksIntroTouch' : 'bricksIntroScreen');
-    this.intro(t('bricksName'), `${t('bricksIntro')} ${hint}`, () => this.start());
+    const rows = (dev, n) => Array.from({ length: n }, (_, i) => [t(`bricksCtl_${dev}${i + 1}k`), t(`bricksCtl_${dev}${i + 1}a`)]);
+    this.setControls({ desktop: rows('desk', 4), touch: rows('touch', 3), xr: rows('xr', 3) });
+    const again = skipIntro;
+    skipIntro = false;
+    if (again) this.start();
+    else this.showIntro();
+  }
+
+  /** The intro: two sentences and the controls. Phones held sideways get a wide, low panel, so the text stays big enough to read. */
+  showIntro() {
+    if (!this.engine.touchUI || window.innerWidth / window.innerHeight < 1.3) {
+      this.intro(t('bricksName'), t('bricksIntro'), () => this.start());
+      return;
+    }
+    this.clearLayer();
+    const panel = this.add(textPanel(2.0, 0.3, [
+      { text: t('bricksName'), size: 'xr-text-title', weight: 'black', gap: 0.03 },
+      { text: t('bricksIntro'), size: 'xr-text-md', color: color('xr-panel-muted'), gap: 0.03 },
+      ...this.controlsBlocks(),
+      { text: loc(SPONSOR.presentedBy), size: 'xr-text-sm', weight: 'bold', color: color('xr-warning') },
+    ]));
+    panel.position.set(0, this.eye + 0.3 - panel.h / 2, -this.dist);
+    const go = this.add(new Button(0.5, 0.13, { label: t('start'), variant: 'primary', labelSize: 'xr-text-lg', onClick: () => { this.startMusic(-1); this.start(); } }));
+    go.position.set(0, panel.position.y - panel.h / 2 - 0.04 - go.h / 2, -this.dist);
+    this.popIn(panel);
+    this.popIn(go, 0.1);
+    this.app.host?.introduce(this, 'bricks', panel);
+    this.prepareMusic();
+  }
+
+  /** Calm motion: fewer particles. */
+  burst(worldPos, token, count = 22) {
+    super.burst(worldPos, token, this.calm ? Math.ceil(count * 0.35) : count);
   }
 
   holder() {
@@ -279,6 +352,17 @@ export class BricksScene extends BaseScene {
     this.crane = new Crane(M, this.plotRoot, CRANE_AT);
     if (!props) this.crane.root.traverse((o) => { o.castShadow = false; });
     this.crane.root.visible = false;
+    this.marker = new DropMarker(this.plotRoot);
+    // The run's clock: a bar over the pallet that runs out while a part waits (none in the relaxed mode).
+    this.runBar = new THREE.Sprite(new THREE.SpriteMaterial({ color: hex('xr-bricks-pop-run'), transparent: true, opacity: 0.9, depthTest: false, toneMapped: false }));
+    this.runBar.position.set(PALLET.x, PALLET.y + 0.15, PALLET.z);
+    this.runBar.renderOrder = 7;
+    this.runBar.userData.noFit = true;
+    this.runBar.visible = false;
+    this.plotRoot.add(this.runBar);
+    this.hoverWarn = warnSprite(); // "it would wobble here" over the marked place (not color alone)
+    this.hoverWarn.visible = false;
+    this.home.add(this.hoverWarn);
     if (CHRISTMAS) {
       const pts = [];
       [[0.035, 0.07], [0.095, 0.054], [0.15, 0.038], [0.198, 0.022]].forEach(([y, r], k) => {
@@ -320,6 +404,7 @@ export class BricksScene extends BaseScene {
     }
     this.ghost?.dispose();
     this.field = new BrickField(this.home, this.plan, M);
+    this.field.calm = this.calm;
     for (const o of this.field.single.values()) this.useGlass(o);
     this.field.showAll();
     for (const [id, info] of this.plan.filled) {
@@ -328,6 +413,9 @@ export class BricksScene extends BaseScene {
       else if (info.skew) this.field.setTilt(p, info.skew);
     }
     this.ghost = new GhostPlan(this.home, this.plan);
+    this.ghost.calm = this.calm;
+    this.cursor = null;
+    this._places = null;
     this.updateRoofGhost();
   }
 
@@ -335,7 +423,7 @@ export class BricksScene extends BaseScene {
   updateRoofGhost() {
     this.roofGhost?.removeFromParent();
     const g = new THREE.Group();
-    const mat = new THREE.MeshBasicMaterial({ color: hex('xr-bricks-ghost'), transparent: true, opacity: 0.22, depthWrite: false, toneMapped: false });
+    const mat = new THREE.MeshBasicMaterial({ color: hex('xr-bricks-ghost'), transparent: true, opacity: 0.1, depthWrite: false, toneMapped: false });
     const slope = Math.atan(RIDGE / OZ);
     if (this.opts.dormer) {
       const d = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.07, 0.08), mat);
@@ -345,7 +433,7 @@ export class BricksScene extends BaseScene {
     if (this.opts.solar) {
       const s = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.006, 0.12), mat.clone());
       s.material.color.setHex(hex('xr-bricks-solar')).lerp(new THREE.Color(hex('xr-bricks-ghost')), 0.5);
-      s.material.opacity = 0.4;
+      s.material.opacity = 0.22;
       s.position.set(0.115, TOP + RIDGE - 0.065 * (RIDGE / OZ) + 0.016, 0.065);
       s.rotation.x = slope;
       g.add(s);
@@ -426,6 +514,7 @@ export class BricksScene extends BaseScene {
       const r = Math.random();
       d = r < 0.45 ? 4 : r < 0.65 ? 2 : r < 0.85 ? 0 : -3;
     } else d = (m % 2 ? 1 : 2) + (Math.random() < 0.15 ? 2 : 0) + (m === nb.windfallAt ? 6 : 0);
+    if (d > 0) d *= this.T.nbPace;
     if (d < 0 && nb.saved > 0) this.nbNote = 'spend';
     if (m === nb.windfallAt && nb.style === 'lucky') this.nbNote = 'windfall';
     nb.saved = Math.max(0, nb.saved + d);
@@ -446,12 +535,11 @@ export class BricksScene extends BaseScene {
     const plan = nb.plan;
     let guard = 0;
     while (plan.saved < nb.saved && guard++ < 60) {
-      let g = null;
-      for (const kind of ['door', 'window', 'corner', 'half', 'single']) {
-        const list = plan.targets(kind, { wobbly: false });
-        if (list.length) { g = list.sort((a, b) => a.y - b.y)[Math.floor(Math.random() * Math.min(3, list.length))]; break; }
-      }
-      if (!g) break;
+      // Course by course, like a real house (so their progress can be read from their walls).
+      let list = [];
+      for (const kind of ['door', 'window', 'corner', 'half', 'single']) list = list.concat(plan.targets(kind, { wobbly: false }));
+      if (!list.length) break;
+      const g = list.sort((a, b) => a.y - b.y)[Math.floor(Math.random() * Math.min(4, list.length))];
       plan.place(g.pieces);
       g.pieces.forEach((p, i) => nb.field.set(p, true, false, 0.05 + i * 0.05));
     }
@@ -482,23 +570,40 @@ export class BricksScene extends BaseScene {
   // ---------- input ----------
 
   setupInput() {
+    // Keyboard (browser): the arrow keys or WASD move the marker from place to place, Space or
+    // Enter sets the part (and sets the crane's load down), 1 and 2 decide at life events.
+    // Escape drops a chosen part (else it pauses, pause.js); Tab stays with the 3D buttons.
+    const DIRS = { arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0], arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1] };
     this.onKey = (e) => {
+      if (this.engine.paused || this.engine.isXR || e.altKey || e.ctrlKey || e.metaKey) return;
       if (this.mode !== 'play' && this.mode !== 'loan') return;
       if (this.card) {
         if (e.key === '1') this.choose(0);
         else if (e.key === '2') this.choose(1);
         return;
       }
-      if (e.code === 'Space') {
+      const dir = DIRS[e.key.toLowerCase()];
+      if (dir) {
         e.preventDefault();
-        const ready = this.items.filter((b) => b.state === 'pallet' || b.state === 'selected' || b.state === 'hook');
-        if (!ready.length) return;
-        const i = ready.indexOf(this.selected);
-        this.select(ready[(i + 1) % ready.length]);
-      } else if (e.key === 'Escape') this.deselect();
+        this.moveCursor(dir[0], dir[1]);
+      } else if (e.code === 'Space' || e.key === 'Enter') {
+        e.preventDefault();
+        if (!e.repeat) this.keySet();
+      } else if (e.key === 'Escape' && this.selected) {
+        e.preventDefault(); // consumed: the pause stays closed
+        this.deselect();
+      }
     };
     window.addEventListener('keydown', this.onKey);
     this.onSceneDispose(() => window.removeEventListener('keydown', this.onKey));
+    // Touch screens: is a finger (or the mouse button) down on the view right now? (see updateCursor)
+    const cv = this.engine.canvas;
+    const down = () => { this.isDown = true; };
+    const up = () => { this.isDown = false; };
+    cv.addEventListener('pointerdown', down);
+    cv.addEventListener('pointerup', up);
+    cv.addEventListener('pointercancel', up);
+    this.onSceneDispose(() => { cv.removeEventListener('pointerdown', down); cv.removeEventListener('pointerup', up); cv.removeEventListener('pointercancel', up); });
     const empty = (p) => this.emptyPress(p);
     this.engine.onEmptyPress = empty;
     this.onSceneDispose(() => { if (this.engine.onEmptyPress === empty) this.engine.onEmptyPress = null; });
@@ -558,6 +663,7 @@ export class BricksScene extends BaseScene {
 
   xrPress(p, button) {
     if (!this.engine.isXR || !this.building() || this.grabs.has(p)) return;
+    if (this.swing) { if (button === 'select') this.dropPress(p); return; }
     const a = this.anchor(p);
     if (!a) return;
     let best = null;
@@ -583,6 +689,7 @@ export class BricksScene extends BaseScene {
 
   padGrab(p, pad) {
     if (!this.building() || this.grabs.has(p)) return;
+    if (this.swing) { this.dropPress(p); return; }
     const b = this.pickItem(p, pad);
     if (!b) return;
     this.startGrab(p, b, p.kind === 'mouse' ? 'mouse' : 'select', p.kind === 'mouse' ? 'drag' : 'ray');
@@ -610,6 +717,7 @@ export class BricksScene extends BaseScene {
   }
 
   startGrab(p, b, button, how) {
+    this._places = null;
     if (this.selected && this.selected !== b) this.deselect();
     if (this.selected === b) this.selected = null;
     b.state = 'held';
@@ -675,32 +783,232 @@ export class BricksScene extends BaseScene {
     if (this.selected && this.selected !== b) this.deselect();
     if (b.state === 'held') return;
     this.selected = b;
+    this._places = null;
     if (b.state !== 'hook') { b.state = 'selected'; b.obj.position.copy(this.restPos(b)); }
     sfx.click();
     this.hideHint();
-    this.toast(`${t(`bricksItem_${b.kind}`)}: ${t('bricksSelected')}`, 'xr-bricks-ghost', 2.4);
+    this.toast(`${t(`bricksItem_${b.kind}`)}: ${t(this.engine.touchUI ? 'bricksSelectedTouch' : 'bricksSelected')}`, 'xr-bricks-ghost', 2.4);
   }
 
   deselect() {
     const b = this.selected;
     this.selected = null;
+    this._places = null;
     if (b && b.state === 'selected') b.state = 'pallet';
   }
 
+  /**
+   * A press beside every button and part. Browser: a click sets the fitting part on the glowing
+   * place under the mouse; on a touch screen the finger aims first (a tap sets at once, a slide
+   * moves the marker above the finger and lifting sets). While the crane's load swings, any
+   * press sets it down (headset too).
+   */
   emptyPress(p) {
-    if (p.kind !== 'mouse' || !this.building() || !this.selected || this.card) return;
-    const m = this.pointerPx(p, false);
-    const b = this.selected;
-    const g = this.nearestScreen(m.x, m.y, this.snapPx() * 1.4, this.targetsFor(b));
+    if (this.swing) { this.dropPress(p); return; }
+    if (p.kind !== 'mouse' || !this.building() || this.card) return;
+    if (this.engine.touchUI) this.aim = { t0: this.time, ndc0: p.ndc.clone() };
+    else this.clickPlace(p, false);
+  }
+
+  // ---------- places for click, tap and keys (browser) ----------
+
+  /** Parts that can be set now: on the pallet, at the crane's hook, or still coming down the belt. */
+  readyParts() { return this.items.filter((b) => READY.has(b.state)); }
+
+  /**
+   * Where a waiting part can go now: [{ g, b, key }]. All waiting parts count (the place decides
+   * which part goes there), or only the chosen one. Places where a part would wobble are offered
+   * only for a chosen part or if nothing else is free.
+   */
+  places() {
+    if (this._places) return this._places;
+    let out = [];
+    if (this.building() && !this.card && !this.swing) {
+      const order = { single: 0, gold: 0, double: 2 };
+      const ready = this.selected ? [this.selected] : this.readyParts().sort((a, b) => (order[a.kind] ?? 1) - (order[b.kind] ?? 1));
+      const seen = new Set();
+      const wob = [];
+      for (const b of ready) {
+        for (const g of this.targetsFor(b)) {
+          const key = g.pieces.map((q) => q.id).join('+');
+          if (seen.has(key)) continue;
+          seen.add(key);
+          (g.state === 'solid' ? out : wob).push({ g, b, key });
+        }
+      }
+      if (this.selected || !out.length) out = out.concat(wob);
+    }
+    this._places = out;
+    return out;
+  }
+
+  nearestPlace(x, y, R) {
+    let best = null;
+    let bd = R;
+    const v = new THREE.Vector3();
+    for (const c of this.places()) {
+      const s = this.toScreen(this.pieceWorld(c.g, v));
+      const d = Math.hypot(s.x - x, s.y - y) + (c.g.state === 'wobbly' ? 8 : 0);
+      if (d < bd) { bd = d; best = c; }
+    }
+    return best;
+  }
+
+  /** The free place nearest to a spot on the plot (low places first): where the key marker goes next. */
+  placeNear(at) {
+    let best = null;
+    let bd = Infinity;
+    const v = new THREE.Vector3();
+    for (const c of this.places()) {
+      const d = (at ? this.piecePos(c.g, v).distanceTo(at) : c.g.x * 0.01) + c.g.y * 2 + (c.g.state === 'wobbly' ? 1 : 0) + (c.g.pieces.length > 1 ? 0.02 : 0);
+      if (d < bd) { bd = d; best = c; }
+    }
+    return best;
+  }
+
+  /** Arrow keys: the marker jumps to the next free place in that direction on the screen. */
+  moveCursor(dx, dy) {
+    if (this.swing) return;
+    this.cursorBy = 'keys';
+    this.hideHint();
+    const list = this.places();
+    if (!list.length) return;
+    const cur = this.cursor && list.find((c) => c.key === this.cursor.key);
+    if (!cur) { this.setCursor(this.placeNear(this.cursorPos)); return; }
+    const v = new THREE.Vector3();
+    const s0 = this.toScreen(this.pieceWorld(cur.g, v));
+    let best = null;
+    let bd = Infinity;
+    let far = null;
+    let fd = Infinity;
+    for (const c of list) {
+      if (c === cur) continue;
+      const s = this.toScreen(this.pieceWorld(c.g, v));
+      const along = (s.x - s0.x) * dx + (s.y - s0.y) * dy;
+      const side = Math.abs((s.x - s0.x) * dy - (s.y - s0.y) * dx);
+      if (along > 3 && along >= side * 0.4) {
+        const d = along + side * 2.2;
+        if (d < bd) { bd = d; best = c; }
+      } else if (along < -3) {
+        // nothing further that way: wrap around to the far end
+        const d = along + side * 2.2;
+        if (d < fd) { fd = d; far = c; }
+      }
+    }
+    this.setCursor(best ?? far ?? cur);
+  }
+
+  setCursor(c) {
+    if (c && c.key !== this.cursor?.key) bsfx.snap();
+    this.cursor = c ?? null;
+    if (c) this.cursorPos = this.piecePos(c.g);
+  }
+
+  /** Space or Enter: sets the part on the marked place (the first press shows the marker). */
+  keySet() {
+    if (this.swing) { this.dropPress(null); return; }
+    const list = this.places();
+    const cur = this.cursor && list.find((c) => c.key === this.cursor.key);
+    this.cursorBy = 'keys';
+    this.hideHint();
+    if (cur) this.placeAt(cur, null);
+    else this.setCursor(this.placeNear(this.cursorPos));
+  }
+
+  /** The part of a place goes there (click, tap, keys). */
+  placeAt(c, p) {
+    const { g, b } = c;
+    if (!this.canPlace(g, b) || !READY.has(b.state)) return false;
+    if (this.selected && this.selected !== b) this.deselect();
     this.selected = null;
-    if (g && this.canPlace(g, b)) {
-      b.state = 'held';
-      b.holder = p;
-      this.placeItem(b, g);
-    } else {
-      if (b.state === 'selected') b.state = 'pallet';
+    this.cursorPos = this.piecePos(g);
+    this.cursor = null;
+    this._places = null;
+    this.hideHint();
+    b.state = 'held';
+    b.holder = p;
+    sfx.grab();
+    this.placeItem(b, g);
+    return true;
+  }
+
+  /** A click (or the end of a touch) on the plot: the nearest glowing place, or a friendly hint. */
+  clickPlace(p, lift) {
+    const m = this.pointerPx(p, lift);
+    const c = this.nearestPlace(m.x, m.y, this.snapPx() * (lift ? 1.8 : 1.4));
+    if (c) { this.placeAt(c, p); return; }
+    const b = this.selected;
+    if (b) {
+      this.deselect();
       const hint = this.refuseHintScreen(m.x, m.y, b);
       if (hint) this.refuse(b, hint);
+      return;
+    }
+    // Nothing fits there right now: say why (no penalty).
+    const R = this.snapPx();
+    const v = new THREE.Vector3();
+    let near = null;
+    let bd = R;
+    for (const q of this.plan.pieces) {
+      if (this.plan.isFilled(q.id) || this.reserved.has(q.id) || (q.kind === 'truss' && this.mode !== 'loan')) continue;
+      const s = this.toScreen(this.pieceWorld(q, v));
+      const d = Math.hypot(s.x - m.x, s.y - m.y);
+      if (d < bd) { bd = d; near = q; }
+    }
+    if (!near) return;
+    if (this.plan.state(near) !== 'none' && !this.readyParts().length) {
+      // a fine place, only too early: the next part is still in the machine
+      this.toast(t('bricksWaitPart'), 'xr-panel-muted', 1.4);
+      sfx.click();
+      return;
+    }
+    this.toast(t(this.plan.state(near) === 'none' ? 'bricksNeedBelow' : 'bricksNoPart'), 'xr-danger', 1.8);
+    this.ghost.reject(near);
+    bsfx.refuse();
+  }
+
+  /** Browser: keeps the marker on the place under the mouse, above the finger or chosen by keys. */
+  updateCursor() {
+    const e = this.engine;
+    if (e.isXR || !this.building() || this.card || this.swing) { this.cursor = null; this.aim = null; return; }
+    const m = e.mouse;
+    if (this.aim) {
+      const a = this.aim;
+      const moved = Math.hypot(((m.ndc.x - a.ndc0.x) * window.innerWidth) / 2, ((m.ndc.y - a.ndc0.y) * window.innerHeight) / 2);
+      a.slid ||= moved > 14 || this.time - a.t0 > 0.3;
+      if (!this.isDown) {
+        // the finger is up: set the part
+        this.aim = null;
+        this.cursor = null;
+        this.clickPlace(m, a.slid);
+        return;
+      }
+      if (a.slid) {
+        const px = this.pointerPx(m, true);
+        this.setCursor(this.nearestPlace(px.x, px.y, this.snapPx() * 1.8));
+      }
+      return;
+    }
+    if (this.grabs.size) { this.cursor = null; return; }
+    if (!e.touchUI && m.active) {
+      this.lastNdc ??= m.ndc.clone();
+      if (this.lastNdc.distanceToSquared(m.ndc) > 1e-7) { this.lastNdc.copy(m.ndc); this.cursorBy = 'mouse'; }
+    }
+    if (this.cursorBy === 'keys') {
+      const list = this.places();
+      const cur = this.cursor && list.find((c) => c.key === this.cursor.key);
+      this.cursor = cur ?? this.placeNear(this.cursorPos);
+      if (this.cursor) this.cursorPos = this.piecePos(this.cursor.g);
+    } else if (this.cursorBy === 'mouse' && m.active && !m.hovered && !e.touchUI) {
+      const px = this.pointerPx(m, false);
+      this.setCursor(this.nearestPlace(px.x, px.y, this.snapPx() * 1.4));
+    } else this.cursor = null;
+    // A part waits and nothing happens: the arrow suggests a place (sooner in the relaxed mode).
+    if (!this.cursor) {
+      const ready = this.readyParts();
+      if (ready.length && this.time - Math.max(this.lastSet, this.cardAt, Math.min(...ready.map((b) => b.readyAt ?? this.time))) > this.T.suggest) {
+        this.cursor = this.placeNear(this.cursorPos);
+      }
     }
   }
 
@@ -801,6 +1109,7 @@ export class BricksScene extends BaseScene {
       month: 1, monthT: 0, score: 0, placed: 0, clean: 0, goldPlaced: 0, maxSaved: 0, interestPaid: 0, credit: 0, income: 0,
       missed: 0, wobbles: 0, skews: 0, card: null, monthFlash: 0, nextQueue: 0, noteKey: 'bricksNote_prior', noteUntil: 0,
       early: null, firstWidth: null, lastWidth: null, eventsDone: [], bonus: 0, path: [], roofMonth: 0, roofOn: false, snowing: false,
+      run: 0, bestRun: 0, extras: 0, rows: new Set(), lastSet: 0, cardAt: 0, drops: 0, perfect: 0, told: new Set(),
     });
     this.events = [...EVENTS];
     this.makeChart();
@@ -808,19 +1117,68 @@ export class BricksScene extends BaseScene {
     this.dispatch();
     this.monthPanel?.redraw();
     this.refreshForecast('start');
-    this.toast(t('bricksGo'), 'xr-bricks-ghost', 1.8);
-    this.delay(1.9, () => this.showHint());
+    this.delay(1.2, () => this.showHint());
     this.refreshHud();
   }
 
   hudText() {
-    const snow = Math.max(0, Math.ceil(SNOW_AT - this.elapsed()));
+    if (this.mode === 'over') return t('bricksName');
+    const snow = Math.max(0, Math.ceil(this.T.snowAt - this.elapsed()));
     // Phones: the chart shows the weather; the bar stays short.
     const weather = this.roofOn || !snow || this.engine.touchUI ? '' : ` · ${t('bricksHudSnow', { n: snow })}`;
-    return `${t('bricksHud', { month: this.month, saved: this.plan.saved, target: this.target, score: this.score })}${weather}`;
+    // Phones: the bar stays short (the run shows in the popups and in the bar over the pallet).
+    const run = this.mode === 'play' && this.run > 0 && !this.engine.touchUI ? ` · ${t('bricksHudRun', { n: this.run % this.T.runLen, of: this.T.runLen })}` : '';
+    return `${t('bricksHud', { month: this.month, saved: this.plan.saved, target: this.target, score: this.score })}${run}${weather}`;
   }
 
-  elapsed() { return this.month - 1 + this.monthT / MONTH; }
+  elapsed() { return this.month - 1 + this.monthT / this.monthLen; }
+
+  /** Tells something once per round, at the moment it matters. */
+  once(key, text, token = 'xr-bricks-ghost', dur = 3.6) {
+    if (this.told.has(key)) return false;
+    this.told.add(key);
+    this.toast(text, token, dur);
+    return true;
+  }
+
+  /** A short text that rises from a spot on the plot (points, the run, a finished row). */
+  pop(text, token, at, lift = 0.05) {
+    // Readable on every screen: at least about 22 px tall, however far the camera stands back.
+    const ppm = this.engine.isXR ? Infinity : window.innerHeight / (2 * (this.camD ?? 1) * Math.tan(THREE.MathUtils.degToRad(30)));
+    const sp = popSprite(text, token, Math.max(num('xr-text-sm'), 22 / ppm));
+    sp.position.copy(at);
+    // Popups close to each other in space and time stack up instead of covering each other.
+    sp.position.y += lift + (this.pops.filter((q) => q.t < 0.9 && Math.hypot(q.sp.position.x - at.x, q.sp.position.z - at.z) < 0.22).length % 4) * 0.05;
+    sp.userData.y0 = sp.position.y;
+    this.plotRoot.add(sp);
+    this.pops.push({ sp, t: 0 });
+  }
+
+  /** Shows how long the waiting part still counts for the run. */
+  updateRunBar() {
+    const bar = this.runBar;
+    const ready = this.mode === 'play' && !this.card && this.run > 0 && Number.isFinite(this.T.quick) ? this.readyParts() : [];
+    if (!ready.length) { bar.visible = false; return; }
+    const since = Math.max(this.lastSet, this.cardAt, Math.min(...ready.map((b) => b.readyAt ?? this.time)));
+    const k = clamp(1 - (this.time - since) / this.T.quick, 0, 1);
+    bar.visible = k > 0;
+    bar.scale.set(0.012 + 0.11 * k, 0.012, 1);
+  }
+
+  updatePops(dt) {
+    if (!this.pops.length) return;
+    this.pops = this.pops.filter((q) => {
+      q.t += dt;
+      const k = Math.min(1, q.t / 1.1);
+      if (!this.calm) q.sp.position.y = q.sp.userData.y0 + 0.05 * (1 - (1 - k) ** 2);
+      q.sp.material.opacity = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+      if (k < 1) return true;
+      q.sp.removeFromParent();
+      q.sp.material.map.dispose();
+      q.sp.material.dispose();
+      return false;
+    });
+  }
 
   /** Savings rate this month (bricks): 1 and 2 in turn, more with each income event. */
   rate() { return (this.month % 2 ? 1 : 2) + this.income; }
@@ -834,18 +1192,21 @@ export class BricksScene extends BaseScene {
     const done = this.ai.months;
     this.month += 1;
     this.neighborMonth();
-    if (this.month === SNOW_AT) this.firstSnow();
+    if (this.month === this.T.snowAt) this.firstSnow();
     if (this.mode === 'play') {
       if (this.month > MAX_MONTHS) { this.allot(true); return; }
       this.credit += this.rate();
-      if (this.credit > CREDIT_CAP + 0.001 && !this.spots.includes(null)) {
-        this.credit = CREDIT_CAP;
+      if (this.credit > this.T.creditCap + 0.001 && !this.spots.includes(null)) {
+        this.credit = this.T.creditCap;
         this.missDeposit();
       }
-      this.credit = Math.min(this.credit, CREDIT_CAP + 1);
+      this.credit = Math.min(this.credit, this.T.creditCap + 1);
       this.dispatch();
       const ev = this.nextEvent();
       if (ev) this.delay(0.8, () => this.openCard(ev));
+      // Behind in the race: say once how to catch up.
+      const nb = this.nb;
+      if (!ev && nb && !nb.done && this.month >= 5 && nb.saved / nb.target > this.plan.saved / this.target + 0.06) this.once('behind', t('bricksBehind'), 'xr-bricks-neighbor', 3.4);
       this.refreshForecast('month');
       if (done === 4 && this.pred) this.early = { lo: this.pred.lo, hi: this.pred.hi };
     }
@@ -917,8 +1278,10 @@ export class BricksScene extends BaseScene {
 
   coinDrop(gold) {
     bsfx.deposit();
-    this.monthFlash = 0.6;
-    this.monthPanel?.redraw();
+    if (!this.calm) {
+      this.monthFlash = 0.6;
+      this.monthPanel?.redraw();
+    }
     if (this.coinTemplate) {
       const coin = this.coinTemplate.clone();
       coin.position.set(0, 0.24, -0.01);
@@ -926,7 +1289,7 @@ export class BricksScene extends BaseScene {
       this.machine.add(coin);
       this.tween(0.28, (k) => { coin.position.y = 0.24 - k * 0.1; coin.rotation.x = k * 2; }, { ease: (k) => k * k, onDone: () => coin.removeFromParent() });
     }
-    this.tween(0.3, (k) => { this.machine.scale.set(1 + Math.sin(k * Math.PI) * 0.04, 1 - Math.sin(k * Math.PI) * 0.05, 1 + Math.sin(k * Math.PI) * 0.04); }, { ease: (k) => k });
+    if (!this.calm) this.tween(0.3, (k) => { this.machine.scale.set(1 + Math.sin(k * Math.PI) * 0.04, 1 - Math.sin(k * Math.PI) * 0.05, 1 + Math.sin(k * Math.PI) * 0.04); }, { ease: (k) => k });
     if (gold) this.burst(this.plotRoot.localToWorld(MACHINE.clone().add(new THREE.Vector3(0, 0.12, 0.05))), 'xr-bricks-gold-glow', 16);
   }
 
@@ -963,7 +1326,7 @@ export class BricksScene extends BaseScene {
     obj.position.set(BELT_X, BELT_Y + (REST_Y[kind] ?? BH / 2), BELT_Z0 + 0.01);
     if (at) obj.position.copy(at);
     this.plotRoot.add(obj);
-    const b = { kind, obj, mats, spot, state: at ? 'hook' : 'belt', t: 0, rejected: false, hover: false, base: kind === 'gold' ? 0.22 : 0, wasHook: !!at };
+    const b = { kind, obj, mats, spot, state: at ? 'hook' : 'belt', t: 0, rejected: false, hover: false, base: kind === 'gold' ? 0.22 : 0, wasHook: !!at, readyAt: at ? this.time : undefined };
     if (at) obj.quaternion.copy(this.restQuat(b));
     if (spot >= 0) this.spots[spot] = b;
     this.items.push(b);
@@ -985,6 +1348,7 @@ export class BricksScene extends BaseScene {
   /** The part goes onto its place: a short slide, then a click and a puff of mortar. */
   placeItem(b, g) {
     b.state = 'placing';
+    this._places = null;
     g.pieces.forEach((p) => this.reserved.add(p.id));
     if (b.spot >= 0 && this.spots[b.spot] === b) this.spots[b.spot] = null;
     const p0 = b.obj.position.clone();
@@ -1024,18 +1388,20 @@ export class BricksScene extends BaseScene {
     this.placed += 1;
     const clean = !b.rejected && !wobbly.length && !b.skew;
     if (clean) this.clean += 1;
-    // Statics: wobbling or skewed parts cost points.
+    const popAt = at.clone();
+    const before = this.score;
+    // Statics: wobbling or skewed parts cost points (none in the relaxed mode).
     if (wobbly.length) {
       this.wobbles += 1;
-      this.score -= PTS.wobble;
+      this.score -= this.T.wobble;
       bsfx.wobble();
-      this.toast(t('bricksWobble', { n: PTS.wobble }), 'xr-bricks-ghost-warn', 2.2);
+      this.toast(t(this.T.wobble ? 'bricksWobble' : 'bricksWobbleEasy', { n: this.T.wobble }), 'xr-bricks-ghost-warn', 2.6);
       if (b.holder) this.engine.haptic(b.holder, 0.9, 120);
     } else if (b.skew) {
       this.skews += 1;
-      this.score -= PTS.skew;
+      this.score -= this.T.skew;
       bsfx.wobble();
-      this.toast(t('bricksSkew', { n: PTS.skew }), 'xr-bricks-ghost-warn', 2);
+      this.toast(t(this.T.skew ? 'bricksSkew' : 'bricksSkewEasy', { n: this.T.skew }), 'xr-bricks-ghost-warn', 2);
     }
     const settled = this.plan.settle();
     if (settled.length) {
@@ -1049,6 +1415,7 @@ export class BricksScene extends BaseScene {
     }
     if (this.mode === 'loan') {
       if (!b.auto) this.score += PTS.hand + (clean ? PTS.clean : 0);
+      if (this.score !== before) this.pop(`+${this.score - before}`, 'xr-bricks-pop', popAt);
       this.lastHand = this.time;
       this.handDone?.();
     } else {
@@ -1056,12 +1423,57 @@ export class BricksScene extends BaseScene {
       const fresh = this.plan.saved - this.maxSaved;
       this.maxSaved = Math.max(this.maxSaved, this.plan.saved);
       if (fresh > 0) this.score += PTS.place * fresh + (clean ? PTS.clean : 0);
+      // One popup per part: the points and what happened (a finished row, the run, an extra brick).
+      const tags = [];
+      let token = 'xr-bricks-pop';
+      // A finished row of a wall: a bonus.
+      for (const q of ps) {
+        if (q.wall < 0 || (q.kind !== 'full' && q.kind !== 'half')) continue;
+        const key = `${q.wall}-${q.course}`;
+        if (this.rows.has(key) || this.plan.pieces.some((o) => o.wall === q.wall && o.course === q.course && (o.kind === 'full' || o.kind === 'half') && !this.plan.isFilled(o.id))) continue;
+        this.rows.add(key);
+        this.score += PTS.row;
+        tags.push(t('bricksRowDone'));
+        token = 'xr-bricks-pop-bonus';
+        sfx.coin();
+      }
+      // The run: parts set quickly and cleanly, one after another; a full run earns an extra brick.
+      // Quick: soon after the part landed (or after the part before it), and not left lying for long.
+      const landed = b.readyAt ?? this.time; // taken straight off the belt: as quick as it gets
+      const quick = this.time - Math.max(landed, this.lastSet, this.cardAt) <= this.T.quick && this.time - Math.max(landed, this.cardAt) <= this.T.quick + 2;
+      this.lastSet = this.time;
+      if (clean && quick) {
+        this.run += 1;
+        this.bestRun = Math.max(this.bestRun, this.run);
+        const n = this.run % this.T.runLen;
+        if (n === 0) {
+          this.extras += 1;
+          this.score += PTS.run;
+          this.queue.push('single');
+          tags.push(t('bricksRunFull'));
+          token = 'xr-bricks-pop-bonus';
+          sfx.powerup();
+          this.once('extra', t('bricksExtraHint'), 'xr-bricks-gold', 3.4);
+          this.setNote('bonus');
+        } else if (this.run >= 2) {
+          tags.push(t('bricksRunStep', { n, of: this.T.runLen }));
+          if (token === 'xr-bricks-pop') token = 'xr-bricks-pop-run';
+        }
+        if (this.run === 2) this.once('run', t(Number.isFinite(this.T.quick) ? 'bricksRunHint' : 'bricksRunHintEasy', { of: this.T.runLen }), 'xr-bricks-ghost', 3.6);
+      } else {
+        if (this.run >= 2) tags.push(t('bricksRunOver'));
+        this.run = 0;
+      }
       if (gold) {
         this.score += PTS.gold;
         this.goldPlaced += 1;
         this.marks.push({ m: this.elapsed(), v: this.plan.saved, kind: 'gold' });
         this.burst(this.plotRoot.localToWorld(at.clone()), 'xr-bricks-gold-glow', 18);
       }
+      const d = this.score - before;
+      if (d < 0) token = 'xr-bricks-pop-bad';
+      if (d) tags.unshift(d > 0 ? `+${d}` : String(d));
+      if (tags.length) this.pop(tags.join(' · '), token, popAt);
       if (Math.floor(this.maxSaved / INTEREST_EVERY) > this.interestPaid) {
         this.interestPaid += 1;
         this.queue.push('gold');
@@ -1100,21 +1512,33 @@ export class BricksScene extends BaseScene {
     this.clearToast();
     this.toastWaiting = null;
     this.card = { ev };
+    this._places = null;
+    this.cursor = null;
+    this.aim = null;
     bsfx.event();
     const g = new THREE.Group();
-    const panel = eventPanel(ev, 0.7);
+    // The AI as an adviser: when the savings goal would be reached with each choice (and the neighbors' forecast).
+    const nb = this.nb;
+    const advice = {
+      options: ev.options.map((o) => this.adviceFor(o)),
+      them: nb.done ? t('bricksAdviceThemDone') : this.month > 2 && nb.pred && Number.isFinite(nb.pred.median) ? t('bricksAdviceThem', { m: nb.pred.median > 60 ? '60+' : Math.ceil(nb.pred.median) }) : '',
+    };
+    // A wide card wherever there is room (so it stays low and its text big); a slim one on upright phones.
+    const cw = !this.engine.isXR && window.innerWidth / window.innerHeight < 0.95 ? 0.7 : 0.96;
+    const panel = eventPanel(ev, cw, advice);
     g.add(panel);
+    g.userData.w = cw;
     let h = panel.h;
     if (!this.engine.touchUI) {
       const desk = !this.engine.isXR;
-      const btns = ev.options.map((o, i) => new Button(0.33, 0.11, {
+      const btns = ev.options.map((o, i) => new Button(cw / 2 - 0.02, 0.11, {
         label: t(`bricksOpt_${o.key}`), body: desk ? t('bricksKey', { n: i + 1 }) : null,
         variant: i ? 'secondary' : 'primary', labelSize: 'xr-text-sm', onClick: () => this.choose(i),
       }));
       const bh = Math.max(...btns.map((b) => b.h));
       const by = -panel.h / 2 - 0.025 - bh / 2;
-      btns[0].position.set(-0.175, by, 0);
-      btns[1].position.set(0.175, by, 0);
+      btns[0].position.set(-cw / 4, by, 0);
+      btns[1].position.set(cw / 4, by, 0);
       g.add(...btns);
       h += 0.025 + bh;
 
@@ -1132,7 +1556,19 @@ export class BricksScene extends BaseScene {
     if (this.engine.isXR) this.placeXR();
   }
 
+  /** The AI's forecast for one choice of a life event: the month the savings goal would be reached. */
+  adviceFor(opt) {
+    const keep = this.ai.target;
+    this.ai.target = Math.max(20, this.target + (opt.target ?? 0));
+    const pr = this.ai.predict(this.elapsed(), Math.max(0, this.plan.saved + (opt.gift ?? 0) - (opt.remove ?? 0)));
+    this.ai.target = keep;
+    const m = (v) => (Number.isFinite(v) && v <= 60 ? Math.ceil(v) : '60+');
+    return Number.isFinite(pr.hi) && pr.hi <= 60 && Math.ceil(pr.hi) > Math.ceil(pr.lo) ? t('bricksAdviceRange', { lo: m(pr.lo), hi: m(pr.hi) }) : t('bricksAdvice', { m: m(pr.median) });
+  }
+
   closeCard() {
+    if (this.card) this.cardAt = this.time;
+    this._places = null;
     this.card = null;
     if (this.cardGroup) {
       const g = this.cardGroup;
@@ -1265,8 +1701,8 @@ export class BricksScene extends BaseScene {
     const youDone = this.mode !== 'play' && this.mode !== 'intro';
     return {
       month: this.month,
-      frac: this.monthT / MONTH,
-      snowAt: SNOW_AT,
+      frac: this.monthT / this.monthLen,
+      snowAt: this.T.snowAt,
       roofOn: this.roofOn,
       narrow: this.chartNarrow,
       you: {
@@ -1326,7 +1762,11 @@ export class BricksScene extends BaseScene {
     if (this.card) { this.toastWaiting = { text, token, dur }; return; }
     this.toastPanel?.removeFromParent();
     this.toastPanel?.dispose();
-    const p = textPanel(0.62, 0.08, [{ text, size: 'xr-text-md', weight: 'black', color: color(token) }], { surface: { stroke: color(token), stripe: false } });
+    // Browser: a slim strip above the plot (it never covers the house); headset: as before.
+    const xr = this.engine.isXR;
+    // Screen readers hear the message too (the engine's live region).
+    if (!xr && this.engine.live) this.engine.live.textContent = text;
+    const p = textPanel(xr ? 0.62 : 0.9, xr ? 0.08 : 0.06, [{ text, size: xr ? 'xr-text-md' : 'xr-text-sm', weight: 'black', color: color(token) }], { surface: { stroke: color(token), stripe: false }, layout: { pad: xr ? undefined : 0.016 } });
     p.userData.noFit = true;
     if (this.engine.isXR) this.placeXR();
     this.toastHolder.add(p);
@@ -1341,7 +1781,7 @@ export class BricksScene extends BaseScene {
   showHint() {
     if (this.mode !== 'play' || this.placed > 0 || this.grabs.size) return;
     const key = this.engine.isXR ? 'bricksHintXR' : this.engine.touchUI ? 'bricksHintTouch' : 'bricksHintScreen';
-    this.toast(t(key), 'xr-bricks-ghost', 7);
+    this.toast(t(key), 'xr-bricks-ghost', 9);
     this.hinting = true;
   }
 
@@ -1357,7 +1797,7 @@ export class BricksScene extends BaseScene {
     this.snowing = true;
     bsfx.snow();
     if (this.building()) this.toast(t('bricksSnowStarts'), 'xr-bricks-snow-icon', 2.6);
-    this.tween(4, (k) => { this.snow.density = 0.6 * k; });
+    this.tween(4, (k) => { this.snow.density = (this.calm ? 0.3 : 0.6) * k; });
     if (!this.roofOn && this.mode !== 'intro') this.wet = true;
   }
 
@@ -1368,6 +1808,12 @@ export class BricksScene extends BaseScene {
     this.mode = 'loan';
     this.late = late;
     this.doneMonth = Math.min(this.month, MAX_MONTHS);
+    // While the loan builds, a month takes longer (the build takes months, the player a minute).
+    this.monthT *= this.T.loanMonth / this.monthLen;
+    this.monthLen = this.T.loanMonth;
+    this.cursor = null;
+    this.aim = null;
+    this._places = null;
     this.closeCard();
     for (const p of [...this.grabs.keys()]) { if (p.line) p.line.visible = true; }
     this.grabs.clear();
@@ -1435,7 +1881,7 @@ export class BricksScene extends BaseScene {
     this.roofOn = true;
     this.roofMonth = this.month;
     this.indoorSnow.visible = this.wet;
-    if (this.wet) { this.score -= PTS.wet; this.toast(t('bricksRoofWet', { n: PTS.wet }), 'xr-danger', 2.8); bsfx.refuse(); }
+    if (this.wet) { this.score -= this.T.wet; this.toast(t('bricksRoofWet', { n: this.T.wet }), 'xr-danger', 2.8); bsfx.refuse(); }
     else { this.score += PTS.dry; this.toast(t('bricksRoofDry', { n: PTS.dry }), 'xr-success', 2.8); sfx.powerup(); }
     this.chartDirty = true;
     this.finale();
@@ -1612,7 +2058,11 @@ export class BricksScene extends BaseScene {
     const aim = c.aimAt(tgt.x, tgt.z);
     load.scale.setScalar(0.001);
     this.tween(0.25, (k) => load.scale.setScalar(Math.max(0.001, k)));
-    await this.craneMove(aim.yaw, aim.reach, 0.03, 0.8);
+    // The load swings in beside its place and sways over it: the player sets it down.
+    const amp = 0.3;
+    await this.craneMove(aim.yaw + amp, aim.reach, 0.03, 0.8);
+    await this.swingDrop(aim, tgt, amp);
+    if (this.disposed) return;
     const dEnd = c.dropTo(tgt.y);
     await this.craneMove(aim.yaw, aim.reach, dEnd, 0.65);
     bsfx.land();
@@ -1622,6 +2072,55 @@ export class BricksScene extends BaseScene {
     this.carry = null;
     c.setSlings(null);
     await this.craneMove(aim.yaw, aim.reach, 0.05, 0.3);
+  }
+
+  /**
+   * The crane's load sways over its place until the player sets it down (Space, a click, a tap,
+   * the trigger): in the middle is a perfect landing. After a while the helpers do it (no points).
+   * Each load sways a little faster than the one before.
+   */
+  swingDrop(aim, tgt, amp) {
+    if (this.disposed || this.mode !== 'loan') return Promise.resolve();
+    this.drops += 1;
+    const key = this.engine.isXR ? 'bricksDropHintXR' : this.engine.touchUI ? 'bricksDropHintTouch' : 'bricksDropHint';
+    if (this.drops <= 2) this.toast(t(key), 'xr-bricks-crane', 5);
+    this.marker.show(tgt);
+    this.cursor = null;
+    this._places = null;
+    return new Promise((res) => {
+      this.swing = { aim, tgt, amp, t: 0, w: this.T.swing * (1 + 0.1 * Math.min(5, this.drops - 1)), off: 1, done: false, res };
+    });
+  }
+
+  updateSwing(dt) {
+    const s = this.swing;
+    if (!s || s.done) return;
+    s.t += dt;
+    s.off = Math.cos(s.t * s.w);
+    this.crane.yaw = s.aim.yaw + s.amp * s.off;
+    this.marker.update(this.crane.hookPoint(), Math.abs(s.off) <= this.T.perfect);
+    if (s.t > this.T.dropWait) this.dropPress(null, true);
+  }
+
+  dropPress(p, auto = false) {
+    const s = this.swing;
+    if (!s || s.done || (!auto && s.t < 0.25)) return;
+    s.done = true;
+    const off = Math.abs(s.off);
+    const q = auto ? 'late' : off <= this.T.perfect ? 'perfect' : off <= this.T.good ? 'good' : 'off';
+    const pts = q === 'perfect' ? PTS.dropPerfect : q === 'good' ? PTS.dropGood : 0;
+    this.score += pts;
+    if (q === 'perfect') this.perfect += 1;
+    const at = this.crane.hookPoint();
+    this.pop(t(`bricksDrop_${q}`, { n: pts }), q === 'perfect' ? 'xr-bricks-pop-bonus' : q === 'good' ? 'xr-bricks-pop' : 'xr-bricks-pop-muted', at, 0.03);
+    if (q === 'perfect') { sfx.powerup(); this.burst(this.plotRoot.localToWorld(at.clone()), 'xr-bricks-gold-glow', 14); } else if (q === 'good') sfx.correct(); else sfx.bounce();
+    if (p) this.engine.haptic(p, q === 'perfect' ? 0.9 : 0.4, 40);
+    this.clearToast();
+    this.refreshHud?.();
+    // The helpers pull the load over its place, then it goes down.
+    const c = this.crane;
+    const y0 = c.yaw;
+    this.tween(0.12 + 0.3 * off, (k) => { c.yaw = y0 + (s.aim.yaw - y0) * k; }, { ease, onDone: () => { this.swing = null; this.marker.hide(); s.res(q); } });
   }
 
   updateCarry() {
@@ -1646,7 +2145,7 @@ export class BricksScene extends BaseScene {
     bsfx.door();
     this.tween(1.1, (k) => { this.doorPivot.rotation.y = 1.15 * k; this.interior.material.opacity = 0.85 * k; }, { ease });
     this.smoking = true;
-    if (!this.snowing) this.tween(3, (k) => { this.snow.density = 0.45 * k; });
+    if (!this.snowing) this.tween(3, (k) => { this.snow.density = (this.calm ? 0.25 : 0.45) * k; });
     this.toast(t('bricksHome'), 'xr-success', 4);
     this.burst(this.plotRoot.localToWorld(HOUSE.clone().add(new THREE.Vector3(0, TOP + RIDGE, 0))), 'xr-warning', 36);
     sfx.finish();
@@ -1673,6 +2172,12 @@ export class BricksScene extends BaseScene {
     this.chartHolder.visible = false;
     this.toastHolder.visible = false;
     this.nb.sign.visible = false;
+    this.marker.hide();
+    this.runBar.visible = false;
+    // The status bar would show the points before the final bonuses: on the desktop it goes
+    // (the result has its own menu button); elsewhere it names the game.
+    if (!this.engine.isXR && !this.engine.touchUI) for (const o of this.hudObjs ?? []) o.visible = false;
+    this.refreshHud?.();
     if (this.engine.isXR) {
       // The finished house moves aside so the results can be read; the neighbors make room.
       const p0 = this.plotRoot.position.clone();
@@ -1688,19 +2193,34 @@ export class BricksScene extends BaseScene {
     const first = this.firstWidth;
     const fmt = (w) => (Number.isFinite(w) ? String(Math.max(1, Math.round(w))) : '30+');
     const choice = this.path.some((k) => ['kitchen', 'waitSave', 'solar', 'bigger'].includes(k)) ? 'bigger' : this.path.includes('smaller') ? 'smaller' : 'income';
+    // A rating in three steps (on the points that count), with the points missing to the next one.
+    const shown = Math.round(score * assist.scoreFactor);
+    const marks = RATING.map((v) => Math.round(v * assist.scoreFactor));
+    const step = shown >= marks[1] ? 2 : shown >= marks[0] ? 1 : 0;
+    const rating = step === 2 ? t('bricksRateTop', { name: t('bricksRate_2') }) : t('bricksRateNext', { name: t(`bricksRate_${step}`), n: marks[step] - shown, next: t(`bricksRate_${step + 1}`) });
+    // What went well (the best three), and one tip for the next round.
+    const well = [
+      this.raceWon && t('bricksWell_race'),
+      !this.wet && t('bricksWell_dry'),
+      this.extras > 0 && t('bricksWell_extras', { n: this.extras }),
+      this.perfect > 0 && t('bricksWell_perfect', { n: this.perfect }),
+      this.rows.size > 0 && t('bricksWell_rows', { n: this.rows.size }),
+      t('bricksWell_clean', { n: this.clean }),
+    ].filter(Boolean).slice(0, 3).join(', ');
+    const tip = this.missed > 0 ? 'missed' : this.wobbles + this.skews > 1 ? 'wobble' : !this.raceWon ? 'race' : this.wet ? 'wet' : this.extras < 3 ? 'run' : this.perfect < 3 ? 'crane' : 'bigger';
     const learned = [
       { q: t('bricksLearn1Q'), a: t('bricksLearn1A', { n: first?.n ?? 3, a: fmt(first?.w ?? Infinity), b: fmt(this.lastWidth ?? 1) }) },
-      { q: t('bricksLearn2Q'), a: t(`bricksLearn2A_${this.nb.style}`) },
       { q: t('bricksLearn3Q'), a: t(`bricksLearn3A_${choice}`) },
+      { q: t('bricksWellQ', { list: well }), a: t(`bricksTip_${tip}`) },
     ];
     this.results({
       gameKey: 'bricks',
       score,
       correct: this.clean,
       total: Math.max(1, this.placed),
-      line: t('bricksLine', { house, month: this.roofMonth || this.month, race: t(this.raceWon ? 'bricksRaceWon' : 'bricksRaceLost') }),
+      line: `${rating}\n${t('bricksLine', { house, month: this.roofMonth || this.month, race: t(this.raceWon ? 'bricksRaceWon' : 'bricksRaceLost') })}`,
       learned,
-      onAgain: () => this.app.startGame('bricks'),
+      onAgain: () => { skipIntro = true; this.app.startGame('bricks'); },
     });
   }
 
@@ -1719,14 +2239,15 @@ export class BricksScene extends BaseScene {
 
   update(dt) {
     this.time += dt;
+    this._places = null;
     this.updateShadows();
     const playing = this.mode === 'play';
     if (playing || this.mode === 'loan') {
       if (!this.card) this.monthT += dt;
-      if (this.monthT >= MONTH) { this.monthT -= MONTH; this.endMonth(); }
+      if (this.monthT >= this.monthLen) { this.monthT -= this.monthLen; this.endMonth(); }
     }
     // Loan phase: if a lintel or truss waits too long, the helpers set it (no points).
-    if (this.mode === 'loan' && this.lastHand !== undefined && this.time - this.lastHand > 12 && !this.grabs.size) {
+    if (this.mode === 'loan' && this.lastHand !== undefined && this.time - this.lastHand > this.T.helpers && !this.grabs.size) {
       const it = this.items.find((b) => (b.state === 'pallet' || b.state === 'hook' || b.state === 'selected') && (b.kind === 'lintel' || b.kind === 'truss'));
       const g = it && this.targetsFor(it).find((q) => q.state === 'solid');
       if (g) {
@@ -1751,10 +2272,18 @@ export class BricksScene extends BaseScene {
     if (this.M) {
       this.updateItems(dt);
       this.updateGrabs(dt);
+      this.updateCursor();
       this.updateHover();
+      this.updateSwing(dt);
       this.field.update(dt, this.time);
-      this.ghost.update(dt, this.time, { show: this.building() ? this.ghostTargets() : [], hover: this.hoverTarget() });
+      const hover = this.hoverTarget();
+      this.ghost.update(dt, this.time, { show: this.building() ? this.ghostTargets() : [], hover });
+      // A place where the part would wobble carries a warning sign, not only another color.
+      this.hoverWarn.visible = hover?.state === 'wobbly';
+      if (this.hoverWarn.visible) this.hoverWarn.position.set(hover.x, hover.y + 0.05, hover.z);
       this.puffs.update(dt);
+      this.updatePops(dt);
+      this.updateRunBar();
       this.firLights?.userData.tick(this.time);
       this.eaveLights?.userData.tick(this.time);
       this.crane.sway = this.mode === 'loan' ? 1 : 0.3;
@@ -1794,8 +2323,16 @@ export class BricksScene extends BaseScene {
 
   /** What the hologram shows bright: places for the part in hand (or selected), else for the pallet. */
   ghostTargets() {
-    const held = [...this.grabs.values()].map((g) => g.b)[0] ?? this.selected;
+    if (this.swing) return [];
+    const held = [...this.grabs.values()].map((g) => g.b)[0];
     if (held) return this.targetsFor(held);
+    if (!this.engine.isXR) {
+      // Browser: every place a waiting part can go (a double brick's places only while they are not also single ones).
+      const list = this.places();
+      const singles = new Set(list.filter((c) => c.g.pieces.length === 1).map((c) => c.g.pieces[0].id));
+      return list.filter((c) => c.g.pieces.length === 1 || !c.g.pieces.every((q) => singles.has(q.id))).map((c) => c.g);
+    }
+    if (this.selected) return this.targetsFor(this.selected);
     const kinds = new Set(this.items.filter((b) => this.grabbable(b)).map((b) => targetKind(b.kind)));
     const seen = new Set();
     const out = [];
@@ -1810,7 +2347,7 @@ export class BricksScene extends BaseScene {
     return out;
   }
 
-  hoverTarget() { return [...this.grabs.values()].map((g) => g.hover).find(Boolean) ?? null; }
+  hoverTarget() { return [...this.grabs.values()].map((g) => g.hover).find(Boolean) ?? this.cursor?.g ?? null; }
 
   updateItems(dt) {
     for (const b of this.items) {
@@ -1825,7 +2362,7 @@ export class BricksScene extends BaseScene {
         const k = Math.min(1, b.t);
         m.position.lerpVectors(b.from, this.restPos(b), ease(k));
         m.position.y += Math.sin(k * Math.PI) * 0.03;
-        if (k >= 1) { b.state = 'pallet'; sfx.thud(); }
+        if (k >= 1) { b.state = 'pallet'; b.readyAt ??= this.time; sfx.thud(); }
       } else if (b.state === 'return') {
         b.t += dt / 0.4;
         const k = Math.min(1, b.t);
@@ -1935,6 +2472,8 @@ export class BricksScene extends BaseScene {
   updateHover() {
     for (const b of this.items) b.hover = false;
     if (!this.building()) return;
+    // The part that would go to the marked place glows.
+    if (this.cursor && !this.grabs.size) this.cursor.b.hover = true;
     for (const p of this.engine.pointers) {
       if (!p.active || this.grabs.has(p)) continue;
       if (p.kind === 'mouse' && !this.engine.isXR) {
@@ -2001,10 +2540,12 @@ export class BricksScene extends BaseScene {
         pip = { x: m, y: chart.y + h + m, w, h: Hh - (chart.y + h + m) - m };
         plot = { x: px0, y: top, w: W - px0, h: Hh - top - m };
       } else {
-        // Little room under the chart (phone in landscape): the neighbors at the right.
-        const pw = Math.min(170, (W - px0) * 0.3);
-        pip = { x: W - pw - m, y: top + m, w: pw, h: Math.min(150, (Hh - top) * 0.5) };
-        plot = { x: px0, y: top, w: W - px0 - pw - m, h: Hh - top - m };
+        // Little room under the chart (phone in landscape): the plot gets all the room beside
+        // the chart, so the bricks are big enough to hit; of the neighbors only their sign
+        // stays, in the plot area's lower left corner (their race is in the chart).
+        plot = { x: px0, y: top, w: W - px0, h: Hh - top - m };
+        const pw = Math.min(200, plot.w * 0.4);
+        pip = { x: px0 + 2, y: Hh - m - pw * 0.22, w: pw, h: pw * 0.22, signOnly: true };
       }
     }
     return { W, Hh, chart, plot, pip, hud, portrait, touch };
@@ -2042,13 +2583,15 @@ export class BricksScene extends BaseScene {
     const lay = this.layout();
     const loan = this.mode !== 'play';
     const finale = this.mode === 'finale';
-    const yaw = finale ? 0.12 + Math.sin(this.time * 0.32) * 0.4 : 0.12;
+    const yaw = finale && !this.calm ? 0.12 + Math.sin(this.time * 0.32) * 0.4 : 0.12;
     const pitch = finale ? -0.5 : -0.64;
     const R = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
     const Ri = R.clone().invert();
-    const left = this.opts.annex ? -0.46 : lay.portrait ? -0.3 : -0.5;
-    const box = [[left, 0.62], [-0.04, loan ? 0.72 : 0.26], [lay.portrait ? -0.3 : -0.4, 0.4]];
-    const C = new THREE.Vector3((box[0][0] + box[0][1]) / 2, 0.06, 0);
+    // While saving the view stays close to the house and the pallet; the crane needs more room.
+    const left = this.opts.annex ? -0.46 : loan ? -0.4 : -0.3;
+    const box = [[left, 0.6], [-0.02, loan ? 0.72 : 0.25], [loan ? -0.4 : -0.3, loan ? 0.36 : 0.31]];
+    // The view looks at the middle of the box (with the crane the box is tall), so nothing is wasted.
+    const C = new THREE.Vector3((box[0][0] + box[0][1]) / 2, (box[1][0] + box[1][1]) / 2, (box[2][0] + box[2][1]) / 2);
     this.plotRoot.updateMatrixWorld(true);
     const Cw = this.plotRoot.localToWorld(C.clone());
     const tan = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
@@ -2061,7 +2604,7 @@ export class BricksScene extends BaseScene {
       this.plotRoot.localToWorld(q).sub(Cw).applyQuaternion(Ri);
       need = Math.max(need, q.z + Math.abs(q.x) / tx, q.z + Math.abs(q.y) / ty);
     }
-    const k = this.camD === undefined ? 1 : Math.min(1, dt * 4);
+    const k = this.camD === undefined ? 1 : Math.min(1, dt * (this.calm ? 1.2 : 4));
     this.camD = (this.camD ?? need) + (need - (this.camD ?? need)) * k;
     cam.position.copy(Cw).add(new THREE.Vector3(0, 0, this.camD).applyQuaternion(R));
     cam.quaternion.copy(R);
@@ -2085,7 +2628,10 @@ export class BricksScene extends BaseScene {
       const pp = lay.pip;
       const sw = num('xr-bricks-sign-w');
       const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.5, -0.25, 0, 'YXZ'));
-      if (pp.row) {
+      if (pp.signOnly) {
+        this.pin(nb.sign, pp.x + pp.w / 2, pp.y + pp.h / 2, pp.w / sw, 0.43);
+        nb.root.visible = false;
+      } else if (pp.row) {
         // Phone upright: the sign at the left, the little plot at the right.
         const sppm = Math.min((pp.w * 0.55) / sw, pp.h / 0.13);
         this.pin(nb.sign, pp.x + (sw * sppm) / 2, pp.y + pp.h / 2, sppm, 0.43);
@@ -2104,12 +2650,14 @@ export class BricksScene extends BaseScene {
       }
     }
     const ppm = Math.min(lay.plot.w / 0.8, lay.Hh / 1.0, 900);
-    this.pin(this.toastHolder, lay.plot.x + lay.plot.w / 2, lay.plot.y + 0.07 * ppm + 6, ppm, 0.42);
+    // Messages: a strip at the top of the plot area, pinned by its top edge (long ones grow down).
+    const tppm = clamp((lay.plot.w - 16) / 0.9, 300, 640);
+    this.pin(this.toastHolder, lay.plot.x + lay.plot.w / 2, lay.plot.y + 6 + ((this.toastPanel?.h ?? 0.06) / 2) * tppm, tppm, 0.42);
     if (this.cardGroup) {
       const btns = lay.touch ? document.querySelector('#stage .mtouch:not([hidden])') : null;
       const bottom = btns ? lay.Hh - btns.getBoundingClientRect().top + 6 : 0;
       // The card is modal: phones get it over the chart too (in landscape left of the thumb buttons).
-      let area = { x: lay.plot.x, w: lay.plot.w + (lay.pip.x > lay.plot.x ? lay.pip.w : 0), y0: lay.plot.y };
+      let area = { x: lay.plot.x, w: lay.plot.w, y0: lay.plot.y };
       let bottom2 = bottom;
       if (lay.touch && lay.portrait) area = { x: 0, w: lay.W, y0: lay.chart.y };
       else if (lay.touch && btns) {
@@ -2118,7 +2666,7 @@ export class BricksScene extends BaseScene {
         if (left > 260) { area = { x: 0, w: left - 10, y0: lay.chart.y }; bottom2 = 10; }
       }
       const ch = this.cardGroup.userData.h + 0.02;
-      const cppm = Math.min(lay.touch ? 900 : ppm * 1.05, (area.w - 20) / 0.72, (lay.Hh - area.y0 - bottom2 - 16) / ch);
+      const cppm = Math.min(lay.touch ? 900 : ppm * 1.05, (area.w - 20) / (this.cardGroup.userData.w + 0.02), (lay.Hh - area.y0 - bottom2 - 16) / ch);
       const cyc = (area.y0 + lay.Hh - bottom2) / 2;
       this.pin(this.cardHolder, area.x + area.w / 2, cyc, cppm, 0.4);
     }
@@ -2136,7 +2684,8 @@ export class BricksScene extends BaseScene {
 
   /** Headset placement: messages above the house (above the card while one is open). */
   placeXR() {
-    this.toastHolder.position.set(0, this.eye + (this.cardGroup ? this.cardGroup.userData.h / 2 + 0.08 : -0.2), -0.82);
+    // While the crane works, the messages hang above it (its loads would cover them).
+    this.toastHolder.position.set(0, this.eye + (this.cardGroup ? this.cardGroup.userData.h / 2 + 0.08 : this.mode === 'loan' ? 0.2 : -0.2), -0.82);
     this.cardHolder.position.set(0, this.eye - 0.0, -0.85);
   }
 

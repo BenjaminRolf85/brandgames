@@ -36,17 +36,20 @@ export function drawPicto(ctx, key, x, y, size, stroke, width = 1.7) {
 // ---------- the life-event card ----------
 
 /** ev: { key, icon, options: [{ key, ... }, ...] } -> panel with both choices and their effects. */
-export function eventPanel(ev, w = 0.68) {
+export function eventPanel(ev, w = 0.68, advice = null) {
   const pad = num('xr-padding');
   const ic = 0.12;
+  // advice: { options: [text, text], them } the AI's forecast for each choice and for the neighbors.
   const blocks = [
     { text: t('bricksEvent').toUpperCase(), size: 'xr-text-sm', weight: 'black', color: color('xr-bricks-event'), gap: 0.006 },
     { text: t(`bricksEv_${ev.key}`), size: 'xr-text-lg', weight: 'black', gap: 0.008, lineHeight: 1.15 },
     { text: t(`bricksEvSub_${ev.key}`), size: 'xr-text-sm', color: color('xr-panel-muted'), gap: 0.014 },
     ...ev.options.flatMap((o, i) => [
       { text: `${i + 1}  ${t(`bricksOpt_${o.key}`)}`, size: 'xr-text-sm', weight: 'black', color: color(i ? 'xr-bricks-opt-2' : 'xr-bricks-opt-1'), gap: 0.004 },
-      { text: t(`bricksOptFx_${o.key}`), size: 'xr-text-sm', color: color('xr-panel-text'), gap: 0.012 },
+      { text: t(`bricksOptFx_${o.key}`), size: 'xr-text-sm', color: color('xr-panel-text'), gap: advice ? 0.003 : 0.012 },
+      ...(advice ? [{ text: advice.options[i], size: 'xr-text-sm', weight: 'bold', color: color('xr-bricks-chart-forecast'), gap: 0.012 }] : []),
     ]),
+    ...(advice?.them ? [{ text: advice.them, size: 'xr-text-sm', color: color('xr-bricks-neighbor'), gap: 0.004 }] : []),
   ];
   const col = w - ic - pad * 0.6;
   const h = Math.max(measureBlocks(blocks, col, pad), ic + pad * 2);
@@ -185,7 +188,7 @@ export function drawChart(ctx, p, s) {
     ctx.lineTo(x1, yBot);
     ctx.stroke();
     ctx.fillStyle = color('xr-panel-muted');
-    ctx.font = font('regular', sm * 0.95);
+    ctx.font = font('regular', sm);
     ctx.textAlign = 'center';
     for (let m = 0; m <= maxM; m += 12) ctx.fillText(String(m), Math.min(X(m), x1 - sm), yBot + sm * 0.15);
     ctx.textAlign = 'right';
@@ -220,9 +223,10 @@ export function drawChart(ctx, p, s) {
       ctx.closePath();
       ctx.fill();
     }
-    const series = (who, token, forecastToken) => {
+    const series = (who, token, forecastToken, thin = false) => {
       ctx.strokeStyle = color(token);
-      ctx.lineWidth = p.m(0.004);
+      // Your line is thick, the neighbors' line thin (not told apart by color alone).
+      ctx.lineWidth = p.m(thin ? 0.0024 : 0.0048);
       ctx.lineJoin = 'round';
       ctx.beginPath();
       who.history.forEach((v, m) => (m ? ctx.lineTo(X(m), Y(v)) : ctx.moveTo(X(m), Y(v))));
@@ -243,12 +247,18 @@ export function drawChart(ctx, p, s) {
         ctx.fill();
       }
     };
-    series(s.them, 'xr-bricks-neighbor', 'xr-bricks-neighbor');
+    series(s.them, 'xr-bricks-neighbor', 'xr-bricks-neighbor', true);
     series(s.you, 'xr-bricks-chart-saved', 'xr-bricks-chart-forecast');
     for (const mk of s.marks) {
+      // Marks by shape: a life event is a dot, an interest brick a diamond, spending a triangle pointing down.
       ctx.fillStyle = color(mk.kind === 'spend' ? 'xr-bricks-chart-spend' : mk.kind === 'gold' ? 'xr-bricks-chart-gold' : 'xr-bricks-event');
+      const mx = X(mk.m);
+      const my = Y(mk.v);
+      const r = p.m(mk.kind === 'event' ? 0.008 : 0.009);
       ctx.beginPath();
-      ctx.arc(X(mk.m), Y(mk.v), p.m(mk.kind === 'event' ? 0.008 : 0.006), 0, Math.PI * 2);
+      if (mk.kind === 'gold') { ctx.moveTo(mx, my - r); ctx.lineTo(mx + r, my); ctx.lineTo(mx, my + r); ctx.lineTo(mx - r, my); ctx.closePath(); }
+      else if (mk.kind === 'spend') { ctx.moveTo(mx - r, my - r * 0.8); ctx.lineTo(mx + r, my - r * 0.8); ctx.lineTo(mx, my + r); ctx.closePath(); }
+      else ctx.arc(mx, my, r, 0, Math.PI * 2);
       ctx.fill();
     }
     if (!s.you.done) {

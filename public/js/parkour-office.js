@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { loadGLTF } from './models.js';
 import { color, hex } from './tokens.js';
 import { modelSet, logoTexture } from './parkour-models.js';
-import { instanced, edgeFactor } from './parkour-visuals.js';
+import { instanced, edgeFactor, stageClock } from './parkour-visuals.js';
 import { roundRect } from './ui3d.js';
 import { t } from './i18n.js';
 import { font } from './tokens.js';
@@ -199,7 +199,7 @@ export function makeCables(O, x0, x1) {
   }
   const mat = O.materials.OfSparkGlow;
   const base = mat.color.clone();
-  group.userData.flicker = () => mat.color.copy(base).multiplyScalar(0.5 + Math.random() * 0.9);
+  group.userData.flicker = () => mat.color.copy(base).multiplyScalar(stageClock.calm ? 1 : 0.5 + Math.random() * 0.9);
   return group;
 }
 
@@ -345,7 +345,7 @@ export function makeOffice(course, O, clip = null) {
       wallTypes.forEach((tp) => walls[tp].end());
       for (const pr of props) show(pr.obj, pr.x, camX, half);
       // the ceiling fans spin, the workshop cheers when Echo arrives
-      const time = performance.now() / 1000;
+      const time = stageClock.t;
       for (const pr of props) {
         if (pr.blades) pr.blades.rotation.y = time * 9;
         if (pr.type === 'participant' && cheering) pr.obj.position.y = pr.base + Math.abs(Math.sin(time * 9 + pr.x)) * 0.25;

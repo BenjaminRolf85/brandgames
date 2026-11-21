@@ -362,6 +362,7 @@ export class Region {
     this.buildPeople();
     this.buildDecor(node);
     this.buildLive();
+    this.buildFocus();
   }
 
   /** A token material for a Blender material name (shared within this region). */
@@ -610,6 +611,30 @@ export class Region {
     P.glow.material.color.setHex(hex(tok));
   }
 
+  // ---------- keyboard focus ----------
+
+  /** A ring in the focus color around the plot the keyboard marks (browser: arrow keys, Tab). */
+  buildFocus() {
+    const shape = roundRect(1, 1, 0.16);
+    shape.holes.push(roundRect(0.86, 0.86, 0.12));
+    this.focusRing = new THREE.Mesh(new THREE.ShapeGeometry(shape, 5).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: hex('xr-focus'), transparent: true, depthTest: false, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
+    this.focusRing.renderOrder = 18;
+    this.focusRing.userData.noFit = true;
+    this.focusRing.visible = false;
+    this.root.add(this.focusRing);
+  }
+
+  setFocusRing(id) {
+    const P = id ? this.plots.get(id) : null;
+    if (this.focusId === (P?.id ?? null)) return;
+    this.focusId = P?.id ?? null;
+    this.focusRing.visible = !!P;
+    if (!P) return;
+    const s = PAD[P.area] * 1.42;
+    this.focusRing.scale.set(s, 1, s);
+    this.focusRing.position.set(P.pos.x, P.pos.y + 0.0045, P.pos.z);
+  }
+
   // ---------- value tags over the plots ----------
 
   /** tags: [{ id, text, sub, token }] (null hides them all). */
@@ -632,11 +657,14 @@ export class Region {
       }
       const s = P.tag;
       s.visible = true;
-      const key = `${t.text}|${t.sub}|${t.token}|${t.strong}`;
+      const key = `${t.text}|${t.token}|${t.strong}`;
       s.position.y = (P.model ? P.modelH ?? 0.04 : 0.012) + 0.03;
       if (s.userData.key === key) continue;
       s.userData.key = key;
-      drawTag(s.userData.canvas, t);
+      // A long label makes the tag larger (the letters keep their size on the map).
+      const f = Math.min(1.7, 1 / drawTag(s.userData.canvas, t));
+      const w = num('xr-green-tag') * f;
+      s.scale.set(w, (w * 88) / 192, 1);
       s.material.map.needsUpdate = true;
     }
   }
@@ -988,7 +1016,7 @@ export class Region {
     if (cm) cm.color.copy(this.cloudColor).lerp(this.stormCloud, Math.min(1, vis.storm + vis.rain * 0.4));
     // Gusts: more and faster with the wind.
     const g = Math.max(0, vis.wind - 0.45);
-    this.gustMat.opacity += (Math.min(0.75, g * 0.7) - this.gustMat.opacity) * Math.min(1, dt * 2);
+    this.gustMat.opacity += (Math.min(0.75, g * 0.7) * (vis.calm ? 0.4 : 1) - this.gustMat.opacity) * Math.min(1, dt * 2);
     for (const m of this.gusts) {
       m.userData.t += dt * m.userData.speed * (0.4 + vis.wind);
       if (m.userData.t > 1) { m.userData.t -= 1; m.userData.z = -0.3 + Math.random() * 0.6; m.userData.y = 0.04 + Math.random() * 0.12; }
@@ -1058,7 +1086,9 @@ export class Region {
     for (const P of this.plots.values()) {
       if (P.model) continue;
       const on = P.state === 'ok' || P.state === 'best' || P.state === 'hover';
-      const pulse = P.state === 'hover' ? 0.9 : P.state === 'best' ? 0.55 + 0.35 * Math.sin(T * 5) : on ? 0.3 + 0.15 * Math.sin(T * 3 + P.pos.x * 10) : 0;
+      // Calm motion: a steady glow instead of a pulse.
+      const beat = vis.calm ? 0.4 : Math.sin(T * 5);
+      const pulse = P.state === 'hover' ? 0.9 : P.state === 'best' ? 0.55 + 0.35 * beat : on ? 0.3 + (vis.calm ? 0 : 0.15 * Math.sin(T * 3 + P.pos.x * 10)) : 0;
       P.glow.material.opacity += (pulse - P.glow.material.opacity) * Math.min(1, dt * 8);
       P.glow.visible = P.glow.material.opacity > 0.01; // no draw call while it is dark
       P.group.position.y = P.pos.y + (P.state === 'hover' ? 0.003 : 0);
@@ -1135,12 +1165,15 @@ export class Region {
     return new THREE.Vector3(0.12, 0.13, 0.16);
   }
 
-  /** Shows the warning's icon over its place (null hides it); done: the player reacted. */
-  showMarker(type, done = false) {
+  /**
+   * Shows the warning's icon over its place (null hides it); done: the player reacted (green
+   * edge), waited: the player decided to wait (grey edge, no halo).
+   */
+  showMarker(type, done = false, waited = false) {
     const on = !!type;
     this.marker.visible = on;
-    this.markerHalo.visible = on;
-    this.markerHit.userData.interactive = on && !done;
+    this.markerHalo.visible = on && !waited;
+    this.markerHit.userData.interactive = on && !done && !waited;
     if (!on) return;
     const pos = this.liveSpot(type);
     this.marker.position.copy(pos);
@@ -1153,9 +1186,9 @@ export class Region {
     ctx.fillStyle = color('xr-panel-bg');
     ctx.fill();
     ctx.lineWidth = 8;
-    ctx.strokeStyle = color(done ? 'xr-green-up' : 'xr-warning');
+    ctx.strokeStyle = color(done ? 'xr-green-up' : waited ? 'xr-panel-muted' : 'xr-warning');
     ctx.stroke();
-    drawIcon(ctx, LIVE[type].icon, 64, 64, 70, color(done ? 'xr-green-up' : LIVE[type].token));
+    drawIcon(ctx, LIVE[type].icon, 64, 64, 70, color(done ? 'xr-green-up' : waited ? 'xr-panel-muted' : LIVE[type].token));
     this.marker.material.map.needsUpdate = true;
     this.markerHalo.material.color.setHex(hex(done ? 'xr-green-up' : 'xr-warning'));
   }
@@ -1199,14 +1232,14 @@ export class Region {
         this.root.add(b);
         this.bubbles.set(k, b);
       }
-      const key = `${w.text}|${w.level}|${w.met}`;
+      const key = `${w.text}|${w.level}|${w.met}|${w.icon}`;
       b.userData.level = w.level;
       b.userData.met = w.met;
       if (b.userData.key === key) continue;
       b.userData.key = key;
       drawBubble(b.userData.canvas, w);
       b.material.map.needsUpdate = true;
-      const s = 0.17 * (w.met ? 0.8 : 1 + (w.level - 1) * 0.14);
+      const s = 0.15 * (w.met ? 0.85 : 1 + (w.level - 1) * 0.12);
       b.scale.set(s, (s * 150) / 360, 1);
     }
   }
@@ -1245,17 +1278,20 @@ export class Region {
   updateLive(dt, vis) {
     const T = this.time;
     if (this.marker.visible) {
-      const pulse = 1 + 0.12 * Math.sin(T * 8);
-      this.marker.scale.setScalar(0.07 * pulse);
-      this.markerHalo.scale.setScalar(0.16 * pulse);
-      this.markerHalo.material.opacity = 0.35 + 0.25 * Math.sin(T * 8);
+      // The marker pulses (calm motion: it stands still).
+      const beat = vis.calm ? 0 : Math.sin(T * 8);
+      const pulse = 1 + 0.12 * beat;
+      this.marker.scale.setScalar(0.085 * pulse);
+      this.markerHalo.scale.setScalar(0.19 * pulse);
+      this.markerHalo.material.opacity = 0.35 + 0.25 * beat;
     }
     for (const b of this.bubbles.values()) {
       const lv = b.userData.level ?? 1;
-      const shake = !b.userData.met && lv >= 3 ? Math.sin(T * 30) * 0.002 : 0;
+      // A loud wish trembles, every bubble bobs a little (calm motion: they stand still).
+      const tremble = !vis.calm && !b.userData.met && lv >= 3 ? Math.sin(T * 30) * 0.002 : 0;
       b.position.copy(b.userData.base);
-      b.position.x += shake;
-      b.position.y += Math.sin(T * 2 + b.userData.base.x * 20) * 0.003;
+      b.position.x += tremble;
+      if (!vis.calm) b.position.y += Math.sin(T * 2 + b.userData.base.x * 20) * 0.003;
     }
     // Flood: the water rises over the river banks.
     this.flood += (this.floodTarget - this.flood) * Math.min(1, dt * 1.5);
@@ -1289,8 +1325,11 @@ export class Region {
   }
 }
 
-/** A citizen's speech bubble: louder (warmer color, capitals) the longer the wish is ignored. */
-function drawBubble(canvas, { text, level, met }) {
+/**
+ * A citizen's speech bubble: the wished project's icon and one word in large letters; louder
+ * (more exclamation marks, a thicker and warmer edge) the longer the wish is ignored.
+ */
+function drawBubble(canvas, { text, level, met, icon }) {
   const ctx = begin(canvas);
   const W = canvas.lw;
   const H = canvas.lh;
@@ -1302,34 +1341,44 @@ function drawBubble(canvas, { text, level, met }) {
   ctx.lineTo(W * 0.54, H - 35);
   ctx.fillStyle = color(met ? 'xr-panel-bg' : 'xr-green-bubble');
   ctx.fill();
-  ctx.lineWidth = 6 + (level - 1) * 2;
+  ctx.lineWidth = 6 + (level - 1) * 3;
   ctx.strokeStyle = color(tok);
   ctx.stroke();
-  ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = color(met ? 'xr-green-up' : 'xr-green-bubble-text');
-  // One or two lines, as large as fits.
-  const words = String(text).split(' ');
-  let px = 40;
-  let lines = [text];
-  for (; px >= 22; px -= 2) {
+  ctx.textAlign = 'left';
+  const fg = color(met ? 'xr-green-up' : 'xr-green-bubble-text');
+  const iw = icon && !met ? 70 : 0;
+  let px = 62;
+  for (; px > 34; px -= 2) {
     ctx.font = font('black', px);
-    if (ctx.measureText(text).width <= W - 40) { lines = [text]; break; }
-    let best = null;
-    for (let k = 1; k < words.length; k++) {
-      const l = [words.slice(0, k).join(' '), words.slice(k).join(' ')];
-      const w = Math.max(...l.map((x) => ctx.measureText(x).width));
-      if (!best || w < best.w) best = { l, w };
-    }
-    if (best && best.w <= W - 40 && px * 2.3 <= H - 46) { lines = best.l; break; }
+    if (ctx.measureText(text).width + iw <= W - 44) break;
   }
   ctx.font = font('black', px);
+  const tw = ctx.measureText(text).width;
   const cy = (H - 34) / 2 + 3;
-  lines.forEach((l, i) => ctx.fillText(l, W / 2, cy + (i - (lines.length - 1) / 2) * px * 1.1));
+  const x0 = (W - tw - iw) / 2;
+  if (iw) drawIcon(ctx, icon, x0 + 28, cy, 60, fg);
+  ctx.fillStyle = fg;
+  ctx.fillText(text, x0 + iw, cy + 2, W - 44 - iw);
 }
 
-/** A value tag over a plot: a pill with the forecast (big) and a unit or note (small). */
-function drawTag(canvas, { text, sub, token, strong }) {
+/** A five-pointed star path around (cx, cy). */
+function starPath(ctx, cx, cy, r) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const q = i % 2 ? r * 0.45 : r;
+    ctx[i ? 'lineTo' : 'moveTo'](cx + Math.cos(a) * q, cy + Math.sin(a) * q);
+  }
+  ctx.closePath();
+}
+
+/**
+ * A value tag over a plot: a pill with the value in large letters; strong (the AI's top pick, a
+ * placed bet) gets a thick edge and a star, so it does not stand out by color alone. Returns the
+ * factor the content was shrunk by to fit (1: it fits).
+ */
+function drawTag(canvas, { text, token, strong }) {
   const ctx = begin(canvas);
   const W = canvas.lw;
   const H = canvas.lh;
@@ -1337,7 +1386,7 @@ function drawTag(canvas, { text, sub, token, strong }) {
   ctx.roundRect(4, 4, W - 8, H - 18, 22);
   ctx.fillStyle = color('xr-panel-bg');
   ctx.fill();
-  ctx.lineWidth = strong ? 7 : 4;
+  ctx.lineWidth = strong ? 8 : 4;
   ctx.strokeStyle = color(token);
   ctx.stroke();
   // A little pointer down to the plot.
@@ -1350,22 +1399,22 @@ function drawTag(canvas, { text, sub, token, strong }) {
   ctx.fill();
   ctx.textBaseline = 'middle';
   const cy = (H - 14) / 2 + 3;
-  ctx.font = font('black', 36);
+  const px = 46;
+  ctx.font = font('black', px);
   const tw = ctx.measureText(text).width;
-  ctx.font = font('bold', 22);
-  const sw = sub ? ctx.measureText(sub).width + 8 : 0;
-  const scale = Math.min(1, (W - 26) / (tw + sw));
+  const sw = strong ? px * 0.95 : 0;
+  const scale = Math.min(1, (W - 30) / (tw + sw));
   ctx.save();
   ctx.translate(W / 2, cy);
   ctx.scale(scale, scale);
+  if (strong) {
+    starPath(ctx, -(tw + sw) / 2 + px * 0.38, -1, px * 0.4);
+    ctx.fillStyle = color(token);
+    ctx.fill();
+  }
   ctx.textAlign = 'left';
   ctx.fillStyle = color('xr-panel-text');
-  ctx.font = font('black', 36);
-  ctx.fillText(text, -(tw + sw) / 2, 0);
-  if (sub) {
-    ctx.font = font('bold', 22);
-    ctx.fillStyle = color('xr-panel-muted');
-    ctx.fillText(sub, -(tw + sw) / 2 + tw + 8, 2);
-  }
+  ctx.fillText(text, -(tw + sw) / 2 + sw, 0);
   ctx.restore();
+  return scale;
 }

@@ -632,3 +632,31 @@ export function makeNumber(text, token) {
   s.userData.noFit = true;
   return s;
 }
+
+/**
+ * A short floating text ("Perfekt!", "Zu spät!", "Tritt schlägt Bücken"): like makeNumber, but
+ * the letters shrink until the text fits, so longer words are never cut off.
+ */
+export function makeLabel(text, token) {
+  const c = document.createElement('canvas');
+  c.width = 640;
+  c.height = 112;
+  const ctx = c.getContext('2d');
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  let px = 76;
+  do { ctx.font = font('black', px); px -= 3; } while (ctx.measureText(text).width > 610 && px > 30);
+  ctx.lineWidth = 11;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = color('xr-fight-dark');
+  ctx.strokeText(text, 320, 58);
+  ctx.fillStyle = color(token);
+  ctx.fillText(text, 320, 58);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+  s.scale.set(0.52, 0.091, 1);
+  s.renderOrder = 30;
+  s.userData.noFit = true;
+  return s;
+}

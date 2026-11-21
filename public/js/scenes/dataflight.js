@@ -12,17 +12,22 @@
 // (shield, data magnet, slow motion) and, at the end, the hacker mothership: every good data
 // caught then fires an antivirus pulse at one of its three cores.
 // The look follows the game coin (assets/cards/dataflight.webp).
+// Browser (Nov 2026 upgrade): a closer chase view, the mouse, the keyboard or a swipe steers
+// Echo, hints and facts are pinned to the screen (pong-screen.js), every catch shows its points
+// and a growing series, and the result rates the flight in three steps.
 import * as THREE from 'three';
 import { BaseScene } from '../scene.js';
-import { Panel, textPanel } from '../ui3d.js';
+import { Panel, Button, textPanel } from '../ui3d.js';
 import { color, hex, num, font } from '../tokens.js';
 import { t, L } from '../i18n.js';
 import { sfx } from '../sfx.js';
 import { music } from '../music.js';
 import { quality } from '../quality.js';
 import { EVENT } from '../event.js';
-import { FLIGHT_GOOD, FLIGHT_BAD, FLIGHT_ATTACKS } from '../content.js';
+import { FLIGHT_GOOD, FLIGHT_BAD, FLIGHT_ATTACKS, SPONSOR } from '../content.js';
 import { loadGLTF } from '../models.js';
+import { assist } from '../assist.js';
+import { pinToScreen, drawOnTop, hudHolder, solid, closeFit } from '../pong-screen.js';
 import { COIN_FACTS, CITY_FACTS, OFFICE_FACTS } from '../parkour-level.js';
 import { loadParkourModels, logoTexture } from '../parkour-models.js';
 import { factCard } from '../fact-card.js';
@@ -37,7 +42,11 @@ import {
 } from '../dataflight-worlds.js';
 
 const NEED = 40; // good data until the database is full
-const LOSS = 4; // bad data or an attack deletes this much (10 %)
+const LOSS = 4; // bad data or an attack deletes this much (10 %); half of it in the relaxed mode
+const KEY_SPEED = 1.5; // keyboard: Echo's speed (m/s)
+const HUD_PX = 76; // desktop: screen height kept free for the status bar
+const RANKS = [2500, 5500]; // result: from here "data pilot", from here "data hero" (a very good flight reaches about 7500)
+const STREAK_STEP = 10; // a series of this many catches in a row gets a callout
 const WORLD_T = EVENT ? 16 : 28; // seconds per world
 const BOSS_AT = WORLD_T * WORLDS.length; // then the hacker mothership comes
 const BOSS_MAX = EVENT ? 26 : 38; // ... and gets away after this long
@@ -81,6 +90,7 @@ const DODGE_SHOT = 15;
 const clamp = THREE.MathUtils.clamp;
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const MOVE_KEYS = { ArrowLeft: 'l', a: 'l', A: 'l', ArrowRight: 'r', d: 'r', D: 'r', ArrowUp: 'u', w: 'u', W: 'u', ArrowDown: 'd', s: 'd', S: 'd' };
 const _seg = new THREE.Vector3();
 const _rel = new THREE.Vector3();
 /** Closest distance of p to the path a -> b of this frame (so fast things never skip Echo). */
@@ -101,7 +111,30 @@ export class DataflightScene extends BaseScene {
     this.items = [];
     this.free = { good: [...Array(MAX_ITEMS).keys()], bad: [...Array(MAX_ITEMS).keys()] };
     this.C = new THREE.Vector3(0, this.eye - C_DROP, C_Z);
-    this.depth = 0; // browser preview: depth offset (mouse wheel)
+    const e = this.engine;
+    this.screen = !e.isXR; // browser: chase view, texts pinned to the screen
+    this.desktop = !e.isXR && !e.touchUI;
+    this.calm = assist.reducedMotion; // calm motion: no flashes, no shaking, fewer particles
+    // Relaxed mode: a slower stream, a larger catch zone, a smaller hit zone, half the loss.
+    this.easy = assist.easy;
+    this.rGood = R_GOOD * assist.pick(1, 1.25);
+    this.rBad = R_BAD * assist.pick(1, 0.75);
+    this.loss = assist.pick(LOSS, LOSS / 2);
+    this.pace = assist.pick(1, 0.8);
+    this.setControls({
+      desktop: [
+        [t('dataflightCtlKeys'), t('dataflightCtlSteer')],
+        [t('dataflightCtlEnter'), t('dataflightCtlStart')],
+        [t('dataflightCtlPause'), t('dataflightCtlPauseDo')],
+      ],
+      touch: [
+        [t('dataflightCtlSwipe'), t('dataflightCtlSteer')],
+        [t('menu'), t('dataflightCtlPauseDo')],
+      ],
+      xr: [
+        [t('dataflightCtlHand'), t('dataflightCtlSteer')],
+      ],
+    });
 
     // Graphics: tone mapping, studio reflections, key and world-colored rim light, desktop bloom.
     this.look = flightLook(this);
@@ -115,10 +148,47 @@ export class DataflightScene extends BaseScene {
     this.shots = [];
     this.hacker = null;
     this.buildWorld();
+    this.echo.calm = this.calm;
     this.setupInput();
+    // Phones: the menus (intro, result) are framed closely, so texts and buttons stay large enough.
+    this.mobileView((cam, dt, ins) => !this.flying() && closeFit(this, cam, dt, ins));
     this.onUpdate((dt) => this.update(dt));
-    const hint = this.engine.isXR ? '' : ` ${t(this.engine.touchUI ? 'dataflightIntroTouch' : 'dataflightIntroScreen')}`;
-    this.intro(t('dataflightName'), `${t('dataflightIntro')}${hint}`, () => this.start());
+    this.showIntro();
+  }
+
+  /**
+   * The intro: two short sentences and the controls; everything else is explained when it turns
+   * up. Like BaseScene.intro, but in the browser Echo's line does not talk about your hand.
+   */
+  showIntro() {
+    this.clearLayer();
+    const panel = this.add(textPanel(1.1, 0.4, [
+      { text: t('dataflightName'), size: 'xr-text-title', weight: 'black', gap: 0.04 },
+      { text: t('dataflightIntro'), size: 'xr-text-md', color: color('xr-panel-muted'), gap: 0.04 },
+      ...this.controlsBlocks(),
+      { text: L(SPONSOR.presentedBy), size: 'xr-text-sm', weight: 'bold', color: color('xr-warning') },
+    ]));
+    panel.position.set(0, this.eye + 0.44 - panel.h / 2, -this.dist);
+    if (this.screen) solid(panel); // the bright data stream runs behind it
+    // Phones: a start button that is a full finger target.
+    const touch = this.engine.touchUI;
+    const go = this.add(new Button(touch ? 0.54 : 0.42, touch ? 0.17 : 0.13, { label: t('start'), variant: 'primary', labelSize: 'xr-text-lg', onClick: () => this.start() }));
+    go.position.set(0, panel.position.y - panel.h / 2 - 0.05 - go.h / 2, -this.dist);
+    this.popIn(panel);
+    this.popIn(go, 0.1);
+    if (this.screen) this.app.host?.say(this, t('dataflightEcho'), { anchor: panel, id: 'intro_dataflight_screen' });
+    else this.app.host?.introduce(this, 'dataflight', panel);
+    this.prepareMusic();
+  }
+
+  /** Calm motion: far fewer particles in every burst. */
+  burst(worldPos, tokenName, count = 22) {
+    super.burst(worldPos, tokenName, this.calm ? Math.ceil(count * 0.35) : count);
+  }
+
+  /** Echo is flying (the browser view follows it). */
+  flying() {
+    return this.mode === 'ready' || this.mode === 'play' || this.mode === 'won';
   }
 
   // ---------- world ----------
@@ -144,6 +214,9 @@ export class DataflightScene extends BaseScene {
     this.floor = makeCircuitFloor({});
     w.add(this.floor);
     this.data = new DataItems(w, MAX_ITEMS);
+    // Browser: the data is drawn half again as large (it is small on a flat screen); the catch
+    // and hit zones stay as they are.
+    if (!this.engine.isXR) this.data.scale = 1.5;
     this.echo = new FlightEcho(w, 0.16);
     this.echo.group.position.copy(C);
     this.echo.group.visible = false;
@@ -254,14 +327,42 @@ export class DataflightScene extends BaseScene {
   // ---------- input ----------
 
   setupInput() {
-    const canvas = this.engine.canvas;
-    const wheel = (e) => {
-      if (this.engine.isXR || this.mode !== 'play') return;
-      this.depth = clamp(this.depth + e.deltaY * 0.0006, -BOX.z, BOX.z);
-      e.preventDefault();
+    // Desktop: the arrow keys or W A S D steer Echo at a steady speed; the mouse takes over again
+    // as soon as it moves. Enter or Space starts the flight from the intro.
+    this.keys = new Set();
+    this.keyVel = new THREE.Vector2();
+    this.keyTo = new THREE.Vector2();
+    this.input = 'mouse';
+    const down = (e) => {
+      const en = this.engine;
+      if (en.isXR || en.paused || this.disposed || e.altKey || e.ctrlKey || e.metaKey) return;
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const dir = MOVE_KEYS[e.key];
+      if (dir && (this.mode === 'ready' || this.mode === 'play')) {
+        if (this.input !== 'keys') {
+          this.input = 'keys';
+          this.keyTo.set(this.echo.group.position.x, this.echo.group.position.y);
+          this.keyVel.set(0, 0);
+        }
+        this.keys.add(dir);
+        e.preventDefault(); // no page scrolling
+      } else if (this.mode === 'intro' && !e.repeat && !en.focus && (e.key === 'Enter' || e.key === ' ')) {
+        e.preventDefault();
+        sfx.click();
+        this.start();
+      }
     };
-    canvas.addEventListener('wheel', wheel, { passive: false });
-    this.onDispose(() => canvas.removeEventListener('wheel', wheel));
+    const up = (e) => { const dir = MOVE_KEYS[e.key]; if (dir) this.keys.delete(dir); };
+    const clear = () => this.keys.clear();
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', clear);
+    this.onSceneDispose(() => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', clear);
+    });
     // Phones: swipe anywhere and Echo moves along (relative, so the finger never covers Echo).
     this.swipe = this.dragPad({
       enabled: () => this.mode === 'ready' || this.mode === 'play',
@@ -292,13 +393,31 @@ export class DataflightScene extends BaseScene {
       if (!this.ref) this.ref = new THREE.Vector3(clamp(v.x, -0.3, 0.3), clamp(v.y, this.eye - 0.6, this.eye - 0.05), clamp(v.z, -0.6, -0.15));
       return v.sub(this.ref).multiply(GAIN).add(C);
     }
+    // Desktop keyboard: the keys move the target until the mouse moves again.
+    if (this.desktop) {
+      const m = e.mouse.ndc;
+      if (this.lastNdc && (Math.abs(m.x - this.lastNdc.x) + Math.abs(m.y - this.lastNdc.y) > 1e-4) && !this.keys.size) this.input = 'mouse';
+      (this.lastNdc ??= new THREE.Vector2()).copy(m);
+      if (this.input === 'keys') {
+        const dt = this.dt ?? 0;
+        const kx = (this.keys.has('r') ? 1 : 0) - (this.keys.has('l') ? 1 : 0);
+        const ky = (this.keys.has('u') ? 1 : 0) - (this.keys.has('d') ? 1 : 0);
+        const norm = kx && ky ? Math.SQRT1_2 : 1;
+        const acc = Math.min(1, dt * 16); // a short ramp, so a tap makes a small step
+        this.keyVel.x += (kx * norm * KEY_SPEED - this.keyVel.x) * acc;
+        this.keyVel.y += (ky * norm * KEY_SPEED - this.keyVel.y) * acc;
+        this.keyTo.x = clamp(this.keyTo.x + this.keyVel.x * dt, C.x - BOX.x, C.x + BOX.x);
+        this.keyTo.y = clamp(this.keyTo.y + this.keyVel.y * dt, C.y - BOX.y, C.y + BOX.y);
+        return v.set(this.keyTo.x, this.keyTo.y, C.z);
+      }
+    }
     const p = e.pointers.find((q) => q.active && (q.kind === 'xr') === e.isXR);
     if (!p) return null;
     this.hand = p;
     // Ray onto the plane at Echo's depth.
     const inv = new THREE.Matrix4().copy(this.group.matrixWorld).invert();
     const ray = p.ray.clone().applyMatrix4(inv);
-    const z = C.z + this.depth;
+    const z = C.z;
     if (Math.abs(ray.direction.z) < 1e-4) return null;
     const k = (z - ray.origin.z) / ray.direction.z;
     if (k <= 0) return null;
@@ -309,7 +428,11 @@ export class DataflightScene extends BaseScene {
 
   start() {
     this.clearLayer();
-    this.refreshHud ??= this.hud(() => this.hudText());
+    if (!this.refreshHud) {
+      this.refreshHud = this.hud(() => this.hudText());
+      // Desktop: the status bar follows the chase view (pinned to the top of the screen).
+      if (this.desktop) this.hudPin = hudHolder(this);
+    }
     this.app.echo?.suppress(true);
     this.setRays(false);
     this.startMusic(1, 'dataflight');
@@ -320,6 +443,8 @@ export class DataflightScene extends BaseScene {
     this.theme = { from: 0, to: 0, k: 1 };
     this.applyTheme();
     this.portal.visible = false;
+    this.hinted = {};
+    if (this.easy) this.shieldT = POWER_T.shield; // relaxed mode: a shield from the start
     this.clearItems();
     this.dbLabel.redraw();
     this.db.userData.setFill(0);
@@ -334,7 +459,7 @@ export class DataflightScene extends BaseScene {
     this.burst(eg.getWorldPosition(new THREE.Vector3()), 'xr-flight-good', 26);
     sfx.appear();
     this.mode = 'ready';
-    this.toast(t('dataflightGo'), null, 'xr-flight-good', true);
+    this.toast(t('dataflightGo'), t('dataflightGoHint'), 'xr-flight-good', true);
     this.delay(0.8, () => { if (!this.disposed) this.echo.wantTurn = 0; });
     this.delay(1.4, () => { if (!this.disposed && this.mode === 'ready') this.mode = 'play'; });
     this.refreshHud();
@@ -347,8 +472,8 @@ export class DataflightScene extends BaseScene {
     const time = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
     const where = boss
       ? t('dataflightBossHud', { n: this.boss ? this.boss.obj.userData.cores.filter((c) => c.hp > 0).length : 3 })
-      : t('dataflightWorld', { n: (this.wi ?? 0) + 1, total: WORLDS.length, name: t(`dataflightWorld_${WORLDS[this.wi ?? 0].key}`) });
-    return t('dataflightHud', { name: where, n: Math.round((this.fill ?? 0) * 100), coins: this.coinsTaken ?? 0, total: FLIGHT_FACTS.length, time, score: this.score ?? 0 });
+      : t('dataflightWorldHud', { n: (this.wi ?? 0) + 1, total: WORLDS.length });
+    return t('dataflightHud', { name: where, n: Math.round((this.fill ?? 0) * 100), streak: this.streak ?? 0, time, score: this.score ?? 0 });
   }
 
   finish(win) {
@@ -373,13 +498,24 @@ export class DataflightScene extends BaseScene {
     const learned = [...atkHit.slice(0, 1).map(asAttack), ...badHit.slice(0, 2).map(asBad)].slice(0, 2);
     const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
     const more = [shuffle(FLIGHT_GOOD).map(asGood), shuffle(FLIGHT_ATTACKS.filter((a) => !atkHit.includes(a))).map(asAttack), shuffle(FLIGHT_BAD.filter((b) => !badHit.includes(b))).map(asBad)];
-    for (let k = 0; learned.length < 3 && k < 30; k++) {
+    for (let k = 0; learned.length < 2 && k < 30; k++) {
       const next = more[k % 3].pop();
       if (next) learned.push(next);
     }
+    // A rating in three steps with the points missing to the next one (as shown: the relaxed
+    // mode counts a share of the points), and one tip that fits this flight.
+    const shown = Math.round(score * assist.scoreFactor);
+    const rank = shown >= RANKS[1] ? 3 : shown >= RANKS[0] ? 2 : 1;
+    const rating = rank === 3
+      ? t('dataflightRankTop', { rank: t('dataflightRank3') })
+      : t('dataflightRankLine', { n: rank, rank: t(`dataflightRank${rank}`), pts: RANKS[rank - 1] - shown, next: t(`dataflightRank${rank + 1}`) });
+    const tip = this.bad + this.attacks >= 6 ? 'dataflightTipDodge'
+      : this.bossT > 0 && !win ? 'dataflightTipBoss'
+        : this.coinsTaken < FLIGHT_FACTS.length / 2 ? 'dataflightTipCoins' : 'dataflightTipStreak';
+    learned.push({ q: t('dataflightTip'), a: t(tip, { n: COIN_POINTS, best: this.best }) });
     this.results({
       gameKey: 'dataflight', score, correct: Math.round(this.fill * 100), total: 100,
-      line: `${t(win ? 'dataflightBossDown' : this.bossT > 0 ? 'dataflightBossEscaped' : 'dataflightTimeUp')} · ${t('dataflightLine', { good: this.good, bad: this.bad, blocked: this.blocked, hackers: this.hackers, coins: this.coinsTaken, total: FLIGHT_FACTS.length })}`,
+      line: `${t(win ? 'dataflightBossDown' : this.bossT > 0 ? 'dataflightBossEscaped' : 'dataflightTimeUp')} · ${t('dataflightLine', { good: this.good, bad: this.bad + this.attacks, best: this.best, coins: this.coinsTaken, total: FLIGHT_FACTS.length })}\n${rating}`,
       learned,
       onAgain: () => this.app.startGame('dataflight'),
     });
@@ -462,16 +598,18 @@ export class DataflightScene extends BaseScene {
       i, obj, from, t: 0, phase: 'enter', fired: 0, hit: false, dashHit: false,
       hover: new THREE.Vector3(this.C.x + side * rnd(0.45, 0.7), this.C.y + rnd(0.18, 0.4), -3.3),
       // Later hackers fire more often, faster and swoop faster.
-      shots: 3 + (i >= 2 ? 1 : 0) + (i >= 4 ? 1 : 0),
-      gap: Math.max(0.55, 0.85 - i * 0.05),
-      speed: 3 + i * 0.25,
-      swoop: 2.8 + i * 0.2,
+      shots: 3 + (i >= 2 ? 1 : 0) + (i >= 4 ? 1 : 0) - (this.easy ? 1 : 0),
+      gap: Math.max(0.55, 0.85 - i * 0.05) / this.pace,
+      speed: (3 + i * 0.25) * this.pace,
+      swoop: (2.8 + i * 0.2) * this.pace,
       target: new THREE.Vector3(), dir: new THREE.Vector3(), prev: new THREE.Vector3(),
     };
     this.hackers += 1;
     sfx.announce();
     this.echo.face?.setMood('surprised', 1);
-    this.toast(t('dataflightHacker'), null, 'xr-flight-attack', true);
+    // The first time: what to do about it.
+    this.toast(t('dataflightHacker'), this.hinted.hacker ? null : t('dataflightHackerHint'), 'xr-flight-attack', true);
+    this.hinted.hacker = true;
   }
 
   removeHacker() {
@@ -520,8 +658,8 @@ export class DataflightScene extends BaseScene {
         if (h.fired >= h.shots) h.phase = 'charge';
       }
       if (h.phase === 'charge') {
-        // Warning: it trembles and a beam shows where it will swoop (locked shortly before).
-        shake = Math.min(1, h.t / 0.4);
+        // Warning: it trembles (not with calm motion) and a beam shows where it will swoop (locked shortly before).
+        shake = this.calm ? 0 : Math.min(1, h.t / 0.4);
         if (h.t < 0.75) h.target.copy(echoPos);
         this.beam.visible = true;
         this.beam.userData.set(o.position, h.target, this.time);
@@ -624,6 +762,7 @@ export class DataflightScene extends BaseScene {
   collectCoin(c) {
     this.coinsTaken += 1;
     this.score += COIN_POINTS;
+    this.popup(`+${COIN_POINTS}`, 'xr-flight-coin', c.pos, 0.07);
     sfx.coin();
     this.delay(0.12, () => { if (!this.disposed) sfx.tink(); });
     this.engine.haptic(this.hand, 0.5, 40);
@@ -635,19 +774,25 @@ export class DataflightScene extends BaseScene {
 
   /** The coin's fact on the right (opposite the database), on a phone held upright at the top. */
   showFact(i) {
-    if (this.card) { const old = this.card; this.card = null; old.removeFromParent(); old.dispose(); }
+    if (this.card) { const old = this.card; this.card = null; old.userData.holder?.removeFromParent(); old.removeFromParent(); old.dispose(); }
     const card = factCard(i + 1, FLIGHT_FACTS.length, FLIGHT_FACTS[i], 0.56);
-    if (this.portrait) card.position.set(0, this.eye + 0.42 - card.h / 2, -1.2);
-    else {
+    if (this.screen) {
+      // Browser: pinned to the right edge (a phone held upright: below the hints), see layoutScreen.
+      const holder = this.add(new THREE.Group());
+      holder.add(drawOnTop(card, 29));
+      card.userData.holder = holder;
+      this.cardHolder = holder;
+    } else {
       card.position.set(0.88, this.eye - 0.05, -1.0);
       card.rotation.y = -0.45;
+      this.add(card);
     }
-    this.add(card);
     this.popIn(card);
     this.card = card;
+    this.layoutScreen();
     this.delay(CARD_TIME, () => {
       if (this.card !== card) return;
-      this.tween(0.4, (k) => { card.material.opacity = 1 - k; }, { onDone: () => { if (this.card === card) { this.card = null; card.removeFromParent(); card.dispose(); } } });
+      this.tween(0.4, (k) => { card.material.opacity = 1 - k; }, { onDone: () => { if (this.card === card) { this.card = null; card.userData.holder?.removeFromParent(); card.removeFromParent(); card.dispose(); } } });
     });
   }
 
@@ -669,7 +814,7 @@ export class DataflightScene extends BaseScene {
         seg.subVectors(c.pos, c.prev);
         rel.subVectors(p, c.prev);
         const k = clamp(rel.dot(seg) / Math.max(seg.lengthSq(), 1e-9), 0, 1);
-        if (rel.sub(seg.multiplyScalar(k)).length() < R_GOOD * 1.1) { this.collectCoin(c); continue; }
+        if (rel.sub(seg.multiplyScalar(k)).length() < this.rGood * 1.1) { this.collectCoin(c); continue; }
       }
       if (z >= GONE_Z) this.removeCoin(c);
     }
@@ -706,8 +851,8 @@ export class DataflightScene extends BaseScene {
         break;
       }
       case 'bad': {
-        // Often aimed right at Echo, so you have to dodge.
-        const aim = Math.random() < 0.55;
+        // Often aimed right at Echo, so you have to dodge (less often in the relaxed mode).
+        const aim = Math.random() < (this.easy ? 0.3 : 0.55);
         this.addItem('bad', aim ? eu : ru(), aim ? ev : ru());
         break;
       }
@@ -849,6 +994,7 @@ export class DataflightScene extends BaseScene {
     g.run.passed += 1;
     this.gatesPassed += 1;
     this.score += GATE_POINTS;
+    this.popup(`+${GATE_POINTS}`, 'xr-flight-gate', g.pos, 0.06);
     sfx.tink();
     this.engine.haptic(this.hand, 0.4, 30);
     this.burst(this.world.localToWorld(g.pos.clone()), 'xr-flight-gate', 18);
@@ -902,7 +1048,7 @@ export class DataflightScene extends BaseScene {
         pw.label.position.set(pw.pos.x, pw.pos.y + 0.08 + lw * 0.16, z);
         pw.label.material.opacity = fade * clamp((-0.7 - z) / 0.5, 0, 1);
       }
-      if ((this.mode === 'play' || this.mode === 'ready') && sweptDist(pw.prev, pw.pos, p) < R_GOOD * 1.2) {
+      if ((this.mode === 'play' || this.mode === 'ready') && sweptDist(pw.prev, pw.pos, p) < this.rGood * 1.2) {
         this.applyPower(pw.kind, this.world.localToWorld(pw.pos.clone()));
         this.removePower(pw);
         continue;
@@ -927,7 +1073,7 @@ export class DataflightScene extends BaseScene {
     this.shieldT = 0;
     this.saves += 1;
     this.invuln = 0.9;
-    this.shieldFx.userData.flash();
+    if (!this.calm) this.shieldFx.userData.flash();
     sfx.thud();
     this.burst(at, 'xr-flight-shield', 24);
     this.toast(t('dataflightShieldSaved'), null, 'xr-flight-shield', true);
@@ -943,7 +1089,8 @@ export class DataflightScene extends BaseScene {
     if (this.hacker) this.endHacker(this.hacker);
     for (const g of [...this.gates]) this.removeGate(g);
     const pilot = this.hackerGltf ? makeHacker(this.hackerGltf, this.look.neon) : null;
-    const obj = makeBoss(pilot, CORE_HP, { neon: this.look.neon });
+    this.coreHp = this.easy ? Math.max(2, CORE_HP - 2) : CORE_HP; // relaxed mode: weaker cores
+    const obj = makeBoss(pilot, this.coreHp, { neon: this.look.neon });
     obj.position.set(this.C.x, this.C.y + 0.4, VORTEX_Z + 0.4);
     obj.scale.setScalar(0.15);
     this.world.add(obj);
@@ -986,7 +1133,7 @@ export class DataflightScene extends BaseScene {
       if (b.next <= 0 && this.mode === 'play') {
         this.bossVolley(['fan', 'rain', 'ring'][b.n % 3]);
         b.n += 1;
-        b.next = Math.max(1.7, 2.7 - b.n * 0.06);
+        b.next = Math.max(1.7, 2.7 - b.n * 0.06) / this.pace;
       }
       if (this.bossT >= BOSS_MAX && this.mode === 'play') {
         // It gets away into the vortex.
@@ -1008,8 +1155,10 @@ export class DataflightScene extends BaseScene {
     }
     if (b.phase === 'boom') {
       // Shakes, sparks fly off, then it bursts.
-      o.position.x = b.hover.x + (Math.random() - 0.5) * 0.06;
-      o.rotation.z = (Math.random() - 0.5) * 0.1;
+      if (!this.calm) {
+        o.position.x = b.hover.x + (Math.random() - 0.5) * 0.06;
+        o.rotation.z = (Math.random() - 0.5) * 0.1;
+      }
       if (b.t > 1.3 && o.visible) {
         o.visible = false;
         const at = this.world.localToWorld(o.position.clone());
@@ -1036,7 +1185,7 @@ export class DataflightScene extends BaseScene {
       obj.position.copy(start);
       this.world.add(obj);
       const atk = pick(FLIGHT_ATTACKS);
-      this.shots.push({ kind: atk, obj, pos: start.clone(), prev: start.clone(), dir, speed: kind === 'ring' ? 2.5 : 2.3, life: 0, label: i === 0 ? this.data.takeLabel(L(atk.name), false) : null });
+      this.shots.push({ kind: atk, obj, pos: start.clone(), prev: start.clone(), dir, speed: (kind === 'ring' ? 2.5 : 2.3) * this.pace, life: 0, label: i === 0 ? this.data.takeLabel(L(atk.name), false) : null });
     });
     sfx.hit();
   }
@@ -1114,7 +1263,14 @@ export class DataflightScene extends BaseScene {
     this.good += 1;
     this.streak += 1;
     this.best = Math.max(this.best, this.streak);
-    this.score += 8 + Math.min(12, this.streak);
+    const gain = 8 + Math.min(12, this.streak);
+    this.score += gain;
+    // Every catch shows its points; a long series in a row gets a callout.
+    this.popup(`+${gain}`, 'xr-flight-good', it.pos);
+    if (this.streak % STREAK_STEP === 0) {
+      sfx.powerup();
+      this.popup(t('dataflightStreak', { n: this.streak }), 'xr-flight-coin', it.pos, 0.085, 0.09);
+    }
     this.fillN = Math.min(NEED, this.fillN + 1);
     // Boss fight: every good data fires an antivirus pulse at the mothership.
     if (this.phase === 'boss') this.firePulse(it.pos.clone());
@@ -1164,10 +1320,10 @@ export class DataflightScene extends BaseScene {
   /** Bad data or an attack hit Echo: part of the database is deleted, and why it is bad. */
   damage(name, why, at, token) {
     this.streak = 0;
-    this.fillN = Math.max(0, this.fillN - LOSS);
+    this.fillN = Math.max(0, this.fillN - this.loss);
     this.fill = this.fillN / NEED;
     this.db.userData.setFill(this.fill);
-    this.db.userData.flash('xr-flight-bad');
+    if (!this.calm) this.db.userData.flash('xr-flight-bad');
     this.dbLabel.redraw();
     this.invuln = 1.2;
     sfx.crash();
@@ -1176,7 +1332,7 @@ export class DataflightScene extends BaseScene {
     this.burst(at, token, 22);
     // A little data flies out of the database.
     this.burst(this.db.getWorldPosition(new THREE.Vector3()), token, 14);
-    this.toast(t('dataflightBad', { name, n: Math.round((LOSS / NEED) * 100) }), why, token);
+    this.toast(t('dataflightBad', { name, n: Math.round((this.loss / NEED) * 100) }), why, token);
   }
 
   /** A light dot from p (world group space) into the database. */
@@ -1195,11 +1351,26 @@ export class DataflightScene extends BaseScene {
     });
   }
 
-  /** Short message above the database (a second line explains bad data), or centered. */
+  /**
+   * Short message (a second line explains bad data). Headset: above the database or centered.
+   * Browser: pinned to the top of the screen, out of the way of the data (layoutScreen).
+   */
   toast(text, sub, token, center = false) {
     this.toastPanel?.removeFromParent();
     const blocks = [{ text, size: 'xr-text-md', weight: 'black', color: color(token), gap: sub ? 0.008 : 0 }];
     if (sub) blocks.push({ text: sub, size: 'xr-text-sm', color: color('xr-panel-text') });
+    if (this.screen) {
+      const panel = textPanel(0.78, 0.08, blocks, { surface: { stroke: color(token) }, layout: { pad: 0.022 } });
+      const holder = this.add(new THREE.Group());
+      holder.add(drawOnTop(solid(panel), 31));
+      holder.userData.w = panel.w;
+      holder.userData.h = panel.h;
+      this.popIn(panel);
+      this.toastPanel = holder;
+      this.layoutScreen();
+      this.delay(sub ? 3.4 : 1.8, () => { if (this.toastPanel === holder) { holder.removeFromParent(); this.toastPanel = null; } });
+      return;
+    }
     const p = this.add(textPanel(0.5, 0.08, blocks, { surface: { stroke: color(token) } }));
     if (center || this.portrait) p.position.set(0, this.eye + 0.22, -1.2);
     else {
@@ -1211,32 +1382,112 @@ export class DataflightScene extends BaseScene {
     this.delay(sub ? 3.2 : 1.6, () => { if (this.toastPanel === p) { p.removeFromParent(); this.toastPanel = null; } });
   }
 
+  /** Points that rise from where something was caught ("+12", "Serie 10!"). */
+  popup(text, token, at, size = 0.05, lift = 0) {
+    const key = `${token}|${text}`;
+    this.popTex ??= new Map();
+    let tex = this.popTex.get(key);
+    if (!tex) {
+      const c = document.createElement('canvas');
+      c.width = 320;
+      c.height = 96;
+      const ctx = c.getContext('2d');
+      let px = 72;
+      do { ctx.font = font('black', px); px -= 4; } while (ctx.measureText(text).width > 300 && px > 24);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = color('xr-flight-bad-body');
+      ctx.strokeText(text, 160, 50);
+      ctx.fillStyle = color(token);
+      ctx.fillText(text, 160, 50);
+      tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      this.popTex.set(key, tex);
+    }
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+    sp.scale.set(size * 3.33, size, 1);
+    sp.renderOrder = 12;
+    sp.userData.noFit = true;
+    const y0 = at.y + 0.1 + lift;
+    sp.position.set(at.x, y0, Math.min(at.z, this.C.z + BOX.z));
+    this.world.add(sp);
+    this.tween(0.8, (k) => {
+      sp.position.y = y0 + k * 0.1;
+      sp.material.opacity = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
+    }, { ease: (k) => k, onDone: () => { sp.removeFromParent(); sp.material.dispose(); } });
+  }
+
+  /** Browser: the status bar, the hints and the coins' facts sit at fixed places of the screen. */
+  layoutScreen() {
+    if (!this.screen) return;
+    const flying = this.flying();
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    if (this.hudPin) {
+      const { holder, home, width } = this.hudPin;
+      if (flying) pinToScreen(this, holder, width, W / 2, HUD_PX / 2, Math.min(W - 24, 600));
+      else { holder.position.copy(home); holder.scale.setScalar(1); }
+    }
+    if (!flying) return;
+    const tp = this.toastPanel;
+    const cardOn = this.card && this.cardHolder?.parent;
+    if (!tp?.parent && !cardOn) return;
+    const top = (this.desktop ? HUD_PX : this.engine.insets().top) + 8;
+    if (tp?.parent && tp.userData.w) {
+      const wPx = Math.min(W - 24, 470, H * 0.95); // lower on a phone held sideways, so it stays out of the data's way
+      pinToScreen(this, tp, tp.userData.w, W / 2, top + (wPx * tp.userData.h) / tp.userData.w / 2, wPx);
+    }
+    if (cardOn) {
+      const c = this.card;
+      const wPx = this.portrait ? Math.min(W - 24, 320) : clamp(W * 0.26, 200, 340);
+      const hPx = (wPx * c.h) / c.w;
+      // A phone held upright: below the hints; else at the right edge, below the close button.
+      if (this.portrait) pinToScreen(this, this.cardHolder, c.w, W / 2, top + 112 + hPx / 2, wPx);
+      else pinToScreen(this, this.cardHolder, c.w, W - wPx / 2 - 12, Math.max(top + 62 + hPx / 2, H * 0.4), wPx);
+    }
+  }
+
   // ---------- frame loop ----------
 
   update(dt) {
     this.time += dt;
+    this.dt = dt;
     const e = this.engine;
     const playing = this.mode === 'play';
     if (playing) this.playT += dt;
-    // The stream speeds up over the round (slow motion halves it for a while).
+    // The stream speeds up over the round (slow motion halves it for a while; the relaxed mode
+    // slows it throughout).
     let want = playing || this.mode === 'won' ? 3 + 2.6 * Math.min(1, this.playT / RAMP) : this.mode === 'ready' ? 2.4 : 1.4;
+    want *= this.pace;
     if (this.slowT > 0) want *= 0.5;
     this.speed += (want - this.speed) * Math.min(1, dt * 2);
-    const boost = this.speed / 6;
+    // Calm motion: the scenery streams past at less than half the speed (the data keeps its pace).
+    const flow = this.calm ? this.speed * 0.4 : this.speed;
+    const boost = flow / 6;
 
     this.floor.position.y = e.floorY - e.root.position.y + 0.01;
+    if (this.screen) {
+      // Browser: the bright vortex steps aside while a panel is in front of it (intro, result),
+      // and the decor crystals at the sides are gone during the flight, so only data looks like data.
+      const menu = this.mode === 'intro' || this.mode === 'over';
+      this.vortex.visible = !menu;
+      this.stream.userData.setGems(menu ? 1 : 0);
+    }
     this.vortex.userData.tick(this.time, boost);
-    this.stream.userData.tick(dt, this.time, this.speed);
-    this.binary?.userData.tick(this.time, this.speed / 0.35);
-    this.floor.userData.tick(dt, this.speed);
+    this.stream.userData.tick(dt, this.time, flow);
+    this.binary?.userData.tick(this.time, flow / 0.35);
+    this.floor.userData.tick(dt, flow);
     this.db.userData.tick(dt, this.time);
     // World props
     const floorY = e.floorY - e.root.position.y;
-    this.racks.userData.tick(dt, this.speed, floorY);
-    this.firewall.userData.tick(dt, this.speed, this.time);
+    this.racks.userData.tick(dt, flow, floorY);
+    this.firewall.userData.tick(dt, flow, this.time);
     this.storm.userData.tick(dt);
     this.wind = Math.sin(this.time * 0.42) * 0.8 + Math.sin(this.time * 1.13) * 0.2;
-    if (this.stormAmt > 0.5 && (this.mode === 'play' || this.mode === 'ready') && Math.random() < dt * 0.7) {
+    // Lightning in the data storm (no flashes with calm motion).
+    if (!this.calm && this.stormAmt > 0.5 && (this.mode === 'play' || this.mode === 'ready') && Math.random() < dt * 0.7) {
       this.storm.userData.strike();
       if (Math.random() < 0.4) sfx.storm();
     }
@@ -1310,7 +1561,10 @@ export class DataflightScene extends BaseScene {
       this.hudTick = Math.floor(this.time * 4);
       if (this.mode !== 'intro' && this.mode !== 'over') this.refreshHud?.();
     }
-    if (!e.isXR) this.previewCamera();
+    if (!e.isXR) {
+      this.previewCamera();
+      this.layoutScreen();
+    }
   }
 
   moveItems(dt) {
@@ -1336,8 +1590,8 @@ export class DataflightScene extends BaseScene {
         rel.subVectors(p, it.prev);
         const k = clamp(rel.dot(seg) / Math.max(seg.lengthSq(), 1e-9), 0, 1);
         const d = rel.sub(seg.multiplyScalar(k)).length();
-        if (it.kind === 'good' && d < R_GOOD * it.size * (magnet ? 1.5 : 1)) { this.collect(it); continue; }
-        if (it.kind === 'bad' && d < R_BAD * it.size && this.invuln <= 0) { this.hitBad(it); continue; }
+        if (it.kind === 'good' && d < this.rGood * it.size * (magnet ? 1.5 : 1)) { this.collect(it); continue; }
+        if (it.kind === 'bad' && d < this.rBad * it.size && this.invuln <= 0) { this.hitBad(it); continue; }
       }
       if (z >= GONE_Z) {
         if (it.kind === 'bad' && this.mode === 'play') { this.dodged += 1; this.score += 3; }
@@ -1348,29 +1602,31 @@ export class DataflightScene extends BaseScene {
   }
 
   /**
-   * Browser preview: a fixed view behind Echo that keeps the flight space, the database and
-   * the top bar in sight. On a phone held upright the database moves below Echo.
+   * Browser: a fixed chase view behind Echo. Echo's flight space takes about 60 % of the screen
+   * (of its width or its height, whichever is tighter), the database sits in the lower left
+   * corner. On a phone held upright the view is further back and the database below Echo.
    */
   previewCamera() {
     const e = this.engine;
     const cam = e.camera;
-    const portrait = cam.aspect < 0.8;
-    if (portrait !== this.portrait) {
-      this.portrait = portrait;
-      if (portrait) this.db.position.set(0, this.eye - 0.8, -0.9);
-      else this.db.position.set(-0.78, this.eye - 0.47, -0.95);
-    }
-    const flying = this.mode === 'ready' || this.mode === 'play' || this.mode === 'won';
+    this.portrait = cam.aspect < 0.8;
+    const flying = this.flying();
     e.fitEnabled = !flying;
     if (!flying) return;
     const tv = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
     const th = tv * cam.aspect;
-    // Room sideways for Echo's flight space (and the database beside it), upwards for the top
-    // bar, downwards for the database.
-    const z = portrait
-      ? Math.max(0.35, 0.6 / th - 0.85, 0.66 / th - 1.4, 0.8 / tv - 1.4, 1.04 / tv - 0.9)
-      : Math.max(0.35, 0.95 / th - 0.95, 0.8 / tv - 1.4, 0.72 / tv - 0.95);
-    const local = new THREE.Vector3(0, this.eye + 0.02, z);
+    const local = new THREE.Vector3();
+    if (this.portrait) {
+      // Room sideways for Echo's flight space, upwards for the top bar, downwards for the database.
+      const z = Math.max(0.35, 0.6 / th - 0.85, 0.66 / th - 1.4, 0.8 / tv - 1.4, 1.04 / tv - 0.9);
+      local.set(0, this.eye + 0.02, z);
+      this.db.position.set(0, this.eye - 0.8, -0.9);
+    } else {
+      const d = Math.max(BOX.x / (0.6 * th), BOX.y / (0.6 * tv));
+      local.set(0, this.C.y + 0.1, this.C.z + d);
+      const dd = local.z + 0.95; // distance to the database's depth
+      this.db.position.set(-th * dd * 0.74, local.y - tv * dd * 0.6, -0.95);
+    }
     cam.position.copy(this.group.localToWorld(local));
     cam.rotation.set(0, 0, 0);
   }
@@ -1382,6 +1638,7 @@ export class DataflightScene extends BaseScene {
     this.engine.fitEnabled = true;
     this.engine.backdrop.visible = this.prevBackdrop;
     if (!this.engine.isXR) this.engine.camera.rotation.set(0, 0, 0);
+    this.popTex?.forEach((tex) => tex.dispose());
     this.echo?.dispose();
     super.dispose();
   }

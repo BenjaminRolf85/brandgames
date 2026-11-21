@@ -254,6 +254,9 @@
   --xr-parkour-tower:      var(--p-ink-900);
   --xr-parkour-window:     var(--p-violet-400);
   --xr-parkour-dust:       var(--p-cyan-400);
+  --xr-parkour-spark:      var(--p-lime-400);      /* the sparks of the flight line (small diamonds) */
+  --xr-parkour-shield:     var(--p-cyan-400);      /* the ring around Echo while the shield is up */
+  --xr-parkour-hint:       var(--p-amber-400);     /* frame of the one-line hints under the stage */
   /* light rig per world (graphics pass, parkour-look.js): warm key, cool sky fill, warm ground bounce */
   --xr-parkour-key-forest:    var(--p-sand-100);
   --xr-parkour-sky-forest:    var(--p-frost-500);
@@ -676,9 +679,10 @@
   --xr-pong-bouncy:       var(--p-amber-400);   /* bouncy ball sparks */
   --xr-pong-damper:       var(--p-ink-600);     /* damper ball */
   --xr-pong-heat:         var(--p-amber-400);     /* ball and trail at top speed */
-  --xr-pong-opp-gpt:      var(--xr-pong-ai);
-  --xr-pong-opp-claude:   var(--xr-pong-ai);
-  --xr-pong-opp-gemini:   var(--xr-pong-ai);
+  --xr-pong-opp-sprint:   var(--xr-pong-ai);    /* the three made-up opponents (pong-cast.js) */
+  --xr-pong-opp-reflex:   var(--xr-pong-ai);
+  --xr-pong-opp-sniper:   var(--xr-pong-ai);
+  --xr-pong-expect:       var(--xr-pong-predict); /* far wall: where the AI expects your shot */
   --xr-pong-key-light:    var(--p-sand-100);    /* graphics: warm key light */
   --xr-pong-rim-light:    var(--p-aqua-400);    /* cool rim light from the far end */
   --xr-pong-sky-top:      var(--p-ink-950);     /* browser: night sky behind the tunnel */

@@ -3,10 +3,11 @@
 // the question that thinks along and reacts (blender/build_quizbot.py; its eyes are drawn on its
 // visor), and glowing question marks floating around. All colors come from design tokens.
 import * as THREE from 'three';
-import { Button, measureBlocks } from './ui3d.js';
+import { Button, Panel, measureBlocks, roundRect } from './ui3d.js';
 import { color, hex, num, font } from './tokens.js';
 import { loadGLTF } from './models.js';
 import { gfxTier } from './gfx.js';
+import { assist } from './assist.js';
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 const LETTER_TOKENS = ['xr-quiz-a', 'xr-quiz-b', 'xr-quiz-c', 'xr-quiz-d'];
@@ -122,11 +123,124 @@ export class AnswerBubble extends Button {
       ctx.stroke();
       ctx.restore();
     }
+    // The robot's tip (joker): a small robot head in that place until the answer is given.
+    if (this.state.tip && !status) {
+      const ix = x1 - this.m(ICON / 2 + 0.006);
+      const s = this.m(0.015);
+      const glowTok = color('xr-bot-glow');
+      ctx.save();
+      ctx.lineWidth = this.m(0.005);
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = glowTok;
+      ctx.fillStyle = glowTok;
+      ctx.shadowColor = glowTok;
+      ctx.shadowBlur = glow;
+      roundRect(ctx, ix - s * 1.2, cy - s * 0.8, s * 2.4, s * 1.9, s * 0.5);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ix, cy - s * 0.8);
+      ctx.lineTo(ix, cy - s * 1.5);
+      ctx.stroke();
+      for (const dx of [-0.5, 0.5]) { ctx.beginPath(); ctx.arc(ix + dx * s, cy + s * 0.1, s * 0.22, 0, Math.PI * 2); ctx.fill(); }
+      ctx.beginPath();
+      ctx.arc(ix, cy - s * 1.6, s * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
     const text = [{ text: this.opts.label, size: this.opts.labelSize ?? 'xr-text-md', weight: 'bold', color: color('xr-panel-text') }];
     this.blocks(text, { x: BADGE, w: this.w - BADGE - ICON, h: this.h - TAIL, align: 'left', pad: pad(this.h) });
     this.material.opacity = status === 'muted' || (disabled && !status) ? 0.45 : 1;
     this.scale.setScalar(active ? this.hoverScale : 1);
   }
+}
+
+/** The letter of an answer bubble (0 = A). */
+export const answerLetter = (i) => LETTERS[i] ?? '';
+
+// ---------- speed bonus and score popups ----------
+
+/**
+ * The speed bonus of the open question: a bar that runs down slowly with the points written next
+ * to it (never the bar alone). setValue(k 0..1, text).
+ */
+export class SpeedBar extends Panel {
+  constructor(w, h = 0.05) {
+    super(w, h, (ctx, p) => p.paint());
+    this.k = 1;
+    this.text = '';
+    this.material.depthWrite = false;
+  }
+
+  setValue(k, text) {
+    if (text === this.text && Math.abs(k - this.k) < 0.012) return;
+    this.k = k;
+    this.text = text;
+    this.redraw();
+  }
+
+  paint() {
+    if (this.text === undefined) return;
+    const { ctx, canvas } = this;
+    const W = canvas.width;
+    const H = canvas.height;
+    const px = this.m(num('xr-text-sm'));
+    ctx.font = font('bold', px);
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'right';
+    const tw = this.m(0.21);
+    ctx.fillStyle = color(this.k > 0 ? 'xr-warning' : 'xr-panel-muted');
+    ctx.fillText(this.text, W - this.m(0.004), H / 2 + px * 0.05);
+    const bh = this.m(0.014);
+    const bw = W - tw - this.m(0.012);
+    roundRect(ctx, this.m(0.004), (H - bh) / 2, bw, bh, bh / 2);
+    ctx.fillStyle = color('xr-button-bg');
+    ctx.fill();
+    ctx.lineWidth = this.m(0.002);
+    ctx.strokeStyle = color('xr-panel-border');
+    ctx.stroke();
+    if (this.k > 0.01) {
+      roundRect(ctx, this.m(0.004), (H - bh) / 2, Math.max(bh, bw * this.k), bh, bh / 2);
+      ctx.fillStyle = color('xr-warning');
+      ctx.fill();
+    }
+  }
+}
+
+/** A short text that pops up at a spot ("+155", "Serie x3"), rises and fades (calm motion: fades only). */
+export function floatText(scene, text, token, worldPos, { size = 0.11, hold = 1.1 } = {}) {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  let px = 92;
+  do { ctx.font = font('black', px); px -= 4; } while (ctx.measureText(text).width > 480 && px > 30);
+  ctx.lineWidth = 12;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = color('xr-quiz-badge-text');
+  ctx.strokeText(text, 256, 66);
+  ctx.fillStyle = color(token);
+  ctx.fillText(text, 256, 66);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
+  sp.scale.set(size * 4, size, 1);
+  sp.renderOrder = 40;
+  sp.userData.noFit = true;
+  const local = scene.group.worldToLocal(worldPos.clone());
+  sp.position.copy(local);
+  scene.group.add(sp);
+  const rise = assist.reducedMotion ? 0 : 0.14;
+  scene.tween(hold, (k) => {
+    sp.position.y = local.y + k * rise;
+    sp.material.opacity = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+  }, {
+    ease: (k) => k,
+    onDone: () => { sp.removeFromParent(); tex.dispose(); sp.material.dispose(); },
+  });
+  return sp;
 }
 
 // ---------- the robot buddy ----------
@@ -286,11 +400,13 @@ export class QuizBot {
         armRX = -0.9; // holds the tablet up
         break;
       case 'happy': {
+        // Calm motion: it raises its arms, without the hop, the spin and the quick wave.
+        const calm = assist.reducedMotion;
         const hop = Math.abs(Math.sin(this.moodT * Math.PI * 2.2));
-        y += hop * 0.07 * Math.max(0, 1 - this.moodT / 2);
-        spin = Math.min(1, this.moodT / 0.8) * Math.PI * 2;
-        armL = -2.5 * k + Math.sin(t * 12) * 0.15;
-        armR = 2.5 * k - Math.sin(t * 12) * 0.15;
+        if (!calm) y += hop * 0.07 * Math.max(0, 1 - this.moodT / 2);
+        if (!calm) spin = Math.min(1, this.moodT / 0.8) * Math.PI * 2;
+        armL = -2.5 * k + (calm ? 0 : Math.sin(t * 12) * 0.15);
+        armR = 2.5 * k - (calm ? 0 : Math.sin(t * 12) * 0.15);
         headX = -0.15;
         break;
       }

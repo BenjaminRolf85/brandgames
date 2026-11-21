@@ -138,7 +138,7 @@ export function makeBubble() {
     ctx.fillText(L(c.name), x0 + ax, y + r * 0.55, W - right - x0 - ax - p.m(0.05));
     ctx.fillStyle = color('xr-summit-bubble-muted');
     ctx.font = font('regular', px(p, num('xr-text-min')));
-    ctx.fillText(`${L(c.role)} · ${c.market}`, x0 + ax, y + r * 1.5, W - right - x0 - ax - p.m(0.05));
+    ctx.fillText(`${L(c.role)} · ${t(`summitMarket_${c.market}`)}`, x0 + ax, y + r * 1.5, W - right - x0 - ax - p.m(0.05));
     y += r * 2 + p.m(0.02);
     ctx.font = font('bold', p.m(quoteSize));
     const lines = richLines(ctx, state.text, W - right - left - p.m(pad) * 2);
@@ -199,10 +199,10 @@ export function makeLabel(n, text, onPick) {
   return p;
 }
 
-/** Feedback plate where the chosen reply was: verdict and the coach's tip. */
+/** Feedback plate where the chosen reply was: verdict and the coach's tip ('tested': found by the help). */
 export function makeFeedback(kind, tip) {
   const token = kind === 'good' ? 'xr-summit-hold-good' : kind === 'ok' ? 'xr-summit-hold-ok' : 'xr-summit-hold-bad';
-  const title = t(kind === 'good' ? 'summitSolid' : kind === 'ok' ? 'summitWobbly' : 'summitCrumble');
+  const title = t(kind === 'good' ? 'summitSolid' : kind === 'ok' ? 'summitWobbly' : kind === 'tested' ? 'summitTested' : 'summitCrumble');
   const blocks = [
     { text: title, size: 'xr-text-md', weight: 'black', color: color(token), gap: 0.012 },
     { text: tip, size: 'xr-text-sm', color: color('xr-panel-text') },
@@ -392,7 +392,7 @@ function drawStatus(ctx, c, s) {
     ctx.fillText(L(cust.name), x, y + r * 1.0, w);
     ctx.fillStyle = color('xr-panel-muted');
     ctx.font = font('regular', c.m(num('xr-text-min')));
-    ctx.fillText(`${cust.market} · ${L(cust.topic)}`, x, y + r * 1.72, w);
+    ctx.fillText(`${t(`summitMarket_${cust.market}`)} · ${L(cust.topic)}`, x, y + r * 1.72, w);
   }
   y += r * 2 + c.m(0.03);
   // The five stages of the conversation (one section of the wall each).
@@ -461,7 +461,7 @@ function drawStatus(ctx, c, s) {
   ctx.textAlign = 'left';
   ctx.font = font('bold', c.m(num('xr-text-min')));
   ctx.fillStyle = color('xr-panel-muted');
-  ctx.fillText(t('summitPoints'), pad, y + c.m(0.03));
+  ctx.fillText(s.flow >= 2 ? `${t('summitPoints')} · ${t('summitFlow', { n: s.flow })}` : t('summitPoints'), pad, y + c.m(0.03));
   ctx.textAlign = 'right';
   ctx.font = font('black', c.m(num('xr-text-lg')));
   ctx.fillStyle = color('xr-warning');

@@ -27,6 +27,13 @@ function emblem() {
 export const DEPTH = 1.8; // track depth (units)
 const D2 = DEPTH / 2;
 
+/**
+ * The stage's own clock: the scene adds the frame time while the game runs, so everything that
+ * only animates (halos, fans, the airship) stands still in a pause. calm: calm motion is on
+ * (assist.js), flickers and pulses hold still.
+ */
+export const stageClock = { t: 0, calm: false };
+
 const smooth = (a, b, x) => {
   const k = THREE.MathUtils.clamp((x - a) / (b - a), 0, 1);
   return k * k * (3 - 2 * k);
@@ -130,7 +137,7 @@ function gridTexture(halfW, h) {
  * set: other models for the pedestal and edge towers ({ models, base, end }, e.g. the forest of
  * level 1); the caller then adds its own backdrop. backTex: a picture for the backplane.
  */
-export function makeStage(halfW, U, { bottom = -2.6, top = 6.6, M = null, sky = false, skyScale = 1, set = null, backTex = null } = {}) {
+export function makeStage(halfW, U, { bottom = -2.6, top = 6.6, M = null, sky = false, skyScale = 1, set = null, backTex = null, backWide = 1 } = {}) {
   const group = new THREE.Group();
   const units = new THREE.Group();
   units.scale.setScalar(U);
@@ -141,8 +148,9 @@ export function makeStage(halfW, U, { bottom = -2.6, top = 6.6, M = null, sky = 
   // Backdrop: a holo grid (level 1) or a sky with a color gradient (level 2, set via setSky).
   const tex = sky ? null : backTex ?? gridTexture(halfW, h);
   // A picture backdrop fills the stage frame as seen from the player (it sits further back).
+  // (backWide: the browser's camera stands closer to the stage and sees more of it sideways.)
   const grow = backTex ? 1.4 : 1;
-  const backGeo = new THREE.PlaneGeometry(halfW * 2 * grow, h * grow);
+  const backGeo = new THREE.PlaneGeometry(halfW * 2 * grow * backWide, h * grow);
   if (sky) backGeo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(4 * 3).fill(1), 3));
   const back = new THREE.Mesh(backGeo, sky
     ? new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false })
@@ -492,6 +500,68 @@ export function makeShadow() {
   return m;
 }
 
+// ---------------------------------------------------------------- flight line and shield
+
+/**
+ * The sparks of the flight line: small spinning diamonds (one instanced mesh, only the ones in
+ * the stage window are drawn). sparks: [{ x, y, taken }] in course units.
+ */
+export function makeSparks(sparks) {
+  const mat = new THREE.MeshStandardMaterial({ color: hex('xr-parkour-spark'), emissive: hex('xr-parkour-spark'), emissiveIntensity: 0.9, roughness: 0.35, flatShading: true });
+  const mesh = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.17, 0), mat, Math.max(1, sparks.length));
+  mesh.frustumCulled = false;
+  mesh.userData.noFit = true;
+  mesh.count = 0;
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const p = new THREE.Vector3();
+  const s = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  return {
+    mesh,
+    update(camX, half) {
+      const time = stageClock.t;
+      let n = 0;
+      for (const sp of sparks) {
+        if (sp.taken) continue;
+        const wx = sp.x - camX;
+        if (Math.abs(wx) >= half) continue;
+        const k = edgeFactor(wx, half);
+        if (k <= 0.001) continue;
+        p.set(sp.x, sp.y + (stageClock.calm ? 0 : Math.sin(time * 3 + sp.x) * 0.05), 0.1);
+        q.setFromAxisAngle(up, time * (stageClock.calm ? 0.8 : 2.4) + sp.x);
+        s.set(k * 0.8, k * 1.25, k * 0.8);
+        mesh.setMatrixAt(n, m.compose(p, q, s));
+        n += 1;
+      }
+      mesh.count = n;
+      mesh.instanceMatrix.needsUpdate = true;
+    },
+  };
+}
+
+/** Echo's shield: one ring per charge around Echo (a shape, not only a color), with a soft glow. */
+export function makeShieldRing() {
+  const group = new THREE.Group();
+  group.userData.noFit = true;
+  const mat = new THREE.MeshBasicMaterial({ color: hex('xr-parkour-shield'), transparent: true, opacity: 0.85, toneMapped: false, depthWrite: false, side: THREE.DoubleSide });
+  const rings = [1.0, 1.16, 1.32].map((r) => new THREE.Mesh(new THREE.RingGeometry(r - 0.05, r, 44), mat));
+  const glow = glowPlane(3.2, 3.2, 'xr-parkour-shield', 0.16);
+  glow.position.z = -0.05;
+  group.add(glow, ...rings);
+  group.visible = false;
+  return {
+    group,
+    /** n charges; the rings breathe a little (not with calm motion). */
+    set(n) {
+      group.visible = n > 0;
+      rings.forEach((r, i) => { r.visible = i < n; });
+      group.scale.setScalar(stageClock.calm ? 1 : 1 + Math.sin(stageClock.t * 4) * 0.025);
+    },
+  };
+}
+
 // ---------------------------------------------------------------- particles
 
 /**
@@ -554,7 +624,7 @@ export function makeParticles({ motes = 40, moteToken = 'xr-parkour-dust', dustT
       }
       if (points) {
         const a = points.geometry.attributes.position;
-        const t = performance.now() / 1000;
+        const t = stageClock.t;
         base.forEach((b, i) => {
           b.y += dt * b.s * 0.35;
           if (b.y > 6.5) b.y = -2;

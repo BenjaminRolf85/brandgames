@@ -119,5 +119,6 @@
   --xr-green-tilt:         0.92;     /* browser: the diorama tilts towards the camera */
   --xr-green-panel-w:      0.56;
   --xr-green-card:         0.148;
+  --xr-green-card-lg:      0.21;     /* browser (desktop): larger project cards with larger letters */
   --xr-green-tag:          0.11;     /* value tags over the plots */
 }

@@ -239,6 +239,7 @@ export class BrickField {
       this.single.set(p.id, o);
     }
     this.tilts = new Map(); // id -> { wobble, lean, yaw, phase }
+    this.calm = false; // calm motion (assist.js)
     this.gold = new Set();
     this.anims = [];
   }
@@ -250,7 +251,8 @@ export class BrickField {
     const tl = this.tilts.get(p.id);
     if (tl) {
       // Lean across the wall (and a little twist when skewed); wobbling pieces rock.
-      const lean = tl.lean + tl.wobble * 0.12 * Math.sin(time * 11 + tl.phase);
+      // Calm motion: a slow, small rocking instead of a rattle.
+      const lean = tl.lean + tl.wobble * (this.calm ? 0.05 * Math.sin(time * 3 + tl.phase) : 0.12 * Math.sin(time * 11 + tl.phase));
       _q.multiply(_q2.setFromAxisAngle(UP, tl.yaw)).multiply(_q2.setFromAxisAngle(AX, lean));
     }
     _s.setScalar(scale);
@@ -385,6 +387,9 @@ export function ghostBox(g) {
   return { x: g.x, y: g.y, z: g.z, sx: len - GAP, sy: H - GAP, sz: D - GAP, yaw: p.yaw, kind: k };
 }
 
+/** A roof truss's place seen from above: a strip across the wall tops. */
+const trussStrip = (x) => ({ x, y: TOP + 0.005, z: 0, sx: 0.026, sy: 0.008, sz: 2 * OZ + 0.03, yaw: 0 });
+
 const BOX_EDGES = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
 const CORNER = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
 
@@ -413,7 +418,7 @@ export class GhostPlan {
     const box = new THREE.BoxGeometry(1, 1, 1);
     const mat = (token, opacity) => new THREE.MeshBasicMaterial({ color: hex(token), transparent: true, opacity, depthWrite: false, toneMapped: false });
     const n = plan.pieces.length + plan.pairs.length;
-    this.rest = new THREE.InstancedMesh(box, mat('xr-bricks-ghost', 0.12), plan.pieces.length);
+    this.rest = new THREE.InstancedMesh(box, mat('xr-bricks-ghost', 0.07), plan.pieces.length);
     this.solid = new THREE.InstancedMesh(box, mat('xr-bricks-ghost', 0.45), n);
     this.warn = new THREE.InstancedMesh(box, mat('xr-bricks-ghost-warn', 0.4), n);
     for (const m of [this.rest, this.solid, this.warn]) {
@@ -443,15 +448,25 @@ export class GhostPlan {
     this.hiTri.visible = false;
     this.hiTri.renderOrder = 4;
     this.group.add(this.hiTri);
+    // Free places for roof trusses: soft triangles (thin lines alone are easy to miss).
+    this.triMat = new THREE.MeshBasicMaterial({ color: this.cBright, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false, toneMapped: false });
+    this.tris = [];
     this.noMat = new THREE.MeshBasicMaterial({ color: hex('xr-bricks-reject'), transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
     this.no = new THREE.Mesh(box, this.noMat);
     this.no.visible = false;
     this.no.renderOrder = 4;
     this.group.add(this.no);
+    // The marked place (mouse, finger, keys) also carries a bobbing arrow: a shape, not only a color.
+    this.arrow = new THREE.Mesh(new THREE.ConeGeometry(0.017, 0.034, 4), new THREE.MeshBasicMaterial({ color: this.cHot, transparent: true, opacity: 0.95, depthTest: false, toneMapped: false }));
+    this.arrow.rotation.x = Math.PI;
+    this.arrow.renderOrder = 5;
+    this.arrow.visible = false;
+    this.group.add(this.arrow);
     this.flash = null;
     this.key = '';
     this.dirty = true;
     this.fade = 1;
+    this.calm = false; // calm motion: a steady glow, no flicker
   }
 
   refresh() { this.dirty = true; }
@@ -478,6 +493,7 @@ export class GhostPlan {
       this.rest.count = n;
       let ns = 0;
       let nw = 0;
+      let nt = 0;
       const pts = [];
       const cols = [];
       const EZ = OZ + EAVE;
@@ -488,6 +504,11 @@ export class GhostPlan {
           const x = g.x;
           const v = [[x, EY, -EZ], [x, TOP + RIDGE, 0], [x, EY, EZ], [x, TOP + 0.006, -OZ], [x, TOP + 0.006, OZ]].map((a) => new THREE.Vector3(...a));
           for (const [a, e] of [[0, 1], [1, 2], [3, 4]]) { pts.push(v[a], v[e]); cols.push(this.cHot.r, this.cHot.g, this.cHot.b, this.cHot.r, this.cHot.g, this.cHot.b); }
+          if (!this.tris[nt]) { this.tris[nt] = new THREE.Mesh(this.hiTri.geometry, this.triMat); this.tris[nt].renderOrder = 3; this.group.add(this.tris[nt]); }
+          this.tris[nt].position.x = x;
+          this.tris[nt++].visible = true;
+          // Seen from the front a truss is edge-on: its place also glows as a strip across the wall tops.
+          this.solid.setMatrixAt(ns++, boxMatrix(trussStrip(x)));
           continue;
         }
         const b = ghostBox(g);
@@ -505,6 +526,7 @@ export class GhostPlan {
       }
       this.solid.count = ns;
       this.warn.count = nw;
+      for (let i = nt; i < this.tris.length; i++) this.tris[i].visible = false;
       for (const m of [this.rest, this.solid, this.warn]) m.instanceMatrix.needsUpdate = true;
       this.edges.geometry.dispose();
       const geo = new THREE.BufferGeometry().setFromPoints(pts);
@@ -512,28 +534,35 @@ export class GhostPlan {
       this.edges.geometry = geo;
       this.dirty = false;
     }
-    const pulse = 0.5 + 0.5 * Math.sin(time * 4.2);
+    const pulse = this.calm ? 0.6 : 0.5 + 0.5 * Math.sin(time * 4.2);
     this.solid.material.color.copy(this.cBright).lerp(this.cHot, pulse * 0.6);
-    this.solid.material.opacity = (0.32 + 0.2 * pulse) * this.fade;
-    this.warn.material.opacity = (0.22 + 0.15 * pulse) * this.fade;
-    this.edges.material.opacity = (0.45 + 0.5 * pulse) * this.fade;
-    this.rest.material.opacity = 0.12 * this.fade;
-    this.lineMain.material.opacity = 0.55 * this.fade;
-    this.lineFine.material.opacity = 0.2 * this.fade;
+    this.solid.material.opacity = (0.5 + 0.25 * pulse) * this.fade;
+    this.warn.material.opacity = (0.3 + 0.18 * pulse) * this.fade;
+    this.edges.material.opacity = (0.6 + 0.4 * pulse) * this.fade;
+    this.rest.material.opacity = 0.07 * this.fade;
+    this.triMat.opacity = (0.16 + 0.12 * pulse) * this.fade;
+    this.lineMain.material.opacity = 0.4 * this.fade;
+    this.lineFine.material.opacity = 0.12 * this.fade;
     this.group.visible = this.fade > 0.01;
     const triHover = hover?.pieces?.[0]?.kind === 'truss';
     this.hiTri.visible = triHover;
     if (triHover) {
       this.hiTri.position.x = hover.x;
-      this.hiTri.material.opacity = 0.3 + 0.2 * Math.sin(time * 10);
+      this.hiTri.material.opacity = this.calm ? 0.45 : 0.3 + 0.2 * Math.sin(time * 10);
     }
-    this.hi.visible = !!hover && !triHover;
-    if (hover && !triHover) {
-      const b = ghostBox(hover);
+    this.hi.visible = !!hover;
+    if (hover) {
+      const b = triHover ? trussStrip(hover.x) : ghostBox(hover);
       this.hi.matrix.copy(boxMatrix(b, 0.004));
       this.hi.matrixAutoUpdate = false;
       this.hiMat.color.copy(hover.state === 'wobbly' ? this.cWarn : this.cHot);
-      this.hiMat.opacity = 0.45 + 0.2 * Math.sin(time * 10);
+      this.hiMat.opacity = this.calm ? 0.7 : 0.6 + 0.25 * Math.sin(time * 10);
+    }
+    this.arrow.visible = !!hover;
+    if (hover) {
+      const top = triHover ? TOP + RIDGE + 0.04 : ghostBox(hover).y + ghostBox(hover).sy / 2 + 0.04;
+      this.arrow.position.set(hover.x, top + (this.calm ? 0 : Math.abs(Math.sin(time * 5)) * 0.01), hover.z);
+      this.arrow.material.color.copy(hover.state === 'wobbly' ? this.cWarn : this.cHot);
     }
     const f = this.flash;
     this.no.visible = !!f;
@@ -541,7 +570,7 @@ export class GhostPlan {
       f.t += dt;
       this.no.matrix.copy(boxMatrix(ghostBox(f.p), 0.004));
       this.no.matrixAutoUpdate = false;
-      this.noMat.opacity = 0.7 * Math.max(0, 1 - f.t / 0.9) * (0.6 + 0.4 * Math.sin(f.t * 30));
+      this.noMat.opacity = 0.7 * Math.max(0, 1 - f.t / 0.9) * (this.calm ? 0.8 : 0.6 + 0.4 * Math.sin(f.t * 30));
       if (f.t > 0.9) this.flash = null;
     }
   }
@@ -779,6 +808,83 @@ export function drawMonthDisplay(ctx, p, { month, vacation, flash }) {
   ctx.fillText(vacation ? '–' : String(month), x0 + s + (W - x0 - s) / 2, Hh * 0.54);
 }
 
+
+// ---------- score popups ----------
+
+/** A short text as a sprite (points, the run, a finished row): bold, outlined, h meters tall. */
+export function popSprite(text, token, h) {
+  const px = 56;
+  const c = document.createElement('canvas');
+  let ctx = c.getContext('2d');
+  ctx.font = font('black', px);
+  const w = Math.ceil(ctx.measureText(text).width) + 28;
+  c.width = w;
+  c.height = px + 28;
+  ctx = c.getContext('2d');
+  ctx.font = font('black', px);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 12;
+  ctx.strokeStyle = color('xr-bricks-pop-edge');
+  ctx.strokeText(text, w / 2, c.height / 2 + 2);
+  ctx.fillStyle = color(token);
+  ctx.fillText(text, w / 2, c.height / 2 + 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, toneMapped: false }));
+  const sh = h * (c.height / px);
+  sp.scale.set(sh * (w / c.height), sh, 1);
+  sp.renderOrder = 8;
+  sp.userData.noFit = true;
+  return sp;
+}
+
+// ---------- the crane's load: where it goes, where it hangs ----------
+
+/**
+ * Shows where the crane's load belongs (a ring at its place) and where it hangs right now (a
+ * disc on a plumb line under the hook). Over the place the ring swells and the disc fills it:
+ * the moment to set the load down is a shape, not only a color.
+ */
+export class DropMarker {
+  constructor(parent) {
+    this.group = new THREE.Group();
+    this.group.userData.noFit = true;
+    this.group.visible = false;
+    parent.add(this.group);
+    const basic = (token, opacity) => new THREE.MeshBasicMaterial({ color: hex(token), transparent: true, opacity, depthTest: false, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+    this.cIdle = new THREE.Color(hex('xr-bricks-drop-ring'));
+    this.cHot = new THREE.Color(hex('xr-bricks-drop-hot'));
+    this.ring = new THREE.Mesh(new THREE.RingGeometry(0.046, 0.06, 48), basic('xr-bricks-drop-ring', 0.95));
+    this.ring.rotation.x = -Math.PI / 2;
+    this.disc = new THREE.Mesh(new THREE.CircleGeometry(0.036, 32), basic('xr-bricks-drop-disc', 0.95));
+    this.disc.rotation.x = -Math.PI / 2;
+    this.line = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.0022, 1, 6), basic('xr-bricks-drop-disc', 0.7));
+    for (const m of [this.ring, this.disc, this.line]) { m.renderOrder = 7; m.userData.noFit = true; this.group.add(m); }
+  }
+
+  show(tgt) {
+    this.tgt = tgt.clone();
+    this.ring.position.copy(tgt);
+    this.group.visible = true;
+  }
+
+  hide() { this.group.visible = false; }
+
+  /** hook: where the load hangs (parent space); over: it is over its place right now. */
+  update(hook, over) {
+    if (!this.group.visible) return;
+    const y = this.tgt.y + 0.001;
+    this.disc.position.set(hook.x, y, hook.z);
+    const len = Math.max(0.01, hook.y - y);
+    this.line.position.set(hook.x, y + len / 2, hook.z);
+    this.line.scale.y = len;
+    this.ring.scale.setScalar(over ? 1.3 : 1);
+    this.ring.material.color.copy(over ? this.cHot : this.cIdle);
+    this.disc.scale.setScalar(over ? 1.25 : 1);
+  }
+}
 
 // ---------- statics warning ----------
 

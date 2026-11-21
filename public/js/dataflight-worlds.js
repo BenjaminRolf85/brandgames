@@ -302,8 +302,17 @@ export function makeShieldBubble() {
   }));
   m.userData.noFit = true;
   m.userData.setFade = (k) => { uniforms.uFade.value = k; m.visible = k > 0.01; };
-  m.userData.tick = (time) => { uniforms.uTime.value = time; };
-  m.userData.flash = () => { uniforms.uColor.value.copy(col('xr-panel-text')); setTimeout(() => uniforms.uColor.value.copy(col('xr-flight-shield')), 160); };
+  // The flash runs on the game's own time (tick), so a paused game holds it.
+  const cShield = col('xr-flight-shield');
+  const cFlash = col('xr-panel-text');
+  let now = 0;
+  let flashUntil = -1;
+  m.userData.tick = (time) => {
+    now = time;
+    uniforms.uTime.value = time;
+    uniforms.uColor.value.copy(time < flashUntil ? cFlash : cShield);
+  };
+  m.userData.flash = () => { flashUntil = now + 0.16; };
   m.visible = false;
   return m;
 }
