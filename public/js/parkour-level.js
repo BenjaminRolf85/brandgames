@@ -135,14 +135,16 @@ export function buildCourse() {
     [136, 139, 4.4, true], [145, 147, 4.4, true], [152, 155, 3.8], [166, 169, 4.5, true], [176, 179, 4.3], [195, 198, 3.4],
   ].map(([x0, x1, y, thorns]) => ({ x0, x1, y, thorns: !!thorns }));
   c.thorns = c.branches.filter((b) => b.thorns).map((b) => ({ x0: b.x0, x1: b.x1, y: b.y }));
-  // Eagles patrol between the branches; the high coin at 188 needs good timing.
+  // Eagles patrol between the branches.
   // They keep to the upper air (5.2 and higher): the middle lane stays free, flying high is risky.
   c.eagles = [
     { x0: 16, x1: 25, y: 5.5, period: 5.0 }, { x0: 30, x1: 43, y: 5.5, period: 6.0 },
     // (The fourth one circles before the lift and leaves the climb onto the high ground behind
     // it alone: there a wing beat or two from the ground would already reach it.)
     { x0: 86, x1: 93, y: 5.5, period: 4.6 }, { x0: 96, x1: 106.5, y: 5.7, period: 5.2 },
-    { x0: 158, x1: 166, y: 5.5, period: 4.4 }, { x0: 180, x1: 194, y: 5.6, period: 6.0 },
+    // (The last one waits behind the stairs, not over them: from the top step a single wing
+    // beat would reach it.)
+    { x0: 158, x1: 166, y: 5.5, period: 4.4 }, { x0: 189.5, x1: 194.5, y: 5.6, period: 4.4 },
   ];
   c.solids.push({ x0: -10, x1: 220, bottom: c.ceiling, top: c.ceiling + 2 });
   for (const b of c.branches) c.solids.push({ x0: b.x0, x1: b.x1, bottom: b.y, top: c.ceiling });
@@ -327,8 +329,10 @@ export function buildOfficeCourse() {
 
   // Ceiling fans: a hazard under the ceiling, so flying along the top is no shortcut. They hang
   // where the ceiling is free, away from lamps, ducts, coins and bugs (blades at C - 0.62).
-  // (None in the first moments of the flight, when a newcomer is still finding the rhythm.)
-  c.fans = [18, 45, 60.5, 86, 101, 115, 146, 156, 185].map((x) => ({ x, y: C - 0.62 }));
+  // (None in the first moments of the flight, when a newcomer is still finding the rhythm, and
+  // none right before or after something tall like a partition or a desk with a screen: there
+  // the room between it and the blades was less than one wing beat.)
+  c.fans = [18, 45, 86, 101, 115, 149, 180].map((x) => ({ x, y: C - 0.62 }));
   for (const f of c.fans) prop('fan', f.x);
 
   // The goal: Echo arrives at an AI workshop (screen, flipchart, participants turned to the screen).

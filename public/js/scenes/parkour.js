@@ -1040,8 +1040,9 @@ export class ParkourScene extends BaseScene {
     let card;
     if (lay === 'xr') {
       card = factCard(i + 1, this.total, fact, this.narrow ? 0.9 : 0.84);
-      // Just below the status bar, between it and the stage.
-      card.position.set(0, this.eye + 0.48 - card.h / 2, -this.dist + 0.02);
+      // Just below the status bar, between it and the stage; in front of the stage, so the
+      // city's cloud deck does not reach over its text.
+      card.position.set(0, this.eye + 0.48 - card.h / 2, this.frontZ() + 0.04);
     } else {
       const head = { text: `${t('parkourCoin', { n: i + 1, total: this.total })}  ·  ${L(fact.title)}`, size: 'xr-text-md', weight: 'black', color: color('xr-parkour-coin'), gap: 0.01 };
       const surface = { stroke: color('xr-parkour-coin'), strokeWidth: num('xr-border-width') * 1.5, stripe: false };
@@ -1115,7 +1116,7 @@ export class ParkourScene extends BaseScene {
     p.userData.noFit = true;
     // Above the course, never over the flight space (headset: where the fact card goes).
     const y = this.stage.position.y + this.viewTop();
-    if (lay === 'xr') p.position.set(0, this.eye + 0.48 - p.h / 2, -this.dist + 0.03);
+    if (lay === 'xr') p.position.set(0, this.eye + 0.48 - p.h / 2, this.frontZ() + 0.05);
     else p.position.set(0, lay === 'land' ? y - 0.012 - p.h / 2 : y + 0.03 + p.h / 2, this.frontZ() + 0.03);
     this.group.add(p);
     this.popIn(p);

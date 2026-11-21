@@ -1010,6 +1010,8 @@ export class SummitScene extends BaseScene {
     this.route.push(opt);
     this.stepIndex += 1;
     this.focusTo = this.stepIndex < FOCUS.length ? FOCUS[this.stepIndex] : VIEW_TOP;
+    // Browser: once the customer at the summit comes into view, the close-up is not needed.
+    if (this.screenUI && this.stepIndex >= 3) this.placePortrait(false);
     this.talk?.setMeters(this.trust, this.stamina, this.flow);
     this.status.redraw();
     this.refreshHud?.();
@@ -1107,6 +1109,7 @@ export class SummitScene extends BaseScene {
     const h = holder(p, this.screenUI ? 0.75 : 0.6);
     h.position.copy(local);
     p.renderOrder = 16;
+    p.material.depthTest = false; // always in front of the rock
     this.mountain?.add(h);
     const y0 = local.y;
     this.anim(1.3, (k) => { h.position.y = y0 + k * 0.07; p.material.opacity = 1 - k * k * k; }, () => { h.removeFromParent(); p.dispose(); });
@@ -1170,6 +1173,8 @@ export class SummitScene extends BaseScene {
     this.both((f) => { f.setMood('skeptical'); f.react('bad'); });
     sfx.crash();
     this.anim(0.5, (k) => cl.grip.lerpVectors(from, low, k * k), () => { cl.swing = this.calm ? 0.4 : 1.5; });
+    // Browser: the view follows Echo down, so it hangs in the rope in the picture (not in the clouds).
+    if (this.screenUI) this.focusTo = Math.max(FOCUS[0], low.y + 0.08);
     this.trustSum += this.trust;
     this.climbs.push({ deal: false, trust: this.trust });
     this.talk?.clearAnswers();
@@ -1513,11 +1518,6 @@ export class SummitScene extends BaseScene {
     const box = top ? { x0: -0.42, x1: 0.48, y0: eye - 0.16, y1: eye + 0.46, z: -0.62 }
       : late ? { x0: -0.45, x1: 0.45, y0: eye - 0.7, y1: eye + 0.47, z: -0.62 }
         : { x0: -0.42, x1: 0.42, y0: eye - low, y1: eye + (this.portraitFrame?.visible ? 0.2 : 0.0), z: -0.62 };
-    // Out of strength: Echo hangs in the rope, and that is what the picture shows.
-    if (this.mode === 'fall' && this.climber && this.mountain) {
-      const y = this.mountain.position.y + this.climber.grip.y;
-      Object.assign(box, { x0: -0.42, x1: 0.42, y0: y - 0.45, y1: y + 0.4 });
-    }
     this.frame(cam, dt, box, ins);
     return true;
   }

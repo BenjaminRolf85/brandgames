@@ -280,7 +280,12 @@ export class Button extends Panel {
     const accent = onFill ? text : color(variant === 'sponsor' ? 'xr-warning' : 'xr-accent');
     this.blocks(buttonBlocks(this.opts, text, muted, accent), { align: align ?? 'center', pad: buttonPad(this.h) });
     this.material.opacity = status === 'muted' || (disabled && !status) ? 0.45 : 1;
-    this.scale.setScalar(active ? this.hoverScale : 1);
+    // Hover grows the button relative to the size a game gave it. A scale that is not the one
+    // set here last time came from the game (or a pop-in tween) and becomes the new base.
+    if (!this._base) this._base = new THREE.Vector3(1, 1, 1);
+    if (this._set === undefined || Math.abs(this.scale.x - this._set) > 1e-6) this._base.copy(this.scale);
+    this.scale.copy(this._base).multiplyScalar(active ? this.hoverScale : 1);
+    this._set = this.scale.x;
   }
 }
 

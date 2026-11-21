@@ -857,7 +857,7 @@ export class FightScene extends BaseScene {
   /** One more hit in a row: points, and from three on a callout. */
   comboHit() {
     this.combo += 1;
-    this.totalScore += 5 * Math.min(this.combo, 8);
+    this.totalScore += 3 * Math.min(this.combo, 6); // small: the wins carry the score
     if (this.combo >= 3) {
       const at = this.stage3d.worldToLocal(this.player.chestPos());
       this.popText(t('fightCombo', { n: this.combo }), at.add(new THREE.Vector3(0, 0.42, 0)), 'xr-fight-player');
