@@ -416,6 +416,8 @@
 @media (orientation: landscape) {
   .summit-talk::before { background: linear-gradient(to left, var(--xr-summit-scrim) calc(100% - 2.5rem), transparent); }
   .summit-talk__speed { position: static; flex: none; margin-left: auto; padding: 0; background: none; }
+  /* Its place stays reserved, so the rows below do not move when it comes and goes. */
+  .summit-talk .summit-talk__speed[hidden] { display: inline-flex; visibility: hidden; }
   .summit-talk {
     left: auto;
     top: calc(max(var(--space-3), env(safe-area-inset-top)) + var(--tap-min) + var(--space-2));

@@ -227,7 +227,7 @@ export class QuizScene extends BaseScene {
       faceOrigin(g);
       g.scale.setScalar(1.05);
     } else if (this.engine.touchUI) {
-      g.position.set(-1.22, this.eye - 0.12, -1.2);
+      g.position.set(-1.15, this.eye - 0.12, -1.2);
       faceOrigin(g);
     }
   }

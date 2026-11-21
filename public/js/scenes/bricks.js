@@ -66,12 +66,12 @@ const tuning = (xr) => ({
   suggest: assist.pick(8, 3), // seconds a part waits before an arrow suggests a place
 });
 // The rating in three steps on the result.
-const RATING = [3500, 4200]; // points for the second and the third rating (times the relaxed mode's share)
+const RATING = [3400, 4100]; // points for the second and the third rating (times the relaxed mode's share)
 const SPOTS = 3; // rows on the pallet
 const BELT_TIME = 1.0;
 const COST = { single: 1, double: 2, half: 1, corner: 1, window: 2, door: 3 };
 // Points (a very good round with a big house stays just below the 5000 the leaderboard allows).
-const PTS = { place: 20, clean: 10, gold: 50, hand: 20, race: 400, allot: 200, dry: 300, speed: 700, room: 150, row: 20, run: 15, dropPerfect: 25, dropGood: 10 };
+const PTS = { place: 20, clean: 10, gold: 50, hand: 15, race: 400, allot: 200, dry: 300, speed: 600, room: 150, row: 20, run: 15, dropPerfect: 25, dropGood: 10 };
 const FAST = 17; // allotment month for the full speed bonus
 const SLOW = 38;
 // Headset placement: the plot below eye height within reach.
