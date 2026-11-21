@@ -65,8 +65,8 @@ const PTS = { solid: 120, speed: 40, flow: 10, flowMax: 4, outread: 40, solidRet
 const TRUST = { start: 20, good: 16, ok: 6, bad: -10, badEasy: -6 };
 // Strength: a solid hold gives some back, a wobbly one costs a little, a broken one a lot. Only
 // after a long time to read does it drain while you hesitate (never in relaxed mode).
-const STAMINA = { grace: 15, drain: 1.5, bad: -30, badEasy: -20, good: 10, ok: -8, okEasy: 0 };
-const SPEED = { full: 6, zero: 22 }; // seconds on a stage: full speed bonus until, none from
+const STAMINA = { grace: 18, drain: 1.5, bad: -30, badEasy: -20, good: 10, ok: -8, okEasy: 0 };
+const SPEED = { full: 8, zero: 24 }; // seconds on a stage: full speed bonus until, none from
 const SEEN_KEY = 'kiar.summitSeen'; // the customers of the last round (the next one brings others)
 const HINT_KEY = 'kiar.summitHints'; // the hints during play that were shown already
 const RANKS = [0, 2800, 4300]; // rating in three steps (points before the relaxed mode's share)
@@ -521,7 +521,7 @@ export class SummitScene extends BaseScene {
     if (!this.screenUI) return t('summitHud', vars);
     // A phone held sideways has no room for the two meters: they are in the status line.
     const flat = this.engine.touchUI && window.innerWidth > window.innerHeight && window.innerHeight <= 480;
-    return t(flat ? 'summitHudFlat' : 'summitHudScreen', vars);
+    return t(flat ? 'summitHudFlat' : this.engine.touchUI ? 'summitHudPhone' : 'summitHudScreen', vars);
   }
 
   /** The points as the result will count them (whole points; scaled to the length of the round). */

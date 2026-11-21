@@ -1155,6 +1155,16 @@ export class BricksScene extends BaseScene {
     sp.position.copy(at);
     // Popups close to each other in space and time stack up instead of covering each other.
     sp.position.y += lift + (this.pops.filter((q) => q.t < 0.9 && Math.hypot(q.sp.position.x - at.x, q.sp.position.z - at.z) < 0.22).length % 4) * 0.05;
+    // Browser: a popup near the edge of the plot area moves in, so it is never cut off.
+    if (!this.engine.isXR && this.viewOn) {
+      const lay = this.layout();
+      const x = this.toScreen(this.plotRoot.localToWorld(sp.position.clone())).x;
+      const half = (sp.scale.x * ppm) / 2;
+      const lo = lay.plot.x + 6;
+      const hi = lay.plot.x + lay.plot.w - 6;
+      const dx = x - half < lo ? lo - (x - half) : x + half > hi ? hi - (x + half) : 0;
+      if (dx) sp.position.addScaledVector(new THREE.Vector3(1, 0, 0).applyQuaternion(this.engine.camera.quaternion), dx / ppm);
+    }
     sp.userData.y0 = sp.position.y;
     this.plotRoot.add(sp);
     this.pops.push({ sp, t: 0 });

@@ -134,6 +134,7 @@
   --xr-summit-mark-size:         1.1em;
   --xr-summit-flow:              var(--p-amber-400);             /* the streak of solid holds */
   --xr-summit-hot:               var(--xr-accent);               /* the answer whose hold is under the mouse */
+  --xr-summit-scrim:             rgb(14 16 44 / 0.7);            /* behind the talk, so the wall does not shine through */
 }
 
 /* ---------- browser: the talk with big answer buttons (screen elements, js/summit-phone.js) ---------- */
@@ -160,6 +161,14 @@
   color: var(--xr-panel-text);
   font-size: var(--xr-summit-talk-font);
   line-height: 1.3;
+}
+.summit-talk::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(to top, var(--xr-summit-scrim) calc(100% - 2.5rem), transparent);
+  pointer-events: none;
 }
 .summit-talk[hidden], .summit-talk [hidden] { display: none; }
 .summit-talk > * { pointer-events: auto; margin: 0; }
@@ -405,6 +414,7 @@
 
 /* Landscape: the talk sits on the right, the wall on the left. */
 @media (orientation: landscape) {
+  .summit-talk::before { background: linear-gradient(to left, var(--xr-summit-scrim) calc(100% - 2.5rem), transparent); }
   .summit-talk__speed { position: static; flex: none; margin-left: auto; padding: 0; background: none; }
   .summit-talk {
     left: auto;
@@ -423,6 +433,8 @@
   .summit-talk__meters { display: none; }
   .summit-talk__quote { padding: var(--space-1) var(--space-2); }
   .summit-talk__stage { display: none; } /* the stage is in the status line */
+  /* No room in the column: the hint floats over the foot of the wall. */
+  .summit-talk__hint { position: fixed; left: max(var(--space-3), env(safe-area-inset-left)); bottom: max(var(--space-3), env(safe-area-inset-bottom)); max-width: 40%; }
 }
 /* Desktop: larger type; beside the wall the talk is a column that starts at the top. */
 .summit-talk--desk { font-size: var(--xr-summit-talk-font-desk); gap: var(--space-3); }

@@ -1079,35 +1079,56 @@ export class BikeScene extends BaseScene {
       if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Enter') this.jumpHeld = false;
     };
     // Leaving the window (or the pause dialog taking the keys): no key stays "held".
-    const blur = () => { this.keys.left = false; this.keys.right = false; this.jumpHeld = false; };
+    const blur = () => { this.keys.left = false; this.keys.right = false; this.jumpHeld = false; this.mouseDown = false; };
+    // The mouse button: held for a wheelie, let go before the landing.
+    const canvas = this.engine.canvas;
+    const mdown = (e) => { if (e.pointerType === 'mouse') this.mouseDown = true; };
+    const mup = (e) => { if (e.pointerType === 'mouse') { this.mouseDown = false; this.jumpHeld = false; } };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     window.addEventListener('blur', blur);
-    this.onSceneDispose(() => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur); });
+    canvas.addEventListener('pointerdown', mdown);
+    canvas.addEventListener('pointerup', mup);
+    canvas.addEventListener('pointercancel', mup);
+    this.onSceneDispose(() => {
+      window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur);
+      canvas.removeEventListener('pointerdown', mdown); canvas.removeEventListener('pointerup', mup); canvas.removeEventListener('pointercancel', mup);
+    });
     // Phones: swipe anywhere to steer (relative, so the finger never covers the bike); a short
-    // tap without a swipe is a jump (the jump button also does wheelies while it is held).
+    // tap without a swipe is a jump (the jump button also does wheelies while it is held). A tap
+    // is a jump only if it hit no button of the game: the engine reports that as an empty press,
+    // a frame after the finger went down, so the tap's end and that report meet in either order.
+    const tapJump = () => { this.tap = null; this.jumpPress(); this.jumpHeld = false; };
     this.swipe = this.dragPad({
       hint: false,
       enabled: () => this.mode === 'ride' || this.mode === 'brake' || this.mode === 'pitIn',
-      onStart: () => { this.dragFrom = this.target; this.tapT = this.time; this.tapMoved = 0; },
+      onStart: () => { this.dragFrom = this.target; this.tap = { t: this.time, moved: 0, empty: false, ended: false }; },
       onMove: (dx) => {
-        this.tapMoved = Math.max(this.tapMoved ?? 0, Math.abs(dx));
-        if (this.tapMoved < 8) return; // a tap may wobble a little
+        if (this.tap) this.tap.moved = Math.max(this.tap.moved, Math.abs(dx));
+        if (this.tap && this.tap.moved < 8) return; // a tap may wobble a little
         const k = (2 * EDGE) / (Math.min(window.innerWidth, window.innerHeight * 1.2) * 0.8);
         this.target = clamp(this.dragFrom + dx * k, -EDGE + 0.1, EDGE - 0.1);
         this.inputMode = 'drag';
       },
       onEnd: () => {
-        if ((this.tapMoved ?? 0) < 8 && this.time - (this.tapT ?? -9) < 0.35) { this.jumpPress(); this.jumpHeld = false; }
+        const tap = this.tap;
+        if (!tap || tap.moved >= 8 || this.time - tap.t > 0.35) { this.tap = null; return; }
+        if (tap.empty) tapJump(); else tap.ended = true;
       },
     });
     // An empty press. Headset: the trigger (or a pinch) pumps, and jumps while riding. Mouse: a
-    // click beside the buttons does the same. Phones: a tap pumps (the jump is the tap above, so
-    // putting a finger down to swipe does not hop).
+    // click beside the buttons does the same. Phones: a tap pumps; while riding it is the tap
+    // above (so putting a finger down to swipe, or tapping a button, does not hop).
     this.engine.onEmptyPress = () => {
       if (this.engine.paused) return;
       if (this.mode === 'flat' || this.mode === 'pit') this.pumpOnce();
-      else if (!this.engine.touchUI) this.jumpPress();
+      else if (!this.engine.touchUI) {
+        this.jumpPress();
+        // Mouse: a click is a hop; the wheelie lasts while the button stays down.
+        if (!this.engine.isXR && !this.mouseDown) this.jumpHeld = false;
+      } else if (this.tap) {
+        if (this.tap.ended && this.time - this.tap.t <= 0.35) tapJump(); else this.tap.empty = true;
+      }
     };
   }
 
@@ -2137,7 +2158,10 @@ export class BikeScene extends BaseScene {
       const dead = this.engine.isXR ? 1.8 : 3.2;
       dir = clamp(Math.sign(v) * Math.max(0, Math.abs(v) - dead) / 2.5, -1, 1);
     }
-    this.roll += (-dir * 0.6 - this.roll) * Math.min(1, dt * 7);
+    // Close to the ground Echo straightens the bike by itself: steering in the air is natural and
+    // never spoils a landing (only a wheelie held too long does).
+    const level = this.vy < 0 && this.y < 0.4;
+    this.roll += ((level ? 0 : -dir * 0.6) - this.roll) * Math.min(1, dt * (level ? 14 : 7));
     if (Math.abs(this.roll) > 0.3) this.tiltT += dt;
     if (this.Y <= ground && this.vy < climb) this.land(ground);
   }

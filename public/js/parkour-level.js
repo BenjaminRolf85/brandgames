@@ -327,7 +327,8 @@ export function buildOfficeCourse() {
 
   // Ceiling fans: a hazard under the ceiling, so flying along the top is no shortcut. They hang
   // where the ceiling is free, away from lamps, ducts, coins and bugs (blades at C - 0.62).
-  c.fans = [9, 18, 45, 60.5, 86, 101, 115, 146, 156, 185].map((x) => ({ x, y: C - 0.62 }));
+  // (None in the first moments of the flight, when a newcomer is still finding the rhythm.)
+  c.fans = [18, 45, 60.5, 86, 101, 115, 146, 156, 185].map((x) => ({ x, y: C - 0.62 }));
   for (const f of c.fans) prop('fan', f.x);
 
   // The goal: Echo arrives at an AI workshop (screen, flipchart, participants turned to the screen).

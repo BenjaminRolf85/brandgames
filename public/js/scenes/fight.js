@@ -530,9 +530,12 @@ export class FightScene extends BaseScene {
     this.popIn(p);
     this.app.host?.introduce(this, 'fight', p);
     // The mode: real time (react to the robot's attacks) or tactics (program three moves).
-    const modeY = p.position.y - p.h / 2 - 0.06;
+    // Phones: tiles tall enough for a finger (44 px and more).
+    const mh = this.engine.touchUI ? 0.145 : 0.1;
+    const fh = this.engine.touchUI ? 0.15 : 0.12;
+    const modeY = p.position.y - p.h / 2 - 0.03 - mh / 2;
     const modes = [['live', 'fightModeLive', 'fightModeLiveText'], ['tactic', 'fightModeTactic', 'fightModeTacticText']].map(([key, label, text], i) => {
-      const tile = iconTile(0.52, 0.1, (ctx, c, s) => {
+      const tile = iconTile(0.52, mh, (ctx, c, s) => {
         const on = (key === 'live') === this.liveMode;
         c.surface({ fill: color(on ? 'xr-button-hover' : 'xr-button-bg'), stroke: color(on ? 'xr-accent' : 'xr-panel-border'), strokeWidth: num('xr-border-width') * (on ? 2 : 1), stripe: false });
         ctx.textAlign = 'left';
@@ -553,7 +556,7 @@ export class FightScene extends BaseScene {
         // The intro shows the other mode's sentence and controls (the keyboard focus stays).
         this.showIntro(this.engine.focus === tile ? key : null);
       };
-      tile.position.set((i - 0.5) * 0.55, modeY - 0.05, -dist);
+      tile.position.set((i - 0.5) * 0.55, modeY, -dist);
       this.add(tile);
       this.popIn(tile, 0.06 + i * 0.04);
       if (focusMode === key) this.engine.setFocus(tile);
@@ -561,7 +564,7 @@ export class FightScene extends BaseScene {
     });
     // Choose the fighter: Nova (human) or Echo (the mascot).
     const choice = (kind, icon, label, x, delay) => {
-      const go = iconTile(0.52, 0.12, (ctx, c, s) => {
+      const go = iconTile(0.52, fh, (ctx, c, s) => {
         c.surface({ fill: color(s.hover ? 'xr-primary-hover' : 'xr-primary'), stroke: color('xr-primary-hover'), stripe: false });
         drawIcon(ctx, icon, c.m(0.06), c.canvas.height / 2, c.m(0.06), color('xr-on-primary'));
         ctx.fillStyle = color('xr-on-primary');
@@ -598,7 +601,7 @@ export class FightScene extends BaseScene {
         if (kind !== this.playerKind) this.makePlayer(kind);
         this.startLadder();
       };
-      go.position.set(x, modeY - 0.1 - 0.04 - 0.06, -dist);
+      go.position.set(x, modeY - mh / 2 - 0.03 - fh / 2, -dist);
       this.add(go);
       this.popIn(go, delay);
     };
@@ -980,16 +983,16 @@ export class FightScene extends BaseScene {
     if (!this.tell) {
       const c = document.createElement('canvas');
       c.width = 384;
-      c.height = 320;
+      c.height = 368;
       const tex = new THREE.CanvasTexture(c);
       tex.colorSpace = THREE.SRGBColorSpace;
       const icon = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-      icon.scale.set(size, (size * 320) / 384, 1);
+      icon.scale.set(size, (size * 368) / 384, 1);
       icon.renderOrder = 26;
       const rr = (size * 104) / 384; // the disc's radius
       const ring = new THREE.Mesh(new THREE.RingGeometry(rr * 1.0, rr * 1.13, 48), new THREE.MeshBasicMaterial({ color: hex('xr-fight-energy'), transparent: true, depthTest: false, side: THREE.DoubleSide }));
       ring.renderOrder = 27;
-      ring.position.y = (size * (160 - 208)) / 384; // the disc sits in the lower part of the sprite
+      ring.position.y = (size * (184 - 256)) / 384; // the disc sits in the lower part of the sprite
       const g = new THREE.Group();
       g.add(icon, ring);
       g.userData.noFit = true;
@@ -1004,12 +1007,12 @@ export class FightScene extends BaseScene {
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.fillStyle = color('xr-fight-hud');
     ctx.beginPath();
-    ctx.arc(192, 208, 100, 0, Math.PI * 2);
+    ctx.arc(192, 256, 100, 0, Math.PI * 2);
     ctx.fill();
     ctx.lineWidth = 8;
     ctx.strokeStyle = color(token);
     ctx.stroke();
-    drawIcon(ctx, counter ? 'fight' : iconFor(move, this.kindA), 192, 208, 124, color(move === 'special' ? 'xr-fight-energy' : token));
+    drawIcon(ctx, counter ? 'fight' : iconFor(move, this.kindA), 192, 256, 124, color(move === 'special' ? 'xr-fight-energy' : token));
     // The name on a dark plate above the disc (never the icon alone), clear of the robot's head.
     let px = 58;
     do { ctx.font = font('black', px); px -= 2; } while (ctx.measureText(name).width > 348 && px > 34);
@@ -1026,11 +1029,11 @@ export class FightScene extends BaseScene {
     ctx.fillText(name, 192, 48);
     tex.needsUpdate = true;
     this.tell.move = move;
-    g.position.set(GAP, 0.91, 0.04);
+    g.position.set(GAP, 0.93, 0.04);
     g.visible = true;
     // A feint turning into the real attack: the icon pops (not with calm motion).
     const s = this.tell.size;
-    if (swap && !this.calm) this.tween(0.25, (k) => { const u = 1 + 0.35 * Math.sin(Math.PI * k); this.tell.icon.scale.set(s * u, ((s * 320) / 384) * u, 1); });
+    if (swap && !this.calm) this.tween(0.25, (k) => { const u = 1 + 0.35 * Math.sin(Math.PI * k); this.tell.icon.scale.set(s * u, ((s * 368) / 384) * u, 1); });
   }
 
   hideTell() {
@@ -1043,7 +1046,7 @@ export class FightScene extends BaseScene {
     const span = this.ex ?? this.cw;
     if (!tell?.g.visible || !span) return;
     const k = Math.max(0, Math.min(1, 1 - (span.end - this.gt) / span.T));
-    tell.ring.scale.setScalar(1.55 - 0.55 * k);
+    tell.ring.scale.setScalar(1.4 - 0.4 * k);
     tell.ring.material.color.setHex(hex(this.cw ? 'xr-fight-player' : k > 0.6 ? 'xr-danger' : 'xr-fight-energy'));
     tell.ring.quaternion.copy(this.engine.camera.getWorldQuaternion(new THREE.Quaternion())).premultiply(this.stage3d.getWorldQuaternion(new THREE.Quaternion()).invert());
   }
@@ -2021,21 +2024,24 @@ export class FightScene extends BaseScene {
     this.clearLayer();
     this.board.visible = !this.flat; // the browser shows the panel in its place
     const kind = next.specialMove;
-    const p = this.add(textPanel(0.98, 0.2, [
+    const touch = this.engine.touchUI;
+    const p = this.add(textPanel(touch ? 1.3 : 0.98, 0.2, [
       { text: t('fightBeat', { name: this.opp.name }), size: 'xr-text-lg', weight: 'black', color: color('xr-fight-player'), gap: 0.01 },
       { text: `${t('score')}: ${this.totalScore}`, size: 'xr-text-sm', color: color('xr-panel-muted'), gap: 0.02 },
       { text: t(next.boss ? 'fightNextBoss' : 'fightNextUp', { name: next.name }), size: 'xr-text-md', weight: 'bold', color: color(next.boss ? 'xr-danger' : 'xr-panel-text'), gap: 0.01 },
       // Something new with every robot (real time): feints, then speed.
-      ...(this.liveMode ? [{ text: t(`fightNew_${Math.min(2, this.stage + 1)}`, { name: next.name }), size: 'xr-text-sm', gap: 0.008 }] : []),
-      { text: t('fightNextHint', { special: t(`fightSpecial_${kind}`), how: t(`fightSpecialHow_${kind}`) }), size: 'xr-text-sm', color: color('xr-fight-energy') },
+      ...(this.liveMode ? [{ text: t(`fightNew_${Math.min(2, this.stage + 1)}`, { name: next.name }), size: touch ? 'xr-text-md' : 'xr-text-sm', gap: 0.008 }] : []),
+      { text: t('fightNextHint', { special: t(`fightSpecial_${kind}`), how: t(`fightSpecialHow_${kind}`) }), size: touch ? 'xr-text-md' : 'xr-text-sm', color: color('xr-fight-energy') },
     ]));
     // Browser: above the fighters (the winner cheers below it); headset: in front of the table.
     const y0 = this.eye - ARENA_DROP;
     const z = this.flat ? ARENA_Z + 0.1 : -this.dist;
-    p.position.set(0, this.flat ? y0 + 0.76 + p.h / 2 : this.eye + 0.02 - p.h / 2, z);
+    const go = this.add(new Button(touch ? 0.6 : 0.36, touch ? 0.18 : 0.12, { label: t('next'), labelSize: touch ? 'xr-text-lg' : 'xr-text-md', body: this.desk ? t('fightNextKey') : undefined, variant: 'primary', onClick: () => this.nextOpponent() }));
+    // Phones: the button under the panel (both above the fighters); desktop: beside it.
+    p.position.set(0, this.flat ? y0 + 0.76 + (touch ? go.h + 0.03 : 0) + p.h / 2 : this.eye + 0.02 - p.h / 2, z);
     this.popIn(p);
-    const go = this.add(new Button(0.36, 0.12, { label: t('next'), body: this.desk ? t('fightNextKey') : undefined, variant: 'primary', onClick: () => this.nextOpponent() }));
-    go.position.set(this.flat ? 0.49 + 0.2 : 0, this.flat ? p.position.y : p.position.y - p.h / 2 - 0.03 - go.h / 2, z);
+    if (touch) go.position.set(0, p.position.y - p.h / 2 - 0.03 - go.h / 2, z);
+    else go.position.set(this.flat ? 0.49 + 0.2 : 0, this.flat ? p.position.y : p.position.y - p.h / 2 - 0.03 - go.h / 2, z);
     this.popIn(go, 0.1);
     this.schedule(0.9, () => this.announcer.say(next.boss ? 'fightCallBoss' : 'fightCallNext', { name: next.name }, next.token, { priority: true }));
     this.schedule(this.easy ? 10 : 6.5, () => this.nextOpponent());
@@ -2070,7 +2076,7 @@ export class FightScene extends BaseScene {
     this.zoom(!this.flat || portrait ? 1 : this.desk ? 1.2 : 1.35, 0.44);
     this.results({
       gameKey: 'fight', score, correct: this.wins, total: STAGES,
-      line: `${champion ? t('fightChampion') : t('fightLost', { name: this.opp.name })}  ·  ${rankName}`,
+      line: champion ? t('fightChampion') : `${t('fightLost', { name: this.opp.name })}  ·  ${rankName}`,
       learned: [
         { q: t('fightRank', { rank: rankName }), a: rank < RANKS.length - 1 ? t('fightRankNext', { p: RANKS[rank + 1] - counted, rank: t(`fightRank${rank + 2}`) }) : t('fightRankTop') },
         { q: t('fightLessonAcc', { n: acc }), a: t(this.liveMode ? 'fightLessonLiveText' : 'fightLessonText') },

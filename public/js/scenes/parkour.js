@@ -1085,6 +1085,7 @@ export class ParkourScene extends BaseScene {
     p.position.copy(this.group.worldToLocal(pos)).add(new THREE.Vector3(0.04, 0.17 + (this.toasts - 1) * 0.08, 0.12));
     const reach = Math.max(0, this.halfW - p.w / 2 + 0.02); // stays inside the stage window
     p.position.x = THREE.MathUtils.clamp(p.position.x, -reach, reach);
+    p.position.y = Math.min(p.position.y, this.stage.position.y + (this.c.ceiling ?? STAGE_TOP) * U - p.h / 2 - (this.toasts - 1) * 0.02);
     const y0 = p.position.y;
     this.tween(1.3, (k) => {
       p.position.y = y0 + (this.calm ? 0 : k * 0.08);
@@ -1235,7 +1236,8 @@ export class ParkourScene extends BaseScene {
     // Untouchable for a moment: Echo blinks (with calm motion the shield's glow shows it instead).
     this.runner.update(dt, { state, vy: e.vy, look, blink: e.invuln > 0 && !this.calm });
     this.ring.group.position.set(e.x, e.y + 0.85, 0.35);
-    this.ring.set(this.mode === 'run' || this.mode === 'count' ? this.shield : 0);
+    const flying = this.mode === 'run' || this.mode === 'count';
+    this.ring.set(flying ? this.shield : 0, flying && e.invuln > 0);
     let ground = -Infinity;
     for (const s of this.solidsNear(e.x - W2, e.x + W2)) {
       if (e.x + W2 > s.x0 && e.x - W2 < s.x1 && s.top <= e.y + 0.05 && s.top > ground) ground = s.top;

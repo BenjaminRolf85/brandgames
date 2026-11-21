@@ -100,11 +100,16 @@ export class GreenScene extends BaseScene {
 
   /**
    * The intro for a phone held sideways: the same content as BaseScene.intro(), on a wide and
-   * short panel, so the letters stay large on the low screen (the diorama waits behind "start").
+   * short panel that fills the low screen (the browser camera keeps its distance, so the panel
+   * itself is enlarged), with large letters. The diorama waits behind "start".
    */
   wideIntro() {
     this.clearLayer();
     this.introWide = true;
+    const k = 1.5;
+    const pivot = new THREE.Vector3(0, this.eye + 0.05, -this.dist);
+    this.layer.scale.setScalar(k);
+    this.layer.position.copy(pivot).multiplyScalar(1 - k);
     const panel = this.add(textPanel(1.9, 0.3, [
       { text: t('greenName'), size: 'xr-text-title', weight: 'black', gap: 0.025 },
       { text: t('greenIntro'), size: 'xr-text-md', color: color('xr-panel-muted'), gap: 0.03 },
@@ -577,6 +582,8 @@ export class GreenScene extends BaseScene {
     if (!this.region) { this.waitStart = true; return; }
     this.waitStart = false;
     this.clearLayer();
+    this.layer.scale.setScalar(1); // (the wide intro of a phone held sideways enlarged it)
+    this.layer.position.set(0, 0, 0);
     this.mode = 'plan';
     music.intensity = 0;
     this.easy = assist.easy; // relaxed mode, read when the round starts

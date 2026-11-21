@@ -29,7 +29,7 @@ const SPEED = 30;
 const SPEED_GRACE = 4;
 const SPEED_DRAIN = 16;
 const JOKER_SAVE = 50;
-const RANKS = [0, 500, 900]; // points for the ratings quizRank1 to quizRank3
+const RANKS = [0, 450, 850]; // points for the ratings quizRank1 to quizRank3
 const KEY_ANSWER = { a: 0, b: 1, c: 2, d: 3, 1: 0, 2: 1, 3: 2, 4: 3 };
 // Missed questions coming back at the end would make rounds longer than 6, so it is off for now.
 const SECOND_CHANCE = false;
@@ -223,7 +223,7 @@ export class QuizScene extends BaseScene {
       g.rotation.set(0, 0, 0);
       g.scale.setScalar(0.95);
     } else if (this.desk) {
-      g.position.set(-1.16, this.eye - 0.5, -1.0);
+      g.position.set(-1.2, this.eye - 0.6, -1.0);
       faceOrigin(g);
       g.scale.setScalar(1.05);
     } else if (this.engine.touchUI) {
@@ -315,7 +315,8 @@ export class QuizScene extends BaseScene {
     const cols = portrait ? 1 : order.length === 3 ? 3 : 2;
     const w = (W - gap * (cols - 1)) / cols;
     const label = (idx) => L(item.a[idx]);
-    const h = Math.max(...order.map((idx) => AnswerBubble.measure(w, 0.14, { label: label(idx) })));
+    // Phones: at least 44 px for a finger.
+    const h = Math.max(...order.map((idx) => AnswerBubble.measure(w, this.engine.touchUI ? 0.155 : 0.14, { label: label(idx) })));
     let y = top - gap - h / 2;
     this.answers = [];
     for (let r = 0; r < order.length; r += cols) {
@@ -338,7 +339,7 @@ export class QuizScene extends BaseScene {
     const { state } = this;
     const gap = 0.03;
     const w = (this.boardW - gap) / 2;
-    const h = this.engine.touchUI ? 0.14 : 0.11;
+    const h = this.engine.touchUI ? 0.155 : 0.11;
     const keys = !this.engine.isXR && !this.engine.touchUI;
     const item = state.queue[state.i];
     const make = (kind, labelKey, key, onClick) => {
@@ -493,7 +494,7 @@ export class QuizScene extends BaseScene {
     const last = state.i === state.queue.length - 1;
     const keys = !this.engine.isXR && !this.engine.touchUI;
     const nextW = portrait ? this.boardW : 0.3;
-    const next = this.add(new Button(nextW, portrait ? 0.14 : fb.h, {
+    const next = this.add(new Button(nextW, portrait ? 0.155 : fb.h, {
       label: last ? t('results') : t('next'),
       body: keys ? t('quizNextKey') : undefined,
       variant: 'primary',

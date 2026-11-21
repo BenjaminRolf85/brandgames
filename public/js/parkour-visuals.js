@@ -553,10 +553,14 @@ export function makeShieldRing() {
   group.visible = false;
   return {
     group,
-    /** n charges; the rings breathe a little (not with calm motion). */
-    set(n) {
-      group.visible = n > 0;
+    /**
+     * n charges; the rings breathe a little (not with calm motion). safe: Echo cannot be hit for
+     * a moment (after a hit); the glow stays up for it even when no charge is left.
+     */
+    set(n, safe = false) {
+      group.visible = n > 0 || safe;
       rings.forEach((r, i) => { r.visible = i < n; });
+      glow.material.opacity = safe ? 0.34 : 0.16;
       group.scale.setScalar(stageClock.calm ? 1 : 1 + Math.sin(stageClock.t * 4) * 0.025);
     },
   };
