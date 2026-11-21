@@ -54,6 +54,12 @@ export class QuizScene extends BaseScene {
     useHouse(this);
     // The robot buddy on the right (the knowledge house is on the left), question marks around.
     this.bot = new QuizBot(this.group);
+    // Phones held sideways: the camera may come close to short panels (engine.js). An unseen
+    // stand-in the height of a full board keeps its distance, so the tree and the buddy beside
+    // the board stay in the picture.
+    this.fitHold = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.5), new THREE.MeshBasicMaterial({ visible: false }));
+    this.fitHold.position.set(0, this.eye + 0.46 - 0.75, -this.dist);
+    this.group.add(this.fitHold);
     this.placeBot();
     this.placeDecor();
     this.lookAndLight();
@@ -240,6 +246,7 @@ export class QuizScene extends BaseScene {
    */
   placeDecor(lower = 0) {
     const g = this.house.group;
+    this.fitHold.userData.noFit = !this.engine.touchUI || this.portrait;
     if (this.portrait) {
       g.position.set(0, this.eye - 1.8 - lower, -1.4);
       g.rotation.set(0, 0, 0);
