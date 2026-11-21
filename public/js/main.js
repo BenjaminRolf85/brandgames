@@ -184,6 +184,15 @@ class App {
     }
     document.body.classList.add('is-playing');
     this.stage.hidden = false;
+    // Keyboard and screen readers: the page behind the game is out of reach while the game is
+    // open, and the keys go to the game (Tab walks through its buttons, engine.js).
+    this.page = document.getElementById('page');
+    this.opener = document.activeElement;
+    if (this.page) this.page.inert = true;
+    const canvas = this.engine.canvas;
+    canvas.tabIndex = -1;
+    canvas.setAttribute('aria-label', t('stageLabel'));
+    canvas.focus({ preventScroll: true });
     this.engine._fit();
     this.engine.recenter();
     track('session', '-', EVENT);
@@ -208,6 +217,9 @@ class App {
     this.stage.hidden = true;
     if (document.fullscreenElement) document.exitFullscreen?.().catch?.(() => {});
     document.body.classList.remove('is-playing', 'is-xr');
+    if (this.page) this.page.inert = false;
+    this.opener?.focus?.({ preventScroll: true });
+    this.opener = null;
     loadPageLeaderboard();
   }
 }
@@ -253,6 +265,10 @@ async function detectXR() {
   }
   ar.hidden = !arOk;
   vr.hidden = !vrOk;
+  // Without a headset the browser is the way to play: its button is the main one.
+  const play = document.getElementById('btn-preview');
+  play.classList.toggle('btn--primary', !arOk && !vrOk);
+  play.classList.toggle('btn--secondary', arOk || vrOk);
   vr.classList.toggle('btn--primary', !arOk);
   vr.classList.toggle('btn--secondary', arOk);
   if (arOk) setStatus('supportAR', 'is-ok');
