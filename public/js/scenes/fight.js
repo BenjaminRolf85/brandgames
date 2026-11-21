@@ -844,7 +844,8 @@ export class FightScene extends BaseScene {
         this.perfects += 1;
         this.energy.p = Math.min(100, this.energy.p + 15);
         this.totalScore += 25;
-        this.popText(t('fightPerfectPts', { p: 25 }), at.clone().add(new THREE.Vector3(0, 0.3, 0)), 'xr-fight-energy');
+        // Above the coach's line, which names the counter at the same moment.
+        this.popText(t('fightPerfectPts', { p: 25 }), new THREE.Vector3(-GAP, 0.98, 0), 'xr-fight-energy');
         sfx.powerup();
       }
       // Combos: hits in a row without being hit.
