@@ -60,6 +60,8 @@ export class Announcer {
     try { this.enabled = localStorage.getItem(KEY) !== 'off'; } catch { this.enabled = true; }
     this.current = null;
     this.busyUntil = 0;
+    this.calm = false; // calm motion: no zoom
+    this.place = null; // optional (group, scale) => void: the scene positions the callout itself
     // Preload the recordings so they play without delay.
     Object.keys(CLIP_TEXT).forEach(loadClip);
   }
@@ -150,10 +152,14 @@ export class Announcer {
     g.userData.tick = (dt) => {
       age += dt;
       const kIn = Math.min(1, age / 0.18);
-      const scale = 1.6 - 0.6 * (1 - (1 - kIn) ** 3);
+      // Calm motion (this.calm, set by the scene): the callout fades in without the zoom.
+      const scale = this.calm ? 1 : 1.6 - 0.6 * (1 - (1 - kIn) ** 3);
       const out = Math.max(0, (age - (life - 0.4)) / 0.4);
-      g.scale.setScalar(scale * (1 + out * 0.15));
+      const k = scale * (this.calm ? 1 : 1 + out * 0.15);
+      g.scale.setScalar(k);
       g.position.y = s.eye + 0.2 + out * 0.08;
+      // A scene can put the callout elsewhere (AI Pong in the browser: at the top of the view).
+      this.place?.(g, k);
       panel.material.opacity = Math.min(kIn, 1 - out);
       glow.material.opacity = 0.5 * Math.min(kIn, 1 - out);
       if (age >= life) { g.removeFromParent(); if (this.current === g) this.current = null; }

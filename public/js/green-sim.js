@@ -4,7 +4,8 @@
 // of every plot from weather data (wind speed, sun hours) with a confidence, and the demand of the
 // town's districts (children, families); the real year then brings weather surprises.
 // While the year runs, the AI warns of live events (storm, heat peak, dark doldrums, flood) with a
-// confidence that is calibrated (80 % comes true four times in five): react in time or not.
+// confidence that is calibrated (80 % comes true four times in five, 30 % only three times in
+// ten): react, or wait and see.
 // Citizens voice wishes where the AI's demand forecast is high (louder when ignored), and the
 // player may bet against the AI's wind forecast on an uncertain plot (human versus AI).
 //
@@ -30,15 +31,24 @@ export const TYPES = {
 };
 export const CHEAPEST = Math.min(...TYPE_KEYS.map((k) => TYPES[k].cost));
 
-// Live events while the year runs. The AI warns about 6 s ahead with a confidence; the player
-// reacts (or not). Effects in green-sim (resolveLive), looks in green-visuals and the scene.
+// Live events while the year runs. The AI warns a few seconds ahead with a confidence; the player
+// reacts (at a price) or waits (at a risk). Effects in green-sim (resolveLive), looks in
+// green-visuals and the scene.
 export const LIVE = {
   storm: { token: 'xr-green-wind', icon: 'greenStorm' },
   heat: { token: 'xr-green-sun', icon: 'greenHeat' },
   dark: { token: 'xr-green-dark', icon: 'greenDark' },
   flood: { token: 'xr-green-flood', icon: 'greenFlood' },
 };
-export const LIVE_SLOTS = [4.6, 10.0]; // months of the two events of a year
+export const LIVE_SLOTS = [5.2, 10.4]; // months of the two events of a year
+// What a reaction costs and what is at stake without one (shown with every warning, so the
+// player can weigh the AI's confidence against the price). Kept in sync with resolveLive().
+export const LIVE_STAKES = {
+  storm: { cost: { windPct: 2 }, risk: { perTurbine: 0.5 } },
+  heat: { cost: { money: 0.1 }, risk: { sunPct: 6 } },
+  dark: { cost: { money: 0.5 }, risk: { qol: 3 } },
+  flood: { cost: { money: 0.3 }, risk: { money: 1, qol: 4 } },
+};
 export const BET_CONF = 0.8; // plots where the AI is less sure than this (the hatched hills) take bets
 export const BET_DRAW = 0.04; // within 4 % the AI counts as right
 // Citizens' wishes per project type (the district's demand forecast against the places).
@@ -396,9 +406,10 @@ export class GreenGame {
   }
 
   /**
-   * The year's live events (two): one that fits the weather (likely real), one more (often a
-   * false alarm), and one flood warning per round. conf is what the AI says; it is calibrated:
-   * an event comes true with exactly that probability.
+   * The year's live events (two): one that fits the weather (likely real), one more (a weak
+   * signal, usually a false alarm), and one flood warning per round. conf is what the AI says; it
+   * is calibrated: an event comes true with exactly that probability. So the number matters:
+   * above one half reacting is usually right, below it waiting is.
    */
   planLive() {
     const r = this.r;
@@ -407,16 +418,16 @@ export class GreenGame {
     const want = [];
     const ok = (type) => (type !== 'storm' || has('wind')) && (type !== 'heat' || has('solar')) && !want.some((e) => e.type === type);
     if (main && ok(main)) want.push({ type: main, conf: 0.75 + Math.round(r() * 3) * 0.05 });
-    if (this.year === this.floodYear && ok('flood')) want.push({ type: 'flood', conf: 0.6 + Math.round(r() * 4) * 0.05 });
+    if (this.year === this.floodYear && ok('flood')) want.push({ type: 'flood', conf: 0.4 + Math.round(r() * 4) * 0.1 });
     // The second warning: something else than last year's, if possible.
     const recent = this.history[this.history.length - 1]?.plan?.map((e) => e.type) ?? [];
     let pool = ['storm', 'heat', 'dark'].filter(ok);
     if (pool.some((x) => !recent.includes(x))) pool = pool.filter((x) => !recent.includes(x));
     while (want.length < 2 && pool.length) {
       const type = pool.splice(Math.floor(r() * pool.length), 1)[0];
-      if (ok(type)) want.push({ type, conf: 0.5 + Math.round(r() * 5) * 0.05 });
+      if (ok(type)) want.push({ type, conf: 0.2 + Math.round(r() * 5) * 0.05 });
     }
-    if (want.length < 2 && ok('flood')) want.push({ type: 'flood', conf: 0.55 });
+    if (want.length < 2 && ok('flood')) want.push({ type: 'flood', conf: 0.3 });
     // Slots: heat and floods in spring and summer, storms and dark lulls in autumn and winter.
     const early = (e) => e.type === 'heat' || e.type === 'flood';
     want.sort((a, b) => Number(early(b)) - Number(early(a)));

@@ -132,18 +132,24 @@ export function buildCourse() {
   c.branches = [
     [12, 15, 3.4], [26, 29, 3.4], [44, 47, 3.4], [58, 61, 3.4],
     [69, 72, 3.4], [77, 79, 4.5], [91, 94, 4.5], [99, 102, 3.4], [118, 121, 5.3], [126, 129, 3.4],
-    [136, 139, 4.4, true], [145, 147, 4.4, true], [152, 155, 3.8], [166, 169, 4.0, true], [176, 179, 4.3], [195, 198, 3.4],
+    [136, 139, 4.4, true], [145, 147, 4.4, true], [152, 155, 3.8], [166, 169, 4.5, true], [176, 179, 4.3], [195, 198, 3.4],
   ].map(([x0, x1, y, thorns]) => ({ x0, x1, y, thorns: !!thorns }));
   c.thorns = c.branches.filter((b) => b.thorns).map((b) => ({ x0: b.x0, x1: b.x1, y: b.y }));
-  // Eagles patrol between the branches; the high coins at 107.5 and 188 need good timing.
+  // Eagles patrol between the branches.
   // They keep to the upper air (5.2 and higher): the middle lane stays free, flying high is risky.
   c.eagles = [
     { x0: 16, x1: 25, y: 5.5, period: 5.0 }, { x0: 30, x1: 43, y: 5.5, period: 6.0 },
-    { x0: 86, x1: 93, y: 5.5, period: 4.6 }, { x0: 103, x1: 117, y: 5.7, period: 6.0 },
-    { x0: 158, x1: 166, y: 5.5, period: 4.4 }, { x0: 180, x1: 194, y: 5.6, period: 6.0 },
+    // (The fourth one circles before the lift and leaves the climb onto the high ground behind
+    // it alone: there a wing beat or two from the ground would already reach it.)
+    { x0: 86, x1: 93, y: 5.5, period: 4.6 }, { x0: 96, x1: 106.5, y: 5.7, period: 5.2 },
+    // (The last one waits behind the stairs, not over them: from the top step a single wing
+    // beat would reach it.)
+    { x0: 158, x1: 166, y: 5.5, period: 4.4 }, { x0: 189.5, x1: 194.5, y: 5.6, period: 4.4 },
   ];
   c.solids.push({ x0: -10, x1: 220, bottom: c.ceiling, top: c.ceiling + 2 });
   for (const b of c.branches) c.solids.push({ x0: b.x0, x1: b.x1, bottom: b.y, top: c.ceiling });
+  // Relaxed mode: more checkpoints, each on solid ground with a clear stretch ahead.
+  c.easyCheckpoints = [24, 70, 113, 148.5];
   return c;
 }
 
@@ -275,7 +281,7 @@ export function buildOfficeCourse() {
   prop('desk', 72.3);
   coin(71, 3.1); // lock-in
   prop('cabinet', 76);
-  prop('duct', 76, { len: 2.0 });
+  prop('duct', 76, { len: 1.6 }); // (a little shorter: the gap over the cabinet was the tightest of the level)
   coin(82, 4.6); // Claire
   prop('plant', 84);
   prop('printer', 88);
@@ -306,7 +312,7 @@ export function buildOfficeCourse() {
   prop('chair', 159.6);
   coin(161, 4.0); // EU data centres
   prop('shelf', 164);
-  prop('duct', 164, { len: 1.5 });
+  prop('duct', 164, { len: 1.3 });
   c.bugs.push({ x: 169, y: 3.4, amp: 1.5, period: 2.6 });
   prop('cabinet', 173);
   prop('cabinet', 174);
@@ -323,7 +329,10 @@ export function buildOfficeCourse() {
 
   // Ceiling fans: a hazard under the ceiling, so flying along the top is no shortcut. They hang
   // where the ceiling is free, away from lamps, ducts, coins and bugs (blades at C - 0.62).
-  c.fans = [9, 18, 45, 60.5, 86, 101, 115, 146, 156, 185].map((x) => ({ x, y: C - 0.62 }));
+  // (None in the first moments of the flight, when a newcomer is still finding the rhythm, and
+  // none right before or after something tall like a partition or a desk with a screen: there
+  // the room between it and the blades was less than one wing beat.)
+  c.fans = [18, 45, 86, 101, 115, 149, 180].map((x) => ({ x, y: C - 0.62 }));
   for (const f of c.fans) prop('fan', f.x);
 
   // The goal: Echo arrives at an AI workshop (screen, flipchart, participants turned to the screen).
@@ -336,6 +345,8 @@ export function buildOfficeCourse() {
   const pattern = ['WallWindow', 'WallWindow', 'WallPlain', 'WallWindow', 'WallBoard', 'WallWindow', 'WallLogo'];
   c.walls = [];
   for (let k = 0, x = c.from + 2; x < c.to; k++, x += 4) c.walls.push({ x, type: pattern[k % pattern.length] });
+  // Relaxed mode: more checkpoints, each on the free floor between the furniture.
+  c.easyCheckpoints = [22, 79, 124.5, 166.5];
   return c;
 }
 
@@ -492,6 +503,8 @@ export function buildCityCourse() {
     { x0: 184, x1: 196, y: 6.2, period: 6.0, kind: 'heli' },
   ];
   c.solids.push({ x0: -10, x1: 220, bottom: c.ceiling, top: c.ceiling + 2 });
+  // Relaxed mode: more checkpoints, each on a roof with a clear stretch ahead.
+  c.easyCheckpoints = [27.5, 67, 111, 143.5];
   return c;
 }
 

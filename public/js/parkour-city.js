@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { loadGLTF } from './models.js';
 import { color, hex } from './tokens.js';
 import { modelSet, logoTexture } from './parkour-models.js';
-import { instanced, edgeFactor } from './parkour-visuals.js';
+import { instanced, edgeFactor, stageClock } from './parkour-visuals.js';
 import { radialTexture } from './robot-visuals.js';
 import { WINTER, winterize, setSnowTint } from './snow.js';
 
@@ -242,7 +242,7 @@ export function makeCityBackdrop(C, half, bottom, backZ, M = null) {
       kinds.forEach((v) => v.end());
       clouds.end();
       // The airship drifts slowly across the sky, independent of the course.
-      const t = performance.now() / 1000;
+      const t = stageClock.t;
       const span = half * 2 + 4;
       const bx = ((t * 0.35) % span) - span / 2;
       const k = edgeFactor(bx, half);
@@ -397,7 +397,7 @@ export function makeCitySpikes(C, x0, x1) {
   const hl = hazardHalo('xr-city-hazard-glow', x1 - x0 + 0.9, 0.9, 0.35);
   hl.position.set(0, 0.25, -0.4);
   group.add(hl);
-  group.userData.flicker = () => { hl.material.opacity = 0.35 * (0.75 + 0.25 * Math.sin(performance.now() / 250)); };
+  group.userData.flicker = () => { hl.material.opacity = 0.35 * (stageClock.calm ? 0.9 : 0.75 + 0.25 * Math.sin(stageClock.t * 4)); };
   return group;
 }
 
@@ -484,10 +484,12 @@ export function makeCityObstacles(course, C) {
   return {
     group,
     update(camX, half) {
-      const now = performance.now() / 1000;
-      wireMat.opacity = 0.7 + 0.3 * Math.abs(Math.sin(now * 6));
-      wireGlow.opacity = 0.18 + 0.2 * Math.abs(Math.sin(now * 6));
-      const pulse = 0.75 + 0.25 * Math.sin(now * 4);
+      // (the stage's clock stands still in a pause; with calm motion nothing pulses)
+      const now = stageClock.t;
+      const beat = stageClock.calm ? 0.7 : Math.abs(Math.sin(now * 6));
+      wireMat.opacity = 0.7 + 0.3 * beat;
+      wireGlow.opacity = 0.18 + 0.2 * beat;
+      const pulse = stageClock.calm ? 0.9 : 0.75 + 0.25 * Math.sin(now * 4);
       for (const hl of halos) hl.material.opacity = hl.userData.base * pulse;
       for (const it of items) {
         const k = edgeFactor(it.x - camX, half);

@@ -74,6 +74,12 @@ export class DataStorm {
     return { x: this.dir.x * 0.55 * this.env, y: this.dir.y * 0.4 * this.env };
   }
 
+  /** Calm motion: a quarter of the streaks, and dimmer. */
+  setCalm(on) {
+    this.calm = on;
+    this.mesh.geometry.setDrawRange(0, on ? Math.floor(this.count / 4) * 2 : Infinity);
+  }
+
   update(dt) {
     if (!this.mesh.visible) return;
     this.t += dt;
@@ -102,7 +108,7 @@ export class DataStorm {
       L[i * 6 + 5] = p[i * 3 + 2] - vz * tail;
     }
     this.mesh.geometry.attributes.position.needsUpdate = true;
-    this.mesh.material.opacity = this.env * 0.8;
+    this.mesh.material.opacity = this.env * (this.calm ? 0.4 : 0.8);
   }
 }
 

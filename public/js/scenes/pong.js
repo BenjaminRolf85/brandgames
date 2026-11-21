@@ -3,14 +3,16 @@
 // in all three axes, bounces off the four walls and curves when you hit it with spin.
 // The AI counts where you play (per situation), predicts your next shot and moves there
 // early. It also remembers where you miss and aims for that spot. Each opponent has its
-// own reaction time, paddle speed and precision (see PONG_OPPONENTS in content.js).
+// own reaction time, paddle speed and precision (PONG_CAST in pong-cast.js; made-up players).
+// Browser (Nov 2026 upgrade): desktop and phones look down the tunnel from behind the paddle,
+// the keyboard steers too, matches are shorter, and the far wall shows where the AI expects
+// your next shot (brighter = more likely): play into the dark and you surprise it.
 import * as THREE from 'three';
 import { BaseScene, layoutRow } from '../scene.js';
 import { Button, Panel, textPanel, placeOnArc } from '../ui3d.js';
 import { color, hex, num, font } from '../tokens.js';
 import { t } from '../i18n.js';
 import { sfx } from '../sfx.js';
-import { PONG_OPPONENTS } from '../content.js';
 import { radialTexture } from '../robot-visuals.js';
 import { Shockwaves, makeDust, makeBrain, makeTunnel, makeGlassPaddle, frameGeometry } from '../pong-visuals.js';
 import { DataStorm, Obstacles, POWERUPS } from '../pong-events.js';
@@ -18,13 +20,15 @@ import { HoloFX, makePortal, makeFresnelShell, RibbonTrail } from '../pong-shade
 import { Announcer } from '../pong-announcer.js';
 import { music } from '../music.js';
 import { loadPongArena, loadPongBalls } from '../pong-models.js';
-import { makePaddleEcho, makePaddleRobot, ROBOT_FOR, makeGridFloor, makeSkyline, makeHandle } from '../pong-cast.js';
+import { makePaddleEcho, makePaddleRobot, PONG_CAST, makeGridFloor, makeSkyline, makeHandle } from '../pong-cast.js';
 import { makeDataRain } from '../pong-rain.js';
 import { ARRoom } from '../ar-room.js';
 import { quality } from '../quality.js';
 import { aimPad } from '../touch-ui.js';
 import { EVENT, EVENT_ROUNDS } from '../event.js';
 import { pongLook } from '../pong-look.js';
+import { assist } from '../assist.js';
+import { pinToScreen, drawOnTop, hudHolder, solid, closeFit } from '../pong-screen.js';
 
 const HW = 0.3; // half tunnel width (m)
 const HH = 0.21; // half tunnel height
@@ -41,7 +45,14 @@ const SCALE = 1.25;
 const NEAR_GAP = 0.5; // distance from the eyes to your paddle plane (m)
 const TUNNEL_Z = -(NEAR_GAP + (LEN * SCALE) / 2); // tunnel center in front of the player
 const TUNNEL_DROP = 0.17; // tunnel center below eye height (hands rest a bit lower)
-const WIN = EVENT ? EVENT_ROUNDS.pongWin : 5; // event mode: shorter matches
+const WIN_XR = 5; // points for a match in the headset
+const WIN_SCREEN = 3; // ... and in the browser, so a whole tournament takes about three minutes
+const MATCH_POINTS = 500; // a match's points are worth this much in total (100 each in the headset)
+const TRICK_POINTS = 20; // a shot into a zone the AI did not expect
+const RANKS = [900, 3300]; // result: from here "pro" (about one opponent beaten), from here "champion" (about all three)
+const KEY_SPEED = 1.25; // keyboard: paddle speed (m/s in tunnel units)
+const HUD_PX = 76; // desktop: screen height kept free for the status bar
+const LEARNED = 3; // shots the AI needs before it shows and uses a prediction
 const S0 = 0.75; // serve speed along the tunnel (m/s)
 const S_MAX = 1.7;
 const S_UP = 1.05;
@@ -57,6 +68,7 @@ const SPIN_DECAY = 1.1;
 const TRACK_Z = 0.03; // the AI only "sees" the real path once the ball is about halfway
 const STEP = 0.006; // physics sub-step (s)
 const ZONES = 9; // 3 x 3 target zones on the far wall
+const VIEW_FOV = 64; // browser: field of view of the first-person camera
 
 const clamp = THREE.MathUtils.clamp;
 const WHITE = new THREE.Color(0xffffff);
@@ -72,6 +84,8 @@ const BALLS = [
   { key: 'bouncy', r: R * 0.85, rest: 1.35, decay: 1.1, curve: 1, speed: 1.05, slide: false, tint: 'xr-pong-bouncy', mix: 0.4 },
 ];
 const zoneOf = (x, y) => clamp(Math.floor(((x + HW) / (2 * HW)) * 3), 0, 2) + 3 * clamp(Math.floor(((HH - y) / (2 * HH)) * 3), 0, 2);
+/** The opponents' names are made up and live in i18n.js. */
+const oppName = (o) => t(`pongOpp_${o.key}`);
 const zoneXY = (z) => ({ x: -HW + ((z % 3) + 0.5) * ((2 * HW) / 3), y: HH - (Math.floor(z / 3) + 0.5) * ((2 * HH) / 3) });
 
 // ---------- the AI's memory ----------
@@ -122,12 +136,214 @@ export class PongScene extends BaseScene {
     this.prepareMusic('pong'); // buffer the track during the intro
     this.time = 0;
     this.mode = 'intro';
-    this.refreshHud = this.hud(() => `${t('pongName')}  ·  ${t('pongYou')} ${this.pts?.[0] ?? 0} : ${this.pts?.[1] ?? 0} ${this.aiName()}  ·  ${t('pongRally')} ${this.rally ?? 0}${this.ladder?.length > 1 ? `  ·  ${t('pongStage', { n: this.stage + 1, total: this.ladder.length })}` : ''}${this.ballType ? `  ·  ${t(`pongBall_${this.ballType.key}`)}` : ''}`);
+    const e = this.engine;
+    this.screen = !e.isXR; // browser (desktop or phone): first-person view, screen-anchored texts
+    this.desktop = !e.isXR && !e.touchUI;
+    this.win = EVENT ? EVENT_ROUNDS.pongWin : e.isXR ? WIN_XR : WIN_SCREEN;
+    this.pointValue = EVENT ? 100 : Math.round(MATCH_POINTS / this.win);
+    this.calm = assist.reducedMotion; // calm motion: no flashes, fewer particles
+    this.hinted = {}; // one short hint per topic, the first time it matters
+    this.setControls({
+      desktop: [
+        [t('pongCtlKeys'), t('pongCtlMove')],
+        [t('pongCtlSpin'), t('pongCtlSpinDo')],
+        [t('pongCtlPick'), t('pongCtlPickDo')],
+        [t('pongCtlPause'), t('pongCtlPauseDo')],
+      ],
+      touch: [
+        [t('pongCtlPad'), t('pongCtlMove')],
+        [t('pongCtlSwipe'), t('pongCtlMove')],
+        [t('pongCtlSpin'), t('pongCtlSpinDo')],
+        [t('menu'), t('pongCtlPauseDo')],
+      ],
+      xr: [
+        [t('pongCtlHand'), t('pongCtlMove')],
+        [t('pongCtlSpin'), t('pongCtlSpinDo')],
+      ],
+    });
+    this.refreshHud = this.hud(() => this.hudText());
+    this.pinHud();
     this.buildArena();
     this.announcer = new Announcer(this);
+    this.announcer.calm = this.calm;
+    if (this.screen) this.announcer.place = (g, k) => this.placeCallout(g, k);
     this.setupTouch();
+    this.setupKeys();
     this.onUpdate((dt) => this.update(dt));
     this.chooseOpponent();
+  }
+
+  /** Calm motion: far fewer particles in every burst. */
+  burst(worldPos, tokenName, count = 22) {
+    super.burst(worldPos, tokenName, this.calm ? Math.ceil(count * 0.4) : count);
+  }
+
+  /** The paddle follows the player: a point is being played, served or just ended. */
+  live() {
+    return this.mode === 'point' || this.mode === 'serve' || this.mode === 'play';
+  }
+
+  /** The tunnel fills the browser view (also in the short break between two opponents). */
+  inTunnel() {
+    return (this.live() || this.mode === 'between') && this.arena.visible;
+  }
+
+  hudText() {
+    if (!this.opp || this.mode === 'intro') return t('pongName');
+    const parts = [`${t('pongYou')} ${this.pts?.[0] ?? 0} : ${this.pts?.[1] ?? 0} ${this.aiName()}`];
+    if (this.ladder?.length > 1) parts.push(t('pongStage', { n: this.stage + 1, total: this.ladder.length }));
+    parts.push(`${t('score')} ${(this.totalScore ?? 0) + (this.mode === 'over' || this.mode === 'between' ? 0 : this.matchScore(false))}`);
+    return parts.join('  ·  ');
+  }
+
+  /** Points of the running match (a win adds a bonus that grows with each opponent). */
+  matchScore(win) {
+    const you = this.pts?.[0] ?? 0;
+    return you * this.pointValue + Math.min(MAX_HIT_POINTS, (this.hits ?? 0) * 10 + (this.tricks ?? 0) * TRICK_POINTS) + (win ? 300 + this.stage * 200 : 0);
+  }
+
+  // ----- keyboard (desktop) -----
+
+  /**
+   * Arrow keys or W A S D move the paddle at a steady speed; the mouse takes over again as soon
+   * as it moves. In the opponent choice 1, 2, 3 pick an opponent, Enter or Space the first one.
+   */
+  setupKeys() {
+    this.keys = new Set();
+    this.keyVel = new THREE.Vector2();
+    this.keyTo = new THREE.Vector2();
+    this.input = 'mouse';
+    const MOVE = { ArrowLeft: 'l', a: 'l', A: 'l', ArrowRight: 'r', d: 'r', D: 'r', ArrowUp: 'u', w: 'u', W: 'u', ArrowDown: 'd', s: 'd', S: 'd' };
+    const down = (e) => {
+      const en = this.engine;
+      if (en.isXR || en.paused || this.disposed || e.altKey || e.ctrlKey || e.metaKey) return;
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const dir = MOVE[e.key];
+      if (dir && this.live()) {
+        if (this.input !== 'keys') { this.input = 'keys'; this.keyTo.copy(this.pp); this.keyVel.set(0, 0); }
+        this.keys.add(dir);
+        e.preventDefault(); // no page scrolling
+        return;
+      }
+      if (this.mode !== 'intro' || e.repeat) return;
+      const i = ['1', '2', '3'].indexOf(e.key);
+      const pick = i >= 0 ? PONG_CAST[i] : (e.key === 'Enter' || e.key === ' ') && !en.focus ? PONG_CAST[0] : null;
+      if (!pick) return;
+      e.preventDefault();
+      sfx.click();
+      this.startLadder(pick);
+    };
+    const up = (e) => { const dir = MOVE[e.key]; if (dir) this.keys.delete(dir); };
+    const clear = () => this.keys.clear();
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', clear);
+    this.onSceneDispose(() => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', clear);
+    });
+  }
+
+  // ----- browser view: first person, texts pinned to the screen -----
+
+  /** Camera position (world) so the tunnel's near frame fills the free part of the screen. */
+  tunnelView(cam, ins) {
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const tv = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
+    const th = tv * (W / H);
+    const freeH = Math.max(0.35, 1 - (ins.top + ins.bottom) / H);
+    const freeW = Math.max(0.35, 1 - ins.right / W);
+    const hw = (HW + 0.05) * SCALE;
+    const hh = (HH + 0.05) * SCALE;
+    const d = Math.max(NEAR_GAP, hw / (th * freeW), hh / (tv * freeH));
+    const yT = this.eye - TUNNEL_DROP;
+    const nearZ = TUNNEL_Z + ZP * SCALE;
+    return new THREE.Vector3((ins.right / W) * d * th, yT - ((ins.bottom - ins.top) / H) * d * tv, nearZ + d).add(this.engine.root.position);
+  }
+
+  /** Screen space the desktop view keeps free: the status bar at the top, the AI's thoughts on the right. */
+  desktopInsets() {
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const side = W / H >= 1.35 ? clamp(W * 0.24, 220, 440) : 0;
+    return { top: HUD_PX, bottom: 0, right: side };
+  }
+
+  /** Desktop: the camera sits behind your paddle while a match runs; menus use the app's own framing. */
+  desktopView() {
+    const e = this.engine;
+    const on = this.inTunnel();
+    e.fitEnabled = !on;
+    if (!on) return;
+    const cam = e.camera;
+    if (cam.fov !== VIEW_FOV) { cam.fov = VIEW_FOV; cam.updateProjectionMatrix(); }
+    cam.rotation.set(0, 0, 0);
+    cam.position.copy(this.tunnelView(cam, this.desktopInsets()));
+  }
+
+  /** Puts a holder where a screen rectangle is (pong-screen.js). */
+  pin(holder, w, cx, cy, wPx) {
+    pinToScreen(this, holder, w, cx, cy, wPx);
+  }
+
+  /** Draws an object over the 3D view (texts pinned to the screen). */
+  onTop(obj, order = 30) {
+    return drawOnTop(obj, order);
+  }
+
+  /** Desktop: the 3D status bar and its menu button move into a holder that follows the view. */
+  pinHud() {
+    if (!this.desktop) return;
+    const hud = hudHolder(this);
+    if (!hud) return;
+    this.hudHolder = hud.holder;
+    this.hudHome = hud.home;
+    this.hudWidth = hud.width;
+  }
+
+  /** Free screen area of the browser view: { x0, x1, top, bottom } in CSS px. */
+  freeArea() {
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const ins = this.desktop ? this.desktopInsets() : this.engine.insets();
+    return { x0: 0, x1: W - ins.right, top: ins.top, bottom: H - ins.bottom };
+  }
+
+  /** Browser view: status bar, AI thoughts, hints and the break panel sit at fixed screen places. */
+  layoutScreen() {
+    if (!this.screen) return;
+    const on = this.inTunnel();
+    const W = window.innerWidth;
+    const a = this.freeArea();
+    const cx = (a.x0 + a.x1) / 2;
+    const fw = a.x1 - a.x0;
+    if (this.hudHolder) {
+      if (on) this.pin(this.hudHolder, this.hudWidth, W / 2, HUD_PX / 2, Math.min(W - 24, 600));
+      else { this.hudHolder.position.copy(this.hudHome); this.hudHolder.scale.setScalar(1); }
+    }
+    if (this.mindHolder?.parent && this.desktop) {
+      const side = W - a.x1;
+      this.mindHolder.visible = on && side > 0;
+      if (this.mindHolder.visible) this.pin(this.mindHolder, this.mind.w, a.x1 + side / 2 - 4, a.top + 12 + (side - 20) * (this.mind.h / this.mind.w) / 2, side - 20);
+    }
+    if (this.toastPanel?.parent && this.toastPanel.userData.w) {
+      const wPx = Math.min(fw - 16, 560);
+      const hPx = wPx * (this.toastPanel.userData.h / this.toastPanel.userData.w);
+      this.pin(this.toastPanel, this.toastPanel.userData.w, cx, a.top + 10 + hPx / 2, wPx);
+    }
+    if (this.breakHolder?.parent) this.pin(this.breakHolder, this.breakHolder.userData.w, cx, (a.top + a.bottom) / 2, Math.min(fw - 24, 640));
+  }
+
+  /** Announcer callouts: in the browser below the hints, smaller while the ball is in play. */
+  placeCallout(g, k) {
+    if (!this.inTunnel()) return;
+    const a = this.freeArea();
+    const fw = a.x1 - a.x0;
+    const wPx = Math.min(fw * (this.mode === 'play' ? 0.5 : 0.8), 620) * k;
+    this.pin(g, 1.3, (a.x0 + a.x1) / 2, a.top + (a.bottom - a.top) * 0.27, wPx);
   }
 
   // ----- phones (browser preview) -----
@@ -140,7 +356,7 @@ export class PongScene extends BaseScene {
    */
   setupTouch() {
     if (!this.engine.touchUI) return;
-    const live = () => ['point', 'serve', 'play'].includes(this.mode);
+    const live = () => this.live();
     this.swipe = this.dragPad({
       hint: false,
       enabled: live,
@@ -157,33 +373,26 @@ export class PongScene extends BaseScene {
       onAim: (nx, ny) => { this.swipeTo = new THREE.Vector2(nx * (HW - PPW * 0.7), ny * (HH - PPH * 0.7)); },
     });
     this.onSceneDispose(() => this.aim.remove());
+    // A phone turned while the opponents are shown: lay them out again for the new format.
+    const turned = () => { if (this.mode === 'intro' && !this.disposed && this.wideIntro !== this.isWide()) this.chooseOpponent(); };
+    window.addEventListener('resize', turned);
+    this.onSceneDispose(() => window.removeEventListener('resize', turned));
     this.mobileView((cam, dt, ins) => {
-      if (!live() || !this.arena.visible) return false;
-      const W = window.innerWidth;
-      const H = window.innerHeight;
-      const fov = 64;
-      const tv = Math.tan(THREE.MathUtils.degToRad(fov / 2));
-      const th = tv * (W / H);
+      // Menus (opponents, result): framed closely, so texts and buttons stay large enough.
+      if (!this.inTunnel()) return closeFit(this, cam, dt, ins);
       // The near frame of the tunnel fits the free part of the screen (between the status bar,
       // the control field and the screen edges).
-      const freeH = Math.max(0.35, 1 - (ins.top + ins.bottom) / H);
-      const freeW = Math.max(0.35, 1 - ins.right / W);
-      const hw = (HW + 0.05) * SCALE;
-      const hh = (HH + 0.05) * SCALE;
-      const d = Math.max(NEAR_GAP, hw / (th * freeW), hh / (tv * freeH));
-      const yT = this.eye - TUNNEL_DROP;
-      const nearZ = TUNNEL_Z + ZP * SCALE;
-      const want = new THREE.Vector3((ins.right / W) * d * th, yT - ((ins.bottom - ins.top) / H) * d * tv, nearZ + d).add(this.engine.root.position);
-      if (cam.fov !== fov) { cam.fov = fov; cam.updateProjectionMatrix(); }
+      if (cam.fov !== VIEW_FOV) { cam.fov = VIEW_FOV; cam.updateProjectionMatrix(); }
       cam.rotation.set(0, 0, 0);
-      cam.position.lerp(want, Math.min(1, dt * 4));
+      const want = this.tunnelView(cam, ins);
+      cam.position.lerp(want, this.calm ? 1 : Math.min(1, dt * 4));
       return true;
     });
   }
 
   /** The control field: shown while you play; paddle and ball on it like on a radar. */
   updateAimPad() {
-    const on = ['point', 'serve', 'play'].includes(this.mode);
+    const on = this.live() || this.mode === 'between';
     this.aim.show(on);
     if (!on) return;
     const k = this.padK?.player ?? 1;
@@ -195,10 +404,15 @@ export class PongScene extends BaseScene {
   }
 
   aiName() {
-    return this.opp?.name ?? t('pongAI');
+    return this.opp ? oppName(this.opp) : t('pongAI');
   }
 
   // ----- opponent choice -----
+
+  /** A phone held sideways: the opponents stand beside the intro text instead of below it. */
+  isWide() {
+    return this.engine.touchUI && window.innerWidth > window.innerHeight * 1.3;
+  }
 
   chooseOpponent() {
     const { eye, dist } = this;
@@ -208,47 +422,58 @@ export class PongScene extends BaseScene {
     this.room.rainOn = false;
     this.room.tilesOn = false;
     this.setRays(true);
-    const head = this.add(textPanel(1.26, 0.26, [
+    if (this.screen) this.engine.fitEnabled = true;
+    // Two short sentences, the controls for this device, then straight to the opponents.
+    const wide = (this.wideIntro = this.isWide());
+    const w = wide ? 0.46 : 0.4;
+    const h = 0.27;
+    const hw = wide ? 1.2 : 1.26; // width of the text panel
+    const hx = wide ? -(w + 0.03) / 2 : 0; // ... and its center
+    const head = this.add(textPanel(hw, 0.26, [
       { text: t('pongName'), size: 'xr-text-title', weight: 'black', gap: 0.02 },
-      { text: `${t('pongIntro', { n: WIN })}${this.engine.isXR ? '' : ` ${t(this.engine.touchUI ? 'pongIntroTouch' : 'pongIntroScreen')}`}`, size: 'xr-text-sm', color: color('xr-panel-muted'), gap: 0.02 },
+      { text: t('pongIntro', { n: this.win }), size: 'xr-text-md', color: color('xr-panel-muted'), gap: 0.03 },
+      ...this.controlsBlocks(),
       { text: t(EVENT ? 'pongChooseEvent' : 'pongChoose'), size: 'xr-text-md', weight: 'bold' },
     ], { layout: { align: 'left' } }));
-    head.position.set(0, eye + 0.5 - head.h / 2, -dist);
+    head.position.set(hx, eye + 0.5 - head.h / 2, -dist);
     this.popIn(head);
     this.app.host?.introduce(this, 'pong', head);
-    const w = 0.4;
-    const h = 0.27;
-    const y = head.position.y - head.h / 2 - 0.03 - h / 2;
-    PONG_OPPONENTS.forEach((o, i) => {
-      const card = this.add(this.opponentCard(o, w, h));
-      card.position.set((i - 1) * (w + 0.03), y, -dist);
+    // The opponents: a row below the text, or (phone held sideways) a column beside it.
+    const y = wide ? head.position.y : head.position.y - head.h / 2 - 0.03 - h / 2;
+    PONG_CAST.forEach((o, i) => {
+      const card = this.add(this.opponentCard(o, w, h, i + 1));
+      if (wide) card.position.set(hx + hw / 2 + 0.03 + w / 2, eye + 0.5 - h / 2 - i * (h + 0.03), -dist);
+      else card.position.set((i - 1) * (w + 0.03), y, -dist);
       this.popIn(card, 0.08 + i * 0.06);
     });
     // Music and announcer can be switched off (saved per device).
     const label = (key, on) => `${t(key)}: ${on ? t('on') : t('off')}`;
-    const musicBtn = new Button(0.34, 0.1, { label: label('pongMusic', music.enabled), labelSize: 'xr-text-sm', onClick: (ptr, btn) => {
+    const bh = this.engine.touchUI ? 0.15 : 0.1; // phones: a full finger target
+    const musicBtn = new Button(0.34, bh, { label: label('pongMusic', music.enabled), labelSize: 'xr-text-sm', onClick: (ptr, btn) => {
       music.setEnabled(!music.enabled);
       btn.opts.label = label('pongMusic', music.enabled);
       btn.redraw();
     } });
-    const voiceBtn = new Button(0.34, 0.1, { label: label('pongVoice', this.announcer.enabled), labelSize: 'xr-text-sm', onClick: (ptr, btn) => {
+    const voiceBtn = new Button(0.34, bh, { label: label('pongVoice', this.announcer.enabled), labelSize: 'xr-text-sm', onClick: (ptr, btn) => {
       this.announcer.setEnabled(!this.announcer.enabled);
       btn.opts.label = label('pongVoice', this.announcer.enabled);
       btn.redraw();
     } });
-    const rowY = y - h / 2 - 0.03 - 0.05;
+    const rowY = (wide ? head.position.y - head.h / 2 : y - h / 2) - 0.03 - bh / 2;
     layoutRow([musicBtn, voiceBtn], rowY, -dist, 0.03);
-    [musicBtn, voiceBtn].forEach((b, i) => { this.add(b); this.popIn(b, 0.25 + i * 0.05); });
-    const note = this.add(textPanel(1.26, 0.05, [{ text: t('pongSource'), size: 'xr-text-sm', color: color('xr-bg-muted') }], { surface: false }));
-    note.position.set(0, rowY - 0.05 - 0.02 - note.h / 2, -dist);
+    [musicBtn, voiceBtn].forEach((b, i) => { b.position.x += hx; this.add(b); this.popIn(b, 0.25 + i * 0.05); });
+    if (wide) return; // no room for the footnote on a phone held sideways
+    const note = this.add(textPanel(hw, 0.05, [{ text: t('pongSource'), size: 'xr-text-sm', color: color('xr-bg-muted') }], { surface: false }));
+    note.position.set(hx, rowY - bh / 2 - 0.02 - note.h / 2, -dist);
   }
 
   /** Clickable card: name plus three rating bars (reaction, speed, precision). */
-  opponentCard(o, w, h) {
+  opponentCard(o, w, h, number) {
     let hover = false;
+    let focus = false;
     const card = new Panel(w, h, (ctx, c) => {
       const accent = color(o.token);
-      c.surface({ stroke: accent, strokeWidth: num('xr-border-width') * (hover ? 2.5 : 1.2), stripe: false });
+      c.surface({ stroke: focus ? color('xr-focus') : accent, strokeWidth: num('xr-border-width') * (focus ? 3 : hover ? 2.5 : 1.2), stripe: false });
       const pad = c.m(0.025);
       const W = c.canvas.width;
       ctx.fillStyle = accent;
@@ -257,7 +482,16 @@ export class PongScene extends BaseScene {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
       ctx.font = font('black', c.m(num('xr-text-md')));
-      ctx.fillText(o.name, pad, pad + c.m(0.012));
+      ctx.fillText(oppName(o), pad, pad + c.m(0.012));
+      // Desktop: the number key that picks this opponent.
+      if (this.desktop) {
+        ctx.textAlign = 'right';
+        ctx.fillStyle = color('xr-panel-muted');
+        ctx.font = font('bold', c.m(num('xr-text-sm')));
+        ctx.fillText(String(number), W - pad, pad + c.m(0.016));
+        ctx.textAlign = 'left';
+        ctx.fillStyle = color('xr-panel-text');
+      }
       if (o.boss) {
         // Badge for the nemesis, top right.
         ctx.font = font('black', c.m(num('xr-text-sm')) * 0.85);
@@ -297,8 +531,9 @@ export class PongScene extends BaseScene {
       card.scale.setScalar(v ? num('xr-hover-scale') : 1);
       card.redraw();
     };
+    card.userData.setFocus = (v) => { focus = v; card.redraw(); };
     card.userData.onClick = () => { sfx.click(); this.startLadder(o); };
-    card.userData.label = o.name;
+    card.userData.label = `${oppName(o)}${o.boss ? `, ${t('pongNemesis')}` : ''}. ${t('pongReaction')} ${o.ratings.reaction}/5, ${t('pongTempo')} ${o.ratings.speed}/5, ${t('pongPrecision')} ${o.ratings.precision}/5`;
     return card;
   }
 
@@ -355,6 +590,11 @@ export class PongScene extends BaseScene {
     this.ai.add(makeHandle(PH));
     this.player.children.concat(this.ai.children).forEach((o) => this.look.casters(o));
     this.paddleEcho = makePaddleEcho(this.player, PPW, PPH, (model) => this.look.casters(model, 6));
+    // Browser: you look past Echo down the tunnel, so it is smaller and sits lower, out of the ball's way.
+    if (this.screen) {
+      this.paddleEcho.holder.scale.setScalar(0.62);
+      this.paddleEcho.holder.position.y -= 0.035;
+    }
     arena.add(makeGridFloor(HW, HH, LEN));
     if (!quality.lite) arena.add(makeSkyline(HW, HH, ZA - 0.95));
 
@@ -435,6 +675,19 @@ export class PongScene extends BaseScene {
     this.beam.frustumCulled = false;
     arena.add(this.guess, this.beam);
 
+    // Where the AI expects your next shot: a 3 x 3 grid on the far wall, brighter = more likely
+    // (the frame above marks its first guess). Playing into a dark field surprises it.
+    this.heat = Array.from({ length: ZONES }, (_, z) => {
+      const c = zoneXY(z);
+      const m = new THREE.Mesh(new THREE.PlaneGeometry((2 * HW) / 3 - 0.014, (2 * HH) / 3 - 0.014), new THREE.MeshBasicMaterial({
+        color: hex('xr-pong-expect'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false,
+      }));
+      m.position.set(c.x, c.y, ZA - 0.004);
+      m.userData.noFit = true;
+      arena.add(m);
+      return m;
+    });
+
     this.b = { x: 0, y: 0, z: ZA + 0.05, vx: 0, vy: 0, vz: 0, sx: 0, sy: 0 };
     // Power-up state: extra balls, turbo for the current flight, XXL paddle timers and sizes.
     this.extras = [];
@@ -473,13 +726,22 @@ export class PongScene extends BaseScene {
     for (const m of this.frameModel?.mats.NeonAI ?? []) m.color.setHex(c).multiplyScalar(this.look.neon);
     // The opponent as one of the Arena's robots, in its color, behind the AI paddle.
     this.robot?.dispose();
-    this.robot = makePaddleRobot(ROBOT_FOR[opp.key] ?? 'light', opp.token, { hh: HH, hw: HW, z: ZA - 0.08 });
+    this.robot = makePaddleRobot(opp.robot ?? 'light', opp.token, { hh: HH, hw: HW, z: ZA - 0.08 });
     this.look.casters(this.robot.group, 10);
     this.arena.add(this.robot.group);
     this.ease = { ...PONG_EASE, ...(opp.ease ?? {}) };
     this.reaction = opp.reaction + this.ease.reaction;
     this.aiSpeed = opp.speed * this.ease.speed;
     this.aiError = opp.error;
+    // Relaxed mode: every opponent moves slower, reacts later, misreads more shots and rarely
+    // aims at your weak spot.
+    if (assist.easy) {
+      this.aiSpeed *= 0.8;
+      this.reaction += 0.06;
+      this.ease.misjudge += 0.2;
+      this.ease.catchError *= 1.4;
+      this.ease.randomAim = Math.max(this.ease.randomAim, 0.8);
+    }
   }
 
   /** Switches the ball type (physics and look) and announces it. */
@@ -489,7 +751,7 @@ export class PongScene extends BaseScene {
     this.showBallModel(type);
     if (announce) {
       this.toast(`${t(`pongBall_${type.key}`)}: ${t(`pongBallInfo_${type.key}`)}`);
-      this.shock.spawn(this.b.x, this.b.y, this.b.z, new THREE.Vector3(0, 0, 1), 'xr-pong-predict', 0.25, 0.6);
+      if (!this.calm) this.shock.spawn(this.b.x, this.b.y, this.b.z, new THREE.Vector3(0, 0, 1), 'xr-pong-predict', 0.25, 0.6);
     }
     this.refreshHud();
   }
@@ -511,8 +773,8 @@ export class PongScene extends BaseScene {
    * Choosing the nemesis directly means a single match against it.
    */
   startLadder(first) {
-    const boss = PONG_OPPONENTS.find((o) => o.boss);
-    this.ladder = first.boss || EVENT ? [first] : [first, ...PONG_OPPONENTS.filter((o) => o !== first && !o.boss), boss];
+    const boss = PONG_CAST.find((o) => o.boss);
+    this.ladder = first.boss || EVENT ? [first] : [first, ...PONG_CAST.filter((o) => o !== first && !o.boss), boss];
     this.stage = 0;
     this.totalScore = 0;
     this.startMatch(this.ladder[0]);
@@ -543,6 +805,13 @@ export class PongScene extends BaseScene {
     this.pts = [0, 0];
     this.rally = 0;
     this.hits = 0;
+    this.tricks = 0; // shots into a zone the AI did not expect
+    this.reads = 0; // shots the AI predicted
+    // Relaxed mode: a slower ball that speeds up less, and a larger paddle.
+    this.s0 = S0 * assist.pick(1, 0.8);
+    this.sMax = S_MAX * assist.pick(1, 0.7);
+    this.padBase = assist.pick(1, 1.35);
+    this.storm.setCalm(this.calm);
     this.model = new PatternModel();
     this.lastZone = -1;
     this.att = new Float32Array(ZONES);
@@ -552,7 +821,11 @@ export class PongScene extends BaseScene {
     this.prediction = new Float32Array(ZONES).fill(1 / ZONES);
     this.patternShown = false;
     this.ballType = null;
-    this.nextObstacle = 5; // seconds of play until the first obstacle
+    this.liveIn = -1;
+    this.firstServe = this.stage === 0;
+    this.firstWait = 0;
+    this.firstFrom = this.pp.clone();
+    this.nextObstacle = this.stage ? 5 : 9; // seconds of play until the first obstacle (later in the first match)
     this.nextStorm = 14; // ... and until the first data storm
     this.obstacles.clear();
     this.clearExtras();
@@ -565,9 +838,12 @@ export class PongScene extends BaseScene {
     this.boardHolder.scale.setScalar(1.35);
     this.board = new Panel(0.9, 0.15, (ctx, c) => this.drawBoard(ctx, c));
     this.boardHolder.add(this.board);
-    this.mind = this.add(new Panel(0.6, 0.52, (ctx, c) => this.drawMind(ctx, c)));
-    placeOnArc(this.mind, 0.72, this.eye - 0.02, this.dist + 0.1);
-    this.mind.visible = !this.engine.touchUI; // phones: the control field takes its place
+    this.mind = new Panel(0.6, 0.52, (ctx, c) => this.drawMind(ctx, c));
+    // Desktop: the panel is pinned to the right edge of the screen (layoutScreen).
+    this.mindHolder = this.add(new THREE.Group());
+    this.mindHolder.add(this.mind);
+    if (this.desktop) { solid(this.mind); this.onTop(this.mind); this.mindHolder.visible = false; } else placeOnArc(this.mindHolder, 0.72, this.eye - 0.02, this.dist + 0.1);
+    this.mind.visible = !this.engine.touchUI; // phones: the control field takes its place, the far wall shows the AI's guess
     this.popIn(this.board, 0.3);
     this.popIn(this.mind, 0.4);
     this.refreshHud();
@@ -576,7 +852,18 @@ export class PongScene extends BaseScene {
     this.streak = 0;
     this.startMusic(0, 'pong');
     this.delay(0.5, () => { if (!this.disposed) this.announcer.say('pongCallFight', {}, 'xr-pong-predict', { priority: true }); });
-    this.delay(1.4, () => { if (!this.disposed) this.serve(); });
+    this.delay(1.4, () => {
+      if (this.disposed) return;
+      this.serve();
+      this.hint('block');
+    });
+  }
+
+  /** One short hint per topic, the first time it matters in this round. */
+  hint(key) {
+    if (this.hinted[key] || !this.live()) return;
+    this.hinted[key] = true;
+    this.toast(t(`pongHint_${key}`), 3.8);
   }
 
   serve() {
@@ -585,8 +872,8 @@ export class PongScene extends BaseScene {
     this.turbo = false;
     this.clearExtras();
     this.rally = 0;
-    this.speed = S0;
-    this.serveTime = 1.0;
+    this.speed = this.s0;
+    this.serveTime = 0.8;
     Object.assign(this.b, { vx: 0, vy: 0, vz: 0, sx: 0, sy: 0 });
     // Now and then a different ball comes into play (always the energy ball first).
     const first = !this.ballType;
@@ -596,7 +883,7 @@ export class PongScene extends BaseScene {
       type = others[Math.floor(Math.random() * others.length)];
     }
     this.setBall(type, !first && type !== this.ballType);
-    if (this.pts && Math.max(...this.pts) === WIN - 1) {
+    if (this.pts && Math.max(...this.pts) === this.win - 1) {
       this.delay(0.3, () => { if (!this.disposed) this.announcer.say('pongCallMatchPoint', {}, 'xr-pong-predict', { priority: true }); });
     }
     this.shot = null;
@@ -613,25 +900,28 @@ export class PongScene extends BaseScene {
     const z = toPlayer ? ZA : ZP;
     const x = clamp(this.b.x, -HW, HW);
     const y = clamp(this.b.y, -HH, HH);
-    this.burst(this.arena.localToWorld(new THREE.Vector3(x, y, z)), token, 44);
-    this.shock.spawn(x, y, z, new THREE.Vector3(0, 0, 1), token, 0.5, 0.9);
-    // The whole tunnel flashes in the scorer's color, a big wave runs through it.
-    this.fx.flash(hex(token), 1);
-    this.fx.ripple(z, toPlayer ? 0 : 1, 2);
-    if (toPlayer) this.portal.userData.pulse(1.5);
-    this.endFlash = { frame: toPlayer ? this.tunnel.far : this.tunnel.near, k: 1 };
+    this.burst(this.arena.localToWorld(new THREE.Vector3(x, y, z)), token, this.calm ? 12 : 44);
+    if (toPlayer) this.popup(`+${this.pointValue}`, 'xr-pong-player', 0, 0.02, ZA + 0.05, 0.13);
+    // The whole tunnel flashes in the scorer's color, a big wave runs through it (not with calm motion).
+    if (!this.calm) {
+      this.shock.spawn(x, y, z, new THREE.Vector3(0, 0, 1), token, 0.5, 0.9);
+      this.fx.flash(hex(token), 1);
+      this.fx.ripple(z, toPlayer ? 0 : 1, 2);
+      if (toPlayer) this.portal.userData.pulse(1.5);
+      this.endFlash = { frame: toPlayer ? this.tunnel.far : this.tunnel.near, k: 1 };
+    }
     if (!toPlayer) this.brain.userData.pulse(1);
     this.escapeBall(toPlayer, token);
     this.board.redraw();
     this.refreshHud();
     // Announcer: streaks, long rallies and the end of the match.
     this.streak = toPlayer ? Math.max(0, this.streak) + 1 : Math.min(0, this.streak) - 1;
-    const over = this.pts[0] >= WIN || this.pts[1] >= WIN;
-    const name = this.opp.name;
+    const over = this.pts[0] >= this.win || this.pts[1] >= this.win;
+    const name = this.aiName();
     if (over) {
-      const champion = this.pts[0] >= WIN && this.ladder && this.stage === this.ladder.length - 1 && this.ladder.length > 1;
+      const champion = this.pts[0] >= this.win && this.ladder && this.stage === this.ladder.length - 1 && this.ladder.length > 1;
       if (champion) this.announcer.say('pongCallChampion', {}, 'xr-pong-predict', { priority: true });
-      else if (this.pts[0] >= WIN) this.announcer.say(this.pts[1] === 0 ? 'pongCallPerfect' : 'pongCallWin', {}, 'xr-pong-predict', { priority: true });
+      else if (this.pts[0] >= this.win) this.announcer.say(this.pts[1] === 0 ? 'pongCallPerfect' : 'pongCallWin', {}, 'xr-pong-predict', { priority: true });
       else this.announcer.say('pongCallLose', { name }, this.aiToken, { priority: true });
     } else if (toPlayer) {
       const key = this.rally >= 12 ? 'pongCallRallyWin' : this.streak >= 4 ? 'pongCallUnstoppable' : this.streak === 3 ? 'pongCallTriple' : this.streak === 2 ? 'pongCallDouble' : 'pongCallScore';
@@ -639,11 +929,43 @@ export class PongScene extends BaseScene {
     } else {
       this.announcer.say(this.streak <= -3 ? 'pongCallAiDominate' : 'pongCallAiScore', { name }, this.aiToken, { priority: true });
     }
-    this.delay(over ? 2.2 : 1.3, () => {
+    this.delay(over ? 2.0 : 1.1, () => {
       if (this.disposed) return;
       if (over) this.finish();
       else this.serve();
     });
+  }
+
+  /** A short text that rises and fades in the tunnel (points, "surprised", "read"). */
+  popup(text, token, x, y, z, size = 0.07) {
+    const c = document.createElement('canvas');
+    c.width = 512;
+    c.height = 128;
+    const ctx = c.getContext('2d');
+    let px = 92;
+    do { ctx.font = font('black', px); px -= 4; } while (ctx.measureText(text).width > 488 && px > 30);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 12;
+    ctx.strokeStyle = color('xr-pong-pu-label');
+    ctx.strokeText(text, 256, 66);
+    ctx.fillStyle = color(token);
+    ctx.fillText(text, 256, 66);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+    sp.scale.set(size * 4, size, 1);
+    sp.renderOrder = 15;
+    sp.userData.noFit = true;
+    const lim = Math.max(0, HW - size * 1.3);
+    sp.position.set(clamp(x, -lim, lim), clamp(y, -HH + size, HH - size * 1.6), z);
+    const y0 = sp.position.y;
+    this.arena.add(sp);
+    this.tween(1.1, (k) => {
+      sp.position.y = y0 + k * size * 0.9;
+      sp.material.opacity = k < 0.65 ? 1 : 1 - (k - 0.65) / 0.35;
+    }, { ease: (k) => k, onDone: () => { sp.removeFromParent(); tex.dispose(); sp.material.dispose(); } });
   }
 
   // ----- power-ups -----
@@ -653,7 +975,7 @@ export class PongScene extends BaseScene {
     const b = this.b;
     const token = POWERUPS[kind].token;
     sfx.powerup();
-    this.fx.flash(hex(token), 0.5);
+    if (!this.calm) this.fx.flash(hex(token), 0.5);
     this.room.ripple(this.floorBelow(this.arena.localToWorld(pos.clone())), hex(token), 0.7);
     if (kind === 'turbo') {
       for (const k of ['vx', 'vy', 'vz']) b[k] *= 1.45;
@@ -744,7 +1066,7 @@ export class PongScene extends BaseScene {
   /** An extra ball got past a paddle: a point, the rally with the main ball goes on. */
   extraPoint(ex, toPlayer) {
     const e = ex.b;
-    if (this.pts[toPlayer ? 0 : 1] + 1 >= WIN) {
+    if (this.pts[toPlayer ? 0 : 1] + 1 >= this.win) {
       // Match ball: the extra ball becomes the deciding ball.
       Object.assign(this.b, { x: e.x, y: e.y, z: e.z, vx: e.vx, vy: e.vy, vz: e.vz });
       this.removeExtra(ex);
@@ -754,9 +1076,12 @@ export class PongScene extends BaseScene {
     this.pts[toPlayer ? 0 : 1] += 1;
     const token = toPlayer ? 'xr-pong-player' : this.aiToken;
     sfx.point();
-    this.fx.flash(hex(token), 0.7);
-    this.fx.ripple(toPlayer ? ZA : ZP, toPlayer ? 0 : 1, 1.5);
-    this.burst(this.arena.localToWorld(new THREE.Vector3(e.x, e.y, toPlayer ? ZA : ZP)), token, 30);
+    if (!this.calm) {
+      this.fx.flash(hex(token), 0.7);
+      this.fx.ripple(toPlayer ? ZA : ZP, toPlayer ? 0 : 1, 1.5);
+    }
+    if (toPlayer) this.popup(`+${this.pointValue}`, 'xr-pong-player', 0, 0.02, ZA + 0.05, 0.13);
+    this.burst(this.arena.localToWorld(new THREE.Vector3(e.x, e.y, toPlayer ? ZA : ZP)), token, this.calm ? 10 : 30);
     this.board.redraw();
     this.refreshHud();
     this.announcer.say(toPlayer ? 'pongCallScore' : 'pongCallAiScore', { name: this.aiName() }, token, { priority: true });
@@ -853,8 +1178,9 @@ export class PongScene extends BaseScene {
     if (this.mode === 'over' || this.mode === 'between') return;
     const [you, ai] = this.pts;
     const win = you > ai;
-    const matchScore = you * 100 + Math.min(MAX_HIT_POINTS, this.hits * 10) + (win ? 300 + this.stage * 200 : 0);
-    this.totalScore = (this.totalScore ?? 0) + matchScore;
+    this.totalScore = (this.totalScore ?? 0) + this.matchScore(win);
+    this.allReads = (this.allReads ?? 0) + this.reads;
+    this.allShots = (this.allShots ?? 0) + this.shotLog.length;
     const next = win ? this.ladder?.[this.stage + 1] : null;
     if (next) { this.between(next); return; }
     this.mode = 'over';
@@ -865,18 +1191,35 @@ export class PongScene extends BaseScene {
     this.storm.stop();
     this.arena.visible = false;
     this.setRays(true);
+    if (this.screen) this.engine.fitEnabled = true;
     const score = this.totalScore;
     const champion = win && this.ladder?.length > 1;
     const total = this.zoneCount.reduce((a, b) => a + b, 0) || 1;
     const fav = this.zoneCount.indexOf(Math.max(...this.zoneCount));
     const pct = (arr) => (arr.length ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 100) : 0);
+    // A rating in three steps, with the points missing to the next one (as shown: the relaxed
+    // mode counts a share of the points).
+    const shown = Math.round(score * assist.scoreFactor);
+    const rank = shown >= RANKS[1] ? 3 : shown >= RANKS[0] ? 2 : 1;
+    const rating = rank === 3
+      ? t('pongRankTop', { rank: t('pongRank3') })
+      : t('pongRankLine', { n: rank, rank: t(`pongRank${rank}`), pts: RANKS[rank - 1] - shown, next: t(`pongRank${rank + 1}`) });
+    // One tip that fits this round: the AI read you, it found your weak spot, or how to aim.
+    let weak = -1;
+    let ws = 0.34;
+    for (let z = 0; z < ZONES; z++) {
+      const k = this.miss[z] >= 2 ? this.miss[z] / Math.max(1, this.att[z]) : 0;
+      if (k > ws) { ws = k; weak = z; }
+    }
+    const readShare = this.allShots ? this.allReads / this.allShots : 0;
+    const tip = readShare >= 0.34 ? t('pongTipVary') : weak >= 0 && !win ? t('pongTipWeak', { zone: t(`pongZone${weak}`) }) : t('pongTipEdge');
     this.results({
-      gameKey: 'pong', score, correct: you, total: WIN,
-      line: champion ? t('pongChampion') : `${t(win ? 'pongWon' : 'pongLost', { name: this.opp.name })} · ${you} : ${ai}`,
+      gameKey: 'pong', score, correct: you, total: this.win,
+      line: `${champion ? t('pongChampion') : `${t(win ? 'pongWon' : 'pongLost', { name: this.aiName() })} · ${you} : ${ai}`}\n${rating}`,
       learned: [
         { q: t('pongLearnFav'), a: `${t(`pongZone${fav}`)} · ${Math.round((this.zoneCount[fav] / total) * 100)} %` },
-        { q: t('pongLearnAcc'), a: t('pongAccStartEnd', { a: pct(this.shotLog.slice(0, 6)), b: pct(this.shotLog.slice(-6)) }) },
-        { q: t('pongLesson'), a: t('pongLessonText') },
+        { q: t('pongLesson'), a: `${t('pongLessonText')} ${t('pongAccStartEnd', { a: pct(this.shotLog.slice(0, 6)), b: pct(this.shotLog.slice(-6)) })}` },
+        { q: t('pongTip'), a: tip },
       ],
       onAgain: () => this.app.startGame('pong'),
     });
@@ -891,15 +1234,27 @@ export class PongScene extends BaseScene {
     this.clearLayer();
     const { eye, dist } = this;
     const isBoss = next.boss;
-    const panel = this.add(textPanel(1.0, 0.3, [
-      { text: t('pongBeat', { name: this.opp.name }), size: 'xr-text-lg', weight: 'black', color: color('xr-pong-player'), gap: 0.02 },
-      { text: t(isBoss ? 'pongNextBoss' : 'pongNextUp', { name: next.name }), size: 'xr-text-md', weight: 'bold', color: color(isBoss ? 'xr-danger' : 'xr-panel-text'), gap: 0.015 },
+    this.toastPanel = null;
+    this.toastTick = null;
+    const panel = textPanel(1.0, 0.3, [
+      { text: t('pongBeat', { name: this.aiName() }), size: 'xr-text-lg', weight: 'black', color: color('xr-pong-player'), gap: 0.02 },
+      { text: t(isBoss ? 'pongNextBoss' : 'pongNextUp', { name: oppName(next) }), size: 'xr-text-md', weight: 'bold', color: color(isBoss ? 'xr-danger' : 'xr-panel-text'), gap: 0.015 },
       { text: `${t('pongStage', { n: this.stage + 2, total: this.ladder.length })}  ·  ${t('score')}: ${this.totalScore}`, size: 'xr-text-sm', color: color('xr-panel-muted') },
-    ]));
-    panel.position.set(0, eye + 0.02 - panel.h / 2, -dist); // below the announcer callout
+    ]);
+    // Browser: the panel sits in the middle of the tunnel view (layoutScreen); headset: in the room.
+    const holder = this.add(new THREE.Group());
+    holder.add(panel);
+    holder.position.set(0, eye + 0.02 - panel.h / 2, -dist); // below the announcer callout
+    if (this.screen) {
+      holder.userData.w = panel.w;
+      solid(panel);
+      this.breakHolder = this.onTop(holder);
+      this.layoutScreen();
+    }
     this.popIn(panel);
-    this.delay(0.6, () => { if (!this.disposed) this.announcer.say(isBoss ? 'pongCallBoss' : 'pongCallNext', { name: next.name }, isBoss ? 'xr-danger' : 'xr-pong-predict', { priority: true }); });
-    this.delay(4.2, () => {
+    this.refreshHud();
+    this.delay(0.6, () => { if (!this.disposed && !this.screen) this.announcer.say(isBoss ? 'pongCallBoss' : 'pongCallNext', { name: oppName(next) }, isBoss ? 'xr-danger' : 'xr-pong-predict', { priority: true }); });
+    this.delay(this.screen ? 3.0 : 4.2, () => {
       if (this.disposed || this.mode !== 'between') return;
       this.stage += 1;
       this.startMatch(next);
@@ -931,6 +1286,23 @@ export class PongScene extends BaseScene {
     }
     // Phones: the swipe sets where the paddle goes (the finger's own ray is not used).
     if (this.swipe) best = this.swipeTo ? { x: this.swipeTo.x, y: this.swipeTo.y, d: 1, p: null } : null;
+    // Desktop: the keyboard steers until the mouse moves again.
+    if (this.desktop) {
+      const m = e.mouse.ndc;
+      if (this.lastNdc && (Math.abs(m.x - this.lastNdc.x) + Math.abs(m.y - this.lastNdc.y) > 1e-4) && !this.keys.size) this.input = 'mouse';
+      (this.lastNdc ??= new THREE.Vector2()).copy(m);
+      if (this.input === 'keys') {
+        const kx = (this.keys.has('r') ? 1 : 0) - (this.keys.has('l') ? 1 : 0);
+        const ky = (this.keys.has('u') ? 1 : 0) - (this.keys.has('d') ? 1 : 0);
+        const norm = kx && ky ? Math.SQRT1_2 : 1;
+        const acc = Math.min(1, dt * 16); // a short ramp, so a tap makes a small step
+        this.keyVel.x += (kx * norm * KEY_SPEED - this.keyVel.x) * acc;
+        this.keyVel.y += (ky * norm * KEY_SPEED - this.keyVel.y) * acc;
+        this.keyTo.x = clamp(this.keyTo.x + this.keyVel.x * dt, -HW + PPW * 0.7, HW - PPW * 0.7);
+        this.keyTo.y = clamp(this.keyTo.y + this.keyVel.y * dt, -HH + PPH * 0.7, HH - PPH * 0.7);
+        best = { x: this.keyTo.x, y: this.keyTo.y, d: 1, p: null };
+      }
+    }
     const px = this.pp.x;
     const py = this.pp.y;
     if (best) {
@@ -950,11 +1322,17 @@ export class PongScene extends BaseScene {
     if (this.aim) this.updateAimPad(); // phones: the control field
     this.time += dt;
     this.arena.position.y = this.eye - TUNNEL_DROP;
+    if (this.desktop) this.desktopView();
     if (this.mode === 'serve' || this.mode === 'play' || this.mode === 'point') this.readPaddle(dt);
 
     if (this.mode === 'serve') {
       Object.assign(this.b, { x: this.ap.x, y: this.ap.y, z: ZA + 0.05 });
-      this.serveTime -= dt;
+      // The very first serve of a round waits (at most a few seconds) for the player's first move.
+      if (this.firstServe) {
+        this.firstWait += dt;
+        if (this.pp.distanceTo(this.firstFrom) > 0.03 || this.firstWait > 3.5) this.firstServe = false;
+      }
+      if (!this.firstServe) this.serveTime -= dt;
       if (this.serveTime <= 0) {
         this.mode = 'play';
         this.aiShoot(true);
@@ -971,8 +1349,23 @@ export class PongScene extends BaseScene {
     // The soundtrack gets more intense with long rallies and during a data storm.
     if (this.mode === 'play') music.intensity = this.storm.active || this.rally >= 10 ? 2 : this.rally >= 4 ? 1 : 0;
     this.moveAI(dt);
+    this.expect();
     this.render(dt);
+    this.layoutScreen();
     this.announcer.update(dt);
+  }
+
+  /**
+   * While the ball flies to you, the AI already shows what it expects from you in this
+   * situation (the far wall and the "AI thoughts" panel), so you can decide where to play.
+   */
+  expect() {
+    if (this.mode !== 'play' || this.b.vz <= 0 || !this.model) return;
+    const inZone = zoneOf(this.b.x, this.b.y);
+    if (inZone === this.liveIn) return;
+    this.liveIn = inZone;
+    this.prediction = this.model.dist(inZone, this.lastZone);
+    if (this.mind.visible) this.mind.redraw();
   }
 
   /** Obstacles pop up now and then, a data storm blows through every 25 to 35 seconds. */
@@ -986,11 +1379,13 @@ export class PongScene extends BaseScene {
           const y = (Math.random() * 2 - 1) * (HH - 0.08);
           const z = (Math.random() * 2 - 1) * 0.32;
           if (Math.hypot(x - this.b.x, y - this.b.y, z - this.b.z) < 0.3) continue;
-          const kinds = Object.keys(POWERUPS).filter((k) => k !== 'multi' || !this.extras.length);
+          // Relaxed mode: no turbo and no second ball.
+          const kinds = Object.keys(POWERUPS).filter((k) => (k !== 'multi' || !this.extras.length) && !(assist.easy && (k === 'turbo' || k === 'multi')));
           const kind = kinds[Math.floor(Math.random() * kinds.length)];
           this.obstacles.spawn(x, y, z, kind);
           this.shock.spawn(x, y, z, new THREE.Vector3(0, 0, 1), POWERUPS[kind].token, 0.2, 0.5);
           sfx.appear();
+          this.hint('power');
           break;
         }
       }
@@ -1004,8 +1399,9 @@ export class PongScene extends BaseScene {
       sfx.storm();
     }
     const w = this.storm.wind();
-    this.b.wx = w.x;
-    this.b.wy = w.y;
+    const push = assist.pick(1, 0.4); // relaxed mode: the storm pushes the ball far less
+    this.b.wx = w.x * push;
+    this.b.wy = w.y * push;
   }
 
   /** Advances a ball state by h seconds: spin and wind curve it, walls reflect it. Returns the wall hit. */
@@ -1111,11 +1507,13 @@ export class PongScene extends BaseScene {
     this.room.ripple(this.floorBelow(this.arena.localToWorld(new THREE.Vector3(b.x, b.y, ZP))), hex('xr-pong-player'), 0.45);
     sfx.hit();
     if (this.activePointer?.kind === 'xr') this.engine.haptic?.(this.activePointer, 0.7, 45);
-    this.burst(this.arena.localToWorld(new THREE.Vector3(b.x, b.y, ZP)), 'xr-pong-player', 16);
+    this.burst(this.arena.localToWorld(new THREE.Vector3(b.x, b.y, ZP)), 'xr-pong-player', this.calm ? 6 : 16);
     this.shock.spawn(b.x, b.y, ZP - 0.005, new THREE.Vector3(0, 0, 1), 'xr-pong-player', 0.22 + s * 0.06, 0.45);
     this.fx.ripple(ZP, 0, 1);
     this.player.userData.ripple(b.x - this.pp.x, b.y - this.pp.y, this.time);
     if (Math.hypot(b.sx, b.sy) > 0.6) this.shock.spawn(b.x, b.y, ZP - 0.01, new THREE.Vector3(0, 0, 1), 'xr-pong-heat', 0.12, 0.6);
+    if (this.screen) this.popup('+10', 'xr-pong-player', b.x, b.y + 0.07, ZP - 0.02, 0.04);
+    if (this.hits === 1) this.hint('aim');
 
     // The AI reads the situation and guesses where you aimed, before the ball is halfway.
     const inZone = zoneOf(b.x, b.y);
@@ -1128,13 +1526,14 @@ export class PongScene extends BaseScene {
     this.aiGuess = conf >= 0.3 ? zoneXY(pred) : mean;
     this.aiConf = conf;
     this.prediction = p;
-    this.shot = { inZone, last: this.lastZone, pred };
+    this.shot = { inZone, last: this.lastZone, pred, p };
     this.nextPlan = this.reaction; // the model needs its response time before it moves
     this.brain.userData.pulse(0.6);
     if (!this.patternShown && this.model.n >= 4 && conf >= 0.4) {
       this.patternShown = true;
       this.announcer.say('pongCallRead', {}, this.aiToken, { priority: true });
     }
+    this.liveIn = -1;
     this.refreshHud();
     this.mind.redraw();
   }
@@ -1146,7 +1545,20 @@ export class PongScene extends BaseScene {
     const right = this.shot.pred === zone;
     this.shotLog.push(right ? 1 : 0);
     this.brain.userData.pulse(right ? 1 : 0.4);
+    // Once the AI has learned a little: a shot into a field it thought unlikely (dark on the
+    // far wall) surprises it and gives bonus points; a shot into its first guess was read.
+    if (this.model.n >= LEARNED) {
+      if (right) {
+        this.reads += 1;
+        this.popup(t('pongRead'), this.aiToken, this.b.x, this.b.y, ZA + 0.05, 0.1);
+      } else if (this.shot.p[zone] < 1 / ZONES) {
+        this.tricks += 1;
+        sfx.tink();
+        this.popup(t('pongTrick', { n: TRICK_POINTS }), 'xr-pong-player', this.b.x, this.b.y, ZA + 0.05, 0.1);
+      }
+    }
     this.model.learn(this.shot.inZone, this.shot.last, zone);
+    if (this.model.n === LEARNED) this.hint('grid');
     this.zoneCount[zone] += 1;
     this.lastZone = zone;
     this.shot = null;
@@ -1165,14 +1577,16 @@ export class PongScene extends BaseScene {
       this.neonKick = 1;
       this.room.ripple(this.floorBelow(this.arena.localToWorld(new THREE.Vector3(b.x, b.y, ZA))), hex(this.aiToken), 0.45);
       sfx.hit();
-      this.burst(this.arena.localToWorld(new THREE.Vector3(b.x, b.y, ZA)), this.aiToken, 16);
+      this.burst(this.arena.localToWorld(new THREE.Vector3(b.x, b.y, ZA)), this.aiToken, this.calm ? 6 : 16);
       this.shock.spawn(b.x, b.y, ZA + 0.005, new THREE.Vector3(0, 0, 1), this.aiToken, 0.22 + this.speed * 0.06, 0.45);
       this.fx.ripple(ZA, 1, 1);
       this.ai.userData.ripple(b.x - this.ap.x, b.y - this.ap.y, this.time);
       this.portal.userData.pulse(0.6);
     }
     let tz = Math.floor(Math.random() * ZONES);
-    if (!isServe && Math.random() > this.ease.randomAim) {
+    // Two or more points behind: the AI goes for your weak spot less often (a chance to catch up).
+    const randomAim = this.pts[1] - this.pts[0] >= 2 ? Math.max(this.ease.randomAim, 0.8) : this.ease.randomAim;
+    if (!isServe && Math.random() > randomAim) {
       let bestS = -Infinity;
       for (let z = 0; z < ZONES; z++) {
         const c = zoneXY(z);
@@ -1211,7 +1625,7 @@ export class PongScene extends BaseScene {
 
   /** Very long rallies keep getting faster, so every rally ends at some point. */
   speedCap() {
-    return S_MAX + Math.max(0, this.rally - 24) * 0.05;
+    return (this.sMax ?? S_MAX) + Math.max(0, this.rally - 24) * 0.05;
   }
 
   /** Where the ball will cross the AI plane (simulated, including spin and bounces). */
@@ -1233,13 +1647,13 @@ export class PongScene extends BaseScene {
           const l = this.predictLanding();
           if (!this.aimErr) {
             // Catch error grows with ball speed; now and then the AI misreads the shot badly.
-            const e = this.aiError * this.ease.catchError * (0.6 + this.speed / S_MAX) + (Math.random() < this.ease.misjudge ? 0.13 : 0);
+            const e = this.aiError * this.ease.catchError * (0.6 + this.speed / (this.sMax ?? S_MAX)) + (Math.random() < this.ease.misjudge ? 0.13 : 0);
             const a = Math.random() * Math.PI * 2;
             const k = 0.5 + Math.random() * 0.5;
             this.aimErr = { x: Math.cos(a) * e * k, y: Math.sin(a) * e * k };
           }
           this.aiTarget.set(l.x + this.aimErr.x, l.y + this.aimErr.y);
-        } else if (this.model.n >= 3 && this.aiGuess) {
+        } else if (this.model.n >= LEARNED && this.aiGuess) {
           this.aiTarget.set(this.aiGuess.x, this.aiGuess.y); // only what it learned about you
         }
       }
@@ -1261,7 +1675,7 @@ export class PongScene extends BaseScene {
     const b = this.b;
     const live = this.mode === 'serve' || this.mode === 'play' || this.mode === 'point';
     const flying = this.mode === 'play';
-    const heat = flying ? (this.turbo ? 1 : clamp((this.speed - S0) / (S_MAX - S0), 0, 1)) : 0;
+    const heat = flying ? (this.turbo ? 1 : clamp((this.speed - (this.s0 ?? S0)) / ((this.sMax ?? S_MAX) - (this.s0 ?? S0)), 0, 1)) : 0;
     // Blue while your shot flies towards the AI, red when the AI's shot comes back.
     const own = new THREE.Color(hex(b.vz < 0 ? 'xr-pong-player' : this.aiToken));
     // Each special ball adds its own tint (dark damper, frosty ice, golden bouncy).
@@ -1338,7 +1752,7 @@ export class PongScene extends BaseScene {
     // XXL paddles grow and shrink smoothly; extra balls follow their state.
     for (const side of ['player', 'ai']) {
       if (this.giant[side] > 0 && (this.mode === 'play' || this.mode === 'serve')) this.giant[side] = Math.max(0, this.giant[side] - dt);
-      const want = this.giant[side] > 0 ? 1.5 : 1;
+      const want = (this.giant[side] > 0 ? 1.5 : 1) * (side === 'player' ? this.padBase ?? 1 : 1);
       this.padK[side] += (want - this.padK[side]) * Math.min(1, dt * 6);
     }
     this.renderExtras();
@@ -1350,15 +1764,17 @@ export class PongScene extends BaseScene {
     for (const pad of [this.player, this.ai]) {
       const u = pad.userData;
       u.flash = Math.max(0, u.flash - dt * 4);
-      pad.scale.setScalar((1 + u.flash * 0.12) * (pad === this.player ? this.padK.player : this.padK.ai));
-      u.tick(this.time, 1 + u.flash * 1.5);
-      u.glow.material.opacity = 0.3 + u.flash * 0.5;
+      pad.scale.setScalar((1 + (this.calm ? 0 : u.flash * 0.12)) * (pad === this.player ? this.padK.player : this.padK.ai));
+      // Browser: you look through your own paddle, so it is far more see-through and barely glows.
+      const see = this.screen && pad === this.player ? 0.4 : 1;
+      u.tick(this.time, (1 + u.flash * (this.calm ? 0.4 : 1.5)) * see);
+      u.glow.material.opacity = (0.3 + u.flash * (this.calm ? 0.1 : 0.5)) * (see < 1 ? 0.25 : 1);
     }
 
     // Tunnel energy, end-frame flash after a point, effects.
     for (const e of this.tunnel.edges) e.userData.tick(dt, (flying ? this.speed : 0.3) + this.storm.env * 3);
-    // Blender frame: light seams flash on every hit.
-    this.neonKick = Math.max(0, this.neonKick - dt * 2.5);
+    // Blender frame: light seams flash on every hit (not with calm motion).
+    this.neonKick = this.calm ? 0 : Math.max(0, this.neonKick - dt * 2.5);
     if (this.frameModel) {
       for (const m of this.frameModel.mats.NeonRail ?? []) m.color.copy(this.cRail).lerp(WHITE, this.neonKick * 0.55).multiplyScalar(this.look.neon);
     }
@@ -1383,11 +1799,26 @@ export class PongScene extends BaseScene {
     this.brain.userData.tick(dt);
     this.brain.position.y = HH + 0.37 + Math.sin(this.time * 1.4) * 0.015;
 
-    // The AI's guess on the far plane and a beam from its brain.
-    const guessing = flying && b.vz < 0 && this.aiGuess && this.model?.n >= 3;
-    const target = guessing ? 0.35 + 0.65 * (this.aiConf ?? 0) : 0;
+    // The AI's guess on the far plane and a beam from its brain: where it waits while your shot
+    // flies, and (dimmer) the field it expects most while the ball comes to you.
+    const learned = this.model?.n >= LEARNED;
+    const guessing = flying && b.vz < 0 && this.aiGuess && learned;
+    const p = this.prediction;
+    let top = 0;
+    let max = 1e-6;
+    if (p) for (let z = 0; z < ZONES; z++) if (p[z] > max) { max = p[z]; top = z; }
+    const waiting = flying && b.vz > 0 && learned && p;
+    const target = guessing ? 0.35 + 0.65 * (this.aiConf ?? 0) : waiting ? 0.3 : 0;
     this.guess.material.opacity += (target - this.guess.material.opacity) * Math.min(1, dt * 8);
     if (guessing) this.guess.position.set(this.aiGuess.x, this.aiGuess.y, ZA - 0.01);
+    else if (waiting) { const c = zoneXY(top); this.guess.position.set(c.x, c.y, ZA - 0.01); }
+    // The far wall as a heat map of the AI's expectation.
+    const lit = learned && p && (this.mode === 'play' || this.mode === 'serve');
+    this.heat.forEach((m, z) => {
+      const want = lit ? 0.04 + 0.5 * (p[z] / max) ** 1.5 : 0;
+      m.material.opacity += (want - m.material.opacity) * Math.min(1, dt * 6);
+      m.visible = m.material.opacity > 0.005;
+    });
     this.guess.scale.setScalar(1 + Math.sin(this.time * 8) * 0.05);
     const pos = this.beam.geometry.attributes.position;
     pos.setXYZ(0, this.brain.position.x, this.brain.position.y - 0.05, this.brain.position.z);
@@ -1397,25 +1828,28 @@ export class PongScene extends BaseScene {
     this.toastTick?.(dt);
   }
 
-  /** Short message in front of the scoreboard ("Pattern spotted!"). */
-  toast(text) {
+  /**
+   * Short message: in the headset in front of the scoreboard, in the browser at the top of the
+   * view (layoutScreen). Long texts wrap.
+   */
+  toast(text, seconds = 2.4) {
     this.toastPanel?.removeFromParent();
     const holder = this.add(new THREE.Group());
     holder.position.copy(this.boardHolder.position).add(new THREE.Vector3(0, 0, 0.03));
     holder.scale.setScalar(1.35);
-    const p = new Panel(0.86, 0.1, (ctx, c) => {
-      c.surface({ stroke: color('xr-pong-predict') });
-      ctx.fillStyle = color('xr-panel-text');
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = font('black', c.m(num('xr-text-md')));
-      ctx.fillText(text, c.canvas.width / 2, c.canvas.height / 2);
-    });
+    const p = textPanel(0.86, 0.1, [{ text, size: 'xr-text-md', weight: 'black' }], { surface: { stroke: color('xr-pong-predict') }, layout: { pad: 0.022 } });
     holder.add(p);
     this.toastPanel = holder;
+    if (this.screen) {
+      holder.userData.w = p.w;
+      holder.userData.h = p.h;
+      solid(p);
+      this.onTop(holder, 31);
+      this.layoutScreen();
+    }
     this.popIn(p);
     sfx.build();
-    let life = 2.4;
+    let life = seconds;
     this.toastTick = (dt) => {
       life -= dt;
       if (life <= 0) { holder.removeFromParent(); this.toastTick = null; }
@@ -1511,6 +1945,10 @@ export class PongScene extends BaseScene {
     this.announcer.stop();
     this.setRays(true);
     this.room?.dispose();
+    if (this.screen) {
+      this.engine.fitEnabled = true;
+      this.engine.camera.rotation.set(0, 0, 0);
+    }
     super.dispose();
   }
 }

@@ -1,22 +1,29 @@
 // "AI Arena": a fighting game on a holographic platform in your room, in two modes.
-// Real time (main mode): the robot announces every attack for a moment (wind-up, its move over
-// its head, a shrinking ring) and you react in time; good timing is "perfect". The AI learns how
-// you answer each of its attacks and, from the second robot on, feints: it shows one attack
-// and throws another that your habit does not stop. In the headset you can punch with your
-// hand, raise both hands to block and really duck. Tactics: program three moves with buttons,
-// then both fighters act at the same time; the AI learns which moves you tend to choose (per
-// position and after which move) and counters them.
+// Real time (main mode): the robot announces every move for a moment (wind-up, the move with its
+// name over its head, a shrinking ring) and you answer in time; good timing is "perfect". A
+// stopped attack leaves the robot open for a moment: hit back (the counter). Now and then it
+// covers up instead (block or duck, shown the same way), and the right attack breaks that. The AI
+// learns how you answer each of its announcements and, from the second robot on, feints: it
+// shows one attack and throws another that your habit does not stop. In the headset you can
+// punch with your hand, raise both hands to block and really duck. Tactics: program three moves
+// with buttons, then both fighters act at the same time; the AI learns which moves you tend to
+// choose (per position and after which move) and counters them.
+// In the browser (Nov 2026) the arena is a game of its own: the fighters fill the screen, the
+// moves are big buttons under the table (mouse) and keys under one hand (arrows or WASD, Space,
+// Enter), on phones thumb buttons; a coach names the answer the first times, every hit says why
+// it landed, and a cheat sheet shows what stops what. Relaxed mode (assist.js): longer
+// announcements, weaker robots, the coach always helps. Calm motion: no flashes, fewer sparks.
 // Moves: punch and kick beat a throw, block stops punch and kick, ducking dodges punch and throw
 // (but a kick hits low), throw breaks a block. Every fighter has a special move of its own (full
 // energy), each stopped or weakened by other moves (SPECIALS).
 import * as THREE from 'three';
 import { BaseScene, layoutRow } from '../scene.js';
-import { Panel, textPanel, placeOnArc } from '../ui3d.js';
+import { Panel, Button, textPanel, placeOnArc, roundRect } from '../ui3d.js';
 import { color, hex, num, font } from '../tokens.js';
 import { t } from '../i18n.js';
 import { sfx } from '../sfx.js';
 import { FIGHT_OPPONENTS } from '../content.js';
-import { Fighter, POSES, makeArena, makeBeam, makeNumber } from '../fight-visuals.js';
+import { Fighter, POSES, makeArena, makeBeam, makeNumber, makeLabel } from '../fight-visuals.js';
 import { Shockwaves, makeDust } from '../pong-visuals.js';
 import { RibbonTrail } from '../pong-shaders.js';
 import { makeEnvironment } from '../robot-visuals.js';
@@ -31,16 +38,41 @@ import { WINTER, makeSnowfall, makeSnowCover, winterizeTree, setSnowAmount, snow
 import { CHRISTMAS } from '../christmas.js';
 import { santaColors, grumpyHat } from '../xmas-fighters.js';
 import { sceneLook, bloom, gfxTier } from '../gfx.js';
+import { assist } from '../assist.js';
+import '../fight-text.js';
 
 const MOVES = ['punch', 'kick', 'block', 'duck', 'throw', 'special'];
 const ICON = { punch: 'punch', kick: 'kick', block: 'block', duck: 'duck', throw: 'throw', special: 'special' };
 // The AI's answer to a move it expects (the player's special: see SPECIALS[kind].counter).
 const COUNTER = { punch: 'duck', kick: 'block', block: 'throw', duck: 'kick', throw: 'punch' };
-// Real-time mode: how long the robot announces its attack (per stage), the attacks it can show
-// and the keys on a keyboard (1-6 like the order of the buttons).
-const TELL = [1.2, 1.0, 0.85];
+// Real-time mode: how long the robot announces its move (per stage) and the attacks it can show.
+const TELL = [1.25, 1.05, 0.9];
 const ATTACKS = ['punch', 'kick', 'throw'];
-const KEYS = { 1: 'punch', 2: 'kick', 3: 'block', 4: 'duck', 5: 'throw', 6: 'special' };
+// The keys: the four main moves on the arrows or WASD (back = block, down = duck, forward =
+// punch, up = kick), the throw on Space, the special on Enter or E; 1 to 6 as before.
+const KEYS = {
+  1: 'punch', 2: 'kick', 3: 'block', 4: 'duck', 5: 'throw', 6: 'special',
+  ArrowLeft: 'block', a: 'block', ArrowDown: 'duck', s: 'duck', ArrowRight: 'punch', d: 'punch', ArrowUp: 'kick', w: 'kick',
+  ' ': 'throw', Enter: 'special', e: 'special',
+};
+const KEYCAP = { block: '←', duck: '↓', punch: '→', kick: '↑' }; // throw and special: translated key names
+const DESK_ORDER = ['block', 'duck', 'punch', 'kick', 'throw', 'special']; // the browser's button row
+// The coach's simplest answer to what the robot shows (the cheat sheet lists all of them).
+const BEST = { punch: 'block', kick: 'block', throw: 'punch', block: 'throw', duck: 'kick', counter: 'punch' };
+const COACH_TIMES = 2; // how often the coach names the answer to each announcement (relaxed: always)
+// The first robot opens the same way every time, so the first exchange teaches the game: a slow
+// punch (block it, then counter), a kick, then it covers up (a throw breaks a block).
+const OPENING = ['punch', 'kick', 'block'];
+// The counter after a stopped attack: seconds the robot is open, damage and energy per move.
+const COUNTER_TIME = 1.0;
+const COUNTER_DMG = { punch: 7, kick: 10, throw: 9 };
+const COUNTER_ENERGY = { punch: 18, kick: 8, throw: 12 };
+const RANKS = [0, 900, 2400]; // points for the ratings fightRank1 to fightRank3
+const MAX_SCORE = 5000; // the leaderboard's limit
+// Real time: the robots' hits count a little less than in tactics (more exchanges, and a counter
+// after every stopped attack), and much less in relaxed mode.
+const LIVE_DMG = 0.8;
+const EASY_DMG = 0.6;
 const MODE_KEY = 'kiar.fightMode';
 // Special moves: damage, the moves that stop it (no damage) or weaken it (damage given), the
 // AI's best answer, its look (fx) and its icon. Special against special: both take 20.
@@ -72,7 +104,7 @@ const ARENA_R = 0.6;
 const ARENA_Z = -1.25;
 const ARENA_DROP = 0.72; // platform below eye height (table height in the room)
 const GAP = 0.33; // fighters stand at x = -GAP and +GAP
-const HUD_UP = 0.98; // scoreboard height above the platform
+const HUD_UP = 1.3; // scoreboard height above the platform (above the robot's announcement)
 const BEAT = 1.45; // seconds per move
 const IMPACT = 0.52; // when hits land within a beat
 const THROW_SLAM = 0.56; // after a landed throw: when the thrown fighter hits the floor
@@ -145,13 +177,25 @@ function wrapText(ctx, text, maxWidth) {
 }
 
 function iconTile(w, h, draw) {
-  let hover = false;
-  let disabled = false;
-  const p = new Panel(w, h, (ctx, c) => draw(ctx, c, { hover, disabled }));
+  const st = { hover: false, disabled: false, focus: false, hint: false };
+  const p = new Panel(w, h, (ctx, c) => {
+    draw(ctx, c, st);
+    // Keyboard focus (engine.js): a clear ring in the focus color.
+    if (st.focus) {
+      const sw = c.m(num('xr-border-width') * 3);
+      roundRect(ctx, sw / 2, sw / 2, c.canvas.width - sw, c.canvas.height - sw, c.m(num('xr-radius')));
+      ctx.lineWidth = sw;
+      ctx.strokeStyle = color('xr-focus');
+      ctx.stroke();
+    }
+  });
   p.userData.interactive = true;
-  p.userData.setHover = (v) => { hover = v; p.scale.setScalar(v && !disabled ? num('xr-hover-scale') : 1); p.redraw(); };
-  p.userData.setDisabled = (v) => { if (disabled !== v) { disabled = v; p.redraw(); } };
-  p.userData.isDisabled = () => disabled;
+  p.userData.setHover = (v) => { st.hover = v; p.scale.setScalar(v && !st.disabled ? num('xr-hover-scale') : 1); p.redraw(); };
+  p.userData.setFocus = (v) => { st.focus = v; p.redraw(); };
+  p.userData.setDisabled = (v) => { if (st.disabled !== v) { st.disabled = v; p.redraw(); } };
+  p.userData.isDisabled = () => st.disabled;
+  // The coach's hint: this move is a good answer right now (drawn by the tile's draw function).
+  p.userData.setHint = (v) => { if (st.hint !== v) { st.hint = v; p.redraw(); } };
   return p;
 }
 
@@ -165,24 +209,94 @@ export class FightScene extends BaseScene {
     this.events = [];
     this.mode = 'intro';
     this.queue = [];
-    this.model = new MoveModel();
-    this.lastPlayerMove = -1;
-    this.predLog = [];
-    this.moveCount = Object.fromEntries(MOVES.map((m) => [m, 0]));
+    // The browser view (desktop and phones) has its own layout and controls; desk: mouse and keys.
+    this.flat = !this.engine.isXR;
+    this.desk = this.flat && !this.engine.touchUI;
+    this.easy = assist.easy; // relaxed mode, read once per visit to the arena
+    this.calm = assist.reducedMotion; // calm motion: no flashes, fewer sparks
+    this.resetRun();
     this.announcer = new Announcer(this);
-    try { this.liveMode = localStorage.getItem(MODE_KEY) !== 'tactic'; } catch { this.liveMode = true; }
-    // Real-time mode on a keyboard: 1 to 6.
-    this.onKey = (e) => {
-      const m = KEYS[e.key];
-      if (m && this.mode === 'live') { e.preventDefault(); this.liveMove(m); }
+    this.announcer.calm = this.calm;
+    // The big callouts appear in front of the table's edge, so they never cover the fighters,
+    // the robot's announcement (a counter opens right after "blocked!") or the scoreboard.
+    this.announcer.place = (g, k) => {
+      g.position.set(0, this.eye - ARENA_DROP + 0.1, ARENA_Z + 0.58);
+      g.scale.setScalar(k * 0.6);
     };
+    try { this.liveMode = localStorage.getItem(MODE_KEY) !== 'tactic'; } catch { this.liveMode = true; }
+    this.onKey = (e) => this.key(e);
     window.addEventListener('keydown', this.onKey);
     this.buildArena();
+    // Phones: the status bar with the menu button (pause) at the top of the screen.
+    if (this.engine.touchUI) this.refreshBar = this.hud(() => this.barText());
     // AR: room scan, light pool, shock waves over the real floor and light tiles under your feet.
     this.room = new ARRoom(this, { scan: 'xr-fight-rim', grid: 'xr-fight-player', tileEdge: 'xr-fight-rim', tileLit: 'xr-fight-player' });
     this.room.onStep = () => sfx.step();
     this.onUpdate((dt) => this.update(dt));
     this.showIntro();
+  }
+
+  /** A fresh run: the robots know nothing about you yet. */
+  resetRun() {
+    this.model = new MoveModel();
+    this.lastPlayerMove = -1;
+    this.lastTurn = null;
+    this.predLog = [];
+    this.moveCount = Object.fromEntries(MOVES.map((m) => [m, 0]));
+    this.resp = {}; // the AI's memory: how you answer what it shows (kept over all robots)
+    this.feints = 0;
+    this.perfects = 0;
+    this.santaNext = 0;
+    this.seenTell = {}; // how often each announcement came (the coach helps the first times)
+    // What went wrong how often (the tip on the result screen) and how the counters went.
+    this.stats = { late: 0, feint: 0, pair: 0, chances: 0, counters: 0 };
+    this.ex = null;
+    this.cw = null;
+  }
+
+  /** Status line of the phone's top bar. */
+  barText() {
+    if (!this.opp || this.mode === 'intro') return t('fightName');
+    return t('fightBarText', { name: t('fightName'), stage: t('fightStage', { n: this.stage + 1, total: STAGES }), score: this.totalScore ?? 0 });
+  }
+
+  /** Scoreboard and status bar show the new numbers. */
+  redrawBoard() {
+    this.board.redraw();
+    this.refreshBar?.();
+  }
+
+  /** Keyboard (browser). Real time: the moves; tactics: 1 to 6, Backspace, Enter. */
+  key(e) {
+    if (e.repeat || e.altKey || e.ctrlKey || e.metaKey || this.engine.isXR || this.engine.paused || this.disposed) return;
+    const tag = e.target?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
+    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    const go = k === 'Enter' || k === ' ';
+    if (this.mode === 'live') {
+      const m = KEYS[k];
+      if (!m) return;
+      e.preventDefault();
+      this.pressFx(m);
+      this.liveMove(m);
+    } else if (this.mode === 'program') {
+      if (k >= '1' && k <= '6') { e.preventDefault(); this.addMove(MOVES[Number(k) - 1]); } else if (k === 'Backspace') { e.preventDefault(); this.removeMove(this.queue.length - 1); } else if (k === 'Enter') { e.preventDefault(); this.execute(); }
+    } else if (this.mode === 'intro' && go) {
+      e.preventDefault();
+      sfx.click();
+      this.startLadder();
+    } else if (this.mode === 'between' && go) {
+      e.preventDefault();
+      sfx.click();
+      this.nextOpponent();
+    }
+  }
+
+  /** The button of a move gives way for a moment when its key is pressed. */
+  pressFx(m) {
+    const b = this.moveButtons?.[MOVES.indexOf(m)];
+    if (!b?.parent || !this.console?.visible || b.userData.isDisabled()) return;
+    this.tween(0.16, (k) => b.scale.setScalar(0.9 + 0.1 * k));
   }
 
   // ---------- arena ----------
@@ -193,8 +307,22 @@ export class FightScene extends BaseScene {
     this.group.add(stage);
     this.arena = makeArena(ARENA_R, 'xr-fight-player', FIGHT_OPPONENTS[0].token);
     stage.add(this.arena);
-    // Phones: the view frames the table top and the fighters (the foot reaches down to the floor).
-    if (this.engine.touchUI) this.arena.userData.foot.forEach((o) => { o.userData.noFit = true; });
+    // Browser: the view frames the fighters on the table top. The round table's own bounding box
+    // would push the camera far back (its front corners are empty air, and its foot reaches down
+    // to the floor), so two unseen stand-ins give the frame: the ring's width at the fighters'
+    // depth, and the front edge of the table.
+    if (this.flat) {
+      this.arena.userData.noFit = true;
+      const unseen = new THREE.MeshBasicMaterial({ visible: false });
+      const ring = new THREE.Mesh(new THREE.PlaneGeometry(ARENA_R * 2.38, 0.74), unseen);
+      ring.position.set(0, 0.3, 0);
+      const lip = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.04), unseen);
+      lip.position.set(0, -0.06, ARENA_R * 1.13);
+      stage.add(ring, lip);
+      this.fitLip = lip;
+    }
+    // Calm motion: the table does not flash.
+    if (this.calm) this.arena.userData.flash = () => {};
     this.shock = new Shockwaves(stage, 16);
     this.dust = makeDust(1.9, 1.6, 1.1, 140, 'xr-fight-rim');
     stage.add(this.dust);
@@ -210,6 +338,7 @@ export class FightScene extends BaseScene {
     this.playerKind = 'nova';
     this.holoP = holoUniforms('xr-fight-holo');
     this.holoA = holoUniforms('xr-fight-holo');
+    this.holoP.calm = this.holoA.calm = this.calm; // calm motion: the holograms do not flicker
     this.makePlayer('nova');
 
     // Colored rim lights over each fighter
@@ -234,9 +363,18 @@ export class FightScene extends BaseScene {
     });
 
     // Scoreboard with health and energy bars above the arena
-    this.hud = new Panel(1.1, 0.17, (ctx, c) => this.drawHud(ctx, c));
-    this.hud.position.set(0, this.eye - ARENA_DROP + HUD_UP, ARENA_Z - 0.25);
-    this.group.add(this.hud);
+    this.board = new Panel(1.24, 0.21, (ctx, c) => this.drawBoard(ctx, c));
+    this.board.position.set(0, this.eye - ARENA_DROP + HUD_UP, ARENA_Z - 0.25);
+    this.board.visible = false; // from the first fight on
+    if (this.desk) this.board.scale.setScalar(1.2); // desktop: larger, there is room above the fighters
+    this.group.add(this.board);
+    // Desktop and headset: a menu button beside it (the browser pauses, the headset leaves);
+    // phones have it in their status bar.
+    if (!this.engine.touchUI) {
+      this.menuBtn = new Button(0.2, 0.09, { label: t('menu'), labelSize: 'xr-text-sm', grow: false, onClick: () => this.menuOrPause() });
+      this.menuBtn.position.set(0.62 * this.board.scale.x + 0.13, this.board.position.y + 0.06, ARENA_Z - 0.25);
+      this.group.add(this.menuBtn);
+    }
 
     // Look: the arena's own cool environment for the metal, neutral tone mapping (keeps the
     // token colors) and, on the desktop, a soft bloom on the neon lines, lights and beams.
@@ -255,10 +393,19 @@ export class FightScene extends BaseScene {
       root.scale.set(1, 0.01, 1);
       sfx.appear();
       this.tween(0.55, (k) => {
+        // Calm motion: it grows without the flicker.
+        if (this.calm) { root.scale.set(1, Math.max(0.01, k), 1); return; }
         root.scale.set(1 + (1 - k) * 0.15 * Math.sin(k * 40), Math.max(0.01, k), 1);
         root.visible = k > 0.95 || Math.sin(k * 60) > -0.6;
       }, { onDone: () => { root.scale.set(1, 1, 1); root.visible = true; } });
     });
+  }
+
+  /** Calm motion: a fighter's hit flash stays a soft glow. */
+  calmFlash(f) {
+    if (!this.calm) return;
+    const flash = f.flash.bind(f);
+    f.flash = (k = 1) => flash(k * 0.3);
   }
 
   /** The player's special move: Echo's sonar, Santa's next one (Christmas) or Nova's beam. */
@@ -284,6 +431,7 @@ export class FightScene extends BaseScene {
     this.player = kind === 'echo'
       ? new EchoFighter({ token: 'xr-fight-player', facing: 1 })
       : new Fighter({ style: CHRISTMAS ? 'santa' : 'hero', token: 'xr-fight-player', facing: 1 });
+    this.calmFlash(this.player);
     this.player.root.position.x = -GAP;
     this.stage3d.add(this.player.root);
     holoize(this.player.root, this.holoP);
@@ -294,7 +442,7 @@ export class FightScene extends BaseScene {
     };
     // While the player is Echo, the flying mascot stays away (no second Echo in the room).
     this.app.echo?.suppress(kind === 'echo');
-    if (this.hud?.isMesh) this.hud.redraw(); // the HUD panel exists once the arena is built
+    if (this.board?.isMesh) this.board.redraw(); // the HUD panel exists once the arena is built
   }
 
   setOpponent(i) {
@@ -302,6 +450,7 @@ export class FightScene extends BaseScene {
     this.opp = FIGHT_OPPONENTS[i];
     if (this.ai) this.ai.root.removeFromParent();
     this.ai = new Fighter({ style: this.opp.style, token: this.opp.token, facing: -1 });
+    this.calmFlash(this.ai);
     if (CHRISTMAS) grumpyHat(this.ai); // the robots wear grumpy green hats
     this.ai.root.position.x = GAP;
     this.stage3d.add(this.ai.root);
@@ -317,30 +466,69 @@ export class FightScene extends BaseScene {
     this.player.thrownKO = false;
     this.player.play([]);
     this.round = 1;
-    this.hud.redraw();
+    this.redrawBoard();
   }
 
   // ---------- flow ----------
 
-  showIntro() {
+  /** The controls of the chosen mode, per device (intro and pause dialog). */
+  applyControls() {
+    if (this.liveMode) {
+      this.setControls({
+        desktop: [[t('fightKeysDefend'), t('fightActDefend')], [t('fightKeysAttack'), t('fightActAttack')], [t('fightKeysMore'), t('fightActMore')], [t('fightKeysMouse'), t('fightActMouse')]],
+        touch: [[t('fightTouchDefend'), t('fightActTouchDefend')], [t('fightTouchAttack'), t('fightActTouchAttack')], [t('fightTouchSpecial'), t('fightActTouchSpecial')]],
+        xr: [[t('fightXrPunch'), t('fightMove_punch')], [t('fightXrBlock'), t('fightMove_block')], [t('fightXrDuck'), t('fightMove_duck')], [t('fightXrButtons'), t('fightActXrButtons')]],
+      });
+    } else {
+      this.setControls({
+        desktop: [[t('fightKeysTactic'), t('fightActTactic')], [t('fightKeysTacticDel'), t('fightActTacticDel')], [t('fightKeysTacticGo'), t('fightActTacticGo')], [t('fightKeysMouse'), t('fightActTacticAll')]],
+        touch: [[t('fightTouchTactic'), t('fightActTacticAll')]],
+        xr: [[t('fightXrTactic'), t('fightActTacticAll')]],
+      });
+    }
+  }
+
+  /**
+   * Browser: the intro and the result are shown larger (the play area keeps its size). The layer
+   * is scaled around a point at the top of the UI plane.
+   */
+  zoom(k, top = 0.5, lift = 0) {
+    const pivot = new THREE.Vector3(0, this.eye + top, -this.dist);
+    this.layer.scale.setScalar(k);
+    this.layer.position.copy(pivot).multiplyScalar(1 - k);
+    this.layer.position.y += lift;
+  }
+
+  showIntro(focusMode = null) {
     this.clearLayer();
+    this.mode = 'intro';
+    // Phones held sideways: the camera cannot come closer, so the panels grow instead.
+    const portrait = this.flat && window.innerWidth < window.innerHeight;
+    const k = !this.flat ? 1 : this.desk ? 1.3 : portrait ? 1.15 : 1.45;
+    // Lifted by what it grew, so the start buttons stay above the table's edge.
+    this.zoom(k, 0.55, (k - 1) * 0.8);
+    this.applyControls();
+    this.board.visible = false;
     // The table is empty until the fight starts; then the figures are projected in.
     this.player.root.visible = false;
     if (this.ai) this.ai.root.visible = false;
     const { eye, dist } = this;
+    // Two short sentences and the controls of this device; the rest is taught in the fight.
     const p = this.add(textPanel(1.15, 0.3, [
-      { text: t('fightName'), size: 'xr-text-title', weight: 'black', gap: 0.015 },
-      { text: t(`${EVENT ? 'fightIntroEvent' : 'fightIntro'}${CHRISTMAS ? 'Xmas' : ''}`), size: 'xr-text-sm', color: color('xr-panel-muted'), gap: 0.015 },
-      { text: t('fightRules'), size: 'xr-text-sm', weight: 'bold', gap: 0.015 },
-      { text: FIGHT_OPPONENTS.slice(0, STAGES).map((o) => o.name).join('  ·  '), size: 'xr-text-sm', weight: 'black', color: color('xr-fight-energy') },
+      { text: t('fightName'), size: 'xr-text-title', weight: 'black', gap: 0.02 },
+      { text: t(this.liveMode ? 'fightIntroShort' : 'fightIntroTactic'), size: 'xr-text-md', color: color('xr-panel-muted'), gap: 0.03 },
+      ...this.controlsBlocks(),
     ], { layout: { align: 'left' } }));
     p.position.set(0, eye + 0.55 - p.h / 2, -dist);
     this.popIn(p);
     this.app.host?.introduce(this, 'fight', p);
     // The mode: real time (react to the robot's attacks) or tactics (program three moves).
-    const modeY = p.position.y - p.h / 2 - 0.06;
+    // Phones: tiles tall enough for a finger (44 px and more).
+    const mh = this.engine.touchUI ? 0.2 : 0.1;
+    const fh = this.engine.touchUI ? 0.2 : 0.12;
+    const modeY = p.position.y - p.h / 2 - 0.03 - mh / 2;
     const modes = [['live', 'fightModeLive', 'fightModeLiveText'], ['tactic', 'fightModeTactic', 'fightModeTacticText']].map(([key, label, text], i) => {
-      const tile = iconTile(0.52, 0.1, (ctx, c, s) => {
+      const tile = iconTile(0.52, mh, (ctx, c, s) => {
         const on = (key === 'live') === this.liveMode;
         c.surface({ fill: color(on ? 'xr-button-hover' : 'xr-button-bg'), stroke: color(on ? 'xr-accent' : 'xr-panel-border'), strokeWidth: num('xr-border-width') * (on ? 2 : 1), stripe: false });
         ctx.textAlign = 'left';
@@ -355,18 +543,21 @@ export class FightScene extends BaseScene {
       tile.userData.label = t(label);
       tile.userData.onClick = () => {
         sfx.click();
+        if ((key === 'live') === this.liveMode) return;
         this.liveMode = key === 'live';
         try { localStorage.setItem(MODE_KEY, key); } catch { /* private mode */ }
-        modes.forEach((m) => m.redraw());
+        // The intro shows the other mode's sentence and controls (the keyboard focus stays).
+        this.showIntro(this.engine.focus === tile ? key : null);
       };
-      tile.position.set((i - 0.5) * 0.55, modeY - 0.05, -dist);
+      tile.position.set((i - 0.5) * 0.55, modeY, -dist);
       this.add(tile);
       this.popIn(tile, 0.06 + i * 0.04);
+      if (focusMode === key) this.engine.setFocus(tile);
       return tile;
     });
     // Choose the fighter: Nova (human) or Echo (the mascot).
     const choice = (kind, icon, label, x, delay) => {
-      const go = iconTile(0.52, 0.12, (ctx, c, s) => {
+      const go = iconTile(0.52, fh, (ctx, c, s) => {
         c.surface({ fill: color(s.hover ? 'xr-primary-hover' : 'xr-primary'), stroke: color('xr-primary-hover'), stripe: false });
         drawIcon(ctx, icon, c.m(0.06), c.canvas.height / 2, c.m(0.06), color('xr-on-primary'));
         ctx.fillStyle = color('xr-on-primary');
@@ -403,7 +594,7 @@ export class FightScene extends BaseScene {
         if (kind !== this.playerKind) this.makePlayer(kind);
         this.startLadder();
       };
-      go.position.set(x, modeY - 0.1 - 0.04 - 0.06, -dist);
+      go.position.set(x, modeY - mh / 2 - 0.03 - fh / 2, -dist);
       this.add(go);
       this.popIn(go, delay);
     };
@@ -418,13 +609,24 @@ export class FightScene extends BaseScene {
     this.startOpponent(0);
   }
 
+  /** "Again": straight into the next run with the same fighter and mode. */
+  again() {
+    this.clearLayer();
+    this.resetRun();
+    this.startLadder();
+  }
+
   startOpponent(i) {
     this.setOpponent(i);
     this.projectIn(this.ai.root, 0.2);
     if (!this.player.root.visible) this.projectIn(this.player.root, 0);
-    this.hud.visible = true;
+    this.board.visible = true;
+    this.ex = null;
+    this.cw = null;
     this.clearLayer();
+    this.zoom(1);
     this.mode = 'intro-fight';
+    this.redrawBoard();
     this.announcer.say('fightCallStart', { name: this.opp.name }, this.opp.token, { priority: true });
     sfx.build();
     this.room.scan(this.stage3d.getWorldPosition(new THREE.Vector3()));
@@ -438,6 +640,7 @@ export class FightScene extends BaseScene {
     this.mode = 'program';
     this.queue = [];
     this.clearLayer();
+    this.cheat = null;
     this.buildConsole();
     this.buildInsights();
     this.placePanels();
@@ -450,24 +653,30 @@ export class FightScene extends BaseScene {
     this.clearLayer();
     this.buildConsole(true);
     this.buildInsights();
+    this.buildCheat();
     this.placePanels();
     this.ex = null;
+    this.cw = null;
     this.combo = 0;
-    this.resp ??= {}; // the AI's memory: how you answer what it shows (kept over all robots)
-    this.feints ??= 0;
-    this.perfects ??= 0;
+    this.exCount = 0; // announcements of this robot so far
+    this.lastGuard = true; // it never opens a fight covered up
     // Phones: big buttons for the thumbs instead of the small 3D ones.
     if (this.engine.touchUI) {
       this.console.visible = false;
       // Attacks in one group (left thumb), defence and the special in the other (right thumb).
       const group = { punch: 'left', kick: 'left', throw: 'left', block: 'right', duck: 'right', special: 'right' };
       const order = ['punch', 'kick', 'throw', 'block', 'duck', 'special'];
-      this.livePad ??= this.touchButtons(order.map((m) => ({ icon: iconFor(m, this.kindP), label: this.moveLabel(m), onPress: () => this.liveMove(m), primary: m === 'punch', group: group[m] })), { grid: true });
+      if (!this.livePad) {
+        const before = new Set(document.querySelectorAll('.mtouch__btn'));
+        this.livePad = this.touchButtons(order.map((m) => ({ icon: iconFor(m, this.kindP), label: this.moveLabel(m), onPress: () => this.liveMove(m), primary: m === 'punch', group: group[m] })), { grid: true });
+        // The pad's own buttons, in the order given (for the coach's hint).
+        this.livePadEls = [...document.querySelectorAll('.mtouch__btn')].filter((b) => !before.has(b));
+      }
       this.livePadOrder = order;
       this.refreshConsole();
     }
-    this.announcer.say('fightCallLive', {}, 'xr-fight-energy');
-    this.schedule(1.0, () => this.nextExchange());
+    if (this.stage > 0) this.announcer.say('fightCallLive', {}, 'xr-fight-energy');
+    this.schedule(this.stage > 0 ? 1.0 : 0.5, () => this.nextExchange());
   }
 
   /** How you answered the shown move so far: counts per answer (older answers fade). */
@@ -485,21 +694,27 @@ export class FightScene extends BaseScene {
   }
 
   /**
-   * The robot's next move. It defends now and then (guessing your attack), else attacks with
-   * what your habits do not stop; from the second robot on it may show one attack and throw
-   * another (a feint), and with full energy it fires its special.
+   * The robot's next move. It covers up now and then (block or duck, shown like an attack; the
+   * right attack breaks it), else it attacks with what your habits do not stop; from the second
+   * robot on it may show one attack and throw another (a feint), and with full energy it fires
+   * its special.
    */
   liveAI() {
     const opp = this.opp;
     const kp = this.kindP;
     const ka = this.kindA;
-    const smart = Math.random() < opp.predict;
+    // The first robot's opening is always the same: it teaches block, counter and the throw.
+    if (this.stage === 0 && this.exCount < OPENING.length) { const am = OPENING[this.exCount]; return { am, show: am }; }
+    const smart = Math.random() < opp.predict * (this.easy ? 0.6 : 1);
     if (this.energy.a >= 100 && Math.random() < opp.special) return { am: 'special', show: 'special' };
-    // Defend: when it expects you to attack while it shows nothing.
-    if (Math.random() < 0.22) {
-      const guess = this.expected('none');
-      const am = smart && guess && guess !== 'idle' ? (guess === 'special' ? SPECIALS[kp].counter : COUNTER[guess] ?? 'block') : Math.random() < 0.5 ? 'block' : 'duck';
-      if (am === 'block' || am === 'duck') return { am, show: null };
+    // Covering up (never twice in a row): the guard your usual answer to it does not break.
+    if (!this.lastGuard && Math.random() < 0.26) {
+      let am = Math.random() < 0.5 ? 'block' : 'duck';
+      if (smart) {
+        const safe = ['block', 'duck'].filter((g) => { const r = this.expected(g); return r && r !== 'idle' && damage(r, g, kp, ka) === 0; });
+        if (safe.length) am = safe[Math.floor(Math.random() * safe.length)];
+      }
+      return { am, show: am };
     }
     // Attack: the one your usual answer does not stop.
     const hurts = (a, r) => damage(a, r ?? 'idle', ka, kp) > 0;
@@ -510,7 +725,7 @@ export class FightScene extends BaseScene {
     }
     let show = am;
     // Feint (from the second robot on): show s, throw am, when your answer to s does not stop am.
-    if (this.stage > 0 && Math.random() < 0.18 + 0.14 * this.stage) {
+    if (this.stage > 0 && Math.random() < (0.18 + 0.14 * this.stage) * (this.easy ? 0.5 : 1)) {
       const fakes = ATTACKS.filter((s2) => s2 !== am && this.expected(s2) && hurts(am, this.expected(s2)));
       if (fakes.length) show = fakes[Math.floor(Math.random() * fakes.length)];
     }
@@ -518,47 +733,67 @@ export class FightScene extends BaseScene {
   }
 
   nextExchange() {
-    if (this.mode !== 'live') return;
+    if (this.mode !== 'live' || this.ex || this.cw) return;
     const { am, show } = this.liveAI();
-    const T = (TELL[this.stage] ?? 0.7) * (am === 'special' ? 1.25 : 1);
-    const ex = { am, show, seen: show, T, t0: this.gt, pm: null, at: 0, predicted: this.expected(show ?? 'none') };
+    const guard = am === 'block' || am === 'duck';
+    this.lastGuard = guard;
+    // How long the announcement stands: shorter with every robot, longer in relaxed mode, and
+    // the very first one of a run leaves time to look and read.
+    let T = (TELL[this.stage] ?? 0.9) * (am === 'special' ? 1.25 : 1) * (guard ? 1.15 : 1) * (this.easy ? 1.6 : 1);
+    if (this.stage === 0 && this.exCount < OPENING.length) T *= this.exCount === 0 ? 2.2 : 1.4;
+    this.exCount += 1;
+    const ex = { am, show, seen: show, T, t0: this.gt, end: this.gt + T, pm: null, at: 0, guard, predicted: this.expected(show) };
+    // A feint: partway through, the real attack shows. Who reacts too early is fooled; who waits
+    // for it has less time left (relaxed mode: it shows earlier).
+    if (show !== am) ex.revealAt = this.gt + T * (this.easy ? 0.4 : 0.5);
     this.ex = ex;
-    // A feint: halfway through, the real attack shows. Who reacts too early is fooled; who waits
-    // for it has less time left.
-    if (show && show !== am) {
-      this.schedule(T * 0.5, () => {
-        if (this.ex !== ex) return;
-        ex.seen = am;
-        this.feints += 1;
-        this.showTell(am, true);
-        this.ai.play([[am === 'special' ? 'charge' : 'guard2', T * 0.5, 14]]);
-        this.announcer.say('fightCallFeint', {}, this.opp.token);
-        sfx.whoosh();
-        this.insights?.redraw();
-      });
-    }
-    if (show) {
-      // The tell: the robot gets ready and its move appears over its head with a shrinking ring.
-      this.ai.play([[show === 'special' ? 'charge' : 'guard2', T, 9]]);
-      this.showTell(show);
-    } else this.ai.play([['guard', T, 9]]); // waiting: it watches what you do
+    // The tell: the robot gets ready (or covers up) and its move appears over its head, with its
+    // name and a ring that shrinks until it strikes.
+    if (guard) this.ai.play([[am, T + 0.5, 12]]);
+    else this.ai.play([[show === 'special' ? 'charge' : 'guard2', T, 9]]);
+    this.showTell(show);
+    this.coach(show);
+    sfx.tick();
     this.insights?.redraw();
+    this.cheat?.redraw();
     this.refreshConsole();
-    this.schedule(T, () => this.resolveExchange());
   }
 
-  /** Your move in real time (button, key or gesture): one per attack. */
+  /** A feint turns into the real attack. */
+  revealFeint(ex) {
+    ex.revealed = true;
+    ex.seen = ex.am;
+    this.feints += 1;
+    this.showTell(ex.am, true);
+    this.ai.play([[ex.am === 'special' ? 'charge' : 'guard2', Math.max(0.1, ex.end - this.gt), 14]]);
+    this.announcer.say('fightCallFeint', {}, this.opp.token);
+    sfx.whoosh();
+    if (!ex.pm) this.coach(ex.am);
+    this.insights?.redraw();
+    this.cheat?.redraw();
+  }
+
+  /** Your move in real time (button, key or gesture): one per announcement, or the counter. */
   liveMove(m) {
+    if (this.mode !== 'live') return;
+    if (this.cw) { this.counterHit(m); return; }
     const ex = this.ex;
-    if (this.mode !== 'live' || !ex || ex.pm) return;
+    if (!ex || ex.pm) return;
     if (m === 'special' && this.energy.p < 100) { sfx.wrong(); return; }
     ex.pm = m;
     ex.at = (this.gt - ex.t0) / ex.T;
-    ex.answered = ex.seen ?? 'none'; // what you were reacting to
+    ex.answered = ex.seen; // what you were reacting to
     this.moveCount[m] += 1;
     sfx.click();
+    // No waiting once you have decided: the strike follows right away (a feint shows first).
+    const now = this.gt;
+    if (ex.revealAt && !ex.revealed) {
+      ex.revealAt = Math.min(ex.revealAt, now + 0.12);
+      ex.end = Math.min(ex.end, ex.revealAt + 0.33);
+    } else ex.end = Math.min(ex.end, now + 0.3);
     // Defending shows at once (block up, duck down) and holds until the attack is over.
-    if (m === 'block' || m === 'duck') this.player.play([[m, ex.T * (1 - ex.at) + 0.7, 16]]);
+    if (m === 'block' || m === 'duck') this.player.play([[m, ex.end - now + 0.9, 16]]);
+    this.hideCoach();
     this.refreshConsole();
   }
 
@@ -567,101 +802,303 @@ export class FightScene extends BaseScene {
     if (this.mode !== 'live' || !ex) return;
     this.ex = null;
     this.hideTell();
+    this.hideCoach();
     const pm = ex.pm ?? 'idle';
     const kp = this.kindP;
     const ka = this.kindA;
     // The AI remembers how you answered what you saw (older answers fade).
-    const r = this.respOf(ex.pm ? ex.answered : ex.show ?? 'none');
+    const r = this.respOf(ex.pm ? ex.answered : ex.show);
     for (const k of Object.keys(r)) r[k] *= 0.85;
     r[pm] += 1;
     this.predLog.push(ex.predicted && ex.predicted === pm ? 1 : 0);
-    const attack = ex.am !== 'block' && ex.am !== 'duck';
-    const stopped = attack && damage(ex.am, pm, ka, kp) === 0 && pm !== 'special';
-    // Perfect: stopped it late, after the moment a feint would have shown. A perfect block or
-    // duck also lands a quick counter.
+    const toP = damage(ex.am, pm, ka, kp);
+    const toA = damage(pm, ex.am, kp, ka);
+    const stopped = !ex.guard && toP === 0 && pm !== 'special';
+    // Perfect: stopped it late, after the moment a feint would have shown.
     const perfect = stopped && ex.at > 0.5;
-    const counter = perfect && (pm === 'block' || pm === 'duck') ? 6 : 0;
-    const toA = damage(pm, ex.am, kp, ka) + counter;
+    // A stopped attack (block or duck) leaves the robot open: your counter.
+    const defended = stopped && (pm === 'block' || pm === 'duck');
     this.lastLive = { shown: ex.show, am: ex.am, pm, stopped };
+    // Why a hit landed, in a few words over your fighter (and counted for the tip at the end).
+    let why = null;
+    if (toP > 0) {
+      if (pm === 'idle') { why = t('fightWhyLate'); this.stats.late += 1; } else if (ex.revealed && ex.answered !== ex.am) { why = t('fightWhyFeint', { a: this.moveName(ex.am, ka) }); this.stats.feint += 1; } else if (ex.am === 'special') why = `${this.moveName('special', ka)}: ${t(`fightSpecialHow_${ka}`)}`;
+      else if (toA > 0) why = t('fightWhyTrade');
+      else { why = t('fightWhyBeats', { a: this.moveName(ex.am, ka), b: this.moveName(pm, kp) }); this.stats.pair += 1; }
+    }
+    // Hit by a move you saw coming (too late, or the wrong answer): the coach names the answer
+    // the next time the robot announces it.
+    if (toP > 0 && !ex.revealed && this.seenTell[ex.am] >= COACH_TIMES) this.seenTell[ex.am] = COACH_TIMES - 1;
     this.beat(pm, ex.am, 1);
-    this.schedule(IMPACT + 0.05, () => {
+    this.schedule((pm === 'special' || ex.am === 'special' ? IMPACT + 0.12 : IMPACT) + 0.05, () => {
       if (this.mode !== 'live') return;
       const at = this.stage3d.worldToLocal(this.player.chestPos());
+      if (why) this.popText(why, at.clone().add(new THREE.Vector3(0, 0.3, 0)), 'xr-panel-text', 1.7);
+      // Your attack ran into its guard.
+      if (ex.guard && pm !== 'idle' && toA === 0 && ex.am === 'block') this.popText(t('fightGuarded'), this.stage3d.worldToLocal(this.ai.chestPos()).add(new THREE.Vector3(0, 0.14, 0)), 'xr-fight-block');
       if (perfect) {
         this.perfects += 1;
         this.energy.p = Math.min(100, this.energy.p + 15);
         this.totalScore += 25;
-        this.popNumber(t('fightPerfect'), at.clone().add(new THREE.Vector3(0, 0.12, 0)), 'xr-fight-energy');
+        // Above the coach's line, which names the counter at the same moment.
+        this.popText(t('fightPerfectPts', { p: 25 }), new THREE.Vector3(-GAP, 0.98, 0), 'xr-fight-energy');
         sfx.powerup();
-        if (counter) {
-          this.hp.a = Math.max(0, this.hp.a - counter);
-          this.ai.flash(1);
-          this.ai.play([['hit', 0.3, 20], ['guard', 0.2, 10]]);
-          this.player.play([['punch', 0.35, 18], ['guard', 0.2, 10]]);
-          this.popNumber(`-${counter}`, this.stage3d.worldToLocal(this.ai.chestPos()), 'xr-fight-player');
-          sfx.hit();
-          if (this.hp.a <= 0) { this.ko(); return; }
-        }
       }
       // Combos: hits in a row without being hit.
-      if (toA > 0 && damage(ex.am, pm, ka, kp) === 0) {
-        this.combo += 1;
-        this.totalScore += 5 * this.combo;
-        if (this.combo >= 3) this.popNumber(t('fightCombo', { n: this.combo }), at.clone().add(new THREE.Vector3(0, 0.22, 0)), 'xr-fight-player');
-      } else if (damage(ex.am, pm, ka, kp) > 0) this.combo = 0;
-      this.hud.redraw();
+      if (toP > 0) this.combo = 0;
+      else if (toA > 0) this.comboHit();
+      this.redrawBoard();
     });
-    this.schedule(IMPACT + 0.9, () => this.nextExchange());
+    if (defended) this.schedule(IMPACT + 0.22, () => this.openCounter(perfect));
+    // Nothing happened (it covered up, you waited): straight on.
+    else this.schedule(ex.guard && pm === 'idle' ? 0.35 : IMPACT + 0.9, () => this.nextExchange());
   }
 
-  /** The robot's announced move over its head and a ring that shrinks until it strikes. */
+  /** One more hit in a row: points, and from three on a callout. */
+  comboHit() {
+    this.combo += 1;
+    this.totalScore += 3 * Math.min(this.combo, 6); // small: the wins carry the score
+    if (this.combo >= 3) {
+      const at = this.stage3d.worldToLocal(this.player.chestPos());
+      this.popText(t('fightCombo', { n: this.combo }), at.add(new THREE.Vector3(0, 0.42, 0)), 'xr-fight-player');
+    }
+  }
+
+  // ---------- the counter ----------
+
+  /** After a stopped attack the robot staggers and is open for a moment: any attack lands. */
+  openCounter(perfect) {
+    if (this.mode !== 'live' || this.hp.a <= 0 || this.hp.p <= 0) return;
+    // Longer the first times (you are still learning it) and in relaxed mode.
+    const T = this.easy ? 2.0 : (this.seenTell.counter ?? 0) < COACH_TIMES ? 1.7 : COUNTER_TIME;
+    this.cw = { t0: this.gt, T, end: this.gt + T, perfect };
+    this.stats.chances += 1;
+    this.ai.play([['stagger', T, 12]]);
+    this.showTell('counter');
+    this.coach('counter');
+    sfx.tink();
+    this.cheat?.redraw();
+    this.refreshConsole();
+  }
+
+  /** The chance has passed. */
+  closeCounter() {
+    if (!this.cw) return;
+    this.cw = null;
+    this.hideTell();
+    this.hideCoach();
+    this.cheat?.redraw();
+    this.refreshConsole();
+    this.schedule(0.3, () => this.nextExchange());
+  }
+
+  /** Your counter: a quick punch (charges energy), a kick (hits hard), a throw, or the special. */
+  counterHit(m) {
+    const cw = this.cw;
+    if (!cw || m === 'block' || m === 'duck') return;
+    if (m === 'special' && this.energy.p < 100) { sfx.wrong(); return; }
+    this.cw = null;
+    this.hideTell();
+    this.hideCoach();
+    this.moveCount[m] += 1;
+    this.stats.counters += 1;
+    sfx.click();
+    const kp = this.kindP;
+    const taken = this.opp.taken ?? 1;
+    if (m === 'special') {
+      this.energy.p = 0;
+      this.player.play(this.animFor('special'));
+      this.announcer.say('fightCallSpecial', {}, 'xr-fight-energy');
+      sfx.storm();
+      this.schedule(IMPACT + 0.12, () => {
+        if (this.mode !== 'live') return;
+        this.specialFx(this.player, this.ai, kp, 'xr-fight-player');
+        this.arena.userData.flash(1);
+        // Santa's special attacks take turns: next time the next one.
+        if (this.playerKind !== 'echo' && CHRISTMAS) this.santaNext = (this.santaNext ?? 0) + 1;
+        this.landHit(Math.round(SPECIALS[kp].dmg * taken), m);
+      });
+      this.schedule(IMPACT + 1.25, () => this.nextExchange());
+    } else {
+      const quick = {
+        punch: [['punchWind', 0.1, 22], ['punch', 0.28, 34], ['guard', 0.2, 10]],
+        kick: [['kickWind', 0.12, 20], ['kick', 0.32, 30], ['guard', 0.2, 10]],
+        throw: [['throwStep', 0.14, 18], ['throwGrab', 0.34, 20], ['guard', 0.3, 8]],
+      };
+      this.player.play(quick[m]);
+      const dmg = Math.round((COUNTER_DMG[m] + (cw.perfect ? 2 : 0)) * taken);
+      this.schedule(m === 'throw' ? 0.3 : 0.2, () => { if (this.mode === 'live') this.landHit(dmg, m); });
+      // A throw that lands pushes the next announcement back by itself (throwHit).
+      this.schedule(0.95, () => this.nextExchange());
+    }
+    this.cheat?.redraw();
+    this.refreshConsole();
+  }
+
+  /** Your counter lands: damage, sparks, the combo; a K.O. ends the fight. */
+  landHit(dmg, m) {
+    const def = this.ai;
+    const big = m === 'special';
+    this.hp.a = Math.max(0, this.hp.a - dmg);
+    if (!big) this.energy.p = Math.min(100, this.energy.p + COUNTER_ENERGY[m]);
+    this.energy.a = Math.min(100, this.energy.a + 8);
+    if (m === 'throw') this.throwHit(this.player, def, dmg, 'xr-fight-player');
+    else {
+      const at = def.chestPos();
+      const local = this.stage3d.worldToLocal(at.clone());
+      def.flash(1);
+      if (big) def.play([['hitBack', 0.12, 22], ['stumble', 0.2, 12], ['kneel', 0.34, 10], ['guard', 0.3, 7]]);
+      else def.play([['hit', 0.35, 22], ['guard', 0.2, 10]]);
+      this.burst(at, 'xr-fight-player', big ? 46 : 22);
+      this.shock.spawn(local.x - 0.03, local.y, local.z, new THREE.Vector3(0, 0, 1), 'xr-fight-player', big ? 0.32 : 0.18, 0.45);
+      this.arena.userData.ripple(local.x, big ? 1.4 : 0.8, 0);
+      if (big) this.room.ripple(at.clone().setY(this.engine.floorY), hex('xr-fight-player'), 0.6);
+      this.popNumber(`-${dmg}`, local, big ? 'xr-fight-energy' : 'xr-fight-player');
+      (big ? sfx.crash : sfx.hit)();
+      this.hitStop(big ? 0.16 : 0.08);
+    }
+    this.comboHit();
+    this.redrawBoard();
+    if (this.hp.a < 35) music.intensity = 2;
+    if (this.hp.a <= 0) this.ko();
+  }
+
+  // ---------- what the robot shows, and the coach ----------
+
+  /** A move's name as the robot's announcement or in a sentence (guards have their own words). */
+  moveName(m, kind) {
+    if (m === 'special') return t(`fightSpecial_${kind}`);
+    return t(`fightMove_${m}`);
+  }
+
+  /**
+   * The robot's announced move over its head: the icon, its name, and a ring that shrinks until
+   * it strikes. 'counter': it is open (your chance), in your color.
+   */
   showTell(move, swap = false) {
+    const size = this.flat ? 0.3 : 0.24; // sprite width; the disc is 5/8 of it
     if (!this.tell) {
       const c = document.createElement('canvas');
-      c.width = c.height = 128;
+      c.width = 384;
+      c.height = 368;
       const tex = new THREE.CanvasTexture(c);
       tex.colorSpace = THREE.SRGBColorSpace;
       const icon = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-      icon.scale.setScalar(0.11);
+      icon.scale.set(size, (size * 368) / 384, 1);
       icon.renderOrder = 26;
-      const ring = new THREE.Mesh(new THREE.RingGeometry(0.075, 0.084, 48), new THREE.MeshBasicMaterial({ color: hex('xr-fight-energy'), transparent: true, depthTest: false, side: THREE.DoubleSide }));
+      const rr = (size * 104) / 384; // the disc's radius
+      const ring = new THREE.Mesh(new THREE.RingGeometry(rr * 1.0, rr * 1.13, 48), new THREE.MeshBasicMaterial({ color: hex('xr-fight-energy'), transparent: true, depthTest: false, side: THREE.DoubleSide }));
       ring.renderOrder = 27;
+      ring.position.y = (size * (184 - 256)) / 384; // the disc sits in the lower part of the sprite
       const g = new THREE.Group();
       g.add(icon, ring);
       g.userData.noFit = true;
       this.stage3d.add(g);
-      this.tell = { g, icon, ring, c, tex };
+      this.tell = { g, icon, ring, c, tex, size };
     }
     const { c, tex, g } = this.tell;
+    const counter = move === 'counter';
+    const token = counter ? 'xr-fight-player' : this.opp.token;
+    const name = counter ? t('fightCounter') : move === 'block' || move === 'duck' ? t(`fightTell_${move}`) : this.moveName(move, this.kindA);
     const ctx = c.getContext('2d');
-    ctx.clearRect(0, 0, 128, 128);
+    ctx.clearRect(0, 0, c.width, c.height);
     ctx.fillStyle = color('xr-fight-hud');
     ctx.beginPath();
-    ctx.arc(64, 64, 58, 0, Math.PI * 2);
+    ctx.arc(192, 256, 100, 0, Math.PI * 2);
     ctx.fill();
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = color(this.opp.token);
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = color(token);
     ctx.stroke();
-    drawIcon(ctx, iconFor(move, this.kindA), 64, 64, 70, color(move === 'special' ? 'xr-fight-energy' : this.opp.token));
+    drawIcon(ctx, counter ? 'fight' : iconFor(move, this.kindA), 192, 256, 124, color(move === 'special' ? 'xr-fight-energy' : token));
+    // The name on a dark plate above the disc (never the icon alone), clear of the robot's head.
+    let px = 58;
+    do { ctx.font = font('black', px); px -= 2; } while (ctx.measureText(name).width > 348 && px > 34);
+    const tw = ctx.measureText(name).width;
+    roundRect(ctx, 192 - tw / 2 - 16, 6, tw + 32, 80, 18);
+    ctx.fillStyle = color('xr-fight-dark');
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = color(token);
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = color('xr-panel-text');
+    ctx.fillText(name, 192, 48);
     tex.needsUpdate = true;
-    g.position.set(GAP, 0.8, 0.04);
+    this.tell.move = move;
+    g.position.set(GAP, 0.93, 0.04);
     g.visible = true;
-    // A feint turning into the real attack: the icon pops.
-    if (swap) this.tween(0.25, (k) => this.tell.icon.scale.setScalar(0.11 * (1 + 0.5 * Math.sin(Math.PI * k))));
+    // A feint turning into the real attack: the icon pops (not with calm motion).
+    const s = this.tell.size;
+    if (swap && !this.calm) this.tween(0.25, (k) => { const u = 1 + 0.35 * Math.sin(Math.PI * k); this.tell.icon.scale.set(s * u, ((s * 368) / 384) * u, 1); });
   }
 
   hideTell() {
     if (this.tell) this.tell.g.visible = false;
   }
 
-  /** The tell ring shrinks and gets hotter as the strike comes; the ring faces the viewer. */
+  /** The tell ring shrinks and changes color as the strike comes; the ring faces the viewer. */
   updateTell() {
     const tell = this.tell;
-    if (!tell?.g.visible || !this.ex) return;
-    const k = Math.min(1, (this.gt - this.ex.t0) / this.ex.T);
-    tell.ring.scale.setScalar(1.5 - 0.6 * k);
-    tell.ring.material.color.setHex(hex(k > 0.6 ? 'xr-danger' : 'xr-fight-energy'));
+    const span = this.ex ?? this.cw;
+    if (!tell?.g.visible || !span) return;
+    const k = Math.max(0, Math.min(1, 1 - (span.end - this.gt) / span.T));
+    tell.ring.scale.setScalar(1.4 - 0.4 * k);
+    tell.ring.material.color.setHex(hex(this.cw ? 'xr-fight-player' : k > 0.6 ? 'xr-danger' : 'xr-fight-energy'));
     tell.ring.quaternion.copy(this.engine.camera.getWorldQuaternion(new THREE.Quaternion())).premultiply(this.stage3d.getWorldQuaternion(new THREE.Quaternion()).invert());
+  }
+
+  /** The moves that answer what the robot shows (for the hints on the buttons). */
+  answersTo(shown) {
+    const kp = this.kindP;
+    const ka = this.kindA;
+    if (shown === 'counter') return this.energy.p >= 100 ? ['punch', 'kick', 'throw', 'special'] : ['punch', 'kick', 'throw'];
+    if (shown === 'special') { const sp = SPECIALS[ka]; return [...(sp.stop ?? []), ...Object.keys(sp.weak ?? {})]; }
+    if (shown === 'block' || shown === 'duck') return ATTACKS.filter((m) => damage(m, shown, kp, ka) > 0);
+    return ['block', 'duck', 'punch', 'kick'].filter((m) => damage(shown, m, ka, kp) === 0);
+  }
+
+  /**
+   * The coach: over your fighter, the simplest answer to what the robot shows, and a mark on the
+   * fitting buttons. It helps the first times each announcement comes (relaxed mode: always).
+   */
+  coach(shown) {
+    // (The special in a counter counts as an announcement of its own: the coach shows it too.)
+    const what = shown === 'counter' && this.energy.p >= 100 ? 'counterSpecial' : shown;
+    const n = (this.seenTell[what] = (this.seenTell[what] ?? 0) + 1);
+    if (!this.easy && n > COACH_TIMES) { this.hideCoach(); return; }
+    // With full energy the counter is the moment for your special: it cannot be stopped then.
+    const best = shown === 'special' ? SPECIALS[this.kindA].counter : shown === 'counter' && this.energy.p >= 100 ? 'special' : BEST[shown];
+    const key = KEYCAP[best] ?? t(best === 'throw' ? 'fightKeySpace' : 'fightKeyEnter');
+    const text = this.desk ? t('fightCoachKey', { move: this.moveName(best, this.kindP), key }) : t('fightCoach', { move: this.moveName(best, this.kindP) });
+    this.coachSprite?.removeFromParent();
+    this.coachSprite?.material.map?.dispose();
+    this.coachSprite?.material.dispose();
+    const s = makeLabel(text, 'xr-success');
+    s.position.set(-GAP, 0.84, 0.06);
+    this.stage3d.add(s);
+    this.coachSprite = s;
+    this.hintMoves(this.answersTo(shown));
+  }
+
+  hideCoach() {
+    if (this.coachSprite) {
+      this.coachSprite.removeFromParent();
+      this.coachSprite.material.map?.dispose();
+      this.coachSprite.material.dispose();
+      this.coachSprite = null;
+    }
+    this.hintMoves([]);
+  }
+
+  /** Marks the buttons of the given moves (3D buttons; on phones the thumb buttons). */
+  hintMoves(list) {
+    this.moveButtons?.forEach((b, i) => { if (b.parent) b.userData.setHint(list.includes(MOVES[i])); });
+    this.livePadEls?.forEach((el, i) => {
+      const on = list.includes(this.livePadOrder[i]);
+      el.style.outline = on ? '3px solid var(--xr-success)' : '';
+      el.style.outlineOffset = on ? '2px' : '';
+    });
   }
 
   /**
@@ -671,12 +1108,13 @@ export class FightScene extends BaseScene {
    */
   readGestures(dt) {
     const e = this.engine;
-    if (!e.isXR || this.mode !== 'live' || !this.ex || this.ex.pm || !e.head.valid) return;
+    if (!e.isXR || this.mode !== 'live' || !e.head.valid) return;
+    const open = this.cw || (this.ex && !this.ex.pm);
     const head = e.head.pos;
     // Usual head height: follows quickly upwards, only slowly downwards.
     if (this.headBase === undefined) this.headBase = head.y;
     this.headBase += (head.y - this.headBase) * Math.min(1, dt * (head.y > this.headBase ? 3 : 0.12));
-    if (this.headBase - head.y > 0.2) { this.liveMove('duck'); return; }
+    if (open && this.headBase - head.y > 0.2) { this.liveMove('duck'); return; }
     const toTable = this.stage3d.getWorldPosition(new THREE.Vector3()).sub(head).setY(0).normalize();
     this.handPrev ??= new Map();
     const hands = [];
@@ -686,36 +1124,68 @@ export class FightScene extends BaseScene {
       hands.push(pos);
       const prev = this.handPrev.get(p);
       this.handPrev.set(p, pos.clone());
-      if (!prev) continue;
+      if (!prev || !open) continue;
       const v = pos.clone().sub(prev).divideScalar(Math.max(dt, 1e-3));
       if (v.dot(toTable) > 1.7 && pos.distanceTo(head) > 0.3) { this.liveMove('punch'); return; }
     }
-    if (hands.length >= 2 && hands.every((h) => h.distanceTo(head) < 0.33 && h.y > head.y - 0.3)) this.liveMove('block');
+    if (open && hands.length >= 2 && hands.every((h) => h.distanceTo(head) < 0.33 && h.y > head.y - 0.3)) this.liveMove('block');
   }
 
   /**
-   * Phones: the move console and the AI's insights face the screen. Portrait: the console below
-   * the table, the insights above the scoreboard. Landscape: left and right of the table. In the
-   * headset they stay on the arc around the player.
+   * The browser's layout (the headset keeps its arc around the player). Desktop: the move buttons
+   * as a flat row in front of the table, the AI's thoughts on the left and the cheat sheet on the
+   * right of the fighters. Phones, portrait: the console (tactics) below the table, the thoughts
+   * above the scoreboard; landscape: left and right of the table.
    */
   placePanels() {
-    if (!this.engine.touchUI) return;
-    const portrait = window.innerWidth < window.innerHeight;
+    if (!this.flat) return;
     const y0 = this.eye - ARENA_DROP;
-    // Larger than in the headset, so the buttons are easy to hit with a finger.
-    if (this.console?.parent) {
-      this.console.rotation.set(0, 0, 0);
-      this.console.scale.setScalar(portrait ? 1.55 : 1.3);
-      if (portrait) this.console.position.set(0, y0 - 0.5, ARENA_Z + 0.55);
-      else this.console.position.set(1.22, y0 + 0.28, ARENA_Z + 0.25);
-    }
+    const con = this.console?.parent ? this.console : null;
     const ins = this.insights?.parent;
+    const cheat = this.cheat?.parent ? this.cheat : null;
+    if (this.desk) {
+      if (con?.userData.live) {
+        // A control desk in front of the table's edge, tilted towards the viewer.
+        con.rotation.set(-0.26, 0, 0);
+        con.position.set(0, y0 - 0.17, ARENA_Z + 0.68);
+      } else if (con) {
+        // Tactics: the console (moves, the three slots, "fight") in the same place, larger.
+        con.rotation.set(-0.26, 0, 0);
+        con.scale.setScalar(1.2);
+        con.position.set(0, y0 - 0.34, ARENA_Z + 0.68);
+      }
+      if (ins) {
+        ins.rotation.set(0, 0, 0);
+        ins.position.set(-0.89, y0 + 1.04 - this.insights.h / 2, ARENA_Z + 0.1);
+      }
+      if (cheat) {
+        cheat.rotation.set(0, 0, 0);
+        cheat.position.set(0.89, y0 + 1.04 - cheat.h / 2, ARENA_Z + 0.1);
+      }
+      return;
+    }
+    const portrait = window.innerWidth < window.innerHeight;
+    // Phones held sideways: the fighters fill the height; the table's front edge may run out of
+    // the picture under the thumbs' buttons (portrait frames the whole table top).
+    this.fitLip.userData.noFit = !portrait;
+    // The scoreboard as wide as the screen allows.
+    this.board.scale.setScalar(portrait ? 1.12 : 1.5);
+    // Larger than in the headset, so the buttons are easy to hit with a finger.
+    if (con) {
+      con.rotation.set(0, 0, 0);
+      const two = con.userData.rows === 2;
+      con.scale.setScalar(portrait ? 1.75 : two ? 2 : 1.3);
+      if (portrait) con.position.set(0, y0 - 0.56, ARENA_Z + 0.55);
+      else con.position.set(two ? 1.3 : 1.22, y0 + (two ? 0.5 : 0.28), ARENA_Z + 0.25);
+    }
     if (ins) {
       // Real time in landscape: the thumbs' buttons take the lower corners; the insights pause.
       ins.visible = portrait || this.mode !== 'live';
       ins.rotation.set(0, 0, 0);
-      ins.scale.setScalar(portrait ? 1.35 : 1.25);
-      if (portrait) ins.position.set(0, y0 + HUD_UP + 0.12 + (this.insights.h * 1.35) / 2, ARENA_Z - 0.1);
+      // (Tactics: the taller panel a little smaller, so the move buttons below get their room.)
+      const k = !portrait ? 1.25 : this.liveMode ? 1.35 : 1.1;
+      ins.scale.setScalar(k);
+      if (portrait) ins.position.set(0, y0 + HUD_UP + 0.14 + (this.insights.h * k) / 2, ARENA_Z - 0.1);
       else ins.position.set(-1.22, y0 + 0.28, ARENA_Z + 0.25);
     }
   }
@@ -724,44 +1194,38 @@ export class FightScene extends BaseScene {
   buildConsole(live = false) {
     const { eye } = this;
     const g = new THREE.Group();
+    g.userData.live = live;
     placeOnArc(g, 0.8, eye - 0.06, 1.05);
     this.add(g);
-    const liveTitle = this.engine.isXR ? 'fightLiveTitleXR' : this.engine.touchUI ? 'fightLiveTitle' : 'fightLiveTitleKeys';
-    const title = textPanel(0.66, 0.06, [{ text: live ? t(liveTitle) : t('fightProgram', { n: this.round }), size: 'xr-text-sm', weight: 'black' }], { surface: false });
-    title.position.y = 0.2;
-    g.add(title);
-    // Move buttons
-    const bw = 0.118;
+    // Desktop, real time: a row of big buttons with their keys; else the compact console.
+    const deskLive = live && this.desk;
+    // Tactics on a phone held sideways: the moves in two rows of three, so the console fits
+    // beside the table at finger size.
+    const twoRows = !live && this.engine.touchUI && window.innerWidth > window.innerHeight;
+    g.userData.rows = twoRows ? 2 : 1;
+    if (!deskLive) {
+      const title = textPanel(twoRows ? 0.44 : 0.66, 0.06, [{ text: live ? t(this.engine.isXR ? 'fightLiveTitleXR' : 'fightLiveTitle') : t('fightProgram', { n: this.round }), size: 'xr-text-sm', weight: 'black' }], { surface: false });
+      title.position.y = twoRows ? 0.325 + title.h / 2 : 0.2; // two rows: above them, however many lines it has
+      g.add(title);
+    }
     this.moveButtons = MOVES.map((m) => {
       // The special has the fighter's own (longer) name: its button is a little wider.
-      const b = iconTile(m === 'special' ? 0.17 : bw, 0.14, (ctx, c, s) => {
-        const special = m === 'special';
-        const off = s.disabled;
-        c.surface({ fill: color(s.hover && !off ? 'xr-button-hover' : 'xr-button-bg'), stroke: color(special ? 'xr-fight-energy' : s.hover ? 'xr-accent' : 'xr-panel-border'), strokeWidth: num('xr-border-width') * (s.hover ? 2 : 1), stripe: false });
-        ctx.globalAlpha = off ? 0.35 : 1;
-        drawIcon(ctx, iconFor(m, this.kindP), c.canvas.width / 2, c.canvas.height * 0.38, c.m(0.055), color(special ? 'xr-fight-energy' : 'xr-accent'));
-        ctx.fillStyle = color('xr-button-text');
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        let px = c.m(num('xr-text-sm'));
-        const label = this.moveLabel(m);
-        do { ctx.font = font('bold', px); px -= 1; } while (ctx.measureText(label).width > c.canvas.width - c.m(0.012) && px > c.m(0.022));
-        ctx.fillText(label, c.canvas.width / 2, c.canvas.height * 0.8);
-        // Real time on a keyboard: the key in the corner.
-        if (live && !this.engine.isXR && !this.engine.touchUI) {
-          ctx.font = font('bold', c.m(num('xr-text-min')) * 0.8);
-          ctx.fillStyle = color('xr-panel-muted');
-          ctx.textAlign = 'left';
-          ctx.textBaseline = 'top';
-          ctx.fillText(String(MOVES.indexOf(m) + 1), c.m(0.008), c.m(0.006));
-        }
-        ctx.globalAlpha = 1;
-      });
+      const w = deskLive ? (m === 'special' ? 0.27 : 0.2) : m === 'special' ? 0.17 : 0.118;
+      const b = iconTile(w, deskLive ? 0.19 : 0.14, (ctx, c, s) => this.drawMoveButton(ctx, c, s, m, live));
       b.userData.label = this.moveLabel(m);
       b.userData.onClick = () => (live ? this.liveMove(m) : this.addMove(m));
       return b;
     });
-    layoutRow(this.moveButtons, 0.09, 0, 0.012);
+    if (deskLive) {
+      // Defence, attacks, special: in the order of the keys, with a little room between the groups.
+      const row = DESK_ORDER.map((m) => this.moveButtons[MOVES.indexOf(m)]);
+      layoutRow(row, 0, 0, 0.014);
+      row.forEach((b, i) => { b.position.x += i < 2 ? -0.035 : i === 5 ? 0.035 : 0; });
+    } else if (twoRows) {
+      const [punch, kick, block, duck, thrw, special] = this.moveButtons;
+      layoutRow([punch, kick, thrw], 0.242, 0, 0.012);
+      layoutRow([block, duck, special], 0.09, 0, 0.012);
+    } else layoutRow(this.moveButtons, 0.09, 0, 0.012);
     this.moveButtons.forEach((b) => g.add(b));
     if (live) {
       g.children.forEach((o, i) => this.popIn(o, 0.03 * i));
@@ -781,14 +1245,16 @@ export class FightScene extends BaseScene {
         ctx.fillText(String(i + 1), c.m(0.012), c.m(0.008));
         if (m) drawIcon(ctx, iconFor(m, this.kindP), c.canvas.width / 2, c.canvas.height / 2, c.m(0.06), color(m === 'special' ? 'xr-fight-energy' : 'xr-accent'));
       });
-      s.userData.label = `slot${i}`;
+      s.userData.label = `${t('fightProgram', { n: this.round })} ${i + 1}`;
+      s.userData.focusable = false; // the keyboard removes moves with Backspace
       s.userData.onClick = () => this.removeMove(i);
       return s;
     });
     layoutRow(this.slots, -0.07, 0, 0.02);
     this.slots.forEach((s) => g.add(s));
     // Actions
-    const clear = iconTile(0.2, 0.09, (ctx, c, s) => {
+    const ah = this.engine.touchUI ? 0.12 : 0.09; // phones: tall enough for a finger
+    const clear = iconTile(0.2, ah, (ctx, c, s) => {
       c.surface({ fill: color(s.hover ? 'xr-button-hover' : 'xr-button-bg'), stripe: false });
       ctx.fillStyle = color('xr-button-text');
       ctx.font = font('bold', c.m(num('xr-text-sm')));
@@ -798,7 +1264,7 @@ export class FightScene extends BaseScene {
     });
     clear.userData.label = t('fightClear');
     clear.userData.onClick = () => { sfx.click(); this.queue = []; this.refreshConsole(); };
-    this.goButton = iconTile(0.36, 0.09, (ctx, c, s) => {
+    this.goButton = iconTile(0.36, ah, (ctx, c, s) => {
       c.surface({ fill: color(s.disabled ? 'xr-button-bg' : s.hover ? 'xr-primary-hover' : 'xr-primary'), stroke: color('xr-primary-hover'), stripe: false });
       ctx.globalAlpha = s.disabled ? 0.5 : 1;
       drawIcon(ctx, 'fight', c.m(0.05), c.canvas.height / 2, c.m(0.045), color(s.disabled ? 'xr-button-text' : 'xr-on-primary'));
@@ -811,11 +1277,88 @@ export class FightScene extends BaseScene {
     });
     this.goButton.userData.label = t('fightGo');
     this.goButton.userData.onClick = () => { if (!this.goButton.userData.isDisabled()) this.execute(); };
-    layoutRow([clear, this.goButton], -0.2, 0, 0.02);
+    layoutRow([clear, this.goButton], -0.155 - ah / 2, 0, 0.02);
     g.add(clear, this.goButton);
     g.children.forEach((o, i) => this.popIn(o, 0.03 * i));
     this.console = g;
     this.refreshConsole();
+  }
+
+  /**
+   * A move's button: icon and name; on the desktop also its key (real time: the key cap below,
+   * tactics: the number in the corner). The coach's hint is a thick outline with a check mark.
+   */
+  drawMoveButton(ctx, c, s, m, live) {
+    const special = m === 'special';
+    const off = s.disabled;
+    const hint = s.hint && !off;
+    const W = c.canvas.width;
+    const H = c.canvas.height;
+    const deskLive = live && this.desk;
+    c.surface({
+      fill: color(s.hover && !off ? 'xr-button-hover' : 'xr-button-bg'),
+      stroke: color(hint ? 'xr-success' : special ? 'xr-fight-energy' : s.hover ? 'xr-accent' : 'xr-panel-border'),
+      strokeWidth: num('xr-border-width') * (hint ? 3 : s.hover ? 2 : 1),
+      stripe: false,
+    });
+    ctx.globalAlpha = off ? 0.35 : 1;
+    const accent = color(special ? 'xr-fight-energy' : 'xr-accent');
+    const label = this.moveLabel(m);
+    const fit = (weight, px, text, room, min) => {
+      let size = px;
+      ctx.font = font(weight, size);
+      while (ctx.measureText(text).width > room && size > min) { size -= 1; ctx.font = font(weight, size); }
+    };
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    if (deskLive) {
+      drawIcon(ctx, iconFor(m, this.kindP), W / 2, H * 0.24, c.m(0.062), accent);
+      ctx.fillStyle = color('xr-button-text');
+      fit('bold', c.m(num('xr-text-sm')), label, W - c.m(0.04), c.m(0.026));
+      ctx.fillText(label, W / 2, H * 0.52);
+      // The key cap
+      const key = KEYCAP[m] ?? t(m === 'throw' ? 'fightKeySpace' : 'fightKeyEnter');
+      fit('bold', c.m(num('xr-text-sm')), key, W - c.m(0.05), c.m(0.028));
+      const kw = Math.max(c.m(0.06), ctx.measureText(key).width + c.m(0.03));
+      const kh = c.m(0.048);
+      roundRect(ctx, (W - kw) / 2, H * 0.8 - kh / 2, kw, kh, c.m(0.01));
+      ctx.fillStyle = color('xr-panel-bg');
+      ctx.fill();
+      ctx.lineWidth = c.m(0.003);
+      ctx.strokeStyle = color('xr-panel-muted');
+      ctx.stroke();
+      ctx.fillStyle = color('xr-panel-text');
+      ctx.fillText(key, W / 2, H * 0.8 + c.m(0.002));
+    } else {
+      drawIcon(ctx, iconFor(m, this.kindP), W / 2, H * 0.38, c.m(0.055), accent);
+      ctx.fillStyle = color('xr-button-text');
+      fit('bold', c.m(num('xr-text-sm')), label, W - c.m(0.012), c.m(0.022));
+      ctx.fillText(label, W / 2, H * 0.8);
+      // Tactics on a keyboard: the key in the corner.
+      if (!live && this.desk) {
+        ctx.font = font('bold', c.m(num('xr-text-min')));
+        ctx.fillStyle = color('xr-panel-muted');
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(String(MOVES.indexOf(m) + 1), c.m(0.008), c.m(0.006));
+      }
+    }
+    if (hint) {
+      // A check mark in the corner: the hint never rests on the color alone.
+      const x = W - c.m(0.026);
+      const y = c.m(0.026);
+      const k = c.m(0.011);
+      ctx.lineWidth = c.m(0.006);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = color('xr-success');
+      ctx.beginPath();
+      ctx.moveTo(x - k, y);
+      ctx.lineTo(x - k * 0.25, y + k * 0.8);
+      ctx.lineTo(x + k * 1.1, y - k * 0.9);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
   }
 
   /** A move's name on its button (the special has the fighter's own name). */
@@ -840,11 +1383,18 @@ export class FightScene extends BaseScene {
 
   refreshConsole() {
     if (this.mode === 'live') {
-      // Real time: one move per attack; the special needs full energy (Santa's changes after use).
-      const off = (i) => !this.ex || !!this.ex.pm || (MOVES[i] === 'special' && this.energy.p < 100);
+      // Real time: one move per announcement; the special needs full energy (Santa's changes
+      // after use). While the robot is open (counter), only attacks count.
+      const open = !!this.cw || (!!this.ex && !this.ex.pm);
+      const off = (i) => {
+        const m = MOVES[i];
+        if (!open || (m === 'special' && this.energy.p < 100)) return true;
+        return !!this.cw && (m === 'block' || m === 'duck');
+      };
       this.moveButtons?.forEach((b, i) => b.userData.setDisabled(off(i)));
       const si = MOVES.indexOf('special');
-      this.moveButtons?.[si]?.redraw();
+      const sb = this.moveButtons?.[si];
+      if (sb) { sb.userData.label = this.moveLabel('special'); sb.redraw(); }
       if (this.livePad) {
         this.livePadOrder.forEach((m, i) => this.livePad.disable(i, off(MOVES.indexOf(m))));
         this.livePad.relabel(this.livePadOrder.indexOf('special'), iconFor('special', this.kindP), this.moveLabel('special'));
@@ -859,18 +1409,83 @@ export class FightScene extends BaseScene {
     this.goButton?.userData.setDisabled(this.queue.length < SLOTS);
   }
 
-  /** Left panel: what the AI predicted last turn, its hit rate and the rules. */
+  /**
+   * "AI thoughts": what the AI has learned about you. Real time: a compact panel (headset: under
+   * the move buttons; the cheat sheet takes the left side); tactics: the taller panel on the left.
+   */
   buildInsights() {
     const { eye } = this;
-    // Real time: a little taller (what the AI learned per announced move, feints, perfects).
-    const panel = new Panel(0.6, this.liveMode ? 0.8 : 0.68, (ctx, c) => this.drawInsights(ctx, c));
-    // In a holder, so phones can move and enlarge it while it pops in (placePanels).
+    const live = this.liveMode;
+    const panel = new Panel(0.6, live ? 0.46 : 0.84, (ctx, c) => this.drawInsights(ctx, c));
+    // In a holder, so the browser layout can move and enlarge it while it pops in (placePanels).
     const holder = new THREE.Group();
     holder.add(panel);
-    placeOnArc(holder, -0.8, eye - 0.06, 1.05);
+    if (live) placeOnArc(holder, 0.8, eye - 0.06 - 0.26, 1.05);
+    else placeOnArc(holder, -0.8, eye - 0.06, 1.05);
     this.add(holder);
     this.popIn(panel, 0.1);
     this.insights = panel;
+  }
+
+  /**
+   * The cheat sheet (real time; desktop and headset): what stops each announcement, with the
+   * current one marked. Phones have the coach instead (no room beside the fighters).
+   */
+  buildCheat() {
+    this.cheat = null;
+    if (this.engine.touchUI) return;
+    const panel = new Panel(0.6, 0.64, (ctx, c) => this.drawCheat(ctx, c));
+    placeOnArc(panel, -0.8, this.eye - 0.06, 1.05);
+    this.add(panel);
+    this.popIn(panel, 0.14);
+    this.cheat = panel;
+  }
+
+  drawCheat(ctx, c) {
+    c.surface();
+    const W = c.canvas.width;
+    const pad = c.m(0.025);
+    const sm = c.m(num('xr-text-sm'));
+    let y = pad;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = color('xr-panel-text');
+    ctx.font = font('black', c.m(num('xr-text-md')));
+    ctx.fillText(t('fightCheat'), pad, y);
+    y += c.m(0.062);
+    const ka = this.kindA;
+    const oppToken = this.opp?.token ?? 'xr-accent';
+    const rows = [
+      ['punch', t('fightMove_punch'), t('fightCheat_punch'), oppToken, 'punch'],
+      ['kick', t('fightMove_kick'), t('fightCheat_kick'), oppToken, 'kick'],
+      ['throw', t('fightMove_throw'), t('fightCheat_throw'), oppToken, 'throw'],
+      ['block', t('fightTell_block'), t('fightCheat_block'), oppToken, 'block'],
+      ['duck', t('fightTell_duck'), t('fightCheat_duck'), oppToken, 'duck'],
+      ['special', t(`fightSpecial_${ka}`), t(`fightSpecialHow_${ka}`), 'xr-fight-energy', iconFor('special', ka)],
+      ['counter', t('fightCheatCounter'), t('fightCheat_counter'), 'xr-fight-player', 'fight'],
+    ];
+    const active = this.cw ? 'counter' : this.ex?.seen;
+    const cell = c.m(0.044);
+    const tx = pad + cell + c.m(0.014);
+    for (const [key, name, answer, token, icon] of rows) {
+      const on = key === active;
+      ctx.font = font(on ? 'black' : 'bold', sm);
+      const lines = wrapText(ctx, `${name}: ${answer}`, W - tx - pad);
+      const h = Math.max(cell, lines.length * sm * 1.18);
+      if (on) {
+        // The announcement that is up right now: a bar and a frame (not the color alone).
+        roundRect(ctx, pad * 0.4, y - c.m(0.006), W - pad * 0.8, h + c.m(0.012), c.m(0.008));
+        ctx.fillStyle = color('xr-button-hover');
+        ctx.fill();
+        ctx.lineWidth = c.m(0.004);
+        ctx.strokeStyle = color('xr-success');
+        ctx.stroke();
+      }
+      drawIcon(ctx, icon, pad + cell / 2, y + h / 2, cell * 0.9, color(token));
+      ctx.fillStyle = color(on ? 'xr-panel-text' : 'xr-panel-muted');
+      lines.forEach((line, i) => ctx.fillText(line, tx, y + (h - lines.length * sm * 1.18) / 2 + i * sm * 1.18 + sm * 0.1));
+      y += h + c.m(0.016);
+    }
   }
 
   drawInsights(ctx, c) {
@@ -919,7 +1534,7 @@ export class FightScene extends BaseScene {
     ctx.fillText(t('fightMindAcc', { n: acc }), pad, y);
     y += sm * 1.6;
     // Rules
-    ctx.font = font('regular', sm * 0.92);
+    ctx.font = font('regular', sm);
     ctx.fillStyle = color('xr-panel-muted');
     for (const line of t('fightRulesShort').split('\n')) {
       ctx.fillText(line, pad, y, W - 2 * pad);
@@ -927,7 +1542,7 @@ export class FightScene extends BaseScene {
     }
     // The two special moves and what stops them.
     y += sm * 0.3;
-    ctx.font = font('bold', sm * 0.92);
+    ctx.font = font('bold', sm);
     for (const [who, kind, token] of [[this.playerName, this.kindP, 'xr-fight-player'], [this.opp?.name ?? '', this.kindA, this.opp?.token ?? 'xr-fight-energy']]) {
       ctx.fillStyle = color(token);
       for (const line of wrapText(ctx, `${who}: ${t(`fightSpecial_${kind}`)}, ${t(`fightSpecialHow_${kind}`)}`, W - 2 * pad)) {
@@ -939,7 +1554,8 @@ export class FightScene extends BaseScene {
 
   /**
    * Real time: what the robot has learned about you. For each move it announced: your usual
-   * answer (green if it stops that attack, red if not), then feints, perfect defences, the rules.
+   * answer with a check (it stops that move) or a cross (it does not), then how often it
+   * predicted you, its feints and your perfect defences.
    */
   drawLiveInsights(ctx, c) {
     c.surface();
@@ -965,7 +1581,7 @@ export class FightScene extends BaseScene {
     } else {
       para(t('fightMindLive'));
       y += sm * 0.25;
-      // Two cells per line: announced move, arrow, your usual answer.
+      // Two cells per line: announced move, arrow, your usual answer, check or cross.
       const cell = c.m(0.058);
       const colW = (W - 2 * pad) / 2;
       shown.forEach((m, i) => {
@@ -991,6 +1607,15 @@ export class FightScene extends BaseScene {
           ctx.fillText('–', x + cell * 2.2, cy);
           ctx.textBaseline = 'top';
         } else drawIcon(ctx, iconFor(ans, this.kindP), x + cell * 2.4, cy, cell * 0.75, tone);
+        // Check or cross behind it (not the color alone).
+        const mx = x + cell * 3.25;
+        const k = cell * 0.2;
+        ctx.strokeStyle = tone;
+        ctx.lineWidth = c.m(0.005);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        if (stops) { ctx.moveTo(mx - k, cy); ctx.lineTo(mx - k * 0.25, cy + k * 0.8); ctx.lineTo(mx + k * 1.1, cy - k * 0.9); } else { ctx.moveTo(mx - k, cy - k); ctx.lineTo(mx + k, cy + k); ctx.moveTo(mx + k, cy - k); ctx.lineTo(mx - k, cy + k); }
+        ctx.stroke();
       });
       y += Math.ceil(shown.length / 2) * (cell + c.m(0.012)) + c.m(0.008);
     }
@@ -1002,43 +1627,39 @@ export class FightScene extends BaseScene {
     y += sm * 1.3;
     ctx.fillStyle = color('xr-panel-muted');
     ctx.fillText(t('fightMindLiveStats', { f: this.feints ?? 0, p: this.perfects ?? 0 }), pad, y, W - 2 * pad);
-    y += sm * 1.6;
-    ctx.font = font('regular', sm * 0.92);
-    for (const line of t('fightRulesShort').split('\n')) {
-      ctx.fillText(line, pad, y, W - 2 * pad);
-      y += sm * 1.2;
-    }
-    y += sm * 0.3;
-    ctx.font = font('bold', sm * 0.92);
-    for (const [who, kind, token] of [[this.playerName, this.kindP, 'xr-fight-player'], [this.opp?.name ?? '', this.kindA, this.opp?.token ?? 'xr-fight-energy']]) {
-      ctx.fillStyle = color(token);
-      for (const line of wrapText(ctx, `${who}: ${t(`fightSpecial_${kind}`)}, ${t(`fightSpecialHow_${kind}`)}`, W - 2 * pad)) {
-        ctx.fillText(line, pad, y);
-        y += sm * 1.15;
-      }
-    }
   }
 
-  drawHud(ctx, c) {
+  /** The scoreboard: names, health (bar and number), energy, and in the middle the score. */
+  drawBoard(ctx, c) {
     const W = c.canvas.width;
     const H = c.canvas.height;
     ctx.clearRect(0, 0, W, H);
     c.surface({ fill: color('xr-fight-hud'), stroke: color('xr-panel-border'), stripe: false });
-    const pad = c.m(0.025);
-    const barW = W * 0.38;
+    const pad = c.m(0.022);
+    const barW = W * 0.36;
+    const min = c.m(num('xr-text-min'));
     const sides = [
       { name: this.playerName, token: 'xr-fight-player', hp: this.hp?.p ?? PLAYER_HP, max: PLAYER_HP, en: this.energy?.p ?? 0, x: pad, align: 'left' },
       { name: this.opp?.name ?? '', token: this.opp?.token ?? 'xr-fight-player', hp: this.hp?.a ?? 100, max: this.opp?.hp ?? 100, en: this.energy?.a ?? 0, x: W - pad - barW, align: 'right' },
     ];
     for (const s of sides) {
-      ctx.textAlign = s.align;
+      const outer = s.align === 'left' ? s.x : s.x + barW;
+      const inner = s.align === 'left' ? s.x + barW : s.x;
       ctx.textBaseline = 'top';
-      ctx.font = font('black', c.m(num('xr-text-md')));
+      // Name on the outside, the health as a number towards the middle.
+      ctx.textAlign = s.align;
+      let px = c.m(num('xr-text-md'));
+      ctx.font = font('black', px);
+      while (ctx.measureText(s.name).width > barW - c.m(0.09) && px > min) { px -= 1; ctx.font = font('black', px); }
       ctx.fillStyle = color(s.token);
-      ctx.fillText(s.name, s.align === 'left' ? s.x : s.x + barW, pad * 0.6);
+      ctx.fillText(s.name, outer, pad * 0.8);
+      ctx.textAlign = s.align === 'left' ? 'right' : 'left';
+      ctx.font = font('black', c.m(num('xr-text-md')));
+      ctx.fillStyle = color('xr-panel-text');
+      ctx.fillText(String(Math.ceil(s.hp)), inner, pad * 0.8);
       // Health bar (drains from the center outwards)
-      const by = pad + c.m(0.05);
-      const bh = c.m(0.03);
+      const by = pad + c.m(0.052);
+      const bh = c.m(0.034);
       ctx.fillStyle = color('xr-fight-dark');
       ctx.fillRect(s.x, by, barW, bh);
       const k = Math.max(0, s.hp / s.max);
@@ -1050,25 +1671,28 @@ export class FightScene extends BaseScene {
       ctx.strokeRect(s.x, by, barW, bh);
       // Energy bar
       const ey = by + bh + c.m(0.012);
-      const eh = c.m(0.014);
+      const eh = c.m(0.016);
       ctx.fillStyle = color('xr-fight-dark');
       ctx.fillRect(s.x, ey, barW, eh);
       const e = Math.min(1, s.en / 100);
       ctx.fillStyle = color(e >= 1 ? 'xr-fight-energy' : 'xr-fight-energy-dim');
       if (s.align === 'left') ctx.fillRect(s.x + barW * (1 - e), ey, barW * e, eh);
       else ctx.fillRect(s.x, ey, barW * e, eh);
-      ctx.font = font('bold', c.m(0.024));
-      ctx.fillStyle = color('xr-panel-muted');
-      ctx.fillText(e >= 1 ? t('fightEnergyFull') : t('fightEnergy'), s.align === 'left' ? s.x : s.x + barW, ey + eh + c.m(0.006));
+      ctx.textAlign = s.align;
+      ctx.font = font('bold', min);
+      ctx.fillStyle = color(e >= 1 ? 'xr-fight-energy' : 'xr-panel-muted');
+      ctx.fillText(e >= 1 ? t('fightEnergyFull') : t('fightEnergy'), outer, ey + eh + c.m(0.007));
     }
+    // The middle: the score, and which robot this is.
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = font('black', c.m(0.06));
+    ctx.font = font('black', c.m(0.064));
     ctx.fillStyle = color('xr-fight-energy');
-    ctx.fillText('VS', W / 2, H * 0.42);
-    ctx.font = font('bold', c.m(0.024));
+    ctx.fillText(String(this.totalScore ?? 0), W / 2, H * 0.3);
+    ctx.font = font('bold', min);
     ctx.fillStyle = color('xr-panel-muted');
-    if (this.opp) ctx.fillText(t('fightStage', { n: this.stage + 1, total: STAGES }), W / 2, H * 0.78);
+    ctx.fillText(t('score'), W / 2, H * 0.58);
+    if (this.opp) ctx.fillText(t('fightStage', { n: this.stage + 1, total: STAGES }), W / 2, H * 0.8, W - 2 * (pad + barW) - c.m(0.02));
   }
 
   // ---------- AI ----------
@@ -1134,7 +1758,7 @@ export class FightScene extends BaseScene {
       if (m === 'special') this.energy[side] = 0;
       f.play(this.animFor(m));
     }
-    this.hud.redraw();
+    this.redrawBoard();
     if (pm === 'special' || am === 'special') {
       this.announcer.say('fightCallSpecial', {}, 'xr-fight-energy');
       sfx.storm();
@@ -1162,7 +1786,8 @@ export class FightScene extends BaseScene {
     const kp = this.kindP;
     const ka = this.kindA;
     const toA = Math.round(damage(pm, am, kp, ka) * (this.opp.taken ?? 1));
-    const toP = Math.round(damage(am, pm, ka, kp) * (this.opp.dmg ?? 1));
+    // Real time and relaxed mode: the robots hit softer.
+    const toP = Math.round(damage(am, pm, ka, kp) * (this.opp.dmg ?? 1) * (this.mode === 'live' ? LIVE_DMG : 1) * (this.easy ? EASY_DMG : 1));
     const stage = this.stage3d;
     // Specials: each fighter's own look (beam, sonar rings, snowballs, a boulder).
     for (const [att, def, m, token, kind] of [[this.player, this.ai, pm, 'xr-fight-player', kp], [this.ai, this.player, am, this.opp.token, ka]]) {
@@ -1178,7 +1803,7 @@ export class FightScene extends BaseScene {
       const defMove = def === this.ai ? am : pm;
       // Ducked under a punch, a grab or a special: a quick "dodged!" over the defender.
       if (defMove === 'duck' && dmg === 0 && (m === 'punch' || m === 'throw' || m === 'special')) {
-        this.popNumber(t('fightDodge'), stage.worldToLocal(def.chestPos()), 'xr-fight-block');
+        this.popText(t('fightDodge'), stage.worldToLocal(def.chestPos()).add(new THREE.Vector3(0, 0.14, 0)), 'xr-fight-block');
         sfx.whoosh();
       }
       if (m === 'block' || m === 'duck' || (m === 'throw' && dmg === 0)) continue;
@@ -1227,7 +1852,7 @@ export class FightScene extends BaseScene {
     // Santa's special attacks take turns: next time the next one.
     if (pm === 'special' && this.playerKind !== 'echo' && CHRISTMAS) this.santaNext = (this.santaNext ?? 0) + 1;
     if (pm === 'throw' && toA > 0) this.announcer.say('fightCallThrow', {}, 'xr-fight-player');
-    this.hud.redraw();
+    this.redrawBoard();
     if (this.hp.p <= 0 || this.hp.a <= 0) this.ko();
     if (this.hp.p < 35 || this.hp.a < 35) music.intensity = 2;
   }
@@ -1351,6 +1976,11 @@ export class FightScene extends BaseScene {
   ko() {
     this.mode = 'ko';
     this.events = [];
+    this.ex = null;
+    this.cw = null;
+    this.hideTell();
+    this.hideCoach();
+    this.moveButtons?.forEach((b) => { if (b.parent) b.userData.setDisabled(true); });
     const youWin = this.hp.a <= 0 && this.hp.p > 0;
     const loser = youWin ? this.ai : this.player;
     const winner = youWin ? this.player : this.ai;
@@ -1387,6 +2017,7 @@ export class FightScene extends BaseScene {
         this.wins += 1;
         const bonus = 300 + this.hp.p * 5 + this.stage * 250 + (this.hp.p === PLAYER_HP ? 300 : 0);
         this.totalScore += bonus;
+        this.redrawBoard();
         if (this.stage + 1 < STAGES) this.between();
         else this.finish(true);
       } else {
@@ -1396,38 +2027,72 @@ export class FightScene extends BaseScene {
     });
   }
 
+  /** Between two robots: who is next and what is new about it; on with a key, a click, or by itself. */
   between() {
     this.mode = 'between';
     const next = FIGHT_OPPONENTS[this.stage + 1];
     this.clearLayer();
-    const p = this.add(textPanel(0.9, 0.2, [
-      { text: t('fightBeat', { name: this.opp.name }), size: 'xr-text-lg', weight: 'black', color: color('xr-fight-player'), gap: 0.015 },
+    this.board.visible = !this.flat; // the browser shows the panel in its place
+    const kind = next.specialMove;
+    const touch = this.engine.touchUI;
+    const p = this.add(textPanel(touch ? 1.3 : 0.98, 0.2, [
+      { text: t('fightBeat', { name: this.opp.name }), size: 'xr-text-lg', weight: 'black', color: color('xr-fight-player'), gap: 0.01 },
+      { text: `${t('score')}: ${this.totalScore}`, size: 'xr-text-sm', color: color('xr-panel-muted'), gap: 0.02 },
       { text: t(next.boss ? 'fightNextBoss' : 'fightNextUp', { name: next.name }), size: 'xr-text-md', weight: 'bold', color: color(next.boss ? 'xr-danger' : 'xr-panel-text'), gap: 0.01 },
-      { text: `${t('score')}: ${this.totalScore}`, size: 'xr-text-sm', color: color('xr-panel-muted') },
+      // Something new with every robot (real time): feints, then speed.
+      ...(this.liveMode ? [{ text: t(`fightNew_${Math.min(2, this.stage + 1)}`, { name: next.name }), size: touch ? 'xr-text-md' : 'xr-text-sm', gap: 0.008 }] : []),
+      { text: t('fightNextHint', { special: t(`fightSpecial_${kind}`), how: t(`fightSpecialHow_${kind}`) }), size: touch ? 'xr-text-md' : 'xr-text-sm', color: color('xr-fight-energy') },
     ]));
-    p.position.set(0, this.eye + 0.02 - p.h / 2, -this.dist);
+    // Browser: above the fighters (the winner cheers below it); headset: in front of the table.
+    const y0 = this.eye - ARENA_DROP;
+    const z = this.flat ? ARENA_Z + 0.1 : -this.dist;
+    const go = this.add(new Button(touch ? 0.6 : 0.36, touch ? 0.18 : 0.12, { label: t('next'), labelSize: touch ? 'xr-text-lg' : 'xr-text-md', body: this.desk ? t('fightNextKey') : undefined, variant: 'primary', onClick: () => this.nextOpponent() }));
+    // Phones: the button under the panel (both above the fighters); desktop: beside it.
+    p.position.set(0, this.flat ? y0 + 0.76 + (touch ? go.h + 0.03 : 0) + p.h / 2 : this.eye + 0.02 - p.h / 2, z);
     this.popIn(p);
-    this.schedule(1.2, () => this.announcer.say(next.boss ? 'fightCallBoss' : 'fightCallNext', { name: next.name }, next.token, { priority: true }));
-    this.schedule(4.2, () => { if (this.mode === 'between') this.startOpponent(this.stage + 1); });
+    if (touch) go.position.set(0, p.position.y - p.h / 2 - 0.03 - go.h / 2, z);
+    else go.position.set(this.flat ? 0.49 + 0.2 : 0, this.flat ? p.position.y : p.position.y - p.h / 2 - 0.03 - go.h / 2, z);
+    this.popIn(go, 0.1);
+    this.schedule(0.9, () => this.announcer.say(next.boss ? 'fightCallBoss' : 'fightCallNext', { name: next.name }, next.token, { priority: true }));
+    this.schedule(this.easy ? 10 : 6.5, () => this.nextOpponent());
+  }
+
+  nextOpponent() {
+    if (this.mode === 'between') this.startOpponent(this.stage + 1);
   }
 
   finish(champion) {
     this.mode = 'over';
-    this.hud.visible = false;
+    this.board.visible = false;
     music.stop();
     if (champion) this.announcer.say('fightCallChampion', {}, 'xr-fight-energy', { priority: true });
-    const fav = MOVES.reduce((a, b) => (this.moveCount[b] > this.moveCount[a] ? b : a), MOVES[0]);
-    const total = MOVES.reduce((a, m) => a + this.moveCount[m], 0) || 1;
     const acc = this.predLog.length ? Math.round((this.predLog.reduce((a, b) => a + b, 0) / this.predLog.length) * 100) : 0;
+    // The rating in three steps, by the points that count (relaxed mode counts a share).
+    const score = Math.min(MAX_SCORE, this.totalScore);
+    const counted = Math.round(score * assist.scoreFactor);
+    let rank = 0;
+    while (rank < RANKS.length - 1 && counted >= RANKS[rank + 1]) rank += 1;
+    const rankName = t(`fightRank${rank + 1}`);
+    // One tip: what cost the most health in this run.
+    const st = this.stats;
+    let tip = 'good';
+    if (!this.liveMode) tip = 'tactic';
+    else {
+      const missed = st.chances - st.counters;
+      const worst = Math.max(st.late, st.feint, st.pair, missed);
+      if (worst >= 2 || !champion) tip = worst === st.late ? 'late' : worst === st.feint ? 'feint' : worst === st.pair ? 'pair' : 'counter';
+    }
+    const portrait = this.flat && window.innerWidth < window.innerHeight;
+    this.zoom(!this.flat ? 1 : this.desk || portrait ? 1.2 : 1.35, 0.44);
     this.results({
-      gameKey: 'fight', score: this.totalScore, correct: this.wins, total: STAGES,
-      line: champion ? t('fightChampion') : t('fightLost', { name: this.opp.name }),
+      gameKey: 'fight', score, correct: this.wins, total: STAGES,
+      line: champion ? t('fightChampion') : `${t('fightLost', { name: this.opp.name })}  ·  ${rankName}`,
       learned: [
-        { q: t('fightLearnFav'), a: `${t(`fightMove_${fav}`)} · ${Math.round((this.moveCount[fav] / total) * 100)} %` },
-        { q: t('fightLearnAcc'), a: `${acc} %` },
-        { q: t('fightLesson'), a: t(this.liveMode ? 'fightLessonLiveText' : 'fightLessonText') },
+        { q: t('fightRank', { rank: rankName }), a: rank < RANKS.length - 1 ? t('fightRankNext', { p: RANKS[rank + 1] - counted, rank: t(`fightRank${rank + 2}`) }) : t('fightRankTop') },
+        { q: t('fightLessonAcc', { n: acc }), a: t(this.liveMode ? 'fightLessonLiveText' : 'fightLessonText') },
+        { q: t('fightTip'), a: t(`fightTip_${tip}`) },
       ],
-      onAgain: () => this.app.startGame('fight'),
+      onAgain: () => this.again(),
     });
   }
 
@@ -1446,8 +2111,18 @@ export class FightScene extends BaseScene {
     this.numbers.push(s);
   }
 
+  /** A few words that float up at a spot ("Perfekt!", why a hit landed); kept inside the picture. */
+  popText(text, local, token, life = 1.3) {
+    const s = makeLabel(text, token);
+    s.position.set(Math.max(-0.36, Math.min(0.36, local.x)), local.y, local.z + 0.04);
+    s.userData.life = life;
+    this.stage3d.add(s);
+    this.numbers.push(s);
+  }
+
   showMoveIcons(pm, am) {
     for (const [m, x, token, kind] of [[pm, -GAP, 'xr-fight-player', this.kindP], [am, GAP, this.opp.token, this.kindA]]) {
+      if (m === 'idle') continue; // no move chosen in time
       const c = document.createElement('canvas');
       c.width = c.height = 128;
       const ctx = c.getContext('2d');
@@ -1495,12 +2170,21 @@ export class FightScene extends BaseScene {
     this.livePad?.show(this.mode === 'live');
     this.room.setPool(this.stage3d.getWorldPosition(this.room.pool.position.clone()), hex('xr-fight-rim'), 0.3 + (this.slowUntil ? 0.3 : 0), 2.2);
     this.room.update(dt);
-    this.hud.position.y = this.eye - ARENA_DROP + HUD_UP;
+    this.board.position.y = this.eye - ARENA_DROP + HUD_UP;
+    if (this.menuBtn) this.menuBtn.position.y = this.board.position.y + 0.06;
     // Scheduled events in game time
     const due = this.events.filter((e) => e.at <= this.gt);
     if (due.length) {
       this.events = this.events.filter((e) => e.at > this.gt);
       due.sort((a, b) => a.at - b.at).forEach((e) => e.fn());
+    }
+    // Real time: a feint shows, the announcement ends, the chance to counter passes.
+    if (this.mode === 'live') {
+      const ex = this.ex;
+      if (ex) {
+        if (ex.revealAt && !ex.revealed && this.gt >= ex.revealAt) this.revealFeint(ex);
+        if (this.gt >= ex.end) this.resolveExchange();
+      } else if (this.cw && this.gt >= this.cw.end) this.closeCounter();
     }
     this.player.update(gdt);
     tickHolo(this.holoP, dt, this.time, this.player.root);

@@ -1,6 +1,7 @@
 // Main menu: compact title, games as 3D coins with name plates in two groups (3D experiences,
 // quizzes), a small icon bar (leaderboard, licence, AI lab, settings, exit). Language, design,
 // music and the XR room controls live in a separate settings view.
+import { assist, EASY_SCORE } from '../assist.js';
 import { BaseScene, neuralCloud, getBest, layoutRow } from '../scene.js';
 import { quality } from '../quality.js';
 import { Button, Panel, textPanel, placeOnArc, roundRect } from '../ui3d.js';
@@ -450,6 +451,24 @@ export class MenuScene extends BaseScene {
       return b;
     });
     sectionPair([['settingsMusic', musicOpts], ['settingsFps', fpsOpts]]);
+
+    // Play assistance (assist.js): a relaxed mode and calm motion, for every game.
+    const diffOpts = [['normal', 'diffNormal'], ['easy', 'diffEasy']].map(([key, label]) => {
+      const b = new Button(0.22, 0.1, { label: t(label), labelSize: 'xr-text-sm', onClick: () => rebuild(() => assist.setDifficulty(key)) });
+      b.set({ status: assist.difficulty === key ? 'selected' : null });
+      return b;
+    });
+    const motionOpts = [[false, 'motionFull'], [true, 'motionReduced']].map(([reduced, label]) => {
+      const b = new Button(0.22, 0.1, { label: t(label), labelSize: 'xr-text-sm', onClick: () => rebuild(() => assist.setMotion(reduced ? 'reduced' : 'full')) });
+      b.set({ status: assist.reducedMotion === reduced ? 'selected' : null });
+      return b;
+    });
+    y += 0.02;
+    sectionPair([['settingsDifficulty', diffOpts], ['settingsMotion', motionOpts]]);
+    y += 0.02;
+    const note = this.add(textPanel(1.0, 0.04, [{ text: t('assistNote', { percent: Math.round(EASY_SCORE * 100) }), size: 'xr-text-sm', color: color('xr-bg-muted') }], { surface: false }));
+    note.position.set(0, y - note.h / 2, -dist);
+    y -= note.h + 0.03;
 
     if (this.engine.isXR) {
       const room = [];

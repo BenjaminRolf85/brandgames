@@ -29,6 +29,11 @@ export const KICKBACK = { x: -0.2185, tip: 0.084, y: 0.108 };
 /** Rollovers: inlanes (on the way to the flippers) and outlanes (on the way to the drain). */
 export const INLANE_Y = 0.3;
 export const OUTLANE_Y = 0.25;
+/**
+ * Relaxed mode: a rescue post between and below the flippers. It closes the middle while the
+ * flippers rest and kicks a ball that touches it back up into play (a small pop post).
+ */
+export const SAVE_POST = { x: 0, y: 0.105, r: 0.008, kick: 0.9 };
 
 const deg = (d) => (d * Math.PI) / 180;
 const mirror = (pts) => pts.map(([x, y]) => [-x, y]);
@@ -120,9 +125,9 @@ function inlaneCurve() {
 
 /**
  * Builds the physics world and returns it with references to every part and the shapes the
- * 3D build needs.
+ * 3D build needs. opts.savePost: with the relaxed mode's rescue post (SAVE_POST).
  */
-export function buildTable() {
+export function buildTable(opts = {}) {
   const w = new World({ ballR: BALL_R, gravity: GRAVITY });
   const walls = []; // { pts, kind } for the 3D build
   const wall = (pts, kind = 'wall', opts = {}) => {
@@ -254,6 +259,13 @@ export function buildTable() {
   }
   // Rubber posts at the lane guides' tops (visual: the guides end in posts).
   for (const x of GUIDE_X) posts.push({ x, y: LANE_Y[1], r: 0.0045 });
+  // Relaxed mode: the rescue post in the middle (a kicking circle; the scene tells it apart from
+  // the pop bumpers by its tag).
+  let savePost = null;
+  if (opts.savePost) {
+    posts.push({ x: SAVE_POST.x, y: SAVE_POST.y, r: SAVE_POST.r });
+    savePost = w.addCircle(SAVE_POST.x, SAVE_POST.y, SAVE_POST.r, { e: 0.7, kick: SAVE_POST.kick, tag: 'savepost' });
+  }
   // Rollover switches in the inlanes and outlanes (sensors, crossing downwards: dir -1).
   const rollovers = [];
   for (const side of [1, -1]) {
@@ -285,7 +297,7 @@ export function buildTable() {
     return best;
   };
   const stops = { hq: nearest(ramps.right.ramp, HQ.x + 0.005, HQ.y), vault: nearest(ramps.left.ramp, VAULT.x + 0.04, VAULT.y - 0.025) };
-  return { world: w, walls, gate, lanes, bumpers, ramps, drops, column, house, saucer, slings, flippers, posts, plunger, standups, spinner, rollovers, kickback, chute, stops };
+  return { world: w, walls, gate, lanes, bumpers, ramps, drops, column, house, saucer, slings, flippers, posts, plunger, standups, spinner, rollovers, kickback, chute, stops, savePost };
 }
 
 /** Moves the plunger tip (pull 0 .. 1). */

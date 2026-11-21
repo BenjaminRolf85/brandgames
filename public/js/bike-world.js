@@ -106,8 +106,12 @@ export function seeded(seed) {
 
 // ---------------------------------------------------------------- the course
 
-/** Builds the course of one round: centerline, sections, hazards, items, props, best line. */
-export function makeCourse(rnd) {
+/**
+ * Builds the course of one round: centerline, sections, hazards, items, props, best line.
+ * The hazards come closer together from section to section (an easy start, a busy end);
+ * relaxed: more room between them everywhere (the relaxed mode of assist.js).
+ */
+export function makeCourse(rnd, { relaxed = false } = {}) {
   const sections = TERRAINS.map((kind, i) => ({ kind, i, b0: S0 + i * SEC_LEN, b1: S0 + (i + 1) * SEC_LEN }));
   const finish = S0 + 4 * SEC_LEN;
   const length = finish + RUNOUT;
@@ -194,9 +198,9 @@ export function makeCourse(rnd) {
 
   for (const sec of sections) {
     const types = HZ_BY[sec.kind];
-    let s = sec.b0 + 13;
+    let s = sec.b0 + (sec.i === 0 ? 20 : 13); // the first seconds of the round are free
     const end = sec.b1 - 12;
-    const gap = 8.6 - sec.i * 0.45;
+    const gap = 10.6 - sec.i * 1.15 + (relaxed ? 3 : 0);
     let stars = items.filter((it) => it.air && it.s >= sec.b0 && it.s < sec.b1).length;
     while (s < end) {
       if (isReserved(s) || isReserved(s + 7)) { s += 1.5; continue; }

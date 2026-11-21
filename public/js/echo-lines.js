@@ -59,8 +59,8 @@ export const ECHO_LINES = {
     en: 'The AI learns your style with every rally. Stay unpredictable and you have got it!',
   },
   intro_dataflight: {
-    de: 'Brille auf, wir fliegen durch vier Datenwelten! Ich folge deiner Hand. Fang die guten Daten, flieg durch die Tore und weich den schlechten aus. Und am Ende besiegen wir zusammen das Hacker-Mutterschiff!',
-    en: 'Goggles on, we are flying through four data worlds! I follow your hand. Catch the good data, fly through the gates and dodge the bad. And at the end we defeat the hacker mothership together!',
+    de: 'Flugbrille auf, wir fliegen durch vier Datenwelten! Du lenkst, ich fliege. Fang die guten Daten, flieg durch die Tore und weich den schlechten aus. Und am Ende besiegen wir zusammen das Hacker-Mutterschiff!',
+    en: 'Flight goggles on, we are flying through four data worlds! You steer, I fly. Catch the good data, fly through the gates and dodge the bad. And at the end we defeat the hacker mothership together!',
   },
   intro_arch: {
     de: 'Willkommen im Datenhaushalt einer Bank! Folge den Datenflüssen von System zu System.',

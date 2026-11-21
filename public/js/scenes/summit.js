@@ -1,20 +1,25 @@
 // "Gipfelgespräch" / "Summit Talk": a climbing wall that is a sales conversation. Five sections
 // of the wall are the five stages of the talk (opening, needs, value, objections, closing at
 // the summit). The customer waits at the summit and says something; the holds within Echo's
-// reach are the possible replies. Choosing a reply means taking hold of it and pulling yourself
-// up on it: strong replies are solid holds (a soft click, Echo climbs, trust rises), acceptable
-// ones wobble, weak ones break in the hand (a jolt, Echo slips, trust and strength drop; pick
-// again). Strength drains while you hesitate, and every pull costs a little. Three customers of different types (analytical,
-// relationship-oriented, decisive), each a full climb.
+// reach are the possible replies. Strong replies are solid holds (Echo climbs, trust rises, a
+// streak of solid holds brings a bonus), acceptable ones wobble, weak ones break (Echo slips,
+// trust and strength drop; pick again). Out of strength: Echo hangs in the rope, no deal.
+// A round is two customers in the browser and three in the headset (the points are scaled, so a
+// perfect round is 5000 either way).
 // The AI idea: an AI coach reads the customer's words (a small lexicon-based sentiment and
 // customer-type analysis, summit-ai.js) and shows mood and type with its confidence, the signal
 // words it reacted to and a tip; after the reply it shows whether it read the customer right.
-// It misses irony, hesitation and problem words that are not aimed at you: the human reads more.
-// Controls: Quest: grab a hold (grip, trigger or pinch near it, or point at it) and pull the hand
-// down: the wall moves with the hand; let go and grab the next one. Comfort option in the intro:
-// moves in jumps behind a short fade instead of continuous; a vignette while the wall moves.
-// Desktop and phones: press on a hold (or its reply) and drag it down; a ring shows how far.
-// Keys 1 to 3, a click without dragging and the answer buttons pull by themselves.
+// It misses irony, hesitation and problem words that are not aimed at you: where it is wrong and
+// you still find the solid hold, you get a bonus for reading the customer better than the AI.
+// Controls:
+//   Browser (desktop and phones): the talk is on the screen (summit-phone.js): the customer's
+//   line, the coach and three big answers. Click or tap an answer (or its hold on the wall), or
+//   use the keys 1 to 3, or the arrow keys and Enter. H tests the holds (help: shows a weak one).
+//   Headset: grab a hold (grip, trigger or pinch near it, or point at it) and pull the hand
+//   down: the wall moves with the hand. Comfort option in the intro: moves in jumps behind a
+//   short fade; a vignette while the wall moves.
+// Play assistance (assist.js): relaxed mode = no time pressure at all, a broken hold costs less
+// strength, three hold tests per climb; calm motion = no jolt, slower view, fewer particles.
 import * as THREE from 'three';
 import { BaseScene } from '../scene.js';
 import { textPanel, Button } from '../ui3d.js';
@@ -34,13 +39,13 @@ import {
   makeSky, makePeaks, makeClouds, surfaceZ, cutUniform, makePullHint, makeDuskEnvironment, setRockHaze, TOP, PLATEAU_Y, BOLTS,
 } from '../summit-visuals.js';
 import { holder, makeBubble, makeLabel, makeFeedback, makeCoach, makeStatus } from '../summit-panels.js';
-import { phoneTalk } from '../summit-phone.js';
+import { screenTalk } from '../summit-phone.js';
+import { assist } from '../assist.js';
 import { CustomerFigure } from '../summit-customer.js';
 
 const WALL_Z = -num('xr-summit-wall-z');
 const LS = num('xr-summit-label-scale');
 const GRAB_R = num('xr-summit-grab-radius');
-const ROUND = EVENT ? 2 : 3; // customers per round
 const ROWS = [0.21, 0.45, 0.69, 0.93, 1.04]; // wall-local height of the reply holds per stage
 // Where the view centers per stage (the last two lower, so the customer at the summit is in view).
 const FOCUS = [0.21, 0.45, 0.69, 1.03, 1.2];
@@ -52,11 +57,20 @@ const CUSTOMER_SIZE = 0.44; // height of the customer at the summit (m)
 const PORTRAIT_R = 0.11; // the close-up portrait next to the speech bubble (m)
 const VIEW_TOP = TOP - 0.1; // focus while meeting the customer at the summit
 const STAND_TO_HANG = new THREE.Vector3(0, 0.15, -0.075); // grip point standing (feet) -> hanging (wings)
-// Points: per stage up to 200 (solid at the first try, with a speed bonus), at the summit 200
-// plus 4 per % of trust, 200 more when every deal closes with at least 80 % trust: max 5000.
-const PTS = { solid: 140, speed: 60, solidRetry: 70, ok: 60, okRetry: 30, summit: 200, trust: 4, bonus: 200 };
-const TRUST = { start: 20, good: 16, ok: 6, bad: -10 };
-const STAMINA = { drain: 1.1, grace: 1.5, bad: -20, good: 8, ok: 3, pull: 4 }; // pulling costs a little
+// Points (for a round of three customers; a shorter round scales them up): per stage up to 200
+// (a solid hold at the first try 120, up to 40 for speed, up to 40 for a streak of solid holds),
+// 40 more where you read the customer better than the AI coach; at the summit 200 plus 4 per %
+// of trust; 200 when every deal closes with at least 80 % trust. The result is capped at 5000.
+const PTS = { solid: 120, speed: 40, flow: 10, flowMax: 4, outread: 40, solidRetry: 60, ok: 50, okRetry: 25, summit: 200, trust: 4, bonus: 200 };
+const TRUST = { start: 20, good: 16, ok: 6, bad: -10, badEasy: -6 };
+// Strength: a solid hold gives some back, a wobbly one costs a little, a broken one a lot. Only
+// after a long time to read does it drain while you hesitate (never in relaxed mode).
+const STAMINA = { grace: 18, drain: 1.5, bad: -30, badEasy: -20, good: 10, ok: -8, okEasy: 0 };
+const SPEED = { full: 8, zero: 24 }; // seconds on a stage: full speed bonus until, none from
+const SEEN_KEY = 'kiar.summitSeen'; // the customers of the last round (the next one brings others)
+const HINT_KEY = 'kiar.summitHints'; // the hints during play that were shown already
+const RANKS = [0, 2800, 4300]; // rating in three steps (points before the relaxed mode's share)
+let quickStart = false; // "again" on the result: the next round starts at once, without the intro
 const PULL_M = num('xr-summit-pull-reach'); // hand travel for one move (headset)
 const BREAK_AT = 0.3; // a weak hold breaks when this much of the pull is on it
 const COMFORT_KEY = 'kiar.summitComfort';
@@ -110,15 +124,30 @@ export class SummitScene extends BaseScene {
       if (!this.disposed && !this.M) this.buildMountain({ wall: null, cust: null });
     });
 
+    // The browser (desktop and phones) plays with the talk on the screen; the headset with 3D
+    // panels around the wall. Play assistance: relaxed mode and calm motion (assist.js).
+    this.screenUI = !this.engine.isXR;
+    this.easy = assist.easy;
+    this.calm = assist.reducedMotion;
     this.customers = this.pickCustomers();
+    this.scale = 3 / this.customers.length; // points: every round is worth the same
+    this.seenHints = loadSet(HINT_KEY);
+    this.setControls({
+      desktop: [[t('summitKeyPick'), t('summitDoPick')], [t('summitKeyMove'), t('summitDoMove')], [t('summitKeyTest'), t('summitDoTest')]],
+      touch: [[t('summitTapPick'), t('summitDoPick')], [t('summitTapTest'), t('summitDoTest')]],
+      xr: [[t('summitXRGrab'), t('summitXRDoGrab')], [t('summitXRPull'), t('summitXRDoPull')], [t('summitXRPoint'), t('summitXRDoPoint')]],
+    });
     this.setupInput();
     this.onUpdate((dt) => this.update(dt));
-    const hint = this.engine.isXR ? 'summitIntroXR' : this.engine.touchUI ? 'summitIntroTouch' : 'summitIntroScreen';
-    this.intro(t('summitName'), `${t('summitIntro')} ${t(hint)}`, () => this.start());
     try { this.comfortSnap = localStorage.getItem(COMFORT_KEY) === 'snap'; } catch { this.comfortSnap = false; }
-    if (this.engine.isXR) {
-      this.addComfortButton();
-      this.buildVignette();
+    if (this.engine.isXR) this.buildVignette();
+    if (quickStart) {
+      // "Again": straight into the next round.
+      quickStart = false;
+      this.delay(0.05, () => { if (!this.disposed) this.start(); });
+    } else {
+      this.intro(t('summitName'), t(this.easy ? 'summitIntroEasy' : 'summitIntro'), () => this.start());
+      if (this.engine.isXR) this.addComfortButton();
     }
   }
 
@@ -168,10 +197,27 @@ export class SummitScene extends BaseScene {
     this.blinkT = 0;
   }
 
-  /** One customer of every type (shuffled), the B2B or B2C one at random. */
+  /**
+   * The customers of the round: each of another type (analytical, relationship-oriented,
+   * decisive), two in the browser and at events (a round of about three minutes), three in the
+   * headset. Customers you met in earlier rounds come again only when no others are left.
+   */
   pickCustomers() {
-    const byType = (type) => pick(CUSTOMERS.filter((c) => c.type === type));
-    return shuffle(['analytical', 'relational', 'decisive'].map(byType)).slice(0, ROUND);
+    const n = EVENT || !this.engine.isXR ? 2 : 3;
+    const seen = loadSet(SEEN_KEY);
+    if (CUSTOMERS.filter((c) => !seen.has(c.key)).length < n) seen.clear();
+    const byType = (type) => {
+      const all = CUSTOMERS.filter((c) => c.type === type);
+      const fresh = all.filter((c) => !seen.has(c.key));
+      return pick(fresh.length ? fresh : all);
+    };
+    // Types whose customers are all new first, so a second round meets new people.
+    const fresh = (type) => CUSTOMERS.some((c) => c.type === type && !seen.has(c.key));
+    const types = shuffle(['analytical', 'relational', 'decisive']).sort((a, b) => fresh(b) - fresh(a));
+    const list = types.slice(0, n).map(byType);
+    list.forEach((c) => seen.add(c.key));
+    saveSet(SEEN_KEY, seen);
+    return shuffle(list);
   }
 
   // ---------- world ----------
@@ -228,7 +274,8 @@ export class SummitScene extends BaseScene {
     this.clouds = makeClouds(this.CLOUD_Y, { count: quality.lite ? 55 : 90, ar: this.ar });
     this.world.add(this.clouds);
     if (WINTER) {
-      this.snow = makeSnowfall({ density: 0.6, box: [-2.4, -3.0, 2.4, 1.6] });
+      // Calm motion (assist.js): much less snow.
+      this.snow = makeSnowfall({ density: assist.reducedMotion ? 0.2 : 0.6, box: [-2.4, -3.0, 2.4, 1.6] });
       this.world.add(this.snow.points);
     }
   }
@@ -300,14 +347,29 @@ export class SummitScene extends BaseScene {
 
   setupInput() {
     this.onKey = (e) => {
-      if (e.repeat) return;
+      if (e.repeat || this.disposed || this.engine.paused || e.altKey || e.ctrlKey || e.metaKey) return;
+      const tag = document.activeElement?.tagName;
+      const onButton = tag === 'BUTTON'; // Enter and Space press the focused button by themselves
+      const go = e.key === 'Enter' || e.key === ' ';
       const n = Number(e.key);
-      if (n >= 1 && n <= 3 && this.mode === 'choose') {
-        const i = this.options.findIndex((o) => o.n === n && !o.gone);
-        if (i >= 0) { e.preventDefault(); this.choose(i); }
-      } else if ((e.key === 'Enter' || e.key === ' ') && this.waitNext) {
+      if (this.mode === 'choose') {
+        const dir = { ArrowDown: 1, ArrowRight: 1, s: 1, d: 1, S: 1, D: 1, ArrowUp: -1, ArrowLeft: -1, w: -1, a: -1, W: -1, A: -1 }[e.key];
+        if (n >= 1 && n <= 3) {
+          const i = this.options.findIndex((o) => o.n === n && !o.gone);
+          if (i >= 0) { e.preventDefault(); this.choose(i); }
+        } else if (dir && this.talk) {
+          e.preventDefault();
+          this.talk.focusAnswer(dir);
+        } else if (e.key === 'h' || e.key === 'H') {
+          e.preventDefault();
+          this.useHint();
+        }
+      } else if (go && this.waitNext && !onButton) {
         e.preventDefault();
         this.next();
+      } else if (go && this.dwell && !onButton) {
+        e.preventDefault();
+        this.skipDwell();
       }
     };
     window.addEventListener('keydown', this.onKey);
@@ -324,21 +386,24 @@ export class SummitScene extends BaseScene {
       p.controller.addEventListener('squeezeend', up);
       this.grabbers.push([p.controller, fn, up]);
     }
-    // Mouse and finger: where the press started, so a drag downward pulls.
-    const c = this.engine.canvas;
-    this.onDown = (e) => { this.downY = e.clientY; };
-    this.onMove = (e) => {
-      const P = this.pull;
-      if (!P || P.via !== 'drag' || this.downY == null) return;
-      P.dragP = clamp((e.clientY - this.downY) / this.pullPx(), 0, 1);
-    };
-    c.addEventListener('pointerdown', this.onDown);
-    c.addEventListener('pointermove', this.onMove);
-    // Phones: the talk with big answer buttons.
-    if (this.engine.touchUI) {
-      this.talk = phoneTalk({ onPick: (i) => this.choose(i), onNext: () => this.next() });
+    // Browser: the talk on the screen with big answer buttons; a press on the wall goes on
+    // sooner while the feedback is shown.
+    if (this.screenUI) {
+      this.talk = screenTalk({
+        onPick: (i) => this.choose(i),
+        onNext: () => this.next(),
+        onHint: () => this.useHint(),
+        onMenu: () => this.menuOrPause(),
+        onPreview: (i) => { this.preview = i; },
+        onSkip: () => this.skipDwell(),
+        desk: !this.engine.touchUI,
+        calm: this.calm,
+      });
+      this.preview = -1;
       this.onSceneDispose(() => this.talk.remove());
-      this.mobileView((cam, dt, ins) => this.phoneCamera(cam, dt, ins));
+      this.onDown = () => this.skipDwell();
+      this.engine.canvas.addEventListener('pointerdown', this.onDown);
+      this.mobileView((cam, dt, ins) => this.screenCamera(cam, dt, ins));
     }
   }
 
@@ -348,11 +413,11 @@ export class SummitScene extends BaseScene {
     if (near) this.choose(this.options.indexOf(near), 'hand', p);
   }
 
-  /** A hold was taken by a pointer: headset hands pull, mouse and finger drag. */
+  /** A hold was taken by a pointer: headset hands pull; a click or a tap pulls by itself. */
   grabOption(opt, p) {
     const i = this.options.indexOf(opt);
     if (p?.kind === 'xr') this.choose(i, 'hand', p);
-    else this.choose(i, this.engine.isXR ? 'auto' : 'drag');
+    else this.choose(i);
   }
 
   /** Let go: a move that was pulled only part of the way finishes by itself. */
@@ -360,7 +425,6 @@ export class SummitScene extends BaseScene {
     const P = this.pull;
     if (!P || this.mode !== 'pull') return;
     if (P.via === 'hand' && P.hand !== p) return;
-    if (P.via === 'drag') this.downY = null;
     P.release = true;
   }
 
@@ -368,11 +432,12 @@ export class SummitScene extends BaseScene {
 
   start() {
     this.clearLayer();
-    this.refreshHud ??= this.hud(() => this.hudText());
+    if (this.screenUI) this.refreshHud ??= () => this.talk.setStatus(this.hudText());
+    else this.refreshHud ??= this.hud(() => this.hudText());
     this.placeHudButtons();
     this.app.echo?.suppress(true);
     this.startMusic(1, 'summit');
-    Object.assign(this, { score: 0, deals: 0, trustSum: 0, aiRight: 0, aiTotal: 0, index: -1, climbs: [] });
+    Object.assign(this, { score: 0, deals: 0, trustSum: 0, aiRight: 0, aiTotal: 0, index: -1, climbs: [], flow: 0, bestFlow: 0, outreads: 0, firstSolid: 0, picks: 0, stageMiss: [0, 0, 0, 0, 0] });
     this.buildPanels();
     this.depthTo = 0;
     this.focusTo = VIEW_TOP;
@@ -380,7 +445,7 @@ export class SummitScene extends BaseScene {
     this.showClimber();
     sfx.whoosh();
     // The models are normally loaded during the intro; wait for them if not.
-    Promise.resolve(this.ready).then(() => { if (!this.disposed) this.after(1.0, () => this.nextCustomer()); });
+    Promise.resolve(this.ready).then(() => { if (!this.disposed) this.after(0.8, () => this.nextCustomer()); });
   }
 
   buildPanels() {
@@ -393,59 +458,77 @@ export class SummitScene extends BaseScene {
     this.bubbleHolder = new THREE.Group();
     this.bubbleHolder.scale.setScalar(0.5);
     this.hudGroup.add(this.coachHolder, this.statusHolder, this.bubbleHolder);
-    this.hudGroup.visible = !this.engine.touchUI;
+    // In the browser the talk is on the screen (summit-phone.js); these panels are the headset's.
+    this.hudGroup.visible = !this.screenUI;
+    if (!this.screenUI) {
+      // The help "test a hold" below the coach (in a holder: a button resets its own scale).
+      this.hintBtn = new Button(0.6, 0.11, { label: this.hintLabel(), labelSize: 'xr-text-sm', onClick: () => this.useHint() });
+      this.hintHolder = holder(this.hintBtn, 0.6);
+      this.hudGroup.add(this.hintHolder);
+    }
     this.layoutPanels(true);
   }
 
-  /** The base HUD's 3D bar is replaced by the status panel; the menu button sits below it. */
+  /** Headset: the base HUD's text bar is replaced by the status panel; the menu button sits below it. */
   placeHudButtons() {
-    this.hudBits = this.group.children.filter((o) => o.userData.hud);
+    if (this.screenUI || this.menuHolder) return;
+    for (const o of this.group.children.filter((c) => c.userData.hud)) {
+      if (o.isMesh && o.userData.onClick) {
+        // In a holder, because a button sets its own scale when it is hovered.
+        this.menuHolder = new THREE.Group();
+        this.group.add(this.menuHolder);
+        o.position.set(0, 0, 0);
+        this.menuHolder.add(o);
+        this.menuBtn = o;
+      } else o.visible = false;
+    }
   }
 
-  /** Coach left, status right; angled towards you in the headset, flat on a screen. */
+  /** Headset: coach left, status right, angled towards you. */
   layoutPanels(force = false) {
-    const xr = this.engine.isXR;
-    if (!force && this.laidOutXR === xr) return;
-    this.laidOutXR = xr;
+    if (this.screenUI || !force) return;
     const { eye } = this;
-    if (xr) {
-      // Larger in the headset: the text stays above the minimum size at about one meter.
-      this.coachHolder.position.set(-0.7, eye - 0.08, -0.8);
-      this.coachHolder.rotation.y = 0.66;
-      this.statusHolder.position.set(0.7, eye - 0.08, -0.8);
-      this.statusHolder.rotation.y = -0.66;
-    } else {
-      this.coachHolder.position.set(-0.68, eye - 0.06, -0.6);
-      this.coachHolder.rotation.y = 0;
-      this.statusHolder.position.set(0.68, eye - 0.06, -0.6);
-      this.statusHolder.rotation.y = 0;
-    }
-    const s = xr ? 0.76 : 0.6;
-    const sb = xr ? 0.55 : 0.4;
+    // Large enough that the text stays above the minimum size at about one meter.
+    this.coachHolder.position.set(-0.7, eye - 0.08, -0.8);
+    this.coachHolder.rotation.y = 0.66;
+    this.statusHolder.position.set(0.7, eye - 0.08, -0.8);
+    this.statusHolder.rotation.y = -0.66;
+    const s = 0.76;
+    const sb = 0.55;
     this.coachHolder.scale.setScalar(s);
     this.statusHolder.scale.setScalar(s);
-    // Menu button below the status panel (the base HUD's text bar is not needed here).
-    for (const o of this.hudBits ?? []) {
-      if (o.isMesh && o.userData.onClick) {
-        o.scale.setScalar(sb);
-        o.position.copy(this.statusHolder.position);
-        o.position.y -= (this.status.h * s) / 2 + 0.02 + (o.h * sb) / 2;
-        o.rotation.y = this.statusHolder.rotation.y;
-        o.visible = !this.engine.touchUI && this.mode !== 'over';
-      } else o.visible = false;
+    if (this.hintHolder) {
+      this.hintHolder.scale.setScalar(s);
+      this.hintHolder.position.copy(this.coachHolder.position);
+      this.hintHolder.position.y -= (this.coach.h * s) / 2 + 0.02 + (this.hintBtn.h * s) / 2;
+      this.hintHolder.rotation.y = this.coachHolder.rotation.y;
+    }
+    if (this.menuHolder) {
+      this.menuHolder.scale.setScalar(sb);
+      this.menuHolder.position.copy(this.statusHolder.position);
+      this.menuHolder.position.y -= (this.status.h * s) / 2 + 0.02 + (this.menuBtn.h * sb) / 2;
+      this.menuHolder.rotation.y = this.statusHolder.rotation.y;
     }
   }
 
   hudText() {
     const c = this.customer;
     if (!c) return t('summitName');
-    const stage = this.stepIndex ?? 0;
+    // While the feedback of a move is shown, the stage just played stays in the status line.
+    const stage = Math.max(0, (this.stepIndex ?? 0) - (this.dwell ? 1 : 0));
     const st = STAGES[Math.min(STAGES.length - 1, stage)];
-    return t('summitHud', { name: L(c.name), n: this.index + 1, total: this.customers.length, stage: t('summitStage', { n: Math.min(5, stage + 1), name: L(st.name) }), trust: Math.round(this.trust ?? 0), stamina: Math.round(this.stamina ?? 0), score: this.score ?? 0 });
+    const vars = { name: L(c.name), n: this.index + 1, total: this.customers.length, stage: t('summitStage', { n: Math.min(5, stage + 1), name: L(st.name) }), trust: Math.round(this.trust ?? 0), stamina: Math.round(this.stamina ?? 0), score: this.shownScore() };
+    if (!this.screenUI) return t('summitHud', vars);
+    // A phone held sideways has no room for the two meters: they are in the status line.
+    const flat = this.engine.touchUI && window.innerWidth > window.innerHeight && window.innerHeight <= 480;
+    return t(flat ? 'summitHudFlat' : this.engine.touchUI ? 'summitHudPhone' : 'summitHudScreen', vars);
   }
 
+  /** The points as the result will count them (whole points; scaled to the length of the round). */
+  shownScore() { return Math.min(5000, Math.round(this.score ?? 0)); }
+
   statusState() {
-    return { customer: this.customer, index: this.index, total: this.customers.length, stage: this.stepIndex ?? 0, climbing: this.mode !== 'summit' && this.mode !== 'meet', trust: this.trust ?? 0, stamina: this.stamina ?? 0, score: this.score ?? 0, time: this.time };
+    return { customer: this.customer, index: this.index, total: this.customers.length, stage: this.stepIndex ?? 0, climbing: this.mode !== 'summit' && this.mode !== 'meet', trust: this.trust ?? 0, stamina: this.stamina ?? 0, score: this.shownScore(), time: this.time, flow: this.flow ?? 0 };
   }
 
   setCustomer(c) {
@@ -477,13 +560,13 @@ export class SummitScene extends BaseScene {
     if (this.portrait) fn(this.portrait);
   }
 
-  /** The close-up portrait: beside the bubble (headset, desktop), at the top of the wall (phones). */
+  /** The close-up portrait: beside the bubble (headset), at the top of the wall (browser). */
   placePortrait(show) {
     const fr = this.portraitFrame;
     if (!fr) return;
     fr.visible = show && !!this.portrait;
     if (!fr.visible) return;
-    if (this.engine.touchUI) fr.position.set(0.27, this.eye + 0.075, -0.6);
+    if (this.screenUI) fr.position.set(0.27, this.eye + 0.075, -0.6);
     else fr.position.set(this.bubbleHolder.position.x - (this.bubble.panel.w * this.bubbleHolder.scale.x) / 2 - PORTRAIT_R - 0.012, this.bubbleHolder.position.y + 0.01, -0.585);
   }
 
@@ -493,7 +576,7 @@ export class SummitScene extends BaseScene {
     this.index += 1;
     if (this.index >= this.customers.length) { this.finish(); return; }
     const c = (this.customer = this.customers[this.index]);
-    Object.assign(this, { trust: TRUST.start, stamina: 100, stepIndex: 0, typeVotes: { A: 0, Rel: 0, D: 0 }, climbPoints: 0, aiType: null, fell: false });
+    Object.assign(this, { trust: TRUST.start, stamina: 100, stepIndex: 0, typeVotes: { A: 0, Rel: 0, D: 0 }, climbPoints: 0, aiType: null, fell: false, hints: assist.pick(1, 3) });
     this.mode = 'meet';
     this.clearCard();
     this.placePortrait(false);
@@ -507,22 +590,25 @@ export class SummitScene extends BaseScene {
     const card = this.card = this.add(holder(textPanel(1.0, 0.3, [
       { text: t('summitCustomerOf', { n: this.index + 1, total: this.customers.length }), size: 'xr-text-sm', weight: 'bold', color: color('xr-panel-muted'), gap: 0.01 },
       { text: L(c.name), size: 'xr-text-lg', weight: 'black', gap: 0.01 },
-      { text: `${L(c.role)} · ${c.market}`, size: 'xr-text-sm', color: color('xr-panel-muted'), gap: 0.015 },
+      { text: `${L(c.role)} · ${t(`summitMarket_${c.market}`)}`, size: 'xr-text-sm', color: color('xr-panel-muted'), gap: 0.015 },
       { text: `${L(c.topic)} – ${t('summitWaiting')}`, size: 'xr-text-md', weight: 'bold', color: color('xr-accent') },
     ]), 0.5));
     card.position.set(0, this.eye - 0.3, -0.58);
     this.popIn(card.userData.panel);
-    card.visible = !this.engine.touchUI;
+    card.visible = !this.screenUI;
     this.talk?.show(true);
-    this.talk?.setSummary([`${t('summitCustomerOf', { n: this.index + 1, total: this.customers.length })}: ${L(c.name)}`, `${L(c.role)} · ${c.market}`, `${L(c.topic)} – ${t('summitWaiting')}`], null);
+    this.talk?.setSummary([`${t('summitCustomerOf', { n: this.index + 1, total: this.customers.length })}: ${L(c.name)}`, `${L(c.role)} · ${t(`summitMarket_${c.market}`)}`, `${L(c.topic)} – ${t('summitWaiting')}`], null);
+    this.talk?.setStage(0, false, t('summitCustomerOf', { n: this.index + 1, total: this.customers.length }));
+    this.talk?.setMeters(this.trust, this.stamina, this.flow);
+    this.refreshHint();
     this.coach.userData.set({ phase: 'idle', mood: null, type: null, words: [], verdict: null });
     this.status.redraw();
     this.refreshHud?.();
-    this.after(2.4, () => {
+    this.after(assist.pick(1.8, 2.6), () => {
       this.clearCard();
       this.focusTo = FOCUS[0];
       sfx.whoosh();
-      this.after(1.1, () => this.beginStep());
+      this.after(0.9, () => this.beginStep());
     });
   }
 
@@ -560,6 +646,9 @@ export class SummitScene extends BaseScene {
     this.stepFails = 0;
     this.chooseT = 0;
     this.firstPick = true;
+    this.tested = false;
+    this.aiMiss = false;
+    this.dwell = null;
     const lang = getLang();
     const text = L(step.say);
     const r = readLine(text, lang);
@@ -594,9 +683,11 @@ export class SummitScene extends BaseScene {
     sfx.tick();
     music.intensity = this.stepIndex >= 3 ? 2 : 1;
     this.coach.userData.set({ phase: 'reading', verdict: null, reveal: 0 });
+    this.talk?.setStage(this.stepIndex);
     this.talk?.setQuote(c, text, []);
     this.talk?.setCoach({ phase: 'reading' });
     this.talk?.clearAnswers();
+    this.talk?.setHintLine(null);
     // Three reply holds above Echo, in random order.
     const replies = shuffle(step.replies);
     const xs = XS.map((x) => x + (Math.random() - 0.5) * 0.05);
@@ -607,10 +698,12 @@ export class SummitScene extends BaseScene {
       if (this.mode !== 'talk') return;
       this.coach.userData.set({ phase: 'shown', reveal: 0, mood: this.reading.mood, type: this.reading.type, words: this.reading.words, unsure: this.reading.unsure });
       this.revealT = 0;
-      this.talk?.setCoach({ phase: 'shown', mood: this.reading.mood, type: this.reading.type, unsure: this.reading.unsure });
+      this.talk?.setCoach({ phase: 'shown', mood: this.reading.mood, type: this.reading.type, unsure: this.reading.unsure, tipText: this.coachTip() });
       this.talk?.setQuote(c, text, shown);
       this.talk?.lock(false);
       this.mode = 'choose';
+      this.refreshHint();
+      this.hintOnce('pick', this.engine.touchUI ? 'summitHintPickTouch' : 'summitHintPick');
     });
     this.status.redraw();
     this.refreshHud?.();
@@ -628,8 +721,8 @@ export class SummitScene extends BaseScene {
     hold.hit.userData.label = L(reply.text);
     hold.group.scale.setScalar(0.001);
     this.anim(0.35, (k) => hold.group.scale.setScalar(Math.max(0.001, k)), null, 0.1 + i * 0.08);
-    // Reply plate above the hold (not on phones: the answers are on the screen there).
-    if (!this.engine.touchUI) {
+    // Reply plate above the hold (headset; in the browser the answers are on the screen).
+    if (!this.screenUI) {
       const label = makeLabel(n, L(reply.text), () => this.choose(this.options.indexOf(opt)));
       label.userData.onGrab = (p) => this.grabOption(opt, p);
       label.userData.onRelease = (p) => this.releasePull(p);
@@ -642,9 +735,95 @@ export class SummitScene extends BaseScene {
     return opt;
   }
 
+  /** The coach's tip for the line it just read (its reading can be wrong: that is the lesson). */
+  coachTip() {
+    const r = this.reading;
+    const hint = r.unsure ? t('summitHintUnsure') : t(`summitHint_${r.mood[0].key}`);
+    return `${hint} ${t(`summitStyle_${r.type[0].key}`)}`;
+  }
+
+  // ---------- help: test a hold, hints at the right moment ----------
+
+  hintLabel() { return t('summitTest', { n: this.hints ?? 0 }); }
+
+  /** The help "test a hold" can be used while choosing, as long as a weak hold is left. */
+  refreshHint() {
+    const usable = this.mode === 'choose' && this.hints > 0 && !this.tested && this.options.some((o) => !o.gone && o.reply.q < 2);
+    this.talk?.setHint(this.hints ?? 0, usable, this.hintLabel());
+    if (this.hintBtn) {
+      this.hintBtn.opts.label = this.hintLabel();
+      this.hintBtn.userData.label = this.hintLabel();
+      this.hintBtn.set({ disabled: !usable });
+    }
+  }
+
   /**
-   * The player takes hold of reply i: via 'hand' (Quest, the hand pulls), 'drag' (mouse or
-   * finger drags the hold down) or 'auto' (click, key, answer button, pointing: pulls by itself).
+   * Echo knocks on the holds: one that does not hold crumbles before any weight is on it (the
+   * weak one, or the wobbly one if the weak one is gone already). It costs this stage's speed
+   * and streak bonus. One per climb, three in relaxed mode.
+   */
+  useHint() {
+    if (this.mode !== 'choose' || !(this.hints > 0) || this.tested) return;
+    const opt = this.options.find((o) => !o.gone && o.reply.q === 0) ?? this.options.find((o) => !o.gone && o.reply.q === 1);
+    if (!opt) return;
+    this.hints -= 1;
+    this.tested = true;
+    const i = this.options.indexOf(opt);
+    opt.gone = true;
+    opt.hold.shake = 0.5;
+    opt.hold.hit.userData.interactive = false;
+    const cl = this.climber;
+    if (cl) { cl.reach = Math.sign(opt.x - cl.grip.x); cl.flap = 0.5; }
+    sfx.tink();
+    this.after(0.12, () => sfx.tink());
+    this.after(0.4, () => {
+      if (opt.hold.disposed) return;
+      opt.hold.group.visible = false;
+      const sh = makeShards('xr-summit-dust', new THREE.Vector3(opt.x, opt.y, opt.z + 0.03));
+      this.mountain.add(sh);
+      this.shards.push(sh);
+      sfx.shatter();
+      if (cl) cl.reach = 0;
+    });
+    const tip = L(opt.reply.tip);
+    this.talk?.mark(i, 'tested', tip);
+    this.talk?.setSpeed(null);
+    if (opt.label) {
+      const old = opt.label;
+      old.removeFromParent();
+      old.userData.panel.dispose();
+      const fb = makeFeedback('tested', tip);
+      const h = holder(fb, LS);
+      h.position.copy(old.position);
+      this.mountain.add(h);
+      this.popIn(fb);
+      opt.label = h;
+    }
+    this.refreshHint();
+  }
+
+  /** A short hint in the talk at the moment it matters, the first time only (kept on the device). */
+  hintOnce(key, textKey) {
+    if (!this.talk || this.seenHints.has(key)) return;
+    this.seenHints.add(key);
+    saveSet(HINT_KEY, this.seenHints);
+    this.showHint(t(textKey));
+  }
+
+  showHint(text, sec = 7) {
+    this.talk?.setHintLine(text);
+    this.hintT = sec;
+  }
+
+  /** The speed bonus that is left on this stage (always full in relaxed mode). */
+  speedBonus() {
+    if (this.easy) return PTS.speed;
+    return Math.round(PTS.speed * clamp(1 - (this.chooseT - SPEED.full) / (SPEED.zero - SPEED.full), 0, 1));
+  }
+
+  /**
+   * The player takes hold of reply i: via 'hand' (headset, the hand pulls) or 'auto' (click,
+   * tap, key, answer button, pointing: Echo pulls up by itself).
    * A solid hold clicks, a wobbly one wobbles, a weak one breaks as soon as weight comes on it.
    */
   choose(i, via = 'auto', hand = null) {
@@ -660,15 +839,22 @@ export class SummitScene extends BaseScene {
       const right = this.reading.mood[0].key === this.step.mood;
       this.aiTotal += 1;
       this.aiRight += right ? 1 : 0;
-      const verdict = { right, truth: this.step.mood, note: this.step.note ? L(this.step.note) : t('summitCoachGeneric') };
+      this.aiMiss = !right;
+      this.picks += 1;
+      const verdict = (this.verdict = { right, truth: this.step.mood, note: this.step.note ? L(this.step.note) : t('summitCoachGeneric') });
       this.coach.userData.set({ verdict });
-      this.talk?.setCoach({ verdict });
+      // Where the coach was wrong and you were right, you read the customer better than the AI.
+      const outread = !right && kind === 'good' && !this.tested;
+      this.talk?.setCoach({ verdict, bonus: outread ? t('summitOutread', { n: Math.round(PTS.outread * this.scale) }) : '' });
+      if (!right) this.hintOnce('coach', 'summitHintCoach');
     }
     this.talk?.lock(true);
+    this.talk?.setSpeed(null);
+    this.refreshHint();
     const cl = this.climber;
     this.toWall();
     const next = this.stepIndex + 1 < FOCUS.length ? FOCUS[this.stepIndex + 1] : VIEW_TOP;
-    this.pull = { opt, i, kind, via, hand, p: 0, dragP: 0, release: false, tick: 0, from: cl.grip.clone(), to: new THREE.Vector3(opt.x, opt.y, opt.z), base: this.focusTo, next, startY: null };
+    this.pull = { opt, i, kind, via, hand, p: 0, release: false, tick: 0, from: cl.grip.clone(), to: new THREE.Vector3(opt.x, opt.y, opt.z), base: this.focusTo, next, startY: null };
     if (hand) this.pull.startY = this.handPos(hand).y;
     cl.reach = Math.sign(opt.x - cl.grip.x);
     cl.pose = 'climb';
@@ -681,7 +867,7 @@ export class SummitScene extends BaseScene {
       this.buzz(0.35, 25);
     } else {
       this.buzz(0.2, 30);
-      if (kind === 'ok') opt.hold.shake = 1.0;
+      if (kind === 'ok') opt.hold.shake = this.calm ? 0.25 : 1.0;
     }
     if (kind !== 'bad') {
       opt.hold.setState(kind);
@@ -697,9 +883,9 @@ export class SummitScene extends BaseScene {
         this.anim(0.35, (k) => h.group.scale.setScalar(Math.max(0.001, 1 - k)), () => h.dispose());
       }
     }
-    // Pulling by hand or by dragging: a hint below the hold.
-    if (via !== 'auto') {
-      const hint = makePullHint(t(via === 'hand' ? 'summitPullHintXR' : 'summitPullHint'));
+    // Pulling by hand: a hint below the hold.
+    if (via === 'hand') {
+      const hint = makePullHint(t('summitPullHintXR'));
       const hh = holder(hint, LS);
       hh.position.set(opt.x, opt.y - 0.075, opt.z + 0.11);
       this.mountain.add(hh);
@@ -707,7 +893,7 @@ export class SummitScene extends BaseScene {
     }
   }
 
-  /** The reply plate turns into the verdict with a tip (on phones: the answer button). */
+  /** The reply plate turns into the verdict with a tip (in the browser: the answer button). */
   showFeedback(opt, i, kind) {
     const tip = L(opt.reply.tip);
     this.talk?.mark(i, kind, tip);
@@ -742,13 +928,12 @@ export class SummitScene extends BaseScene {
     h.userData.panel.dispose();
   }
 
-  /** Every frame while pulling: progress from the hand, the drag or by itself. */
+  /** Every frame while pulling: progress from the hand or by itself. */
   updatePull(dt) {
     const P = this.pull;
     if (!P || this.mode !== 'pull') return;
     let want = P.p;
     if (P.via === 'auto' || P.release) want = Math.min(1, P.p + dt / 0.8);
-    else if (P.via === 'drag') want = Math.max(P.p, P.dragP);
     else if (P.via === 'hand' && P.hand?.active) {
       const d = P.startY - this.handPos(P.hand).y;
       want = Math.max(P.p, clamp(d / PULL_M, 0, 1));
@@ -773,7 +958,7 @@ export class SummitScene extends BaseScene {
     if (P.p >= 1) this.arrive();
   }
 
-  /** Arrived on the hold: points, trust, strength, and on to the next stage. */
+  /** Arrived on the hold: points, trust, strength, and after a moment to read on to the next stage. */
   arrive() {
     const P = this.pull;
     const { opt, kind } = P;
@@ -783,16 +968,41 @@ export class SummitScene extends BaseScene {
     this.mode = 'move';
     const cl = this.climber;
     const good = kind === 'good';
-    const speed = good && !this.stepFails ? Math.round(PTS.speed * clamp(1 - (this.chooseT - 2) / 9, 0, 1)) : 0;
-    const pts = good ? (this.stepFails ? PTS.solidRetry : PTS.solid + speed) : (this.stepFails ? PTS.okRetry : PTS.ok);
-    this.addScore(pts);
+    const first = !this.stepFails;
+    const at = new THREE.Vector3(opt.x, opt.y + 0.02, opt.z + 0.08);
+    let pts;
+    let outread = false;
+    if (good && first) {
+      // A solid hold at the first try: speed and streak bonus (not after testing the holds).
+      this.firstSolid += 1;
+      if (!this.tested) this.flow += 1;
+      this.bestFlow = Math.max(this.bestFlow, this.flow);
+      pts = PTS.solid + (this.tested ? 0 : this.speedBonus() + PTS.flow * clamp(this.flow - 1, 0, PTS.flowMax));
+      outread = this.aiMiss && !this.tested;
+    } else {
+      pts = good ? PTS.solidRetry : first ? PTS.ok : PTS.okRetry;
+      this.flow = 0;
+      this.stageMiss[this.stepIndex] += 1;
+    }
+    const got = this.addScore(pts);
     this.addTrust(good ? TRUST.good : TRUST.ok);
-    this.stamina = clamp(this.stamina + (good ? STAMINA.good : STAMINA.ok) - STAMINA.pull, 0, 100);
+    this.stamina = clamp(this.stamina + (good ? STAMINA.good : assist.pick(STAMINA.ok, STAMINA.okEasy)), good ? 0 : 5, 100);
     this.both((f) => f.setTrust(this.trust));
     if (good) sfx.correct(); else sfx.point();
     this.buzz(0.5, 40);
     sfx.flap();
-    this.popScore(`+${pts}`, new THREE.Vector3(opt.x, opt.y + 0.02, opt.z + 0.08), good ? 'xr-summit-hold-good' : 'xr-summit-hold-ok');
+    this.popScore(`+${got}`, at, good ? 'xr-summit-hold-good' : 'xr-summit-hold-ok');
+    this.talk?.setPoints(P.i, `+${got}`);
+    if (outread) {
+      // You read the customer better than the AI coach did.
+      this.outreads += 1;
+      const extra = this.addScore(PTS.outread);
+      this.after(0.35, () => { sfx.coin(); this.popScore(t('summitOutreadPop', { n: extra }), at.clone().add(new THREE.Vector3(0, 0.075, 0)), 'xr-summit-gold', 'xr-text-md'); });
+    } else if (good && first && this.flow >= 2 && !this.tested) {
+      this.after(0.3, () => { sfx.coin(); this.popScore(t('summitFlow', { n: this.flow }), at.clone().add(new THREE.Vector3(0, 0.075, 0)), 'xr-summit-gold', 'xr-text-md'); });
+      if (this.flow >= 3) this.burst(this.mountain.localToWorld(at.clone()), 'xr-summit-gold', this.calm ? 6 : 16);
+      this.hintOnce('flow', 'summitHintFlow');
+    }
     cl.grip.copy(P.to);
     cl.pose = 'hang';
     cl.reach = 0;
@@ -800,14 +1010,31 @@ export class SummitScene extends BaseScene {
     this.route.push(opt);
     this.stepIndex += 1;
     this.focusTo = this.stepIndex < FOCUS.length ? FOCUS[this.stepIndex] : VIEW_TOP;
-    this.after(good ? 0.9 : 1.3, () => {
-      if (opt.label) { const l = opt.label; opt.label = null; l.removeFromParent(); l.userData.panel.dispose(); }
-      opt.hold.setState('route');
-      const last = this.stepIndex >= this.customer.steps.length;
-      this.coach.userData.set(last ? { phase: 'shown', reveal: 1, mood: null, words: [], verdict: null, unsure: false } : { phase: 'idle', verdict: null });
-      if (last) this.reachSummit();
-      else this.beginStep();
-    });
+    // Browser: once the customer at the summit comes into view, the close-up is not needed.
+    if (this.screenUI && this.stepIndex >= 3) this.placePortrait(false);
+    this.talk?.setMeters(this.trust, this.stamina, this.flow);
+    this.status.redraw();
+    this.refreshHud?.();
+    // Time to read the verdict and its tip (longer in relaxed mode); a press goes on sooner.
+    const dur = clamp(1.1 + L(opt.reply.tip).length * 0.03, 1.5, 3.2) * assist.pick(1, 1.6);
+    this.dwell = {
+      t: 0,
+      dur,
+      i: P.i,
+      fn: () => {
+        if (opt.label) { const l = opt.label; opt.label = null; l.removeFromParent(); l.userData.panel.dispose(); }
+        opt.hold.setState('route');
+        const last = this.stepIndex >= this.customer.steps.length;
+        this.coach.userData.set(last ? { phase: 'shown', reveal: 1, mood: null, words: [], verdict: null, unsure: false } : { phase: 'idle', verdict: null });
+        if (last) this.reachSummit();
+        else this.beginStep();
+      },
+    };
+  }
+
+  /** A press, Space or Enter while the feedback is shown: on to the next stage. */
+  skipDwell() {
+    if (this.dwell && this.dwell.t > 0.4 && !this.engine.paused) this.dwell.t = this.dwell.dur;
   }
 
   /** The weak hold breaks in the hand: shards, a jolt, Echo slips into the rope; pick again. */
@@ -819,8 +1046,10 @@ export class SummitScene extends BaseScene {
     this.mode = 'move';
     const cl = this.climber;
     this.stepFails += 1;
-    this.addTrust(TRUST.bad);
-    this.stamina = Math.max(0, this.stamina + STAMINA.bad);
+    this.flow = 0;
+    this.stageMiss[this.stepIndex] += 1;
+    this.addTrust(assist.pick(TRUST.bad, TRUST.badEasy));
+    this.stamina = Math.max(0, this.stamina + assist.pick(STAMINA.bad, STAMINA.badEasy));
     sfx.wrong();
     opt.hold.setState('bad');
     opt.hold.setPull(-1);
@@ -834,23 +1063,27 @@ export class SummitScene extends BaseScene {
     sfx.shatter();
     sfx.crash();
     this.engine.haptic(P.hand ?? this.engine.pointers.find((p) => p.kind === 'xr' && p.active), 1.0, 180);
-    // The wall drops back (a jolt below where it was) and settles again.
+    // The wall drops back (a jolt below where it was, not with calm motion) and settles again.
     this.focusTo = P.base;
-    if (!this.snapMoves()) this.focus = P.base - 0.06;
+    if (!this.snapMoves() && !this.calm) this.focus = P.base - 0.06;
+    this.talk?.setMeters(this.trust, this.stamina, this.flow);
+    this.status.redraw();
     cl.pose = 'slip';
     cl.hurt();
     const at = cl.grip.clone();
     const low = P.from.clone().add(new THREE.Vector3(0, -0.11, 0.02));
     this.anim(0.3, (k) => cl.grip.lerpVectors(at, low, k * k), () => {
-      cl.swing = 1;
+      cl.swing = this.calm ? 0.3 : 1;
       this.anim(0.6, (k) => cl.grip.lerpVectors(low, P.from, ease(k)), () => {
         cl.grip.copy(P.from);
         cl.pose = 'hang';
         cl.reach = 0;
         if (this.stamina <= 0) { this.fallOff(); return; }
         this.mode = 'choose';
+        this.idleT = 0;
         this.talk?.lock(false);
-        this.chooseT = STAMINA.grace;
+        this.refreshHint();
+        this.hintOnce('break', this.hints > 0 ? 'summitHintBreak' : 'summitHintBreakNoTest');
       }, 0.25);
     });
   }
@@ -860,22 +1093,26 @@ export class SummitScene extends BaseScene {
     return this.engine.isXR && this.comfortSnap;
   }
 
-  /** How far (CSS px) a drag goes for one move. */
-  pullPx() {
-    return clamp(window.innerHeight * 0.18, 70, 170);
+  addTrust(d) { this.trust = clamp(this.trust + d, 0, 100); }
+
+  /** Adds points (scaled to the length of the round); returns what was added. */
+  addScore(n) {
+    const v = Math.round(n * this.scale);
+    this.score += v;
+    this.climbPoints += v;
+    return v;
   }
 
-  addTrust(d) { this.trust = clamp(this.trust + d, 0, 100); }
-  addScore(n) { this.score += n; this.climbPoints += n; }
-
   /** A floating "+140" over the hold. */
-  popScore(text, local, token) {
-    const p = textPanel(0.3, 0.09, [{ text, size: 'xr-text-lg', weight: 'black', color: color(token) }], { surface: false });
-    const h = holder(p, 0.6);
+  popScore(text, local, token, size = 'xr-text-lg') {
+    const p = textPanel(0.9, 0.09, [{ text, size, weight: 'black', color: color(token) }], { surface: false });
+    const h = holder(p, this.screenUI ? 0.75 : 0.6);
     h.position.copy(local);
+    p.renderOrder = 16;
+    p.material.depthTest = false; // always in front of the rock
     this.mountain?.add(h);
     const y0 = local.y;
-    this.anim(1.1, (k) => { h.position.y = y0 + k * 0.08; p.material.opacity = 1 - k * k; }, () => { h.removeFromParent(); p.dispose(); });
+    this.anim(1.3, (k) => { h.position.y = y0 + k * 0.07; p.material.opacity = 1 - k * k * k; }, () => { h.removeFromParent(); p.dispose(); });
   }
 
   /** Top: the deal is closed. Echo pulls itself up, the flag goes up, handshake. */
@@ -888,6 +1125,8 @@ export class SummitScene extends BaseScene {
     const from = cl.grip.clone();
     cl.pose = 'climb';
     const to = SUMMIT_SPOT.clone().add(STAND_TO_HANG);
+    this.talk?.clearAnswers();
+    this.talk?.setStage(STAGES.length, false, t('summitStagesDone'));
     this.anim(0.9, (k) => {
       cl.grip.lerpVectors(from, to, ease(k));
       cl.grip.y += Math.sin(k * Math.PI) * 0.06;
@@ -901,15 +1140,15 @@ export class SummitScene extends BaseScene {
       this.after(2.7, () => this.both((f) => f.cheer(2.2)));
       sfx.finish();
       this.after(0.3, () => sfx.powerup());
-      this.burst(this.mountain.localToWorld(SUMMIT_SPOT.clone().add(new THREE.Vector3(0, 0.15, 0))), 'xr-summit-gold', 36);
-      this.after(0.25, () => this.burst(this.mountain.localToWorld(SUMMIT_SPOT.clone().add(new THREE.Vector3(0.15, 0.2, 0))), 'xr-summit-hold-1', 24));
-      const bonus = PTS.summit + Math.round(PTS.trust * this.trust);
-      this.addScore(bonus);
+      this.burst(this.mountain.localToWorld(SUMMIT_SPOT.clone().add(new THREE.Vector3(0, 0.15, 0))), 'xr-summit-gold', this.calm ? 10 : 36);
+      if (!this.calm) this.after(0.25, () => this.burst(this.mountain.localToWorld(SUMMIT_SPOT.clone().add(new THREE.Vector3(0.15, 0.2, 0))), 'xr-summit-hold-1', 24));
+      const bonus = this.addScore(PTS.summit + Math.round(PTS.trust * this.trust));
+      this.popScore(`+${bonus}`, SUMMIT_SPOT.clone().add(new THREE.Vector3(-0.08, 0.2, 0.08)), 'xr-summit-gold');
       this.deals += 1;
       this.trustSum += this.trust;
       this.climbs.push({ deal: true, trust: this.trust });
       this.after(2.2, () => { cl.pose = 'stand'; });
-      this.summaryCard(true);
+      this.summaryCard(true, bonus);
     });
   }
 
@@ -918,6 +1157,7 @@ export class SummitScene extends BaseScene {
     const cl = this.climber;
     this.mode = 'fall';
     this.fell = true;
+    this.flow = 0;
     this.bubbleHolder.visible = false;
     this.placePortrait(false);
     for (const o of this.options) {
@@ -932,22 +1172,28 @@ export class SummitScene extends BaseScene {
     cl.sad();
     this.both((f) => { f.setMood('skeptical'); f.react('bad'); });
     sfx.crash();
-    this.anim(0.5, (k) => cl.grip.lerpVectors(from, low, k * k), () => { cl.swing = 1.5; });
+    this.anim(0.5, (k) => cl.grip.lerpVectors(from, low, k * k), () => { cl.swing = this.calm ? 0.4 : 1.5; });
+    // Browser: the view follows Echo down, so it hangs in the rope in the picture (not in the clouds).
+    if (this.screenUI) this.focusTo = Math.max(FOCUS[0], low.y + 0.08);
     this.trustSum += this.trust;
     this.climbs.push({ deal: false, trust: this.trust });
-    this.after(0.8, () => this.summaryCard(false));
+    this.talk?.clearAnswers();
+    this.talk?.setSpeed(null);
+    this.after(0.8, () => this.summaryCard(false, 0));
   }
 
-  summaryCard(deal) {
+  summaryCard(deal, bonus) {
     const c = this.customer;
     const type = this.aiType;
     const right = type?.key === c.type;
+    const head = t(deal ? 'summitDeal' : 'summitFall');
+    const sub = deal ? t('summitTrustEnd', { n: Math.round(this.trust), pts: bonus }) : t('summitNoDeal');
+    const guess = t(right ? 'summitTypeGuessRight' : 'summitTypeGuess', { guess: t(`summitType_${type?.key ?? c.type}`), p: Math.round((type?.p ?? 0) * 100) });
     const lines = [
-      { text: t(deal ? 'summitDeal' : 'summitFall'), size: 'xr-text-lg', weight: 'black', color: color(deal ? 'xr-success' : 'xr-danger'), gap: 0.012 },
-      ...(deal ? [{ text: t('summitTrustEnd', { n: Math.round(this.trust) }), size: 'xr-text-md', weight: 'bold', color: color('xr-summit-trust'), gap: 0.018 }]
-        : [{ text: t('summitNoDeal'), size: 'xr-text-md', weight: 'bold', gap: 0.018 }]),
+      { text: head, size: 'xr-text-lg', weight: 'black', color: color(deal ? 'xr-success' : 'xr-danger'), gap: 0.012 },
+      { text: sub, size: 'xr-text-md', weight: 'bold', color: deal ? color('xr-summit-trust') : undefined, gap: 0.018 },
       { text: t(`summitTypeDesc_${c.type}`), size: 'xr-text-sm', weight: 'bold', gap: 0.008 },
-      { text: t(right ? 'summitTypeGuessRight' : 'summitTypeGuess', { guess: t(`summitType_${type?.key ?? c.type}`), p: Math.round((type?.p ?? 0) * 100) }), size: 'xr-text-sm', color: color(right ? 'xr-success' : 'xr-warning') },
+      { text: guess, size: 'xr-text-sm', color: color(right ? 'xr-success' : 'xr-warning') },
     ];
     const last = this.index + 1 >= this.customers.length;
     const label = t(last ? 'summitLastCustomer' : 'summitNextCustomer');
@@ -960,23 +1206,19 @@ export class SummitScene extends BaseScene {
     card.scale.setScalar(s);
     card.position.set(0, this.eye - 0.2 - (panel.h * s) / 2, -0.56);
     card.userData.panel = panel;
-    card.visible = !this.engine.touchUI;
+    card.visible = !this.screenUI;
     this.add(card);
     this.popIn(panel);
     this.popIn(btn, 0.1);
     this.card = card;
     this.waitNext = true;
-    this.talk?.setSummary([
-      t(deal ? 'summitDeal' : 'summitFall'),
-      deal ? t('summitTrustEnd', { n: Math.round(this.trust) }) : t('summitNoDeal'),
-      t(`summitTypeDesc_${c.type}`),
-      t(right ? 'summitTypeGuessRight' : 'summitTypeGuess', { guess: t(`summitType_${type?.key ?? c.type}`), p: Math.round((type?.p ?? 0) * 100) }),
-    ], label);
+    this.talk?.setSummary([head, sub, t(`summitTypeDesc_${c.type}`), guess], label);
+    this.talk?.setMeters(this.trust, this.stamina, this.flow);
     this.status.redraw();
     this.refreshHud?.();
-    // Goes on by itself after a while, so the round keeps its pace.
+    // Goes on by itself after a while, so the round keeps its pace (later in relaxed mode).
     const idx = this.index;
-    this.after(12, () => { if (this.waitNext && this.index === idx) this.next(); });
+    this.after(assist.pick(12, 30), () => { if (this.waitNext && this.index === idx) this.next(); });
   }
 
   next() {
@@ -1004,25 +1246,38 @@ export class SummitScene extends BaseScene {
     this.hudGroup.visible = false;
     this.placePortrait(false);
     this.talk?.show(false);
-    for (const o of this.hudBits ?? []) o.visible = false;
+    if (this.menuHolder) this.menuHolder.visible = false;
     this.app.echo?.suppress(false);
     this.depthTo = -1.8;
     this.focusTo = 0.45;
     if (this.climber) { this.climber.grip.copy(SUMMIT_SPOT); this.climber.pose = 'cheer'; this.climber.happy(5); }
     const perfect = this.climbs.length === this.customers.length && this.climbs.every((r) => r.deal && r.trust >= 80);
-    if (perfect) this.addScore(PTS.bonus);
+    if (perfect) this.score += PTS.bonus;
     const score = Math.min(5000, Math.round(this.score));
     const n = this.customers.length;
     const avg = Math.round(this.trustSum / Math.max(1, n));
+    // A rating in three steps, with the points missing to the next one (as the result counts
+    // them: in relaxed mode the same play reaches the same rank).
+    const rank = RANKS.reduce((r, at, k) => (score >= at ? k : r), 0);
+    const nextAt = RANKS[rank + 1];
+    const missing = Math.ceil((nextAt - score) * assist.scoreFactor);
+    const rating = nextAt ? t('summitRankNext', { rank: t(`summitRank${rank}`), n: missing, next: t(`summitRank${rank + 1}`) }) : t('summitRankTop', { rank: t(`summitRank${rank}`) });
+    // One tip: the stage of the talk where most holds went wrong.
+    const worst = this.stageMiss.reduce((b, v, k) => (v > this.stageMiss[b] ? k : b), 0);
+    const tip = this.stageMiss[worst] > 0 ? t(`summitTip_${STAGES[worst].key}`) : t(this.easy ? 'summitTipPerfectEasy' : 'summitTipPerfect');
+    // What went well: the solid holds, or (after a hard round) the summits that were reached.
+    const solid = this.firstSolid >= this.picks * 0.4;
+    const well = (solid ? t('summitWellA', { first: this.firstSolid, n: this.picks, flow: this.bestFlow }) : t(this.deals ? 'summitWellDeals' : 'summitWellTry', { deals: this.deals, total: n }))
+      + (this.outreads ? ` ${t('summitWellOutread', { n: this.outreads })}` : '');
     this.results({
       gameKey: 'summit', score, correct: this.deals, total: n,
-      line: t('summitLine', { deals: this.deals, total: n, trust: avg, right: this.aiRight, n: this.aiTotal }),
+      line: `${rating} ${t('summitLine', { deals: this.deals, total: n, trust: avg })}`,
       learned: [
-        { q: t('summitLearnQ1'), a: t('summitLearnA1') },
-        { q: t('summitLearnQ2'), a: t('summitLearnA2', { right: this.aiRight, n: this.aiTotal }) },
-        { q: t('summitLearnQ3'), a: t('summitLearnA3') },
+        { q: t('summitWellQ'), a: well },
+        { q: t('summitTipQ'), a: tip },
+        { q: t('summitLearnQ'), a: t('summitLearnA', { right: this.aiRight, n: this.aiTotal }) },
       ],
-      onAgain: () => this.app.startGame('summit'),
+      onAgain: () => { quickStart = true; this.app.startGame('summit'); },
     });
   }
 
@@ -1067,8 +1322,9 @@ export class SummitScene extends BaseScene {
       const off = Math.abs(this.focusTo - this.focus) + Math.abs(this.depthTo - this.depth);
       if (off > 0.003 && !this.blinkT) this.blinkT = 0.001;
     } else {
-      this.focus += (this.focusTo - this.focus) * (1 - Math.exp(-dt * 3.2));
-      this.depth += (this.depthTo - this.depth) * (1 - Math.exp(-dt * 2.4));
+      // Calm motion: the view follows more slowly.
+      this.focus += (this.focusTo - this.focus) * (1 - Math.exp(-dt * (this.calm ? 1.8 : 3.2)));
+      this.depth += (this.depthTo - this.depth) * (1 - Math.exp(-dt * (this.calm ? 1.6 : 2.4)));
     }
     if (this.vignette) {
       let blink = 0;
@@ -1095,17 +1351,34 @@ export class SummitScene extends BaseScene {
       this.snow.setHole(-0.62, WALL_Z + this.depth - 0.55, 0.62, WALL_Z + this.depth + 0.14, 20);
       this.snow.update(dt);
     }
-    if (this.coachHolder) this.layoutPanels();
-    // Strength drains while you think (after a moment to read).
+    // Reading costs nothing. Only after a long while does hanging on the wall cost strength
+    // (never in relaxed mode); the talk says so when it starts.
+    let draining = false;
     if (this.mode === 'choose') {
       this.chooseT += dt;
-      if (this.chooseT > STAMINA.grace) {
+      this.idleT = (this.idleT ?? 0) + dt;
+      if (!this.easy && this.idleT > STAMINA.grace) {
+        draining = true;
+        if (!this.warned) { this.warned = true; sfx.tick(); this.showHint(t('summitLowStamina'), 30); }
         this.stamina = Math.max(0, this.stamina - STAMINA.drain * dt);
-        if (this.stamina < 25 && !this.warned) { this.warned = true; sfx.tick(); }
         if (this.stamina <= 0) { this.mode = 'move'; this.fallOff(); }
       }
+    } else {
+      this.idleT = 0;
+      this.warned = false;
     }
-    if (this.mode !== 'choose') this.warned = false;
+    // The feedback after a move stays for a moment (a press goes on sooner).
+    if (this.dwell) {
+      const d = this.dwell;
+      d.t += dt;
+      this.talk?.setDwell(d.i, d.t / d.dur);
+      if (d.t >= d.dur) { this.dwell = null; d.fn(); }
+    }
+    if (this.hintT > 0) {
+      this.hintT -= dt;
+      if (this.hintT <= 0) this.talk?.setHintLine(null);
+    }
+    if (this.screenUI) this.updatePreview(dt);
     if (this.coach && this.coach.userData.state.phase !== 'idle') {
       const st = this.coach.userData.state;
       st.time = this.time;
@@ -1117,7 +1390,7 @@ export class SummitScene extends BaseScene {
     this.bubble?.setReveal(this.mode === 'talk' ? 0 : 1);
     if (this.climber) {
       const look = this.figure ? this.figure.headWorld() : null;
-      this.climber.update(dt, { look: this.mode === 'choose' || this.mode === 'talk' ? look : null, tremble: this.mode === 'choose' ? clamp((30 - this.stamina) / 30, 0, 1) : 0 });
+      this.climber.update(dt, { look: this.mode === 'choose' || this.mode === 'talk' ? look : null, tremble: this.mode === 'choose' ? Math.max(draining ? 0.6 : 0, clamp((30 - this.stamina) / 30, 0, 1)) : 0 });
       this.updateRope();
     }
     this.figure?.tick(dt);
@@ -1133,11 +1406,35 @@ export class SummitScene extends BaseScene {
       this.hudTick = Math.floor(this.time * 4);
       if (this.mode !== 'intro' && this.mode !== 'over') {
         this.refreshHud?.();
-        this.talk?.setMeters(this.trust ?? 0, this.stamina ?? 0);
-        if (this.status && (this.mode === 'choose' || this.stamina < 30)) this.status.redraw();
+        this.talk?.setMeters(this.trust ?? 0, this.stamina ?? 0, this.flow ?? 0);
+        // The speed bonus that is still on this stage (not in relaxed mode: there it is always full).
+        const timed = this.mode === 'choose' && !this.easy && !this.tested && !this.stepFails;
+        this.talk?.setSpeed(timed ? Math.round(this.speedBonus() * this.scale) : null, this.speedBonus() / PTS.speed);
+        if (this.status && (draining || this.stamina < 30)) this.status.redraw();
       }
     }
     if (!e.isXR && !e.touchUI) this.previewCamera(dt);
+  }
+
+  /**
+   * Browser: the answer under the mouse or with the keyboard focus lights up its hold, and Echo
+   * leans towards it; a hold under the mouse marks its answer.
+   */
+  updatePreview(dt) {
+    const choosing = this.mode === 'choose';
+    let hot = -1;
+    if (choosing) this.options.forEach((o, i) => { if (!o.gone && o.hold.hit.userData._hover) hot = i; });
+    if (hot !== this.hot) { this.hot = hot; this.talk.setHot(hot); }
+    const pv = !choosing ? -1 : this.preview >= 0 ? this.preview : hot;
+    this.options.forEach((o, i) => {
+      if (o.hold.disposed) return;
+      o.hold.near += ((i === pv && !o.gone ? 1 : 0) - o.hold.near) * Math.min(1, dt * 12);
+    });
+    const cl = this.climber;
+    if (cl && choosing && cl.pose === 'hang') {
+      const o = this.options[pv];
+      cl.reach = o && !o.gone ? Math.sign(o.x - cl.grip.x) : 0;
+    }
   }
 
   /** The rope: from Echo's harness down through the clipped quickdraws into the clouds. */
@@ -1191,7 +1488,7 @@ export class SummitScene extends BaseScene {
     const target = new THREE.Vector3((box.x0 + box.x1) / 2 - cxN * d * tv * aspect, (box.y0 + box.y1) / 2 - cyN * d * tv, box.z + d);
     this.group.localToWorld(target);
     if (!this.camInit) { cam.position.copy(target); this.camInit = true; }
-    cam.position.lerp(target, Math.min(1, dt * 4));
+    cam.position.lerp(target, Math.min(1, dt * (this.calm ? 2 : 4)));
     cam.rotation.set(0, 0, 0);
   }
 
@@ -1199,27 +1496,28 @@ export class SummitScene extends BaseScene {
     return this.mode !== 'intro' && this.mode !== 'over';
   }
 
-  /** Desktop: the wall with the coach on the left and the status on the right. */
+  /** Desktop: the wall in the part of the window that the talk and the status bar leave free. */
   previewCamera(dt) {
     const e = this.engine;
     const on = this.playing3D();
     e.fitEnabled = !on;
     if (!on) { this.camInit = false; return; }
-    const { eye } = this;
-    this.frame(e.camera, dt, { x0: -0.9, x1: 0.9, y0: eye - 0.55, y1: eye + 0.44, z: -0.62 });
+    this.screenCamera(e.camera, dt, this.talk.insets());
   }
 
-  /** Phones: the climb (or the summit) in the space the talk leaves free. */
-  phoneCamera(cam, dt, ins) {
+  /** Browser: the climb (or the summit) in the space the talk leaves free. */
+  screenCamera(cam, dt, ins) {
     if (!this.playing3D()) { this.camInit = false; return false; }
     if (cam.fov !== 60 || cam.rotation.x !== 0) { cam.fov = 60; cam.updateProjectionMatrix(); }
     const { eye } = this;
     const top = this.mode === 'meet' || this.mode === 'summit' || this.mode === 'approach';
     // The last two stages: the customer at the summit is in the picture too.
     const late = (this.stepIndex ?? 0) >= 3 && this.mode !== 'fall';
+    // Low enough that Echo stays in the picture below the new holds (and after a slip).
+    const low = 0.62;
     const box = top ? { x0: -0.42, x1: 0.48, y0: eye - 0.16, y1: eye + 0.46, z: -0.62 }
-      : late ? { x0: -0.45, x1: 0.45, y0: eye - 0.5, y1: eye + 0.47, z: -0.62 }
-        : { x0: -0.42, x1: 0.42, y0: eye - 0.5, y1: eye + (this.portraitFrame?.visible ? 0.2 : 0.0), z: -0.62 };
+      : late ? { x0: -0.45, x1: 0.45, y0: eye - 0.7, y1: eye + 0.47, z: -0.62 }
+        : { x0: -0.42, x1: 0.42, y0: eye - low, y1: eye + (this.portraitFrame?.visible ? 0.2 : 0.0), z: -0.62 };
     this.frame(cam, dt, box, ins);
     return true;
   }
@@ -1233,8 +1531,7 @@ export class SummitScene extends BaseScene {
       c.removeEventListener('selectend', up);
       c.removeEventListener('squeezeend', up);
     }
-    this.engine.canvas.removeEventListener('pointerdown', this.onDown);
-    this.engine.canvas.removeEventListener('pointermove', this.onMove);
+    if (this.onDown) this.engine.canvas.removeEventListener('pointerdown', this.onDown);
     this.removePullHint();
     if (this.vignette) {
       this.vignette.removeFromParent();
@@ -1260,4 +1557,12 @@ export class SummitScene extends BaseScene {
 function dedupe(hits) {
   const seen = new Set();
   return [...hits].sort((a, b) => b.weight - a.weight).filter((h) => !seen.has(h.word) && seen.add(h.word));
+}
+
+/** A small set of keys kept on the device (the last round's customers, the hints already shown). */
+function loadSet(key) {
+  try { return new Set(JSON.parse(localStorage.getItem(key) || '[]')); } catch { return new Set(); }
+}
+function saveSet(key, set) {
+  try { localStorage.setItem(key, JSON.stringify([...set])); } catch { /* private mode */ }
 }

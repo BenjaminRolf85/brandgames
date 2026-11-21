@@ -11,10 +11,11 @@
 // (similar cue words, cosine similarity) rated well, by similarity and by how good the rating
 // was; a returning guest's own ratings count most. From that it predicts the guest's taste,
 // picks the closest recipe and states its confidence (how much good evidence it has from how
-// similar guests). Without similar ratings it has a cold start and says so.
+// similar guests: one fairly liked cup is only a hint, several good ratings or a regular make it
+// sure). Without similar ratings it has a cold start and says so.
 
 export const FLAVORS = ['fruity', 'nutty', 'choc', 'spicy'];
-export const CUES = ['mild', 'strong', 'cozy', 'awake', 'family', 'fruit'];
+export const CUES = ['mild', 'strong', 'cozy', 'awake', 'family', 'fruit', 'choc'];
 
 /** The four green coffees in the jars (flavor before roasting). */
 export const BEANS = [
@@ -80,10 +81,10 @@ export function cupFlavor(a, b, ratio, r) {
 export const GUESTS = [
   { key: 'student', id: 'student', model: 'student', wave: 'calm', patience: 75, ideal: [0.15, 0.3, 0.6, 0.85], weights: [1, 0.6, 1, 1.4], roast: 0.74, cues: { strong: 1, awake: 1 } },
   { key: 'grandma', id: 'grandma', model: 'grandma', wave: 'calm', patience: 75, ideal: [0.15, 0.85, 0.6, 0.1], weights: [1, 1.4, 1, 1], roast: 0.52, cues: { mild: 1, cozy: 1 } },
-  { key: 'business', id: 'business', model: 'business', wave: 'rush', patience: 42, ideal: [0.12, 0.35, 0.85, 0.5], weights: [1, 0.8, 1.4, 1], roast: 0.68, cues: { strong: 1, awake: 0.8, mild: 0.3 } },
+  { key: 'business', id: 'business', model: 'business', wave: 'rush', patience: 42, ideal: [0.12, 0.35, 0.85, 0.5], weights: [1, 0.8, 1.4, 1], roast: 0.68, cues: { strong: 1, awake: 0.8, choc: 1 } },
   { key: 'family', id: 'family', model: 'family', wave: 'rush', patience: 42, ideal: [0.22, 0.8, 0.6, 0.12], weights: [1, 1.3, 1, 1], roast: 0.47, cues: { mild: 1, cozy: 0.6, family: 1 } },
   { key: 'chef', id: 'chef', model: 'chef', wave: 'rush', patience: 42, ideal: [0.72, 0.15, 0.3, 0.3], weights: [1.6, 1, 1, 1], roast: 0.38, cues: { fruit: 1, mild: 0.4 } },
-  { key: 'business2', id: 'business2', model: 'business', look: 'biz2', wave: 'rush', patience: 42, ideal: [0.1, 0.3, 0.9, 0.45], weights: [1, 0.8, 1.4, 1], roast: 0.66, cues: { strong: 1, awake: 1 } },
+  { key: 'business2', id: 'business2', model: 'business', look: 'biz2', wave: 'rush', patience: 42, ideal: [0.1, 0.3, 0.9, 0.45], weights: [1, 0.8, 1.4, 1], roast: 0.66, cues: { strong: 1, awake: 0.6, choc: 1 } },
   { key: 'grandma2', id: 'grandma', model: 'grandma', wave: 'peak', patience: 36, ideal: [0.15, 0.85, 0.6, 0.1], weights: [1, 1.4, 1, 1], roast: 0.52, cues: { mild: 1, cozy: 1 }, returning: true },
   { key: 'student2', id: 'student2', model: 'student', look: 'student2', wave: 'peak', patience: 36, ideal: [0.12, 0.3, 0.55, 0.8], weights: [1, 0.6, 1, 1.4], roast: 0.72, cues: { strong: 1, awake: 1 } },
   { key: 'chef2', id: 'chef2', model: 'chef', look: 'chef2', wave: 'peak', patience: 36, ideal: [0.6, 0.2, 0.35, 0.25], weights: [1.5, 1, 1, 1], roast: 0.44, cues: { fruit: 1, cozy: 0.5 } },
@@ -106,7 +107,7 @@ const COFFEE_FIT = 0.9;
  * How a guest likes a cup: { stars 1..5, sat 0..1, hint } where hint names the biggest
  * difference (e.g. 'tooDark', 'moreNutty', 'lessFruity').
  */
-export function rate(guest, cup, r) {
+export function rate(guest, cup, r, slack = 0.03) {
   const w = guest.weights;
   let e = 0;
   let ws = 0;
@@ -119,13 +120,13 @@ export function rate(guest, cup, r) {
   });
   const ef = Math.sqrt(e / ws);
   const er = Math.abs(r - guest.roast);
-  let sat = 1 - 1.55 * ef - 2.1 * Math.max(0, er - 0.03);
+  let sat = 1 - 1.55 * ef - 2.1 * Math.max(0, er - slack);
   let hint = null;
   if (r < RAW_BELOW) { sat -= 0.35; hint = 'raw'; } else if (r >= BURNT_FROM) { sat -= 0.5; hint = 'burnt'; }
   sat = clamp(sat);
   if (!hint) {
     // The roast is off more than the flavor? Then that is what the guest mentions.
-    if (er > 0.08 && er * 2.1 > 1.55 * Math.abs(worst.d) / Math.sqrt(ws)) hint = r > guest.roast ? 'tooDark' : 'tooLight';
+    if (er > slack + 0.05 && er * 2.1 > 1.55 * Math.abs(worst.d) / Math.sqrt(ws)) hint = r > guest.roast ? 'tooDark' : 'tooLight';
     else if (worst.i >= 0 && Math.abs(worst.d) > 0.12) {
       const name = FLAVORS[worst.i];
       hint = `${worst.d < 0 ? 'more' : 'less'}${name[0].toUpperCase()}${name.slice(1)}`;
@@ -135,13 +136,48 @@ export function rate(guest, cup, r) {
   return { stars, sat, hint };
 }
 
+/** The roast a guest asks for in plain words, and the part of the gauge that goes with it. */
+export const ROAST_BANDS = { light: [0.32, 0.48], medium: [0.44, 0.6], dark: [0.62, 0.8] };
+
+/**
+ * What a guest wishes for, as the player may read it from the request: the flavor that matters
+ * most to them, the roast in a word ('light', 'medium', 'dark') and the zone on the gauge to stop
+ * in. narrow (relaxed mode): a small zone right around the guest's favourite roast.
+ */
+export function wish(guest, narrow = false) {
+  const wi = guest.ideal.map((v, i) => v * guest.weights[i]);
+  const flavor = FLAVORS[wi.indexOf(Math.max(...wi))];
+  const roast = guest.roast < 0.46 ? 'light' : guest.roast < 0.6 ? 'medium' : 'dark';
+  const zone = narrow ? [guest.roast - 0.055, guest.roast + 0.055] : ROAST_BANDS[roast];
+  return { flavor, roast, zone };
+}
+
+/** The two flavors a blend tastes of most (before roasting), strongest first. */
+export function mainNotes(a, b, ratio) {
+  const mix = blendFlavor(a, b, ratio);
+  return FLAVORS.map((f, i) => ({ f, v: mix[i] })).sort((x, y) => y.v - x.v).slice(0, 2).map((x) => x.f);
+}
+
+/** Bonus for a row of happy guests (4 or 5 stars): 10 points more with each, at most 50. */
+export function streakBonus(streak) {
+  return 10 * Math.min(5, Math.max(0, streak - 1));
+}
+
+/** The result in three steps: { rank 0..2, next: points missing to the next step (0 at the top) }. */
+export const RANKS = [0, 1800, 3000];
+export function rankOf(score) {
+  let rank = 0;
+  RANKS.forEach((at, i) => { if (score >= at) rank = i; });
+  return { rank, next: rank < RANKS.length - 1 ? RANKS[rank + 1] - score : 0 };
+}
+
 /**
  * Points for one guest: taste (stars), roast timing and a tip for fast service (the patience that
  * was left, only from guests who liked the cup). Max 400.
  */
-export function guestPoints(guest, stars, r, patienceLeft) {
+export function guestPoints(guest, stars, r, patienceLeft, tol = 0.18) {
   const taste = stars * 50;
-  const timing = Math.round(80 * clamp(1 - Math.abs(r - guest.roast) / 0.18));
+  const timing = Math.round(80 * clamp(1 - Math.abs(r - guest.roast) / tol));
   const tip = stars >= 3 ? Math.round(70 * clamp(patienceLeft)) : 0;
   return { taste, timing, tip, total: taste + timing + tip };
 }
@@ -237,7 +273,9 @@ export class Recommender {
     const profile = prof.map((v) => v / sum);
     const r = roast / sum;
     const recipe = closestRecipe(profile, r);
-    const conf = clamp((1 - Math.exp(-2.2 * sum)) * maxSim, 0, 0.97);
+    // The confidence grows with the evidence: one cup that a similar guest quite liked is a hint
+    // (about a third), several well rated cups or a regular's own rating make the AI sure.
+    const conf = clamp((1 - Math.exp(-0.9 * sum)) * maxSim, 0, 0.97);
     return { neighbors, regular, profile, roast: r, recipe, conf, avoid: null };
   }
 

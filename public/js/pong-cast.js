@@ -7,8 +7,18 @@ import { Fighter } from './fight-visuals.js';
 import { color, hex } from './tokens.js';
 import { gfxTier } from './gfx.js';
 
-/** Which Arena robot plays which Pong opponent. */
-export const ROBOT_FOR = { gpt: 'light', gemini: 'heavy', claude: 'boss' };
+/**
+ * The opponents: made-up AI players (names in i18n.js: pongOpp_<key>), each with its own
+ * response time (s), paddle speed (m/s), precision error (m) and Arena robot. ratings (1 to 5)
+ * are what the choice cards show. The nemesis is always the last opponent of a tournament and
+ * is eased far less than the others (ease overrides the scene's global ease-up).
+ */
+export const PONG_CAST = [
+  { key: 'sprint', reaction: 0.14, speed: 1.25, error: 0.09, ratings: { reaction: 4, speed: 5, precision: 2 }, token: 'xr-pong-opp-sprint', robot: 'light' },
+  { key: 'reflex', reaction: 0.07, speed: 1.05, error: 0.08, ratings: { reaction: 5, speed: 3, precision: 2 }, token: 'xr-pong-opp-reflex', robot: 'heavy' },
+  { key: 'sniper', reaction: 0.22, speed: 0.95, error: 0.015, ratings: { reaction: 2, speed: 2, precision: 5 }, token: 'xr-pong-opp-sniper', robot: 'boss', boss: true,
+    ease: { speed: 0.95, reaction: 0.02, catchError: 0.8, misjudge: 0.04, randomAim: 0.3 } },
+];
 
 /** Echo at the handle of the player's paddle (a child of the paddle group); swing() on a hit. onLoad(model) once loaded. */
 export function makePaddleEcho(paddle, hw, hh, onLoad = null) {
@@ -26,6 +36,7 @@ export function makePaddleEcho(paddle, hw, hh, onLoad = null) {
   }).catch(() => {});
   let swing = 0;
   return {
+    holder,
     swing() { swing = 1; },
     update(dt, t) {
       if (!parts) return;

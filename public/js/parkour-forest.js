@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { loadGLTF } from './models.js';
 import { color, hex } from './tokens.js';
 import { modelSet } from './parkour-models.js';
-import { instanced, edgeFactor } from './parkour-visuals.js';
+import { instanced, edgeFactor, stageClock } from './parkour-visuals.js';
 import { sfx } from './sfx.js';
 import { WINTER, winterize } from './snow.js';
 
@@ -330,7 +330,8 @@ export function makeForestWeather({ F, back, key, fireflies = null, bottom, top,
     update(dt, camX, half) {
       const w = stormAt(camX);
       // Sky, clouds and light get darker with the storm; a strike lights everything up.
-      if (w > 0.55 && !WINTER) {
+      // (no lightning with calm motion: a strike is a flash)
+      if (w > 0.55 && !WINTER && !stageClock.calm) {
         nextStrike -= dt;
         if (nextStrike <= 0) {
           nextStrike = 3.5 + Math.random() * 4;

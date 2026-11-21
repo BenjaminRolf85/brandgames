@@ -90,6 +90,17 @@
   --xr-bricks-family-hat-2:   #2f8f5a;
   --xr-bricks-family-skin-1:  #f1c6a0;
   --xr-bricks-family-skin-2:  #c98d64;
+  /* score popups over the plot (points, the run, a finished row) */
+  --xr-bricks-pop:            #ffffff;
+  --xr-bricks-pop-bonus:      #ffd970;
+  --xr-bricks-pop-run:        #8fe0ff;
+  --xr-bricks-pop-muted:      #c5cbe0;
+  --xr-bricks-pop-bad:        #ff9a8f;
+  --xr-bricks-pop-edge:       #0b1030;   /* outline, so they read on grass and on snow */
+  /* the crane's load: the ring at its place, the plumb disc under the hook */
+  --xr-bricks-drop-ring:      #5fe1ff;
+  --xr-bricks-drop-hot:       #fff2a8;
+  --xr-bricks-drop-disc:      #ffffff;
   /* sizes (meters) */
   --xr-bricks-chart-w:        0.7;
   --xr-bricks-chart-h:        0.72;

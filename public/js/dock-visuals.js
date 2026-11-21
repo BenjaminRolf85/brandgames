@@ -3,6 +3,9 @@
 // protein's material (pearly surface with a fresnel rim and a build-in scan), contact spot markers,
 // the screening stream, the microplate of the lab test, the lab bench from Blender (dock.glb) and
 // the canvas panels (AI ranking, fit meter, lab result, legend). All colors from tokens.
+// Nothing is coded by color alone: contact spots carry a sign (minus, plus, hexagon), the atoms
+// that matter carry their letter and charge (N+, O−, S, Cl), and good or bad contacts get a check
+// or a cross.
 import * as THREE from 'three';
 import { color, hex, num, font } from './tokens.js';
 import { t } from './i18n.js';
@@ -71,7 +74,101 @@ export function makeKit() {
     hidden: new THREE.MeshBasicMaterial({ visible: false }),
   };
   kit.cyl.translate(0, 0.5, 0); // from its base along +y
+  // Signs and letters (one small texture each, shared by all sprites of the scene).
+  const tex = new Map();
+  const texture = (key, draw) => {
+    if (!tex.has(key)) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      draw(c.getContext('2d'));
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      tex.set(key, t);
+    }
+    return tex.get(key);
+  };
+  /** Texture of a contact sign: 'neg', 'pos', 'hydro', 'good' or 'bad'. */
+  kit.signTex = (kind) => texture(`sign-${kind}`, (ctx) => drawSign(ctx, kind, 64, 64, 54));
+  const labelMats = new Map();
+  /** Shared sprite material with an atom's letter (N+, O−, S, Cl); none for carbon. */
+  kit.label = (el) => {
+    if (!ATOM_TEXT[el] || el === 'C') return null;
+    if (!labelMats.has(el)) {
+      labelMats.set(el, new THREE.SpriteMaterial({ map: texture(`atom-${el}`, (ctx) => drawAtomText(ctx, el)), transparent: true, depthWrite: false, toneMapped: false }));
+    }
+    return labelMats.get(el);
+  };
+  kit.dispose = () => {
+    tex.forEach((t) => t.dispose());
+    labelMats.forEach((m) => m.dispose());
+  };
   return kit;
+}
+
+/** What is written on an atom: the element, with the charge that decides where it fits. */
+export const ATOM_TEXT = { N: 'N+', O: 'O−', C: 'C', S: 'S', Cl: 'Cl' };
+
+/** An atom's letter for a sprite (white with a dark edge, the charge as a superscript). */
+function drawAtomText(ctx, el) {
+  const txt = ATOM_TEXT[el];
+  const letter = txt.replace(/[+−]/, '');
+  const sign = txt.slice(letter.length);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  const put = (str, x, y, px) => {
+    ctx.font = font('black', px);
+    ctx.lineWidth = px * 0.2;
+    ctx.strokeStyle = color('xr-dock-sign-edge');
+    ctx.strokeText(str, x, y);
+    ctx.fillStyle = color('xr-dock-sign-ink');
+    ctx.fillText(str, x, y);
+  };
+  put(letter, sign ? 50 : 64, 70, letter.length > 1 ? 70 : 84);
+  if (sign) put(sign, 98, 40, 64);
+}
+
+/**
+ * A contact sign on a canvas (pixels): 'neg' a disc with a minus, 'pos' a disc with a plus,
+ * 'hydro' a hexagon, 'good' a check, 'bad' a cross. The shape says it, the color only helps.
+ */
+export function drawSign(ctx, kind, x, y, r) {
+  const fill = { neg: 'xr-dock-spot-neg', pos: 'xr-dock-spot-pos', hydro: 'xr-dock-spot-hydro', good: 'xr-dock-good', bad: 'xr-dock-bad' }[kind];
+  const hexPath = (rr) => {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI) / 3;
+      ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+    }
+    ctx.closePath();
+  };
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  if (kind === 'hydro') hexPath(r);
+  else { ctx.beginPath(); ctx.arc(x, y, r * 0.94, 0, Math.PI * 2); }
+  ctx.fillStyle = color(fill);
+  ctx.fill();
+  ctx.lineWidth = r * 0.14;
+  ctx.strokeStyle = color('xr-dock-sign-edge');
+  ctx.stroke();
+  const light = kind === 'neg' || kind === 'pos' || kind === 'bad';
+  const ink = color(light ? 'xr-dock-sign-ink' : 'xr-dock-sign-edge');
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = r * 0.26;
+  if (kind === 'neg' || kind === 'pos') {
+    ctx.beginPath();
+    ctx.moveTo(x - r * 0.5, y);
+    ctx.lineTo(x + r * 0.5, y);
+    if (kind === 'pos') { ctx.moveTo(x, y - r * 0.5); ctx.lineTo(x, y + r * 0.5); }
+    ctx.stroke();
+  } else if (kind === 'hydro') {
+    ctx.lineWidth = r * 0.14;
+    hexPath(r * 0.5);
+    ctx.stroke();
+  } else if (kind === 'good') check(ctx, x, y + r * 0.04, r * 1.05, ink);
+  else cross(ctx, x, y, r * 1.05, ink);
+  ctx.restore();
 }
 
 // ---------- molecules ----------
@@ -138,6 +235,23 @@ export class MoleculeView {
     this.glow.renderOrder = 2;
     g.add(this.glow);
     [this.atoms, this.bonds, this.glow].forEach((im) => im?.computeBoundingSphere());
+    // Letters on the atoms that decide the fit (N+, O−, S, Cl): they sit on the side of the atom
+    // that faces the viewer (face()).
+    this.labels = [];
+    if (!ghost) {
+      mol.atoms.forEach((a) => {
+        const mat = kit.label(a.el);
+        if (!mat) return;
+        const r = ELEMENTS[a.el].r;
+        const sp = new THREE.Sprite(mat);
+        sp.scale.setScalar(r * 2.3);
+        sp.position.copy(a.p);
+        sp.position.z += r * 1.12;
+        sp.renderOrder = 3;
+        g.add(sp);
+        this.labels.push({ sp, p: a.p, r });
+      });
+    }
     this.proxy = new THREE.Mesh(kit.proxy, kit.hidden);
     this.proxy.scale.setScalar(Math.max(0.055, mol.radius * 0.95));
     g.add(this.proxy);
@@ -153,6 +267,14 @@ export class MoleculeView {
   clearGlow() {
     for (let i = 0; i < this.mol.atoms.length; i++) this.glow.setColorAt(i, _c.setRGB(0, 0, 0));
     this.glowDirty = true;
+  }
+
+  /** Moves the letters to the viewer's side of their atoms. cam: the camera in the molecule frame. */
+  face(cam) {
+    for (const l of this.labels) {
+      _v.copy(cam).sub(l.p).normalize();
+      l.sp.position.copy(l.p).addScaledVector(_v, l.r * 1.12);
+    }
   }
 
   flush() {
@@ -198,31 +320,90 @@ export function proteinMaterial() {
   return mat;
 }
 
-/** A glowing marker per contact spot (child of the pocket frame). tick(states, time). */
-export function makeSpotMarkers(slots) {
+/**
+ * A marker per contact spot (child of the pocket frame): a soft glow, the spot's sign (minus,
+ * plus, hexagon) and a check or cross when an atom sits on it.
+ * tick(states, time, dim, view, calm); view: { pos, up, right } of the camera in the pocket frame.
+ */
+export function makeSpotMarkers(slots, kit) {
   const g = new THREE.Group();
   g.userData.noFit = true;
   const marks = [];
+  const flat = { transparent: true, depthWrite: false, toneMapped: false };
   slots.forEach((s, j) => {
     if (!s.spot) return;
     const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTexture(), color: hex(SPOTS[s.spot].token), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.6 }));
     m.position.copy(s.p);
     m.scale.setScalar(0.06);
     m.renderOrder = 1;
-    g.add(m);
-    marks.push({ j, m, base: col(SPOTS[s.spot].token), pulse: 0 });
+    const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: kit.signTex(s.spot), ...flat }));
+    sign.position.copy(s.p);
+    sign.scale.setScalar(0.03);
+    sign.renderOrder = 1;
+    const mark = new THREE.Sprite(new THREE.SpriteMaterial({ map: kit.signTex('good'), depthTest: false, ...flat }));
+    mark.scale.setScalar(0.021);
+    mark.renderOrder = 6;
+    mark.visible = false;
+    g.add(m, sign, mark);
+    marks.push({ j, m, sign, mark, p: s.p, base: col(SPOTS[s.spot].token), state: null });
   });
   const good = col('xr-dock-good');
   const bad = col('xr-dock-bad');
-  g.userData.tick = (states, time, dim = 1) => {
+  g.userData.tick = (states, time, dim = 1, view = null, calm = false) => {
     for (const k of marks) {
-      const st = states?.[k.j];
-      const ph = time * 3 + k.j;
+      const st = states?.[k.j] ?? null;
+      const ph = calm ? 0 : time * 3 + k.j;
       if (st === 'good') { k.m.material.color.copy(good); k.m.material.opacity = 0.95 * dim; k.m.scale.setScalar(0.075); }
-      else if (st === 'bad') { k.m.material.color.copy(bad); k.m.material.opacity = (0.6 + 0.4 * Math.sin(time * 18)) * dim; k.m.scale.setScalar(0.07); }
+      else if (st === 'bad') { k.m.material.color.copy(bad); k.m.material.opacity = (calm ? 0.9 : 0.6 + 0.4 * Math.sin(time * 18)) * dim; k.m.scale.setScalar(0.07); }
       else { k.m.material.color.copy(k.base); k.m.material.opacity = (0.45 + 0.25 * Math.sin(ph)) * dim; k.m.scale.setScalar(0.055 + 0.008 * Math.sin(ph)); }
+      k.sign.material.opacity = dim;
+      if (st !== k.state) {
+        k.state = st;
+        k.mark.visible = !!st;
+        if (st) { k.mark.material.map = kit.signTex(st); k.mark.material.needsUpdate = true; }
+      }
+      // The check or cross sits at the upper right of its spot, on the viewer's side.
+      if (st && view) {
+        _v.copy(view.pos).sub(k.p).normalize();
+        k.mark.position.copy(k.p).addScaledVector(_v, 0.03).addScaledVector(view.up, 0.015).addScaledVector(view.right, 0.015);
+      }
     }
   };
+  return g;
+}
+
+/**
+ * Guide rods from atoms to the contact spots they belong to (browser view): the shorter they
+ * get, the closer the molecule is to its pose. set(i, from, to) or hide(from index).
+ */
+export function makeGuides(kit, n = 4) {
+  const g = new THREE.Group();
+  g.userData.noFit = true;
+  const mat = new THREE.MeshBasicMaterial({ color: hex('xr-dock-guide'), transparent: true, opacity: 0.8, depthTest: false, depthWrite: false, toneMapped: false });
+  const tip = new THREE.MeshBasicMaterial({ color: hex('xr-dock-guide'), transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, toneMapped: false });
+  const rods = Array.from({ length: n }, () => {
+    const rod = new THREE.Mesh(kit.cyl, mat);
+    const dot = new THREE.Mesh(kit.sphereLo, tip);
+    dot.scale.setScalar(0.004);
+    rod.renderOrder = dot.renderOrder = 4;
+    rod.visible = dot.visible = false;
+    g.add(rod, dot);
+    return { rod, dot };
+  });
+  g.userData.set = (i, from, to) => {
+    const r = rods[i];
+    if (!r) return;
+    _v.copy(to).sub(from);
+    const len = _v.length();
+    r.rod.visible = r.dot.visible = len > 0.014;
+    if (!r.rod.visible) return;
+    r.rod.position.copy(from);
+    r.rod.quaternion.setFromUnitVectors(UP, _v.divideScalar(len));
+    r.rod.scale.set(0.0015, len, 0.0015);
+    r.dot.position.copy(to);
+  };
+  g.userData.hide = (from = 0) => { for (let i = from; i < rods.length; i++) rods[i].rod.visible = rods[i].dot.visible = false; };
+  g.userData.dispose = () => { mat.dispose(); tip.dispose(); };
   return g;
 }
 
@@ -440,7 +621,7 @@ function star(ctx, x, y, r, fill) {
   ctx.fill();
 }
 
-function check(ctx, x, y, s, stroke) {
+export function check(ctx, x, y, s, stroke) {
   ctx.beginPath();
   ctx.moveTo(x - s * 0.5, y);
   ctx.lineTo(x - s * 0.12, y + s * 0.38);
@@ -452,7 +633,7 @@ function check(ctx, x, y, s, stroke) {
   ctx.stroke();
 }
 
-function cross(ctx, x, y, s, stroke) {
+export function cross(ctx, x, y, s, stroke) {
   ctx.beginPath();
   ctx.moveTo(x - s * 0.4, y - s * 0.4);
   ctx.lineTo(x + s * 0.4, y + s * 0.4);
@@ -496,14 +677,14 @@ export function drawAIPanel(ctx, c, st) {
   const lib = L.lib.toLocaleString(st.locale);
   const screening = st.screenK < 1;
   const secs = st.locale === 'de-DE' ? L.secs.replace('.', ',') : L.secs;
-  const sub = screening ? t('dockScreeningRun', { n: Math.round(L.lib * st.screenK).toLocaleString(st.locale) }) : t(compact ? 'dockScreenedShort' : 'dockScreened', { n: lib, s: secs });
+  const sub = screening ? t('dockScreeningRun', { n: Math.round(L.lib * st.screenK).toLocaleString(st.locale) }) : t('dockScreened', { n: lib, s: secs });
   if (compact) {
-    text(ctx, c, sub, w - pad, 0.045, { size: 'xr-text-min', weight: 'regular', fill: color('xr-panel-muted'), align: 'right', maxW: w * 0.5 });
+    text(ctx, c, sub, w - pad, 0.045, { size: 'xr-text-sm', weight: 'regular', fill: color('xr-panel-muted'), align: 'right', maxW: w * 0.5 });
   } else {
-    text(ctx, c, sub, pad, 0.1, { size: 'xr-text-min', weight: 'regular', fill: color('xr-panel-muted'), maxW: w - pad * 2 });
-    text(ctx, c, t('dockColAI'), 0.1, 0.155, { size: 'xr-text-min', weight: 'bold', fill: color('xr-dock-ai') });
-    text(ctx, c, t('dockColYou'), 0.53, 0.155, { size: 'xr-text-min', weight: 'bold', fill: color('xr-dock-you'), align: 'center' });
-    text(ctx, c, t('dockColLab'), 0.665, 0.155, { size: 'xr-text-min', weight: 'bold', fill: color('xr-dock-lab'), align: 'center' });
+    text(ctx, c, sub, pad, 0.1, { size: 'xr-text-sm', weight: 'regular', fill: color('xr-panel-muted'), maxW: w - pad * 2 });
+    text(ctx, c, t('dockColAI'), 0.1, 0.155, { size: 'xr-text-sm', weight: 'bold', fill: color('xr-dock-ai') });
+    text(ctx, c, t('dockColYou'), 0.505, 0.155, { size: 'xr-text-sm', weight: 'bold', fill: color('xr-dock-you'), align: 'center' });
+    text(ctx, c, t('dockColLab'), 0.66, 0.155, { size: 'xr-text-sm', weight: 'bold', fill: color('xr-dock-lab'), align: 'center' });
   }
   if (screening) {
     bar(ctx, c, pad, compact ? 0.12 : 0.24, w - pad * 2, 0.018, st.screenK, color('xr-dock-ai'));
@@ -538,16 +719,16 @@ export function drawAIPanel(ctx, c, st) {
     bar(ctx, c, bx0, y, bw, 0.02, (cand.ai / 100) * k, color('xr-dock-ai'));
     text(ctx, c, `${cand.ai} %`, bx0 + bw + 0.012, y, { size: 'xr-text-sm', weight: 'black', fill: color('xr-dock-ai') });
     // Your docking fit and the lab result.
-    const xYou = 0.53;
-    const xLab = 0.665;
+    const xYou = 0.505;
+    const xLab = 0.66;
     const fit = cand.fit;
-    text(ctx, c, fit == null ? '–' : `${Math.round(fit * 100)} %`, xYou, y, { size: 'xr-text-min', weight: 'bold', fill: fit == null ? color('xr-panel-muted') : color('xr-dock-you'), align: 'center' });
+    text(ctx, c, fit == null ? '–' : `${Math.round(fit * 100)} %`, xYou, y, { size: 'xr-text-sm', weight: 'bold', fill: fit == null ? color('xr-panel-muted') : color('xr-dock-you'), align: 'center' });
     if (cand.testing) text(ctx, c, '…', xLab, y, { size: 'xr-text-sm', weight: 'black', fill: color('xr-dock-lab'), align: 'center' });
     else if (cand.tested) {
       const ok = cand.lab >= 70;
       (ok ? check : cross)(ctx, c.m(xLab - 0.035), c.m(y), c.m(0.026), color(ok ? 'xr-dock-good' : 'xr-dock-bad'));
-      text(ctx, c, `${cand.lab}`, xLab + 0.012, y, { size: 'xr-text-min', weight: 'black', fill: color(ok ? 'xr-dock-good' : 'xr-dock-bad'), align: 'center' });
-    } else text(ctx, c, '–', xLab, y, { size: 'xr-text-min', fill: color('xr-panel-muted'), align: 'center' });
+      text(ctx, c, `${cand.lab}`, xLab + 0.012, y, { size: 'xr-text-sm', weight: 'black', fill: color(ok ? 'xr-dock-good' : 'xr-dock-bad'), align: 'center' });
+    } else text(ctx, c, '–', xLab, y, { size: 'xr-text-sm', fill: color('xr-panel-muted'), align: 'center' });
     ctx.globalAlpha = 1;
   });
   if (compact) return;
@@ -555,11 +736,11 @@ export function drawAIPanel(ctx, c, st) {
   const fy = R.y0 + R.h * 4 + 0.035;
   if (L.top) {
     star(ctx, c.m(pad + 0.012), c.m(fy - 0.002), c.m(0.012), color('xr-warning'));
-    text(ctx, c, t('dockAITip'), pad + 0.03, fy, { size: 'xr-text-min', weight: 'bold', fill: color('xr-warning') });
-  } else text(ctx, c, t('dockWorkshop'), pad, fy, { size: 'xr-text-min', weight: 'bold', fill: color('xr-dock-you') });
-  ctx.font = font('regular', c.m(S('xr-text-min')));
+    text(ctx, c, t('dockAITip'), pad + 0.03, fy, { size: 'xr-text-sm', weight: 'bold', fill: color('xr-warning') });
+  } else text(ctx, c, t('dockWorkshop'), pad, fy, { size: 'xr-text-sm', weight: 'bold', fill: color('xr-dock-you') });
+  ctx.font = font('regular', c.m(S('xr-text-sm')));
   const lines = wrap(ctx, t(L.design ? 'dockDesignNote' : 'dockAINote'), c.m(w - pad * 2));
-  lines.slice(0, 2).forEach((ln, i) => text(ctx, c, ln, pad, fy + 0.045 + i * 0.04, { size: 'xr-text-min', weight: 'regular', fill: color('xr-panel-muted') }));
+  lines.slice(0, 2).forEach((ln, i) => text(ctx, c, ln, pad, fy + 0.045 + i * 0.04, { size: 'xr-text-sm', weight: 'regular', fill: color('xr-panel-muted') }));
 }
 
 /** Fit meter: a ring gauge with the percent, bars for shape and contacts, and a status line. */
@@ -588,16 +769,18 @@ export function drawFitPanel(ctx, c, st) {
     ctx.stroke();
   }
   text(ctx, c, `${Math.round(f * 100)}`, gx, gy - (compact ? 0 : 0.008), { size: compact ? 'xr-text-sm' : 'xr-text-lg', weight: 'black', fill: fc, align: 'center' });
-  if (!compact) text(ctx, c, '%', gx, gy + 0.036, { size: 'xr-text-min', weight: 'bold', fill: color('xr-panel-muted'), align: 'center' });
+  if (!compact) text(ctx, c, '%', gx, gy + 0.036, { size: 'xr-text-sm', weight: 'bold', fill: color('xr-panel-muted'), align: 'center' });
   const x0 = compact ? 0.14 : 0.215;
   const bw = c.w - x0 - 0.03;
   const dots = (y) => {
     const n = st.special ?? 0;
     for (let i = 0; i < n; i++) {
-      const x = c.w - 0.04 - (n - 1 - i) * 0.035;
+      const x = c.w - 0.045 - (n - 1 - i) * 0.04;
+      const kind = i < (st.good ?? 0) ? 'good' : i < (st.good ?? 0) + (st.bad ?? 0) ? 'bad' : null;
+      if (kind) { drawSign(ctx, kind, c.m(x), c.m(y), c.m(0.016)); continue; }
       ctx.beginPath();
-      ctx.arc(c.m(x), c.m(y), c.m(0.012), 0, Math.PI * 2);
-      ctx.fillStyle = i < (st.good ?? 0) ? color('xr-dock-good') : i < (st.good ?? 0) + (st.bad ?? 0) ? color('xr-dock-bad') : color('xr-dock-ai-track');
+      ctx.arc(c.m(x), c.m(y), c.m(0.013), 0, Math.PI * 2);
+      ctx.fillStyle = color('xr-dock-ai-track');
       ctx.fill();
     }
   };
@@ -605,17 +788,17 @@ export function drawFitPanel(ctx, c, st) {
     // One line: fit and the contact spots as dots; below it the status.
     text(ctx, c, `${t('dockFit')} ${Math.round(f * 100)} %`, x0, 0.04, { size: 'xr-text-sm', weight: 'black', maxW: c.w - x0 - 0.16 });
     dots(0.04);
-    text(ctx, c, st.status ?? '', x0, 0.092, { size: 'xr-text-min', weight: 'bold', fill: st.statusColor ?? color('xr-panel-muted'), maxW: bw });
+    text(ctx, c, st.status ?? '', x0, 0.092, { size: 'xr-text-sm', weight: 'bold', fill: st.statusColor ?? color('xr-panel-muted'), maxW: bw });
     return;
   }
   text(ctx, c, t('dockFit'), x0, 0.045, { size: 'xr-text-md', weight: 'black' });
-  text(ctx, c, t('dockShape'), x0, 0.09, { size: 'xr-text-min', weight: 'bold', fill: color('xr-panel-muted') });
+  text(ctx, c, t('dockShape'), x0, 0.09, { size: 'xr-text-sm', weight: 'bold', fill: color('xr-panel-muted') });
   bar(ctx, c, x0 + 0.12, 0.09, bw - 0.12, 0.016, st.shape ?? 0, fitColor(st.shape ?? 0));
-  text(ctx, c, t('dockContacts', { n: st.good ?? 0, total: st.special ?? 0 }), x0, 0.135, { size: 'xr-text-min', weight: 'bold', fill: color('xr-panel-muted') });
+  text(ctx, c, t('dockContacts', { n: st.good ?? 0, total: st.special ?? 0 }), x0, 0.135, { size: 'xr-text-sm', weight: 'bold', fill: color('xr-panel-muted') });
   dots(0.135);
-  ctx.font = font('bold', c.m(S('xr-text-min')));
+  ctx.font = font('bold', c.m(S('xr-text-sm')));
   const lines = wrap(ctx, st.status ?? '', c.m(c.w - x0 - 0.03));
-  lines.slice(0, 2).forEach((ln, i) => text(ctx, c, ln, x0, 0.185 + i * 0.038, { size: 'xr-text-min', weight: 'bold', fill: st.statusColor ?? color('xr-panel-muted') }));
+  lines.slice(0, 2).forEach((ln, i) => text(ctx, c, ln, x0, 0.185 + i * 0.038, { size: 'xr-text-sm', weight: 'bold', fill: st.statusColor ?? color('xr-panel-muted') }));
 }
 
 /** Lab result: the dose-response curve as it is measured, the value, the AI's prediction, the verdict. */
@@ -630,8 +813,9 @@ export function drawLabPanel(ctx, c, st) {
     c.surface({ stroke: color('xr-dock-you') });
     text(ctx, c, t('dockWorkshop'), 0.03, 0.05, { size: 'xr-text-md', weight: 'black', fill: color('xr-dock-you') });
     text(ctx, c, t('dockEstimate', { n: st.build.est }), 0.03, 0.115, { size: 'xr-text-lg', weight: 'black', fill: color('xr-dock-ai') });
-    ctx.font = font('regular', c.m(S('xr-text-min')));
-    wrap(ctx, st.build.hint, c.m(c.w - 0.06)).slice(0, 5).forEach((ln, i) => text(ctx, c, ln, 0.03, 0.175 + i * 0.04, { size: 'xr-text-min', weight: 'regular', fill: color('xr-panel-muted') }));
+    ctx.font = font('regular', c.m(S('xr-text-sm')));
+    // Desktop: the atoms to choose from stand in a row at the foot of this panel (dock-workshop.js).
+    wrap(ctx, st.build.hint, c.m(c.w - 0.06)).slice(0, st.build.tiles ? 2 : 5).forEach((ln, i) => text(ctx, c, ln, 0.03, 0.175 + i * 0.04, { size: 'xr-text-sm', weight: 'regular', fill: color('xr-panel-muted') }));
     return;
   }
   if (!cand) {
@@ -668,7 +852,7 @@ export function drawLabPanel(ctx, c, st) {
   ctx.lineTo(c.m(x0 + cw), c.m(yAI));
   ctx.stroke();
   ctx.setLineDash([]);
-  text(ctx, c, t('dockChartAI'), x0 + cw - 0.005, yAI - 0.016, { size: 'xr-text-min', weight: 'black', fill: color('xr-dock-ai'), align: 'right' });
+  text(ctx, c, t('dockChartAI'), x0 + cw - 0.005, yAI - 0.016, { size: 'xr-text-sm', weight: 'black', fill: color('xr-dock-ai'), align: 'right' });
   const val = value / 100;
   const k = done ? 1 : Math.min(1, st.k);
   ctx.beginPath();
@@ -689,59 +873,58 @@ export function drawLabPanel(ctx, c, st) {
   // Values on the right.
   const rx = x0 + cw + 0.035;
   const shown = Math.round(value * k);
-  text(ctx, c, done ? t('dockLabValue', { n: value }) : t('dockLabRun'), rx, 0.105, { size: done ? 'xr-text-md' : 'xr-text-min', weight: 'black', fill: done ? color(ok ? 'xr-dock-good' : 'xr-dock-bad') : color('xr-dock-lab'), maxW: c.w - rx - pad });
+  text(ctx, c, done ? t('dockLabValue', { n: value }) : t('dockLabRun'), rx, 0.105, { size: done ? 'xr-text-md' : 'xr-text-sm', weight: 'black', fill: done ? color(ok ? 'xr-dock-good' : 'xr-dock-bad') : color('xr-dock-lab'), maxW: c.w - rx - pad });
   if (!done) text(ctx, c, `${shown} %`, rx, 0.15, { size: 'xr-text-md', weight: 'black', fill: color('xr-dock-lab') });
-  else text(ctx, c, t('dockLabAI', { n: cand.ai }), rx, 0.15, { size: 'xr-text-min', weight: 'bold', fill: color('xr-dock-ai'), maxW: c.w - rx - pad });
-  if (done && cand.fit != null) text(ctx, c, t('dockLabYou', { n: Math.round(cand.fit * 100) }), rx, 0.19, { size: 'xr-text-min', weight: 'bold', fill: color('xr-dock-you'), maxW: c.w - rx - pad });
+  else text(ctx, c, t('dockLabAI', { n: cand.ai }), rx, 0.15, { size: 'xr-text-sm', weight: 'bold', fill: color('xr-dock-ai'), maxW: c.w - rx - pad });
+  if (done && cand.fit != null) text(ctx, c, t('dockLabYou', { n: Math.round(cand.fit * 100) }), rx, 0.19, { size: 'xr-text-sm', weight: 'bold', fill: color('xr-dock-you'), maxW: c.w - rx - pad });
   if (!done) return;
   const verdict = ok ? t('dockLabStrong') : value >= 34 ? t('dockLabWeak') : t('dockLabNone');
   text(ctx, c, verdict, pad, 0.255, { size: 'xr-text-sm', weight: 'black', fill: color(ok ? 'xr-dock-good' : 'xr-dock-bad'), maxW: c.w - pad * 2 });
-  ctx.font = font('regular', c.m(S('xr-text-min')));
+  ctx.font = font('regular', c.m(S('xr-text-sm')));
   const lines = wrap(ctx, t(cand.why), c.m(c.w - pad * 2));
-  lines.slice(0, 2).forEach((ln, i) => text(ctx, c, ln, pad, 0.298 + i * 0.038, { size: 'xr-text-min', weight: 'regular', fill: color('xr-panel-muted') }));
+  lines.slice(0, 2).forEach((ln, i) => text(ctx, c, ln, pad, 0.298 + i * 0.038, { size: 'xr-text-sm', weight: 'regular', fill: color('xr-panel-muted') }));
 }
 
 /** Legend of the contact spots: patch color, the atom it likes, and the rule. */
 export function legendSize(compact) {
-  return compact ? { w: 0.74, h: 0.075 } : { w: 0.74, h: 0.205 };
+  return compact ? { w: 0.74, h: 0.075 } : { w: 0.74, h: 0.21 };
 }
 
 export function drawLegend(ctx, c, st) {
   c.surface({});
   const pad = 0.03;
   const rows = [['neg', 'N', 'dockLegendNeg'], ['pos', 'O', 'dockLegendPos'], ['hydro', 'C', 'dockLegendHydro']];
+  // The spot's sign, an arrow, and the atom it attracts (a ball in the element's color).
   const pair = (x, y, spot, el, r) => {
-    ctx.beginPath();
-    ctx.arc(c.m(x), c.m(y), c.m(r * 1.15), 0, Math.PI * 2);
-    ctx.fillStyle = color(SPOTS[spot].token);
-    ctx.globalAlpha = 0.85;
-    ctx.fill();
-    ctx.globalAlpha = 1;
+    drawSign(ctx, spot, c.m(x), c.m(y), c.m(r * 1.25));
     ctx.strokeStyle = color('xr-panel-muted');
     ctx.lineWidth = c.m(0.003);
     ctx.beginPath();
-    ctx.moveTo(c.m(x + r * 1.5), c.m(y));
-    ctx.lineTo(c.m(x + r * 2.6), c.m(y));
+    ctx.moveTo(c.m(x + r * 3.0), c.m(y));
+    ctx.lineTo(c.m(x + r * 1.8), c.m(y));
+    ctx.lineTo(c.m(x + r * 2.2), c.m(y - r * 0.4));
+    ctx.moveTo(c.m(x + r * 1.8), c.m(y));
+    ctx.lineTo(c.m(x + r * 2.2), c.m(y + r * 0.4));
     ctx.stroke();
-    const g = ctx.createRadialGradient(c.m(x + r * 3.6), c.m(y - r * 0.35), c.m(r * 0.1), c.m(x + r * 3.9), c.m(y), c.m(r));
+    const g = ctx.createRadialGradient(c.m(x + r * 4.0), c.m(y - r * 0.35), c.m(r * 0.1), c.m(x + r * 4.3), c.m(y), c.m(r));
     g.addColorStop(0, color('xr-panel-text'));
     g.addColorStop(0.35, color(ELEMENTS[el].token));
     g.addColorStop(1, color(ELEMENTS[el].token));
     ctx.beginPath();
-    ctx.arc(c.m(x + r * 3.9), c.m(y), c.m(r), 0, Math.PI * 2);
+    ctx.arc(c.m(x + r * 4.3), c.m(y), c.m(r), 0, Math.PI * 2);
     ctx.fillStyle = g;
     ctx.fill();
   };
   if (st.compact) {
-    text(ctx, c, t('dockLegendShort'), pad, c.h / 2, { size: 'xr-text-min', weight: 'bold', fill: color('xr-panel-muted'), maxW: 0.42 });
+    text(ctx, c, t('dockLegend'), pad, c.h / 2, { size: 'xr-text-sm', weight: 'bold', fill: color('xr-panel-muted'), maxW: 0.42 });
     rows.forEach(([spot, el], i) => pair(0.475 + i * 0.09, c.h / 2, spot, el, 0.011));
     return;
   }
-  text(ctx, c, t('dockLegend'), pad, 0.04, { size: 'xr-text-min', weight: 'black', fill: color('xr-panel-text'), maxW: c.w - pad * 2 });
+  text(ctx, c, t('dockLegend'), pad, 0.04, { size: 'xr-text-sm', weight: 'black', fill: color('xr-panel-text'), maxW: c.w - pad * 2 });
   rows.forEach(([spot, el, key], i) => {
-    const y = 0.085 + i * 0.042;
-    pair(pad + 0.014, y, spot, el, 0.012);
-    text(ctx, c, t(key), pad + 0.085, y, { size: 'xr-text-min', weight: 'bold', maxW: c.w - pad * 2 - 0.085 });
+    const y = 0.088 + i * 0.044;
+    pair(pad + 0.016, y, spot, el, 0.012);
+    text(ctx, c, t(key), pad + 0.1, y, { size: 'xr-text-sm', weight: 'bold', maxW: c.w - pad * 2 - 0.1 });
   });
 }
 
@@ -782,8 +965,8 @@ export function makePointMarkers(kit, points, c0) {
     for (const it of items) {
       const filled = !!choices[it.k];
       const on = it.k === selected;
-      it.ring.visible = !filled || on;
-      it.stub.visible = !filled;
+      it.ring.visible = !it.off && (!filled || on);
+      it.stub.visible = !it.off && !filled;
       it.ring.quaternion.copy(faceQ);
       it.ring.scale.setScalar(on ? 1.35 + 0.12 * Math.sin(time * 8) : 1 + 0.1 * Math.sin(time * 3 + it.k));
       it.ring.material.color.copy(on ? sel : glow);
@@ -796,6 +979,7 @@ export function makePointMarkers(kit, points, c0) {
 /** A round tile for the atom menu: the element in its color (null: remove, a red cross). */
 export function atomTile(el, size = 0.072) {
   let hover = false;
+  let focus = false;
   const p = new Panel(size, size, (ctx, c) => {
     const W = c.canvas.width;
     const r = W / 2 - c.m(0.004);
@@ -803,23 +987,25 @@ export function atomTile(el, size = 0.072) {
     ctx.arc(W / 2, W / 2, r, 0, Math.PI * 2);
     ctx.fillStyle = el ? color(ELEMENTS[el].token) : color('xr-button-bg');
     ctx.fill();
-    ctx.lineWidth = c.m(hover ? 0.006 : 0.003);
-    ctx.strokeStyle = color(hover ? 'xr-warning' : 'xr-panel-border');
+    ctx.lineWidth = c.m(hover || focus ? 0.006 : 0.003);
+    ctx.strokeStyle = color(focus ? 'xr-focus' : hover ? 'xr-warning' : 'xr-panel-border');
     ctx.stroke();
     if (el) {
-      ctx.font = font('black', c.m(size * 0.52));
+      const str = ATOM_TEXT[el];
+      ctx.font = font('black', c.m(size * (str.length > 1 ? 0.42 : 0.52)));
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.lineWidth = c.m(0.006);
       ctx.strokeStyle = color('xr-bg-preview');
-      ctx.strokeText(el, W / 2, W / 2 + c.m(0.002));
+      ctx.strokeText(str, W / 2, W / 2 + c.m(0.002));
       ctx.fillStyle = color('xr-panel-text');
-      ctx.fillText(el, W / 2, W / 2 + c.m(0.002));
+      ctx.fillText(str, W / 2, W / 2 + c.m(0.002));
     } else cross(ctx, W / 2, W / 2, c.m(size * 0.42), color('xr-dock-bad'));
   });
   p.userData.interactive = true;
   p.userData.noFit = true;
   p.userData.setHover = (v) => { hover = v; p.scale.setScalar(v ? 1.12 : 1); p.redraw(); };
+  p.userData.setFocus = (v) => { focus = v; p.redraw(); };
   p.renderOrder = 6;
   p.material.depthTest = false;
   return p;
@@ -840,12 +1026,12 @@ export function makePartsDish(kit) {
     mesh.scale.setScalar(r);
     const home = new THREE.Vector3((i - 2) * 0.05, 0.006 + r, -0.012);
     mesh.position.copy(home);
-    const label = new Panel(0.045, 0.036, (ctx, c) => {
-      ctx.font = font('black', c.m(0.034));
+    const label = new Panel(0.05, 0.036, (ctx, c) => {
+      ctx.font = font('black', c.m(ATOM_TEXT[el].length > 1 ? 0.028 : 0.034));
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = color('xr-panel-text');
-      ctx.fillText(el, c.canvas.width / 2, c.canvas.height / 2);
+      ctx.fillText(ATOM_TEXT[el], c.canvas.width / 2, c.canvas.height / 2);
     });
     label.rotation.x = -Math.PI / 2;
     label.position.set(home.x, 0.0075, 0.055); // lying on the dish, in front of its atom

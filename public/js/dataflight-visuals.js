@@ -137,12 +137,13 @@ export class FlightEcho {
     this.body.rotation.set(
       -vy * 0.12 * (1 - this.turn) + Math.sin(t * 2.3) * 0.04,
       yaw * (1 - this.turn),
-      -vx * 0.22 * (1 - this.turn) + Math.sin(t * 40) * 0.35 * this.hurtT,
+      -vx * 0.22 * (1 - this.turn) + (this.calm ? 0 : Math.sin(t * 40) * 0.35 * this.hurtT),
     );
     this.body.position.y = Math.sin(t * 3.1) * this.size * 0.06;
     this.body.scale.setScalar(1 + Math.min(1, this.joyT * 2) * 0.1);
     if (this.model) {
-      this.model.visible = !blink || Math.sin(t * 30) > 0;
+      // After a hit Echo flickers; with calm motion (this.calm) it stays visible and only shakes its head.
+      this.model.visible = this.calm || !blink || Math.sin(t * 30) > 0;
       // Fast wing beats while flying, harder when climbing.
       const beat = Math.sin(t * (13 + Math.max(0, vy) * 4));
       this.wings.forEach((w) => bendWing(w, 0.3 + beat * (0.5 + Math.max(0, vy) * 0.15)));
@@ -460,6 +461,7 @@ function labelTexture(text, good) {
 export class DataItems {
   constructor(parent, max = 40) {
     this.max = max;
+    this.scale = 1; // drawn size of all items (the browser view shows them larger)
     const goodGeo = gemGeometry(0.05, 0.06, 0.085, 4);
     this.goodColor = instAttr(goodGeo, 'aColor', 3, max);
     this.goodFade = instAttr(goodGeo, 'aFade', 1, max);
@@ -522,7 +524,7 @@ export class DataItems {
       used[it.kind].add(it.slot);
       tmpE.set(it.spin.x * time, it.spin.y * time + it.slot, it.spin.z * time);
       tmpQ.setFromEuler(tmpE);
-      tmpS.setScalar(it.size * (it.pop ?? 1));
+      tmpS.setScalar(it.size * (it.pop ?? 1) * this.scale);
       tmpM.compose(it.pos, tmpQ, tmpS);
       mesh.setMatrixAt(it.slot, tmpM);
       if (it.kind === 'good') {
@@ -537,7 +539,7 @@ export class DataItems {
         tmpM.makeTranslation(it.pos.x, it.pos.y, it.pos.z);
         this.halo.setMatrixAt(h, tmpM);
         this.haloColor.setXYZ(h, c.r, c.g, c.b);
-        this.haloSize.setX(h, (it.kind === 'good' ? 0.3 : 0.26) * it.size);
+        this.haloSize.setX(h, (it.kind === 'good' ? 0.3 : 0.26) * it.size * this.scale);
         this.haloFade.setX(h, it.fade * (it.kind === 'good' ? 0.7 : 0.55));
         h += 1;
       }
@@ -545,7 +547,7 @@ export class DataItems {
         // Grows with the distance, so the name stays readable far ahead.
         const lw = 0.12 + Math.max(0.5, -it.pos.z) * 0.055;
         it.label.scale.set(lw, lw * 0.22, 1);
-        it.label.position.set(it.pos.x, it.pos.y + 0.075 * it.size + lw * 0.16, it.pos.z);
+        it.label.position.set(it.pos.x, it.pos.y + 0.075 * it.size * this.scale + lw * 0.16, it.pos.z);
         // Readable while the data approaches; gone shortly before it reaches Echo.
         it.label.material.opacity = it.fade * THREE.MathUtils.clamp((it.pos.z + 8.5) / 1.5, 0, 1) * THREE.MathUtils.clamp((-0.7 - it.pos.z) / 0.5, 0, 1);
       }
@@ -706,6 +708,15 @@ export function makeStream({ center, far = -11, near = 1.2, lite = false }) {
     sCol.needsUpdate = true;
   };
   g.userData.basePalette = palette;
+  // The decor crystals can be faded out (k: 0 to 1), e.g. while flying in the browser.
+  let gemK = 1;
+  g.userData.setGems = (k) => {
+    if (k === gemK) return;
+    gemK = k;
+    gems.visible = k > 0.01;
+    for (let i = 0; i < NG; i++) gFade.setX(i, 0.32 * k);
+    gFade.needsUpdate = true;
+  };
   g.userData.tick = (dt, time, speed) => {
     sUni.uBoost.value = Math.min(1, speed / 6);
     S.forEach((s, i) => {

@@ -15,6 +15,7 @@ import { music } from './music.js';
 import { MUSIC } from './config.js';
 import { screenHud, touchButtons, dragPad } from './touch-ui.js';
 import { gameUrl } from './deep-link.js';
+import { assist, EASY_SCORE } from './assist.js';
 
 export class BaseScene {
   constructor(app) {
@@ -30,6 +31,47 @@ export class BaseScene {
     this._cleanups = [];
     this._sceneCleanups = []; // run only when the scene closes (not between steps)
     this.disposed = false;
+    this.pausable = false; // games: set by the app (pause.js: Escape, P, the menu button)
+    this._controls = null;
+  }
+
+  // ---------- controls per device, pause, play assistance ----------
+
+  /**
+   * The game's controls, per device, already translated:
+   *   this.setControls({
+   *     desktop: [['A / D oder Pfeiltasten', 'lenken'], ['Leertaste', 'springen']],
+   *     touch:   [['Wischen', 'lenken'], ['Knopf Sprung', 'springen']],
+   *     xr:      [['Hand bewegen', 'lenken'], ['Trigger', 'springen']],
+   *   });
+   * The intro shows the list for the device in use (controlsBlocks), and so does the pause dialog.
+   */
+  setControls(spec) {
+    this._controls = spec;
+  }
+
+  /** [[keys, action], ...] for the device in use: headset, phone or desktop. */
+  controlsFor() {
+    const c = this._controls;
+    if (!c) return [];
+    if (this.engine.isXR) return c.xr ?? [];
+    if (this.engine.touchUI) return c.touch ?? c.desktop ?? [];
+    return c.desktop ?? [];
+  }
+
+  /** Text blocks for a panel (textPanel): a small heading and one line per control. */
+  controlsBlocks() {
+    const list = this.controlsFor();
+    if (!list.length) return [];
+    return [
+      { text: t('controlsTitle').toUpperCase(), size: 'xr-text-sm', weight: 'black', color: color('xr-accent'), gap: 0.012 },
+      ...list.map(([keys, action], i) => ({ text: `${keys}:  ${action}`, size: 'xr-text-sm', weight: 'bold', gap: i === list.length - 1 ? 0.03 : 0.008 })),
+    ];
+  }
+
+  /** The game's menu button: in the browser it pauses (continue, restart, menu); in the headset it leaves. */
+  menuOrPause() {
+    if (!this.app.pause?.open()) this.app.showMenu();
   }
 
   onUpdate(fn) {
@@ -150,7 +192,7 @@ export class BaseScene {
       { grow: false, layout: { align: 'left', pad: 0.03 } }), this.group);
     const y = this.eye + 0.66 - info.h / 2;
     info.position.set(-0.15, y, -this.dist);
-    const menu = this.add(new Button(0.26, info.h, { label: t('menu'), labelSize: 'xr-text-sm', grow: false, onClick: () => this.app.showMenu() }), this.group);
+    const menu = this.add(new Button(0.26, info.h, { label: t('menu'), labelSize: 'xr-text-sm', grow: false, onClick: () => this.menuOrPause() }), this.group);
     menu.position.set(0.5, y, -this.dist);
     info.userData.hud = true; // speech bubbles keep clear of it on narrow screens
     menu.userData.hud = true;
@@ -158,7 +200,7 @@ export class BaseScene {
     if (this.engine.touchUI) {
       info.visible = false;
       menu.visible = false;
-      const bar = screenHud({ onMenu: () => this.app.showMenu() });
+      const bar = screenHud({ onMenu: () => this.menuOrPause() });
       this.onSceneDispose(() => bar.remove());
       bar.set(getText());
       return () => bar.set(getText());
@@ -168,9 +210,12 @@ export class BaseScene {
 
   intro(title, text, onStart) {
     this.clearLayer();
-    const panel = this.add(textPanel(1.1, 0.4, [
+    // Phones held sideways: a wide panel with larger text, so the camera can come close.
+    const wide = this.engine.touchUI && window.innerWidth > window.innerHeight * 1.2;
+    const panel = this.add(textPanel(wide ? 1.5 : 1.1, wide ? 0.3 : 0.4, [
       { text: title, size: 'xr-text-title', weight: 'black', gap: 0.04 },
-      { text, size: 'xr-text-md', color: color('xr-panel-muted'), gap: 0.04 },
+      { text, size: wide ? 'xr-text-lg' : 'xr-text-md', color: color('xr-panel-muted'), gap: 0.04 },
+      ...this.controlsBlocks(),
       { text: L(SPONSOR.presentedBy), size: 'xr-text-sm', weight: 'bold', color: color('xr-warning') },
     ]));
     panel.position.set(0, this.eye + 0.44 - panel.h / 2, -this.dist);
@@ -188,7 +233,12 @@ export class BaseScene {
    * learned: [{ q, a }] already localized (question and correct answer of missed items).
    */
   results(data) {
-    const { gameKey, score } = data;
+    const { gameKey } = data;
+    // Relaxed mode (assist.js): the result counts a share of its points, said on the result.
+    data.rawScore = data.score;
+    data.easy = assist.easy && data.score > 0;
+    if (data.easy) data.score = Math.round(data.score * assist.scoreFactor);
+    const { score } = data;
     const best = getBest(gameKey);
     data.isNew = score > best;
     data.best = Math.max(best, score);
@@ -209,7 +259,8 @@ export class BaseScene {
     const scorePanel = this.add(textPanel(0.58, 0.42, [
       { text: t('results'), size: 'xr-text-md', weight: 'bold', color: color('xr-panel-muted'), gap: 0.02 },
       { text: String(score), size: 0.12, weight: 'black', gap: 0.005 },
-      { text: t('score'), size: 'xr-text-md', weight: 'bold', gap: 0.03 },
+      { text: t('score'), size: 'xr-text-md', weight: 'bold', gap: this.resultData.easy ? 0.008 : 0.03 },
+      ...(this.resultData.easy ? [{ text: t('easyNote', { percent: Math.round(EASY_SCORE * 100), raw: this.resultData.rawScore }), size: 'xr-text-sm', color: color('xr-panel-muted'), gap: 0.03 }] : []),
       { text: this.resultData.line ?? t('correctOf', { n: correct, total }), size: 'xr-text-md', gap: 0.02 },
       { text: isNew ? t('newBest') : `${t('best')}: ${best}`, size: 'xr-text-md', weight: 'bold', color: color(isNew ? 'xr-warning' : 'xr-accent'), gap: 0.03 },
       // The quizzes' knowledge house (only an object with a rating; other games may use the name).
@@ -240,24 +291,34 @@ export class BaseScene {
 
     const canSubmit = GAME_MODES.includes(gameKey) && score > 0 && !submitted;
     const next = this.resultData.next; // e.g. the next level of Echo Parkour
+    // Phones: finger-sized buttons. Held sideways there is little height, so the buttons stand
+    // in a column beside the panels and the camera can come closer.
+    const touch = this.engine.touchUI;
+    const wide = touch && window.innerWidth > window.innerHeight * 1.2;
+    const bh = touch ? 0.16 : 0.12;
+    const bw = (w) => (wide ? 0.44 : w);
     const buttons = [
-      ...(next ? [new Button(0.42, 0.12, { label: next.label, variant: 'success', onClick: next.onClick })] : []),
-      new Button(0.36, 0.12, { label: t('again'), variant: next ? 'secondary' : 'primary', onClick: onAgain }),
-      ...(canSubmit ? [new Button(0.46, 0.12, { label: t('submitScore'), variant: 'sponsor', onClick: () => this.submitFlow() })] : []),
-      new Button(0.3, 0.12, { label: t('menu'), onClick: () => this.app.showMenu() }),
+      ...(next ? [new Button(bw(0.42), bh, { label: next.label, variant: 'success', onClick: next.onClick })] : []),
+      new Button(bw(0.36), bh, { label: t('again'), variant: next ? 'secondary' : 'primary', onClick: onAgain }),
+      ...(canSubmit ? [new Button(bw(0.46), bh, { label: t('submitScore'), variant: 'sponsor', onClick: () => this.submitFlow() })] : []),
+      new Button(bw(0.3), bh, { label: t('menu'), onClick: () => this.app.showMenu() }),
     ];
-    const by = sponsor.position.y - sponsor.h / 2 - 0.04;
-    const btnH = Math.max(...buttons.map((b) => b.h));
-    layoutRow(buttons, by - btnH / 2, -dist);
+    let by = sponsor.position.y - sponsor.h / 2 - 0.04;
+    let btnH = Math.max(...buttons.map((b) => b.h));
+    if (wide) {
+      let y = top;
+      buttons.forEach((b) => { b.position.set(0.64 + 0.04 + 0.22, y - b.h / 2, -dist); y -= b.h + 0.02; });
+      by = y + 0.03; btnH = 0; // a further button (share, event QR) continues the column
+    } else layoutRow(buttons, by - btnH / 2, -dist);
     // Event mode: the result (licence code and QR) to take home on the phone.
     if (EVENT) {
-      const qr = new Button(0.5, 0.11, { label: t('eventScan'), variant: 'sponsor', labelSize: 'xr-text-sm', onClick: () => this.showTakeaway() });
-      qr.position.set(0, by - btnH - 0.03 - qr.h / 2, -dist);
+      const qr = new Button(wide ? 0.44 : 0.5, touch ? 0.14 : 0.11, { label: t('eventScan'), variant: 'sponsor', labelSize: 'xr-text-sm', onClick: () => this.showTakeaway() });
+      qr.position.set(wide ? 0.9 : 0, by - btnH - 0.03 - qr.h / 2, -dist);
       buttons.push(qr);
     } else if (!this.engine.isXR && score > 0 && (navigator.share || navigator.clipboard)) {
       // Browser and phones: share the result as a link that opens this game with the score to beat.
-      const share = new Button(0.42, 0.1, { label: t('shareResult'), labelSize: 'xr-text-sm', onClick: () => this.shareResult(share) });
-      share.position.set(0, by - btnH - 0.03 - share.h / 2, -dist);
+      const share = new Button(wide ? 0.44 : 0.42, touch ? 0.14 : 0.1, { label: t('shareResult'), labelSize: 'xr-text-sm', onClick: () => this.shareResult(share) });
+      share.position.set(wide ? 0.9 : 0, by - btnH - 0.03 - share.h / 2, -dist);
       buttons.push(share);
     }
     [scorePanel, recapPanel, sponsor, ...buttons].forEach((o, i) => this.popIn(this.add(o), i * 0.06));
@@ -339,6 +400,8 @@ export class BaseScene {
 
   /** Particle burst at a world position, colored by a token. */
   burst(worldPos, tokenName = 'xr-success', count = 22) {
+    // Calm motion: a few particles instead of a shower.
+    if (assist.reducedMotion) count = Math.min(8, Math.ceil(count / 4));
     const holder = new THREE.Group();
     holder.userData.noFit = true;
     this.group.add(holder);

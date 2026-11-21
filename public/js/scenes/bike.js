@@ -16,6 +16,12 @@
 // In the headset the trail is a diorama at table height (steer with both hands like on a
 // handlebar, or one hand); in the browser a chase camera follows the bike (keys, mouse, or on
 // phones swiping and two big buttons).
+// Browser first (Nov 2026): the whole round works with the keyboard alone (arrows, space, 1 to 4),
+// with the mouse alone (the bike follows the pointer, a click jumps) and with touch (swipe, tap,
+// thumb buttons). One decision per stop: the tire (its fitting pressure comes with it). A star
+// streak, score popups, a rating in three steps with a tip at the end. Relaxed mode (assist.js):
+// slower, no time limit, smaller hit zones, puncture protection from the start, Echo hops over
+// logs by itself. Calm motion: no camera dip, no speed zoom, no speed lines, fewer particles.
 import * as THREE from 'three';
 import { BaseScene } from '../scene.js';
 import { Panel, Button, textPanel, placeOnArc } from '../ui3d.js';
@@ -28,6 +34,7 @@ import { quality } from '../quality.js';
 import { EVENT } from '../event.js';
 import { radialTexture } from '../robot-visuals.js';
 import { sceneLook, gfxTier } from '../gfx.js';
+import { assist } from '../assist.js';
 import { TIRES, PRESSURES, BEST, planScans, rate, sensorText, liveScan } from '../bike-ai.js';
 import {
   makeCourse, makeTerrain, Scatter, makeSky, makeBase, makeScanFx, makeGuideDots, makeSnow, makeMist, makeSparks, makeCurtains, vergeHeight, FX_AREA, makeOutdoorEnv,
@@ -46,11 +53,17 @@ const easeOut = (k) => 1 - (1 - k) ** 3;
 
 const V_NOM = 5.3; // m/s at bike scale with a neutral choice
 const SCAN_T = 2.2; // seconds of scanning
-const CHOOSE_T = EVENT ? 8 : 10; // seconds to choose
+const CHOOSE_T = EVENT ? 10 : 15; // seconds to choose (no limit in relaxed mode)
 const BRAKE = 5; // m/s^2
 // Points (a perfect round stays below 5000): choices 4 x 200, overrule 150, stars 36 x 30,
-// clean riding 4 x 150, time 700, jumps at most 900, pit stop at most 300, fog judged 60.
+// star streaks at most 140, clean riding 4 x 150, time 700, jumps at most 900, pit stop at most
+// 300, fog judged 60.
 const STAR_PTS = 30;
+const STREAK_N = 5; // stars in a row for a bonus
+const STREAK_PTS = 20;
+const STREAK_CAP = 140;
+// The rating at the end (points that count): bronze below silver, gold on top.
+const RANKS = [['bronze', 0], ['silver', 2300], ['gold', 3300]];
 const OVERRULE_PTS = 150;
 const CLEAN_PTS = 150;
 const TIME_PTS = 700;
@@ -66,6 +79,9 @@ const RAMP_JUMP = 5.0;
 const RAMP_PERFECT = 7.2;
 const CLEAR_Y = 0.32; // above this the bike clears hazards
 const PIT_PUMPS = { low: 2, mid: 3, high: 4 };
+// The pressure that suits each tire's own ground (a tire brings it along when it is picked).
+const TIRE_PRESSURE = Object.fromEntries(Object.values(BEST).map((b) => [b.tire, b.pressure]));
+const KEY_STEER = 3.8; // lateral speed of the keys and thumb buttons (course units per second)
 const AIR_FLAT = 22; // below this the tire is flat
 const WIN = { back: 1.6, frontXR: 11.2, side: 4.2, front: 32 }; // diorama window (course units)
 const CHEVRON = 'M15 5l-7 7 7 7';
@@ -76,11 +92,37 @@ const SKY = [1, 2, 3, 4].map((i) => [`xr-bike-sky-${i}-top`, `xr-bike-sky-${i}-l
 /** A canvas tile that is interactive (hover scale, disabled state); draw(ctx, panel, state). */
 function iconTile(w, h, draw) {
   let hover = false;
-  const p = new Panel(w, h, (ctx, c) => draw(ctx, c, { hover }));
+  let focus = false;
+  const p = new Panel(w, h, (ctx, c) => {
+    draw(ctx, c, { hover, focus });
+    if (!focus) return;
+    // Keyboard focus (engine.js): a clear ring in the focus color, like the shared buttons.
+    const sw = c.m(num('xr-border-width') * 3);
+    ctx.lineWidth = sw;
+    ctx.strokeStyle = color('xr-focus');
+    ctx.beginPath();
+    ctx.roundRect(sw / 2, sw / 2, c.canvas.width - sw, c.canvas.height - sw, c.m(num('xr-radius')));
+    ctx.stroke();
+  });
   p.userData.interactive = true;
   p.userData.setHover = (v) => { hover = v; p.userData.hoverK = v ? num('xr-hover-scale') : 1; p.redraw(); };
+  p.userData.setFocus = (v) => { focus = v; p.redraw(); };
   p.userData.hoverK = 1;
   return p;
+}
+
+/**
+ * A holder for a shared Button that the scene sizes itself (pixels on the screen): the button
+ * sets its own scale whenever it redraws (hover, focus, a new label), so the holder carries the
+ * size and the place, and the hover scale works on top of it.
+ */
+function holder(btn) {
+  const g = new THREE.Group();
+  g.userData.w = btn.w;
+  g.userData.h = btn.h;
+  g.userData.noFit = true;
+  g.add(btn);
+  return g;
 }
 
 /** The ground height under the bike (a ramp's slope, else 0). */
@@ -99,7 +141,7 @@ export class BikeScene extends BaseScene {
     this.time = 0;
     this.mode = 'intro';
     this.scans = planScans(Math.random);
-    this.course = makeCourse(Math.random);
+    this.course = makeCourse(Math.random, { relaxed: assist.easy });
     this.sB = S0 - STOP_GAP;
     this.u = 0;
     this.target = 0;
@@ -120,6 +162,24 @@ export class BikeScene extends BaseScene {
     this.keys = { left: false, right: false };
     this.btn = { left: false, right: false };
     this.inputMode = 'none';
+    // Play assistance (assist.js), read once per round. Relaxed: slower, no time limit for the
+    // choice, smaller hit zones, less air lost, protection from the start, an automatic hop over
+    // logs, quick pumping. Calm motion: no camera dip, speed zoom or speed lines, fewer particles.
+    this.easy = assist.easy;
+    this.calm = assist.reducedMotion;
+    this.tune = {
+      speed: assist.pick(1, 0.84),
+      chooseT: assist.pick(CHOOSE_T, Infinity),
+      hitPad: assist.pick(0.2, 0.04),
+      airLoss: assist.pick(1, 0.6),
+      shields: assist.pick(0, 3),
+      pumpGain: assist.pick(14, 27),
+      flatHelp: assist.pick(6, 2.5),
+      pitPumps: assist.pick(1, 0.5),
+      slipAt: assist.pick(1.6, 2.8),
+      catchR: assist.pick(0.62, 0.85),
+      clearY: assist.pick(CLEAR_Y, 0.1), // how high the bike must be to clear a hazard
+    };
     this.win = { ...this.windowTarget() };
     // Graphics tier: 'high' (desktop, Quest 3 with full effects), 'medium' (phones, Quest 3
     // lite, Quest 2), 'low' (lite elsewhere). Sharper textures, bigger shadow maps, more
@@ -150,8 +210,17 @@ export class BikeScene extends BaseScene {
       .then(([b, w, j]) => { if (!this.disposed) this.attachModels(b, w, j); })
       .catch((e) => console.warn('Bike models not loaded', e));
     this.onUpdate((dt) => this.update(dt));
-    const hint = this.engine.isXR ? 'bikeIntroXR' : this.engine.touchUI ? 'bikeIntroTouch' : 'bikeIntroScreen';
-    this.intro(t('bikeName'), `${t('bikeIntro')} ${t(hint)}`, () => this.start());
+    this.setControls({
+      desktop: [[t('bikeKeySteer'), t('bikeCtlSteer')], [t('bikeKeyJump'), t('bikeCtlJump')], [t('bikeKeyTire'), t('bikeCtlTire')], [t('bikeKeyGo'), t('bikeCtlGo')], [t('bikeKeyPit'), t('bikeCtlPit')]],
+      touch: [[t('bikeTouchSteer'), t('bikeCtlSteer')], [t('bikeTouchJump'), t('bikeCtlJump')], [t('bikeTouchTire'), t('bikeCtlTire')], [t('bikeTouchPit'), t('bikeCtlPit')]],
+      xr: [[t('bikeXRSteer'), t('bikeCtlSteer')], [t('bikeXRJump'), t('bikeCtlJump')], [t('bikeXRTire'), t('bikeCtlTire')], [t('bikeXRPump'), t('bikeCtlPump')]],
+    });
+    // "Again" on the result goes straight into the next round (the intro is known by then).
+    if (BikeScene.quick) {
+      BikeScene.quick = false;
+      this.prepareMusic();
+      this.start();
+    } else this.intro(t('bikeName'), t('bikeIntro'), () => this.start());
   }
 
   // ---------------------------------------------------------------- stage
@@ -181,7 +250,7 @@ export class BikeScene extends BaseScene {
     cg.add(this.fx.group);
     this.dots = makeGuideDots();
     cg.add(this.dots);
-    this.snow = makeSnow(this.course, { high: 340, medium: 260, low: 150 }[this.tier], this.clipFx);
+    this.snow = makeSnow(this.course, this.calm ? 110 : { high: 340, medium: 260, low: 150 }[this.tier], this.clipFx);
     cg.add(this.snow);
     this.mist = makeMist();
     cg.add(this.mist);
@@ -193,7 +262,7 @@ export class BikeScene extends BaseScene {
       if (layer) cg.add(layer);
       return layer;
     });
-    this.rain = makeRain({ high: 400, medium: 320, low: 180 }[this.tier], this.clipFx);
+    this.rain = makeRain(this.calm ? 130 : { high: 400, medium: 320, low: 180 }[this.tier], this.clipFx);
     cg.add(this.rain);
     // Tire tracks (one recycled ribbon per wheel) and speed lines on fast descents.
     this.tracks = makeTracks(this.clip);
@@ -245,8 +314,8 @@ export class BikeScene extends BaseScene {
   }
 
   placeStage() {
-    // A landing gives the diorama a small bounce in the headset.
-    const dip = this.engine.isXR ? (this.camDip ?? 0) * 0.008 : 0;
+    // A landing gives the diorama a small bounce in the headset (not with calm motion).
+    const dip = this.engine.isXR && !this.calm ? (this.camDip ?? 0) * 0.008 : 0;
     this.stage.position.set(0, this.eye - num('xr-bike-table-drop') - dip, num('xr-bike-table-z'));
   }
 
@@ -342,43 +411,64 @@ export class BikeScene extends BaseScene {
     ui.userData.noFit = true;
     this.group.add(ui);
     // The scan panel (full) and a compact one for narrow screens while choosing.
-    this.scanPanel = new Panel(0.66, 0.6, (ctx, c) => this.drawScan(ctx, c, false));
-    this.scanSmall = new Panel(0.66, 0.36, (ctx, c) => this.drawScan(ctx, c, true));
+    this.scanPanel = new Panel(0.66, 0.5, (ctx, c) => this.drawScan(ctx, c, false));
+    this.scanSmall = new Panel(0.66, 0.35, (ctx, c) => this.drawScan(ctx, c, true));
     this.chip = new Panel(0.52, 0.09, (ctx, c) => this.drawChip(ctx, c));
     this.gauge = new Panel(0.4, 0.21, (ctx, c) => this.drawGauge(ctx, c));
     for (const p of [this.scanPanel, this.scanSmall, this.chip, this.gauge]) { p.visible = false; p.userData.noFit = true; ui.add(p); }
-    // The choice console: tires, pressure, ride off.
+    // Score popups ("+30", a streak): a few recycled text planes that rise above the bike.
+    this.popups = [0, 1, 2, 3].map(() => {
+      const say = { text: '', token: 'xr-panel-text' }; // the panel draws once while it is built
+      const p = new Panel(0.36, 0.07, (ctx, c) => {
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = font('black', c.m(num('xr-text-md')));
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = c.m(0.012);
+        ctx.strokeStyle = color('xr-panel-bg');
+        ctx.strokeText(say.text, c.canvas.width / 2, c.canvas.height / 2, c.canvas.width - c.m(0.02));
+        ctx.fillStyle = color(say.token);
+        ctx.fillText(say.text, c.canvas.width / 2, c.canvas.height / 2, c.canvas.width - c.m(0.02));
+      });
+      p.visible = false;
+      p.userData.noFit = true;
+      p.userData.life = 0;
+      p.userData.say = say;
+      ui.add(p);
+      return p;
+    });
+    // The choice console: tires (the fitting pressure comes with a tire), pressure, ride off.
     const con = (this.console = new THREE.Group());
-    con.userData.w = 0.68;
+    con.userData.w = 0.8;
     con.userData.h = 0.62;
     con.visible = false;
     ui.add(con);
-    this.header = new Panel(0.68, 0.11, (ctx, c) => this.drawHeader(ctx, c));
+    this.header = new Panel(0.8, 0.11, (ctx, c) => this.drawHeader(ctx, c));
     this.header.position.y = 0.26;
     con.add(this.header);
     this.tireTiles = TIRES.map((k, i) => {
-      const tile = iconTile(0.161, 0.2, (ctx, c, s) => this.drawTireTile(ctx, c, k, s, i));
-      tile.userData.label = t(`bikeTire_${k}`);
+      const tile = iconTile(0.191, 0.2, (ctx, c, s) => this.drawTireTile(ctx, c, k, s, i));
+      tile.userData.label = `${t(`bikeTire_${k}`)}: ${t(`bikeTireFor_${k}`)}`;
       tile.userData.onClick = () => this.pickTire(k);
-      tile.position.set(-0.2595 + i * 0.173, 0.085, 0);
+      tile.position.set(-0.3045 + i * 0.203, 0.085, 0);
       con.add(tile);
       return tile;
     });
     this.pressTiles = PRESSURES.map((k, i) => {
-      const tile = iconTile(0.222, 0.105, (ctx, c, s) => this.drawPressTile(ctx, c, k, s, i));
-      tile.userData.label = t(`bikePress_${k}`);
+      const tile = iconTile(0.2587, 0.115, (ctx, c, s) => this.drawPressTile(ctx, c, k, s, i));
+      tile.userData.label = `${t('bikePressRow')}: ${t(`bikePress_${k}`)}, ${t(`bikeBar_${k}`)}`;
       tile.userData.onClick = () => this.pickPressure(k);
-      tile.position.set(-0.229 + i * 0.229, -0.09, 0);
+      tile.position.set(-0.2707 + i * 0.2707, -0.095, 0);
       con.add(tile);
       return tile;
     });
-    this.goBtn = iconTile(0.68, 0.1, (ctx, c, s) => {
-      // Choosing: ride off. Pit stop: pump (once a pressure is picked), with the progress.
+    this.goBtn = iconTile(0.8, 0.115, (ctx, c, s) => { // at least 44 px high on a phone held sideways
+      // Choosing: ride off. Pit stop: pump (once a tire is picked), with the progress.
       const pit = this.mode === 'pit';
       const ready = !pit || !!this.pitPress;
       c.surface({ fill: color(ready ? (s.hover ? 'xr-primary-hover' : 'xr-primary') : 'xr-button-bg'), stroke: color(ready ? 'xr-primary-hover' : 'xr-panel-border'), stripe: false });
       if (pit && ready) {
-        const k = (this.pitPumps ?? 0) / PIT_PUMPS[this.pitPress];
+        const k = (this.pitPumps ?? 0) / this.pitNeed();
         ctx.fillStyle = color('xr-success');
         ctx.globalAlpha = 0.55;
         ctx.fillRect(c.m(0.01), c.m(0.01), (c.canvas.width - c.m(0.02)) * k, c.canvas.height - c.m(0.02));
@@ -388,19 +478,17 @@ export class BikeScene extends BaseScene {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.font = font('black', c.m(num(ready ? 'xr-text-lg' : 'xr-text-md')));
-      const label = !pit ? t('bikeGo') : ready ? t('bikePitPump', { n: this.pitPumps ?? 0, total: PIT_PUMPS[this.pitPress] }) : t('bikePitPick');
-      ctx.fillText(label, c.canvas.width / 2, c.canvas.height / 2, c.canvas.width - c.m(0.14));
+      const label = !pit ? t('bikeGo') : ready ? t('bikePitPump', { n: this.pitPumps ?? 0, total: this.pitNeed() }) : t('bikePitPick');
+      ctx.fillText(label, c.canvas.width / 2, c.canvas.height / 2, c.canvas.width - c.m(0.36));
       if (!this.engine.isXR && !this.engine.touchUI && ready) {
-        ctx.font = font('bold', c.m(num('xr-text-min')) * 0.8);
+        ctx.font = font('bold', c.m(num('xr-text-sm')));
         ctx.textAlign = 'right';
-        ctx.globalAlpha = 0.75;
-        ctx.fillText('Space', c.canvas.width - c.m(0.025), c.canvas.height / 2);
-        ctx.globalAlpha = 1;
+        ctx.fillText(t(pit ? 'bikeSpace' : 'bikeEnter'), c.canvas.width - c.m(0.025), c.canvas.height / 2);
       }
     });
     this.goBtn.userData.label = t('bikeGo');
     this.goBtn.userData.onClick = () => { sfx.click(); if (this.mode === 'pit') this.pumpOnce(); else this.go(); };
-    this.goBtn.position.set(0, -0.225, 0);
+    this.goBtn.position.set(0, -0.2275, 0);
     con.add(this.goBtn);
     // A showcase card for the chosen tire (the 3D tire turns in front of it).
     this.tireCard = new Panel(0.4, 0.46, (ctx, c) => {
@@ -421,8 +509,8 @@ export class BikeScene extends BaseScene {
       ctx.font = font('black', c.m(num('xr-text-md')));
       ctx.fillText(t(`bikeTire_${k}`), W / 2, H * 0.82, W - c.m(0.04));
       ctx.fillStyle = color('xr-panel-muted');
-      ctx.font = font('regular', c.m(num('xr-text-min')));
-      ctx.fillText(`${t(`bikeTireText_${k}`)} · ${t(`bikeBar_${this.choice.pressure}`)}`, W / 2, H * 0.92, W - c.m(0.04));
+      ctx.font = font('regular', c.m(num('xr-text-sm')));
+      ctx.fillText(t(`bikeTireText_${k}`), W / 2, H * 0.92, W - c.m(0.04));
     });
     this.tireCard.material.transparent = false;
     this.tireCard.material.alphaTest = 0.5;
@@ -435,15 +523,17 @@ export class BikeScene extends BaseScene {
     this.livePanel.userData.noFit = true;
     ui.add(this.livePanel);
     const pitLabel = this.engine.isXR || this.engine.touchUI ? t('bikePitBtn') : `${t('bikePitBtn')} (${t('bikePitKey')})`;
-    this.pitBtn = new Button(0.5, 0.12, { label: pitLabel, variant: 'sponsor', labelSize: 'xr-text-lg', onClick: () => this.requestPit() });
+    // (wide enough for the longer "change tire" label)
+    this.pitBtn = new Button(0.66, 0.13, { label: pitLabel, variant: 'sponsor', labelSize: 'xr-text-lg', onClick: () => this.requestPit() });
+    this.pitBtn.userData.label = t('bikePitBtn');
     this.pitBtn.visible = false;
     this.pitBtn.userData.noFit = true;
-    ui.add(this.pitBtn);
+    ui.add((this.pitHold = holder(this.pitBtn)));
     // The pump button (browser and headset; phones get a thumb button).
     this.pumpBtn = new Button(0.42, 0.13, { label: t('bikePump'), variant: 'primary', labelSize: 'xr-text-lg', onClick: () => this.pumpOnce() });
     this.pumpBtn.visible = false;
     this.pumpBtn.userData.noFit = true;
-    ui.add(this.pumpBtn);
+    ui.add((this.pumpHold = holder(this.pumpBtn)));
     ui.visible = false;
   }
 
@@ -481,9 +571,12 @@ export class BikeScene extends BaseScene {
 
   terrainName(k) { return t(`bikeTerrain_${k}`); }
 
+  /**
+   * The scan panel: what the sensors measured (three values; not on the compact panel of narrow
+   * screens), the classes with their probability, the recommended tire and how sure the AI is.
+   */
   drawScan(ctx, c, compact) {
     const W = c.canvas.width;
-    const H = c.canvas.height;
     const scan = this.scans[this.sec];
     const prog = this.scanProg ?? 0;
     const done = prog >= 1;
@@ -493,104 +586,80 @@ export class BikeScene extends BaseScene {
     let y = pad;
     const md = c.m(num('xr-text-md'));
     const sm = c.m(num('xr-text-sm'));
-    const mn = c.m(num('xr-text-min'));
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';
     // title
     ctx.fillStyle = color('xr-bike-scan');
     ctx.font = font('black', md);
-    ctx.fillText(t('bikeScanTitle'), pad, y, W * 0.62);
+    ctx.fillText(t('bikeScanTitle'), pad, y, W * 0.58);
     ctx.textAlign = 'right';
     ctx.fillStyle = color('xr-panel-muted');
-    ctx.font = font('bold', mn);
-    ctx.fillText(t('bikeSection', { n: this.sec + 1 }), W - pad, y + (md - mn) * 0.6);
+    ctx.font = font('bold', sm);
+    ctx.fillText(t('bikeSection', { n: this.sec + 1 }), W - pad, y + (md - sm) * 0.6, W * 0.32);
     y += md * 1.35;
-    const sens = sensorText(scan.reading);
-    const mm = sens.rough.toFixed(1);
-    const vals = [[t('bikeRough'), scan.reading[0], `${getLang() === 'de' ? mm.replace('.', ',') : mm} mm`], [t('bikeWet'), scan.reading[1], `${sens.wet} %`], [t('bikeTemp'), scan.reading[2], `${sens.temp} °C`]];
     if (!compact) {
-      ctx.textAlign = 'left';
-      ctx.fillStyle = color('xr-panel-muted');
-      ctx.font = font('bold', mn);
-      ctx.fillText(t('bikeSensors'), pad, y);
-      y += mn * 1.3;
-      const k = clamp(prog * 1.6, 0, 1);
-      for (const [label, v, text] of vals) {
+      // Three sensor values in columns; they come in one after the other while the drone scans.
+      const sens = sensorText(scan.reading);
+      const mm = sens.rough.toFixed(1);
+      const vals = [[t('bikeRough'), `${getLang() === 'de' ? mm.replace('.', ',') : mm} mm`], [t('bikeWet'), `${sens.wet} %`], [t('bikeTemp'), `${sens.temp} °C`]];
+      const cw = (W - pad * 2) / 3;
+      vals.forEach(([label, text], i) => {
         ctx.textAlign = 'left';
+        ctx.fillStyle = color('xr-panel-muted');
+        ctx.font = font('regular', sm);
+        ctx.fillText(label, pad + i * cw, y, cw - c.m(0.012));
         ctx.fillStyle = color('xr-panel-text');
-        ctx.font = font('regular', mn);
-        ctx.fillText(label, pad, y, W * 0.3);
-        const bx = pad + W * 0.3;
-        const bw = W * 0.42;
-        const bh = mn * 0.55;
-        ctx.fillStyle = color('xr-button-bg');
-        ctx.fillRect(bx, y + mn * 0.25, bw, bh);
-        ctx.fillStyle = color('xr-accent');
-        ctx.fillRect(bx, y + mn * 0.25, bw * v * k, bh);
-        ctx.textAlign = 'right';
-        ctx.font = font('bold', mn);
-        ctx.fillText(k > 0.05 ? text : '…', W - pad, y);
-        y += mn * 1.3;
-      }
-      y += mn * 0.3;
-    } else {
-      ctx.textAlign = 'left';
-      ctx.fillStyle = color('xr-panel-muted');
-      ctx.font = font('regular', mn);
-      ctx.fillText(vals.map((x) => `${x[0]} ${x[2]}`).join(' · '), pad, y, W - pad * 2);
-      y += mn * 1.45;
+        ctx.font = font('bold', sm);
+        ctx.fillText(done || prog * 1.6 > (i + 1) / 3.4 ? text : '…', pad + i * cw, y + sm * 1.15, cw - c.m(0.012));
+      });
+      y += sm * 2.55;
     }
     if (!done) {
       ctx.textAlign = 'left';
       ctx.fillStyle = color('xr-bike-scan');
       ctx.font = font('bold', sm);
-      ctx.globalAlpha = 0.6 + 0.4 * Math.sin(this.time * 8);
+      ctx.globalAlpha = this.calm ? 1 : 0.6 + 0.4 * Math.sin(this.time * 8);
       ctx.fillText(t('bikeScanning'), pad, y + sm * 0.4);
       ctx.globalAlpha = 1;
       return;
     }
     // classification bars
-    ctx.textAlign = 'left';
-    ctx.fillStyle = color('xr-panel-muted');
-    ctx.font = font('bold', mn);
-    if (!compact) { ctx.fillText(t('bikeClass'), pad, y); y += mn * 1.3; }
     const rows = compact ? scan.probs.slice(0, 2) : scan.probs;
     rows.forEach((r, i) => {
       const top = i === 0;
       ctx.textAlign = 'left';
       ctx.fillStyle = color(top ? TERRAIN_TOKEN[r.key] : 'xr-panel-muted');
-      ctx.font = font(top ? 'black' : 'regular', top ? sm : mn);
-      const rh = top ? sm : mn;
+      ctx.font = font(top ? 'black' : 'regular', sm);
       ctx.fillText(this.terrainName(r.key), pad, y, W * 0.3);
-      const bx = pad + W * 0.3;
-      const bw = W * 0.42;
+      const bx = pad + W * 0.32;
+      const bw = W * 0.4;
       ctx.fillStyle = color('xr-button-bg');
-      ctx.fillRect(bx, y + rh * 0.2, bw, rh * 0.62);
+      ctx.fillRect(bx, y + sm * 0.2, bw, sm * 0.62);
       ctx.fillStyle = color(top ? (scan.tricky ? 'xr-warning' : 'xr-success') : 'xr-panel-muted');
-      ctx.fillRect(bx, y + rh * 0.2, bw * r.p, rh * 0.62);
+      ctx.fillRect(bx, y + sm * 0.2, bw * r.p, sm * 0.62);
       ctx.textAlign = 'right';
       ctx.fillStyle = color(top ? 'xr-panel-text' : 'xr-panel-muted');
       ctx.fillText(`${Math.round(r.p * 100)} %`, W - pad, y);
-      y += rh * 1.28;
+      y += sm * 1.28;
     });
     // recommendation
-    y += mn * 0.25;
+    y += sm * 0.25;
     const rec = BEST[scan.top];
     ctx.fillStyle = color('xr-panel-muted');
-    ctx.font = font('bold', mn);
+    ctx.font = font('bold', sm);
     ctx.textAlign = 'left';
     const label = `${t('bikeRecommend')}:`;
     ctx.fillText(label, pad, y);
     const lx = pad + ctx.measureText(label).width + c.m(0.012);
     ctx.fillStyle = color(TIRE_TOKENS[rec.tire]);
     ctx.font = font('black', sm);
-    ctx.fillText(t('bikeRecLine', { tire: t(`bikeTire_${rec.tire}`), press: t(`bikePress_${rec.pressure}`) }), lx, y - (sm - mn) * 0.4, W - pad - lx);
+    ctx.fillText(t('bikeRecLine', { tire: t(`bikeTire_${rec.tire}`), press: t(`bikePress_${rec.pressure}`) }), lx, y, W - pad - lx);
     y += sm * 1.35;
-    // certainty
-    ctx.font = font('bold', mn);
+    // certainty (the words say it, not only the color)
+    ctx.font = font('bold', sm);
     ctx.fillStyle = color(scan.tricky ? 'xr-warning' : 'xr-success');
     const msg = scan.tricky ? t('bikeUnsure', { why: t(`bikeWhy_${scan.why}`) }) : `${t('bikeSure')} · ${scan.conf} %`;
-    this.wrapText(ctx, msg, pad, y, W - pad * 2, mn * 1.2, 2);
+    this.wrapText(ctx, msg, pad, y, W - pad * 2, sm * 1.2, 2);
   }
 
   wrapText(ctx, text, x, y, maxW, lh, maxLines = 3) {
@@ -648,13 +717,13 @@ export class BikeScene extends BaseScene {
     const pad = c.m(0.03);
     const md = c.m(num('xr-text-md'));
     const sm = c.m(num('xr-text-sm'));
-    const mn = c.m(num('xr-text-min'));
+    const mn = sm;
     let y = pad;
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';
     ctx.fillStyle = color('xr-bike-live');
     ctx.font = font('black', md);
-    ctx.globalAlpha = 0.75 + 0.25 * Math.sin(this.time * 6);
+    ctx.globalAlpha = this.calm ? 1 : 0.75 + 0.25 * Math.sin(this.time * 6);
     ctx.fillText(t('bikeLiveTitle'), pad, y, W - pad * 2);
     ctx.globalAlpha = 1;
     y += md * 1.3;
@@ -667,7 +736,7 @@ export class BikeScene extends BaseScene {
     for (const [label, from, to] of rows) {
       ctx.textAlign = 'left';
       ctx.fillStyle = color('xr-panel-muted');
-      ctx.fillText(label, pad, y, W * 0.32);
+      ctx.fillText(label, pad, y, W * 0.3);
       ctx.fillText(from, pad + W * 0.34, y, W * 0.2);
       ctx.fillStyle = color('xr-panel-text');
       ctx.fillText('→', pad + W * 0.55, y);
@@ -675,9 +744,9 @@ export class BikeScene extends BaseScene {
       ctx.textAlign = 'right';
       ctx.fillText(to, W - pad, y);
       ctx.font = font('regular', mn);
-      y += mn * 1.25;
+      y += mn * 1.2;
     }
-    y += mn * 0.2;
+    y += mn * 0.15;
     // the new class
     const top = live.probs[0];
     ctx.textAlign = 'left';
@@ -698,7 +767,7 @@ export class BikeScene extends BaseScene {
     ctx.font = font('bold', mn);
     ctx.fillStyle = color(unsure ? 'xr-warning' : 'xr-panel-text');
     ctx.fillText(t('bikeLiveLine', { what: t(`bikeLiveWhat_${ev.kind}`), conf: live.conf }), pad, y, W - pad * 2);
-    y += mn * 1.3;
+    y += mn * 1.25;
     const rec = BEST[live.top];
     ctx.fillStyle = color(TIRE_TOKENS[rec.tire]);
     ctx.fillText(t('bikeLiveRec', { tire: t(`bikeTire_${rec.tire}`), press: t(`bikePress_${rec.pressure}`) }), pad, y, W - pad * 2);
@@ -723,7 +792,7 @@ export class BikeScene extends BaseScene {
       ctx.arc(cx, cy, r, a0 + (a1 - a0) * f0, a0 + (a1 - a0) * f1);
       ctx.stroke();
     }
-    const an = a0 + (a1 - a0) * (air / 100) + (this.mode === 'ride' && this.wobble > 0 ? Math.sin(this.time * 40) * 0.05 : 0);
+    const an = a0 + (a1 - a0) * (air / 100) + (this.mode === 'ride' && this.wobble > 0 && !this.calm ? Math.sin(this.time * 40) * 0.05 : 0);
     ctx.strokeStyle = color('xr-panel-text');
     ctx.lineWidth = c.m(0.006);
     ctx.lineCap = 'round';
@@ -742,24 +811,28 @@ export class BikeScene extends BaseScene {
     ctx.font = font('black', c.m(num('xr-text-md')));
     ctx.fillStyle = color(air < 40 ? 'xr-danger' : 'xr-panel-text');
     ctx.fillText(`${t('bikeAir')} ${Math.round(air)} %`, x, c.m(0.02), W - x - c.m(0.015));
-    ctx.font = font('bold', c.m(num('xr-text-min')));
+    ctx.font = font('bold', c.m(num('xr-text-sm')));
     ctx.fillStyle = color(TIRE_TOKENS[this.choice.tire]);
-    ctx.fillText(`${t(`bikeTire_${this.choice.tire}`)} · ${t(`bikeBar_${this.choice.pressure}`)}`, x, c.m(0.072), W - x - c.m(0.015));
-    // shields: three glowing pips
-    ctx.fillStyle = color('xr-panel-muted');
+    ctx.fillText(t(`bikeTire_${this.choice.tire}`), x, c.m(0.072), W - x - c.m(0.015));
+    // Puncture protection: three pips, filled while a charge is left (shape, not only color).
     for (let i = 0; i < 3; i++) {
+      const on = i < this.shields;
       ctx.beginPath();
       ctx.lineWidth = c.m(0.005);
-      ctx.strokeStyle = color(i < this.shields ? 'xr-bike-band' : 'xr-button-bg');
+      ctx.strokeStyle = color(on ? 'xr-bike-band' : 'xr-panel-muted');
+      ctx.fillStyle = color('xr-bike-band');
       ctx.arc(x + c.m(0.016) + i * c.m(0.04), c.m(0.132), c.m(0.012), 0, Math.PI * 2);
+      if (on) ctx.fill();
       ctx.stroke();
     }
-    if ((this.combo ?? 0) > 1) {
+    // The running combo of clean jumps, else the star streak.
+    const run = (this.combo ?? 0) > 1 ? t('bikeCombo', { n: this.combo }) : (this.starRun ?? 0) > 1 ? t('bikeStarRun', { n: this.starRun }) : null;
+    if (run) {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = color('xr-bike-combo');
-      ctx.font = font('black', c.m(num('xr-text-min')));
-      ctx.fillText(t('bikeCombo', { n: this.combo }), x, c.m(0.178), W - x - c.m(0.015));
+      ctx.fillStyle = color((this.combo ?? 0) > 1 ? 'xr-bike-combo' : 'xr-bike-gold');
+      ctx.font = font('black', c.m(num('xr-text-sm')));
+      ctx.fillText(run, x, c.m(0.182), W - x - c.m(0.015));
     }
   }
 
@@ -773,20 +846,27 @@ export class BikeScene extends BaseScene {
     ctx.font = font('black', c.m(num('xr-text-md')));
     const pit = this.mode === 'pit';
     if (pit) ctx.fillStyle = color('xr-bike-pit-glow');
-    ctx.fillText(t(pit ? 'bikePitTitle' : 'bikeChoose'), c.m(0.025), H * 0.32, W * 0.6);
-    ctx.fillStyle = color('xr-panel-muted');
-    ctx.font = font('regular', c.m(num('xr-text-min')));
-    ctx.fillText(t(pit ? 'bikePitHint' : 'bikeChooseHint'), c.m(0.025), H * 0.72, W - c.m(0.13));
+    ctx.fillText(t(pit ? (this.swap ? 'bikeSwapTitle' : 'bikePitTitle') : 'bikeChoose'), c.m(0.025), H * 0.32, W * 0.6);
+    // What to do, in one line: the AI is sure (ride off) or unsure (look at the trail; in
+    // relaxed mode the line says what the trail looks like).
+    const scan = this.scans[this.sec];
+    const hint = pit ? t('bikePitHint') : !scan.tricky ? t('bikeChooseSure', { conf: scan.conf }) : this.easy ? t(`bikeLook_${scan.terrain}`) : t('bikeChooseUnsure', { conf: scan.conf });
+    ctx.fillStyle = color(!pit && scan.tricky ? 'xr-warning' : 'xr-panel-muted');
+    ctx.font = font(!pit && scan.tricky ? 'bold' : 'regular', c.m(num('xr-text-sm')));
+    ctx.fillText(hint, c.m(0.025), H * 0.72, W - c.m(pit || Number.isFinite(this.tune.chooseT) ? 0.14 : 0.05));
     if (pit) {
       // a stopwatch, running
       ctx.textAlign = 'right';
       ctx.fillStyle = color('xr-bike-pit-glow');
       ctx.font = font('black', c.m(num('xr-text-md')));
-      ctx.fillText(`${(this.phaseT ?? 0).toFixed(1)} s`, W - c.m(0.025), H / 2);
+      const sec = (this.phaseT ?? 0).toFixed(1);
+      ctx.fillText(`${getLang() === 'de' ? sec.replace('.', ',') : sec} s`, W - c.m(0.025), H / 2);
       return;
     }
-    // countdown ring
-    const left = Math.max(0, CHOOSE_T - (this.phaseT ?? 0));
+    // countdown ring (none in relaxed mode: take your time)
+    const CHOOSE = this.tune.chooseT;
+    if (!Number.isFinite(CHOOSE)) return;
+    const left = Math.max(0, CHOOSE - (this.phaseT ?? 0));
     const cx = W - c.m(0.045);
     const cy = H / 2;
     const r = c.m(0.035);
@@ -797,11 +877,11 @@ export class BikeScene extends BaseScene {
     ctx.stroke();
     ctx.strokeStyle = color(left < 4 ? 'xr-warning' : 'xr-accent');
     ctx.beginPath();
-    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * left) / CHOOSE_T);
+    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * left) / CHOOSE);
     ctx.stroke();
     ctx.textAlign = 'center';
     ctx.fillStyle = color('xr-panel-text');
-    ctx.font = font('black', c.m(num('xr-text-min')));
+    ctx.font = font('black', c.m(num('xr-text-sm')));
     ctx.fillText(String(Math.ceil(left)), cx, cy);
   }
 
@@ -854,6 +934,7 @@ export class BikeScene extends BaseScene {
 
   /** The AI's current recommendation (the section scan, or the live re-scan in the pit). */
   aiPick() {
+    if (this.mode === 'pit' && this.swap) return this.chipState === 'right' ? BEST[this.scans[this.sec].top] : this.chipState === 'live' && this.wEv?.to && this.live ? BEST[this.live.top] : null;
     if (this.mode === 'pit' && this.live) return BEST[this.live.top];
     if (this.mode === 'choose') return BEST[this.scans[this.sec].top];
     return null;
@@ -861,9 +942,9 @@ export class BikeScene extends BaseScene {
 
   aiBadge(ctx, c, x, y) {
     const txt = t('bikeAIPick');
-    ctx.font = font('black', c.m(num('xr-text-min')) * 0.78);
-    const w = ctx.measureText(txt).width + c.m(0.016);
-    const h = c.m(0.028);
+    ctx.font = font('black', c.m(num('xr-text-sm')));
+    const w = ctx.measureText(txt).width + c.m(0.02);
+    const h = c.m(0.044);
     ctx.fillStyle = color(this.mode === 'pit' ? 'xr-bike-live' : this.scans[this.sec].tricky ? 'xr-warning' : 'xr-bike-scan');
     ctx.beginPath();
     ctx.roundRect(x - w, y, w, h, h / 2);
@@ -874,32 +955,45 @@ export class BikeScene extends BaseScene {
     ctx.fillText(txt, x - w / 2, y + h / 2 + 1);
   }
 
+  /** A check mark: this tile is chosen (a shape next to the colored border). */
+  checkMark(ctx, c, x, y, token) {
+    const r = c.m(0.011);
+    ctx.strokeStyle = color(token);
+    ctx.lineWidth = c.m(0.006);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x - r, y);
+    ctx.lineTo(x - r * 0.25, y + r * 0.8);
+    ctx.lineTo(x + r, y - r * 0.9);
+    ctx.stroke();
+  }
+
+  /** A tire: its tread, its name and the ground it is made for. */
   drawTireTile(ctx, c, kind, s, i) {
     const sel = this.choice.tire === kind;
     const tok = TIRE_TOKENS[kind];
     c.surface({ fill: color(s.hover || sel ? 'xr-button-hover' : 'xr-button-bg'), stroke: color(sel ? tok : 'xr-panel-border'), strokeWidth: num('xr-border-width') * (sel ? 2.4 : 1), stripe: false });
     const W = c.canvas.width;
     const H = c.canvas.height;
-    this.drawTread(ctx, kind, W * 0.34, c.m(0.016), W * 0.32, H * 0.42);
+    const sm = c.m(num('xr-text-sm'));
+    this.drawTread(ctx, kind, W * 0.37, c.m(0.014), W * 0.26, H * 0.4);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = color(sel ? tok : 'xr-button-text');
-    let px = c.m(num('xr-text-sm'));
-    const label = t(`bikeTire_${kind}`);
-    do { ctx.font = font('black', px); px -= 1; } while (ctx.measureText(label).width > W - c.m(0.014) && px > c.m(0.022));
-    ctx.fillText(label, W / 2, H * 0.62);
-    ctx.fillStyle = color('xr-panel-muted');
-    px = c.m(num('xr-text-min')) * 0.74;
-    const sub = t(`bikeTireText_${kind}`);
-    do { ctx.font = font('regular', px); px -= 1; } while (ctx.measureText(sub).width > W - c.m(0.012) && px > 8);
-    ctx.fillText(sub, W / 2, H * 0.83);
+    ctx.font = font('black', sm);
+    ctx.fillText(t(`bikeTire_${kind}`), W / 2, H * 0.6, W - c.m(0.016));
+    ctx.fillStyle = color(sel ? 'xr-panel-text' : 'xr-panel-muted');
+    ctx.font = font('regular', sm);
+    ctx.fillText(t(`bikeTireFor_${kind}`), W / 2, H * 0.83, W - c.m(sel ? 0.06 : 0.016));
+    if (sel) this.checkMark(ctx, c, W - c.m(0.022), H - c.m(0.024), tok);
     if (this.aiPick()?.tire === kind) this.aiBadge(ctx, c, W - c.m(0.008), c.m(0.008));
     if (!this.engine.isXR && !this.engine.touchUI) {
-      ctx.font = font('bold', c.m(num('xr-text-min')) * 0.7);
+      ctx.font = font('bold', sm);
       ctx.fillStyle = color('xr-panel-muted');
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(String(i + 1), c.m(0.01), c.m(0.008));
+      ctx.fillText(String(i + 1), c.m(0.012), c.m(0.01));
     }
   }
 
@@ -908,6 +1002,7 @@ export class BikeScene extends BaseScene {
     c.surface({ fill: color(s.hover || sel ? 'xr-button-hover' : 'xr-button-bg'), stroke: color(sel ? 'xr-accent' : 'xr-panel-border'), strokeWidth: num('xr-border-width') * (sel ? 2.4 : 1), stripe: false });
     const W = c.canvas.width;
     const H = c.canvas.height;
+    const sm = c.m(num('xr-text-sm'));
     // a small gauge
     const cx = c.m(0.045);
     const cy = H * 0.58;
@@ -926,14 +1021,14 @@ export class BikeScene extends BaseScene {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = color(sel ? 'xr-accent' : 'xr-button-text');
-    ctx.font = font('black', c.m(num('xr-text-sm')));
-    ctx.fillText(t(`bikePress_${kind}`), c.m(0.085), H * 0.36, W - c.m(0.09));
+    ctx.font = font('black', sm);
+    ctx.fillText(t(`bikePress_${kind}`), c.m(0.085), H * 0.33, W - c.m(0.13));
     ctx.fillStyle = color('xr-panel-muted');
-    ctx.font = font('regular', c.m(num('xr-text-min')) * 0.8);
-    ctx.fillText(t(`bikeBar_${kind}`), c.m(0.085), H * 0.72, W - c.m(0.09));
-    if (this.aiPick()?.pressure === kind) this.aiBadge(ctx, c, W - c.m(0.008), c.m(0.008));
+    ctx.font = font('regular', sm);
+    ctx.fillText(t(`bikeBar_${kind}`), c.m(0.085), H * 0.71, W - c.m(0.13));
+    if (sel) this.checkMark(ctx, c, W - c.m(0.024), c.m(0.026), 'xr-accent');
     if (!this.engine.isXR && !this.engine.touchUI) {
-      ctx.font = font('bold', c.m(num('xr-text-min')) * 0.7);
+      ctx.font = font('bold', sm);
       ctx.fillStyle = color('xr-panel-muted');
       ctx.textAlign = 'right';
       ctx.textBaseline = 'bottom';
@@ -951,51 +1046,112 @@ export class BikeScene extends BaseScene {
 
   setupInput() {
     const down = (e) => {
-      if (this.mode === 'intro' || this.mode === 'over') return;
+      // Paused (pause.js): the keys belong to the dialog. Shortcuts with a modifier stay the browser's.
+      if (this.engine.paused || this.mode === 'intro' || this.mode === 'over') return;
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
       const c = e.code;
-      if (c === 'ArrowLeft' || c === 'KeyA') { this.keys.left = true; this.inputMode = 'keys'; e.preventDefault(); }
-      else if (c === 'ArrowRight' || c === 'KeyD') { this.keys.right = true; this.inputMode = 'keys'; e.preventDefault(); }
-      else if (/^Digit[1-4]$/.test(c)) this.pickTire(TIRES[Number(c[5]) - 1]);
+      const choosing = this.mode === 'choose' || this.mode === 'pit';
+      const stopped = choosing || this.mode === 'flat';
+      if (c === 'ArrowLeft' || c === 'KeyA' || c === 'ArrowRight' || c === 'KeyD') {
+        e.preventDefault();
+        const dir = c === 'ArrowLeft' || c === 'KeyA' ? -1 : 1;
+        // At a stop the arrows walk through the tires; on the trail they steer.
+        if (choosing) { if (!e.repeat) this.stepTire(dir); return; }
+        this.keys[dir < 0 ? 'left' : 'right'] = true;
+        this.inputMode = 'keys';
+      } else if (/^Digit[1-4]$/.test(c)) this.pickTire(TIRES[Number(c[5]) - 1]);
       else if (/^Digit[5-7]$/.test(c)) this.pickPressure(PRESSURES[Number(c[5]) - 5]);
-      else if (c === 'KeyB') this.requestPit();
-      else if (c === 'Space' || c === 'Enter' || c === 'NumpadEnter') {
+      else if (c === 'KeyB' || c === 'ArrowDown' || c === 'KeyS') { e.preventDefault(); if (!e.repeat) this.requestPit(); }
+      else if (c === 'Space' || c === 'Enter' || c === 'NumpadEnter' || c === 'ArrowUp' || c === 'KeyW') {
         e.preventDefault();
         if (e.repeat) return;
-        if (this.mode === 'choose') this.go();
-        else if (this.mode === 'flat' || this.mode === 'pit') this.pumpOnce();
-        else if (c === 'Space') this.jumpPress();
-        else this.requestPit();
+        const up = c === 'ArrowUp' || c === 'KeyW';
+        if (this.mode === 'choose') { if (!up) this.go(); }
+        else if (stopped) this.pumpOnce();
+        else if (c === 'Space' || up) this.jumpPress();
+        else if (this.pitOpen()) this.requestPit();
+        else this.jumpPress();
       }
     };
     const up = (e) => {
       if (e.code === 'ArrowLeft' || e.code === 'KeyA') this.keys.left = false;
       if (e.code === 'ArrowRight' || e.code === 'KeyD') this.keys.right = false;
-      if (e.code === 'Space') this.jumpHeld = false;
+      if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Enter') this.jumpHeld = false;
     };
+    // Leaving the window (or the pause dialog taking the keys): no key stays "held".
+    const blur = () => { this.keys.left = false; this.keys.right = false; this.jumpHeld = false; this.mouseDown = false; };
+    // The mouse button: held for a wheelie, let go before the landing.
+    const canvas = this.engine.canvas;
+    const mdown = (e) => { if (e.pointerType === 'mouse') this.mouseDown = true; };
+    const mup = (e) => { if (e.pointerType === 'mouse') { this.mouseDown = false; this.jumpHeld = false; } };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
-    this.onSceneDispose(() => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); });
-    // Phones: swipe anywhere to steer (relative, so the finger never covers the bike).
+    window.addEventListener('blur', blur);
+    canvas.addEventListener('pointerdown', mdown);
+    canvas.addEventListener('pointerup', mup);
+    canvas.addEventListener('pointercancel', mup);
+    this.onSceneDispose(() => {
+      window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur);
+      canvas.removeEventListener('pointerdown', mdown); canvas.removeEventListener('pointerup', mup); canvas.removeEventListener('pointercancel', mup);
+    });
+    // Phones: swipe anywhere to steer (relative, so the finger never covers the bike); a short
+    // tap without a swipe is a jump (the jump button also does wheelies while it is held). A tap
+    // is a jump only if it hit no button of the game: the engine reports that as an empty press,
+    // a frame after the finger went down, so the tap's end and that report meet in either order.
+    const tapJump = () => { this.tap = null; this.jumpPress(); this.jumpHeld = false; };
     this.swipe = this.dragPad({
       hint: false,
-      enabled: () => this.mode === 'ride' || this.mode === 'brake',
-      onStart: () => { this.dragFrom = this.target; },
+      enabled: () => this.mode === 'ride' || this.mode === 'brake' || this.mode === 'pitIn',
+      onStart: () => { this.dragFrom = this.target; this.tap = { t: this.time, moved: 0, empty: false, ended: false }; },
       onMove: (dx) => {
+        if (this.tap) this.tap.moved = Math.max(this.tap.moved, Math.abs(dx));
+        if (this.tap && this.tap.moved < 8) return; // a tap may wobble a little
         const k = (2 * EDGE) / (Math.min(window.innerWidth, window.innerHeight * 1.2) * 0.8);
         this.target = clamp(this.dragFrom + dx * k, -EDGE + 0.1, EDGE - 0.1);
         this.inputMode = 'drag';
       },
+      onEnd: () => {
+        const tap = this.tap;
+        if (!tap || tap.moved >= 8 || this.time - tap.t > 0.35) { this.tap = null; return; }
+        if (tap.empty) tapJump(); else tap.ended = true;
+      },
     });
-    // Headset: the trigger (or a pinch) pumps, and jumps while riding.
+    // An empty press. Headset: the trigger (or a pinch) pumps, and jumps while riding. Mouse: a
+    // click beside the buttons does the same. Phones: a tap pumps; while riding it is the tap
+    // above (so putting a finger down to swipe, or tapping a button, does not hop).
     this.engine.onEmptyPress = () => {
+      if (this.engine.paused) return;
       if (this.mode === 'flat' || this.mode === 'pit') this.pumpOnce();
-      else if (this.mode === 'ride' || this.mode === 'brake') this.jumpPress();
+      else if (!this.engine.touchUI) {
+        this.jumpPress();
+        // Mouse: a click is a hop; the wheelie lasts while the button stays down.
+        if (!this.engine.isXR && !this.mouseDown) this.jumpHeld = false;
+      } else if (this.tap) {
+        if (this.tap.ended && this.time - this.tap.t <= 0.35) tapJump(); else this.tap.empty = true;
+      }
     };
+  }
+
+  /** The arrow keys at a stop: the tire to the left or right of the chosen one. */
+  stepTire(dir) {
+    const i = clamp(TIRES.indexOf(this.choice.tire) + dir, 0, TIRES.length - 1);
+    this.pickTire(TIRES[i]);
+  }
+
+  /** A pit stop is on offer right now. */
+  pitOpen() {
+    const w = this.wEv;
+    return !!w && w.triggered && !w.decided && this.mode === 'ride' && this.sB <= w.pit - 0.5;
+  }
+
+  /** Pump strokes of the pit stop for the chosen pressure. */
+  pitNeed() {
+    return Math.max(1, Math.ceil((PIT_PUMPS[this.pitPress] ?? 2) * this.tune.pitPumps));
   }
 
   /** Jump: pressed now (held for a wheelie in the air). */
   jumpPress() {
-    if (this.mode !== 'ride' && this.mode !== 'brake') return;
+    if (this.mode !== 'ride' && this.mode !== 'brake' && this.mode !== 'pitIn') return;
     this.jumpHeld = true;
     this.jumpQueued = 0.15; // a press shortly before landing still counts
   }
@@ -1050,16 +1206,23 @@ export class BikeScene extends BaseScene {
     return clamp((x - this.xrRef) * 9, -EDGE + 0.1, EDGE - 0.1);
   }
 
-  /** Browser with a mouse: moving it left or right steers (relative, like a trackpad). */
+  /**
+   * Browser with a mouse: the bike follows the pointer (the pointer's place across the trail is
+   * the lane the bike takes; the camera follows a little, so the pointer leads the bike). Only a
+   * moving pointer steers, so the keys keep working next to a resting mouse.
+   */
   readMouse() {
     const e = this.engine;
     const m = e.mouse;
     if (e.isXR || e.touchUI || !m?.active) { this.lastNdc = null; return null; }
-    const dx = this.lastNdc ? m.ndc.x - this.lastNdc.x : 0;
+    const moved = this.lastNdc ? Math.abs(m.ndc.x - this.lastNdc.x) > 1e-4 : false;
     this.lastNdc = (this.lastNdc ?? new THREE.Vector2()).copy(m.ndc);
-    if (Math.abs(dx) < 1e-5) return null;
+    if (!moved) return null;
     this.inputMode = 'mouse';
-    return clamp(this.target + dx * 1.6 * EDGE, -EDGE + 0.1, EDGE - 0.1);
+    // Half the screen's width in course units, a little ahead of the bike.
+    const cam = e.camera;
+    const half = (0.85 * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * cam.aspect) / this.S;
+    return clamp(m.ndc.x * half, -EDGE + 0.1, EDGE - 0.1);
   }
 
   // ---------------------------------------------------------------- flow
@@ -1070,7 +1233,12 @@ export class BikeScene extends BaseScene {
       const before = new Set(this.group.children);
       this.refreshHud = this.hud(() => this.hudText());
       this.hudObjs = this.group.children.filter((o) => !before.has(o));
-      if (!this.engine.isXR && !this.engine.touchUI) this.hudObjs.forEach((o) => this.ui.add(o));
+      // Desktop: the status bar and the menu button are placed on the screen by layoutUI.
+      if (!this.engine.isXR && !this.engine.touchUI) {
+        const [info, menu] = this.hudObjs;
+        if (info) this.ui.add(info);
+        if (menu) { menu.position.set(0, 0, 0); this.ui.add((this.menuHold = holder(menu))); }
+      }
     }
     this.buildTouch();
     this.app.echo?.suppress(true);
@@ -1081,8 +1249,11 @@ export class BikeScene extends BaseScene {
       hzIdx: 0, itIdx: 0, choices: [], secStats: [], wobble: 0, slowT: 0, slipT: 0, slipV: 0, mudT: 0, gripSlip: 0,
       y: 0, vy: 0, inAir: false, pitch: 0, roll: 0, combo: 0, bestCombo: 0, jumps: 0, cleanJumps: 0, crashes: 0, boostT: 0, camDip: 0,
       timeScale: 1, jumpQueued: 0, jumpHeld: false, hints: {}, wEv: null, live: null, terrainNow: null, pitPress: null, pitPumps: 0,
-      weatherLog: [],
+      weatherLog: [], starRun: 0, bestRun: 0, starsMissed: 0, assisted: false, autoHops: 0, swap: false, swaps: 0, revealed: false,
     });
+    this.pts.streak = 0;
+    // Relaxed mode: puncture protection from the start.
+    this.shields = this.tune.shields;
     this.course.hazards.forEach((h) => { h.hit = false; h.passed = false; h.hidden = h.weather !== undefined; });
     this.course.items.forEach((it) => { it.taken = false; it.hidden = false; });
     this.course.weather.forEach((w) => Object.assign(w, { triggered: false, applied: false, decided: false, pitted: false }));
@@ -1102,7 +1273,7 @@ export class BikeScene extends BaseScene {
   liveScore() {
     const p = this.pts;
     if (!p) return 0;
-    return Math.min(MAX_SCORE, Math.round(p.choice + p.overrule + p.stars + p.clean + p.time + p.jumps + p.pit + p.fog));
+    return Math.min(MAX_SCORE, Math.round(p.choice + p.overrule + p.stars + (p.streak ?? 0) + p.clean + p.time + p.jumps + p.pit + p.fog));
   }
 
   beginScan(i) {
@@ -1118,6 +1289,7 @@ export class BikeScene extends BaseScene {
     this.mistOn = scan.why === 'fog' || scan.why === 'dust';
     if (this.mistOn) this.mist.userData.place(this.course, sec.b0, scan.why === 'dust' ? 'xr-bike-gravel-light' : 'xr-bike-fog-mist');
     this.choice = { tire: BEST[scan.top].tire, pressure: BEST[scan.top].pressure };
+    this.gauge.redraw();
     this.terrainNow = scan.terrain;
     this.wEv = null;
     this.setRays(true);
@@ -1144,12 +1316,22 @@ export class BikeScene extends BaseScene {
     this.pop(this.tireCard);
     sfx.appear();
     this.rider?.mood('happy', 1);
+    // Taught at the moment it matters, once: what to do when the AI is unsure. Relaxed mode
+    // says at the first stop what it changes.
+    const scan = this.scans[this.sec];
+    // (Not on phones: there the hint would cover the trail the player should look at; the
+    // console's header says it.)
+    if (scan.tricky && !this.hints.unsure && !this.engine.touchUI) { this.hints.unsure = true; this.toast(t('bikeUnsureFirst'), t('bikeUnsureFirstSub'), 'xr-warning', 6); }
+    else if (this.easy && this.sec === 0) this.toast(t('bikeEasyStart', { n: this.tune.shields }), null, 'xr-success', 3);
   }
 
+  /** A tire brings its fitting pressure along: one decision per stop (the pressure can still be changed). */
   pickTire(k) {
     if (this.mode !== 'choose' && this.mode !== 'pit') return;
     if (this.mode === 'pit' && k !== this.choice.tire) this.spark(this.sB, this.u + 0.4, 0.4, TIRE_TOKENS[k], 10, 1.8);
     this.choice.tire = k;
+    this.choice.pressure = TIRE_PRESSURE[k];
+    if (this.mode === 'pit') { this.pitPress = this.choice.pressure; this.pitPumps = Math.min(this.pitPumps, this.pitNeed() - 1); this.goBtn.redraw(); }
     this.bike?.setTire(k);
     sfx.click();
     this.redrawConsole();
@@ -1160,7 +1342,7 @@ export class BikeScene extends BaseScene {
   pickPressure(k) {
     if (this.mode !== 'choose' && this.mode !== 'pit') return;
     this.choice.pressure = k;
-    if (this.mode === 'pit') { this.pitPress = k; this.pitPumps = 0; this.goBtn.redraw(); }
+    if (this.mode === 'pit') { this.pitPress = k; this.pitPumps = Math.min(this.pitPumps, this.pitNeed() - 1); this.goBtn.redraw(); }
     sfx.tick();
     this.redrawConsole();
     this.gauge.redraw();
@@ -1212,7 +1394,10 @@ export class BikeScene extends BaseScene {
     this.chip.redraw();
     if (!right) {
       if (c.overruled) { this.toast(t('bikeOverrule', { n: OVERRULE_PTS }), t('bikeAIWrong', { terrain: this.terrainName(scan.terrain) }), 'xr-success', 2.6); sfx.powerup(); }
-      else this.toast(t('bikeAIWrong', { terrain: this.terrainName(scan.terrain) }), null, 'xr-warning', 2.4);
+      else this.toast(t('bikeAIWrong', { terrain: this.terrainName(scan.terrain) }), this.swapHint(), 'xr-warning', 3.6);
+    } else if (this.swapOpen()) {
+      // The AI was right, the choice was not: the same way out.
+      this.toast(t('bikeGrip_bad', { tire: t(`bikeTire_${this.choice.tire}`), terrain: this.terrainName(scan.terrain) }), this.swapHint(), 'xr-danger', 3.6);
     } else if (scan.tricky) {
       this.toast(t('bikeAIRight', { terrain: this.terrainName(scan.terrain) }), null, 'xr-success', 2);
     }
@@ -1232,7 +1417,7 @@ export class BikeScene extends BaseScene {
     this.chip.redraw();
     this.livePanel.redraw();
     this.pop(this.livePanel);
-    this.pop(this.pitBtn);
+    this.pop(this.pitHold);
     // Hazards that come with it, puddles that dry up.
     for (const h of this.course.hazards) {
       if (h.weather === w.i) h.hidden = false;
@@ -1240,7 +1425,7 @@ export class BikeScene extends BaseScene {
     }
     this.hzScatters?.forEach((sc) => { sc.dirty = true; });
     if (w.kind === 'fog') this.mist.userData.place(this.course, w.s - 6, 'xr-bike-fog-mist');
-    this.toast(t(`bikeWeather_${w.kind}`), t('bikePitAsk'), w.to ? 'xr-bike-live' : 'xr-warning', 3.2);
+    this.toast(t(`bikeWeather_${w.kind}`), t(this.engine.isXR ? 'bikePitAsk' : this.engine.touchUI ? 'bikePitAsk_touch' : 'bikePitAsk_screen'), w.to ? 'xr-bike-live' : 'xr-warning', 3.6);
     sfx.announce();
     this.rider?.mood('surprised', 1.2);
     this.haptic(0.4, 60);
@@ -1270,15 +1455,43 @@ export class BikeScene extends BaseScene {
     if (w.to) this.toast(t('bikePitSkip', { tire: t(`bikeTire_${this.choice.tire}`) }), null, 'xr-warning', 1.8);
   }
 
-  /** Pit stop wanted (button, key B, or riding into the box): brake to the pit. */
+  /**
+   * A stop is wanted (button, key B, or riding into the box): the pit stop before a change of
+   * the weather, else a tire change right on the trail when the tire does not suit the ground.
+   */
   requestPit() {
+    if (this.mode !== 'ride') return;
     const w = this.wEv;
-    if (!w || w.decided || this.mode !== 'ride' || this.sB > w.pit - 0.5) return;
-    w.decided = true;
-    w.pitted = true;
-    this.stopS = w.pit;
-    this.mode = 'pitIn';
-    sfx.click();
+    if (w && !w.decided) {
+      if (this.sB > w.pit - 0.5) return;
+      w.decided = true;
+      w.pitted = true;
+      this.stopS = w.pit;
+      this.mode = 'pitIn';
+      sfx.click();
+    } else if (this.swapOpen() && !this.inAir) {
+      this.swap = true;
+      this.swaps += 1;
+      this.stopS = this.sB + (this.speed * this.speed) / (2 * BRAKE) + 0.4;
+      this.mode = 'pitIn';
+      sfx.click();
+    }
+  }
+
+  /**
+   * The wrong tire is on (little grip: the AI was wrong, or the choice was): a tire change on the
+   * trail is on offer. It costs a few seconds and saves the rest of the section.
+   */
+  swapOpen() {
+    if (this.mode !== 'ride' || !this.revealed || !this.rating || this.rating.grip >= 0.72) return false;
+    const c = this.course;
+    const w = c.weather.find((x) => x.sec === this.sec && !x.applied);
+    if (w && (w.triggered || this.sB > w.trigger - 12)) return false; // the pit stop comes first
+    return this.sB < (this.sec < 3 ? c.sections[this.sec].b1 : c.finish) - 28;
+  }
+
+  swapHint() {
+    return this.swapOpen() ? t(`bikeSwapHint_${this.engine.isXR ? 'xr' : this.engine.touchUI ? 'touch' : 'screen'}`) : null;
   }
 
   beginPit(w) {
@@ -1306,11 +1519,24 @@ export class BikeScene extends BaseScene {
     sfx.boing();
     this.haptic(0.4, 30);
     this.goBtn.redraw();
-    if (this.pitPumps >= PIT_PUMPS[this.pitPress]) this.endPit();
+    if (this.pitPumps >= this.pitNeed()) this.endPit();
   }
 
   /** The stop is done: points for the right tire and pressure for the new ground and for speed. */
   endPit() {
+    if (this.swap) {
+      // A tire change on the trail: no points, but the grip is back.
+      this.swap = false;
+      const r = (this.rating = rate(this.terrainNow, this.choice.tire, this.choice.pressure));
+      Object.assign(this, { air: 100, mode: 'ride', phaseT: 3, gripSlip: 0 });
+      this.setRays(false);
+      this.gauge.redraw();
+      sfx.powerup();
+      this.rider?.mood('happy', 1.2);
+      const grip = r.grip >= 0.95 ? 'good' : r.grip >= 0.7 ? 'ok' : 'bad';
+      this.toast(t('bikeSwapDone', { tire: t(`bikeTire_${this.choice.tire}`) }), t(`bikeGrip_${grip}`, { tire: t(`bikeTire_${this.choice.tire}`), terrain: this.terrainName(this.terrainNow) }), grip === 'good' ? 'xr-success' : grip === 'ok' ? 'xr-warning' : 'xr-danger', 2.4);
+      return;
+    }
     const w = this.wEv;
     const time = this.phaseT;
     const speed = time < 5 ? 150 : time < 8 ? 100 : time < 12 ? 50 : 20;
@@ -1330,7 +1556,7 @@ export class BikeScene extends BaseScene {
     this.gauge.redraw();
     sfx.powerup();
     this.rider?.mood('happy', 1.2);
-    if (w?.to) this.toast(t('bikePitDone', { time: time.toFixed(1), n: gain }), null, 'xr-success', 2.2);
+    if (w?.to) this.toast(t('bikePitDone', { time: getLang() === 'de' ? time.toFixed(1).replace('.', ',') : time.toFixed(1), n: gain }), null, 'xr-success', 2.2);
     else this.toast(t('bikePitNoNeed'), null, 'xr-warning', 2.2);
   }
 
@@ -1352,7 +1578,7 @@ export class BikeScene extends BaseScene {
       }
     }
     // The climb of the slope adds to the jump (and a descent takes from it).
-    Object.assign(this, { inAir: true, vy: vy + climb, big, lipBonus: lip, airT: 0, tuckT: 0, tiltT: 0, feature: !!ramp, crest: false, fromRamp: ramp ?? null, slowDone: false });
+    Object.assign(this, { inAir: true, vy: vy + climb, big, lipBonus: lip, airT: 0, tuckT: 0, tiltT: 0, feature: !!ramp, crest: false, fromRamp: ramp ?? null, slowDone: false, assisted: false });
     this.jumps += 1;
     sfx.jump();
     this.rider?.mood(big ? 'happy' : 'focus', 0.8);
@@ -1371,8 +1597,10 @@ export class BikeScene extends BaseScene {
     // A real flight off a crest or a drop counts as a jump.
     if (this.crest && this.airT > 0.28) this.feature = true;
     if (this.crest && this.airT < 0.2) { this.jumps -= 1; this.groundVy = this.speed * this.course.dh(this.sB); return; }
-    const clean = Math.abs(this.roll) < 0.3 && this.pitch < 0.24;
-    this.camDip = this.big ? 1 : 0.6;
+    // A landing is sloppy when the bike is still tilted or in a wheelie. Hops the player did not
+    // choose (a crest of the trail, the automatic hop) and the relaxed mode forgive the tilt.
+    const clean = this.pitch < 0.24 && (Math.abs(this.roll) < 0.36 || this.crest || this.assisted || this.easy);
+    this.camDip = this.calm ? 0 : this.big ? 1 : 0.6;
     const kind = this.course.sectionAt(this.sB).kind;
     this.spark(this.sB, this.u, 0.05, kind === 'snow' ? 'xr-bike-snow' : kind === 'mud' ? 'xr-bike-mud-wet' : kind === 'gravel' ? 'xr-bike-gravel-light' : 'xr-bike-curb', this.big ? 22 : 12, this.big ? 2.6 : 1.8);
     this.haptic(this.big ? 0.8 : 0.5, 60);
@@ -1393,7 +1621,15 @@ export class BikeScene extends BaseScene {
       this.boostT = this.feature ? 1.1 : 0.4;
       if (this.feature) {
         const sub = [...tricks, this.combo > 1 ? t('bikeCombo', { n: this.combo }) : null].filter(Boolean).join(' · ') || null;
-        this.toast(gain > 0 ? t('bikeLand', { n: gain }) : t('bikeLandPlain'), sub, this.combo > 1 ? 'xr-bike-combo' : 'xr-bike-jump', 1.4);
+        // A hop over a crest of the trail only gets the small popup (bumpy ground gives many in
+        // a row); a jump off a ramp or over an obstacle gets the callout.
+        if (!this.crest || tricks.length) this.toast(gain > 0 ? t('bikeLand', { n: gain }) : t('bikeLandPlain'), sub, this.combo > 1 ? 'xr-bike-combo' : 'xr-bike-jump', 1.4);
+        if (gain > 0) this.popup(`+${gain}`, this.combo > 1 ? 'xr-bike-combo' : 'xr-bike-jump');
+        // Taught once, after the second clean jump: the wheelie.
+        if (this.cleanJumps === 2 && !this.hints.trick && !tricks.length) {
+          this.hints.trick = true;
+          this.delay(1.6, () => { if (!this.disposed && this.mode === 'ride') this.toast(t('bikeTrickHint'), t('bikeTrickHintSub'), 'xr-bike-jump', 3); });
+        }
         sfx.coin();
         this.rider?.mood('happy', 0.8);
       } else sfx.bounce();
@@ -1415,10 +1651,10 @@ export class BikeScene extends BaseScene {
     h.hit = true;
     this.crashes += 1;
     this.combo = 0;
-    this.speed *= 0.2;
+    this.speed *= this.easy ? 0.5 : 0.2;
     this.wobble = 1;
-    this.slowT = 1.4;
-    if (h.type === 'trench') { this.air -= 14; this.punctures += 1; }
+    this.slowT = this.easy ? 0.8 : 1.4;
+    if (h.type === 'trench') { this.air -= 14 * this.tune.airLoss; this.punctures += 1; }
     const st = this.secStats[this.sec];
     if (st) st.hits += 1;
     this.toast(t('bikeCrash', { name: t(`bikeHz_${h.type}`) }), t('bikeCrashHint'), 'xr-danger', 1.8);
@@ -1463,13 +1699,13 @@ export class BikeScene extends BaseScene {
     sfx.crash();
     const how = this.engine.isXR ? 'bikePumpXR' : this.engine.touchUI ? 'bikePumpTouch' : 'bikePumpScreen';
     this.toast(t('bikeFlat'), t(how), 'xr-danger', 99);
-    this.pop(this.pumpBtn);
+    this.pop(this.pumpHold);
   }
 
   pumpOnce() {
     if (this.mode === 'pit') { this.pitPump(); return; }
     if (this.mode !== 'flat') return;
-    this.air = Math.min(100, this.air + 14);
+    this.air = Math.min(100, this.air + this.tune.pumpGain);
     this.pumpAnim = 1;
     sfx.boing();
     for (const p of this.engine.pointers) if (p.kind === 'xr' && p.active) this.engine.haptic(p, 0.4, 30);
@@ -1503,7 +1739,7 @@ export class BikeScene extends BaseScene {
     let best = 2;
     for (let x = S0 - STOP_GAP; x < c.finish; x += 0.5) {
       const sl = c.dh(x);
-      best += 0.5 / (V_NOM * 1.08 * clamp(1 - sl * (sl > 0 ? 2.3 : 1.9), 0.4, 1.55));
+      best += 0.5 / (V_NOM * this.tune.speed * 1.08 * clamp(1 - sl * (sl > 0 ? 2.3 : 1.9), 0.4, 1.55));
     }
     const slow = best * 1.6;
     this.pts.time = Math.round(TIME_PTS * clamp((slow - this.rideT) / (slow - best), 0, 1));
@@ -1519,12 +1755,43 @@ export class BikeScene extends BaseScene {
     this.padLand?.show(false);
     this.pumpPad?.show(false);
     const right = this.choices.filter((c) => c?.rating.tireOk).length;
+    this.popups.forEach((p) => { p.visible = false; p.userData.life = 0; });
     this.results({
       gameKey: 'bike', score, correct: right, total: 4,
-      line: t('bikeLine', { right, jumps: this.cleanJumps, stars: this.starsTaken, time: fmtTime(this.rideT) }),
+      line: this.resultLine(score, right),
       learned: this.learned(),
-      onAgain: () => this.app.startGame('bike'),
+      onAgain: () => { BikeScene.quick = true; this.app.startGame('bike'); },
     });
+  }
+
+  /**
+   * The result in three short lines: the rating (bronze, silver, gold) with the points missing to
+   * the next step, what went well, and one tip for the next round.
+   */
+  resultLine(score, right) {
+    const counted = Math.round(score * assist.scoreFactor);
+    let i = 0;
+    while (i < RANKS.length - 1 && counted >= RANKS[i + 1][1]) i += 1;
+    const rank = t(`bikeRank_${RANKS[i][0]}`);
+    const first = i === RANKS.length - 1 ? t('bikeRankTop', { rank }) : t('bikeRankNext', { rank, n: RANKS[i + 1][1] - counted, next: t(`bikeRank_${RANKS[i + 1][0]}`) });
+    const total = this.course.starTotal;
+    const good = right === 4 ? t('bikeGood_tires')
+      : this.choices.some((c) => c?.overruled) ? t('bikeGood_overrule')
+        : this.starsTaken >= total * 0.75 ? t('bikeGood_stars', { n: this.starsTaken, total })
+          : this.cleanJumps >= 6 ? t('bikeGood_jumps', { n: this.cleanJumps })
+            : this.flats === 0 && this.punctures === 0 ? t('bikeGood_noflat')
+              : t('bikeGood_some', { n: right });
+    const fooled = this.choices.some((c) => c?.scan.tricky === 'wrong' && !c.rating.tireOk);
+    const missedPit = this.weatherLog.some((w) => w.to && !w.pitted);
+    const tip = fooled ? 'conf'
+      : this.flats > 0 || this.punctures > 1 ? 'flat'
+        : this.crashes > 1 ? 'crash'
+          : missedPit ? 'pit'
+            : this.cleanJumps < 4 ? 'ramp'
+              : this.starsTaken < total * 0.6 ? 'stars'
+                : 'time';
+    this.resultTip = tip;
+    return [first, t('bikeGood', { what: good }), t('bikeTip', { tip: t(`bikeTip_${tip}`) })].join('\n');
   }
 
   /** Takeaways about the AI: confidence, the live update with new data, when it was wrong. */
@@ -1563,19 +1830,30 @@ export class BikeScene extends BaseScene {
 
   pop(obj) { obj.userData.pop = 0; }
 
+  /** A short score popup that rises above the bike ("+30", a streak). */
+  popup(text, token = 'xr-bike-gold') {
+    const p = this.popups.reduce((a, b) => (b.userData.life < a.userData.life ? b : a));
+    p.userData.say.text = text;
+    p.userData.say.token = token;
+    p.userData.life = 1;
+    p.userData.slot = (this.popupN = ((this.popupN ?? 0) + 1) % 3) - 1;
+    p.redraw();
+  }
+
   // ---------------------------------------------------------------- frame loop
 
   update(dt) {
     this.time += dt;
     const e = this.engine;
     // A short slow motion at the top of a big jump (eased in and out).
-    const wantScale = this.inAir && this.big && Math.abs(this.vy) < 2.6 ? 0.42 : 1;
+    const wantScale = this.inAir && this.big && !this.calm && Math.abs(this.vy) < 2.6 ? 0.42 : 1;
     this.timeScale += (wantScale - this.timeScale) * Math.min(1, dt * (wantScale < this.timeScale ? 10 : 6));
     const gdt = dt * this.timeScale;
     this.camDip = Math.max(0, (this.camDip ?? 0) - dt * 2.5);
+    for (const p of this.popups) p.userData.life = Math.max(0, p.userData.life - dt / 1.1);
     this.placeStage();
     this.updateWindow(dt);
-    if (this.mode === 'ride' || this.mode === 'brake') this.readXRJump(dt);
+    if (this.mode === 'ride' || this.mode === 'brake' || this.mode === 'pitIn') this.readXRJump(dt);
     switch (this.mode) {
       case 'scan': this.updateScan(dt); break;
       case 'choose': this.updateChoose(dt); break;
@@ -1696,13 +1974,13 @@ export class BikeScene extends BaseScene {
   updateChoose(dt) {
     this.phaseT += dt;
     this.speed = 0;
-    if (this.phaseT >= CHOOSE_T) this.go();
+    if (this.phaseT >= this.tune.chooseT) this.go();
   }
 
   /** Where the steering wants the bike (lateral offset from the trail's middle). */
   steer(dt) {
     const dir = (this.keys.right || this.btn.right ? 1 : 0) - (this.keys.left || this.btn.left ? 1 : 0);
-    if (dir) { this.inputMode = 'keys'; this.target += dir * 3.8 * dt; }
+    if (dir) { this.inputMode = 'keys'; this.target += dir * KEY_STEER * dt; }
     const xr = this.readXR();
     if (xr !== null) this.target = xr;
     const mouse = this.readMouse();
@@ -1723,7 +2001,7 @@ export class BikeScene extends BaseScene {
     this.phaseT += dt;
     this.rideT += dt;
     this.steer(dt);
-    if (this.mode === 'pitIn') this.target = 1.25; // into the box on the right
+    if (this.mode === 'pitIn' && !this.swap) this.target = 1.25; // into the box on the right
     this.jumpQueued = Math.max(0, (this.jumpQueued ?? 0) - dt);
     this.boostT = Math.max(0, (this.boostT ?? 0) - dt);
     this.liveT = (this.liveT ?? 0) + dt;
@@ -1734,7 +2012,7 @@ export class BikeScene extends BaseScene {
     this.slipT = Math.max(0, this.slipT - dt);
     this.wobble = Math.max(0, this.wobble - dt * 0.9);
     const off = Math.abs(this.u) > HALF + 0.1;
-    let vT = V_NOM * (0.78 + 0.3 * g) * (0.7 + 0.3 * clamp(this.air / 75, 0, 1));
+    let vT = V_NOM * this.tune.speed * (0.78 + 0.3 * g) * (0.7 + 0.3 * clamp(this.air / 75, 0, 1));
     if (r.tooHard && (sec.kind === 'gravel' || sec.kind === 'mud')) vT *= 0.95;
     if (off) vT *= 0.6;
     if (this.slowT > 0) vT *= 0.55;
@@ -1746,6 +2024,9 @@ export class BikeScene extends BaseScene {
     this.slope = slope;
     if ((this.mode === 'brake' || this.mode === 'pitIn') && !this.inAir) {
       const left = Math.max(0, this.stopS - this.sB);
+      // The way into the pit can be long: the bike keeps its pace (and picks it up again after
+      // a bump) until the braking distance begins.
+      if (this.mode === 'pitIn' && vT > this.speed) this.speed += (vT - this.speed) * Math.min(1, dt * 1.3);
       this.speed = Math.min(this.speed, Math.sqrt(2 * BRAKE * left));
       if (left < 0.03 || this.speed < 0.08) {
         this.sB = this.stopS;
@@ -1769,6 +2050,19 @@ export class BikeScene extends BaseScene {
     this.latNow = lat;
     const prev = this.sB;
     this.sB += this.speed * dt;
+    // Relaxed mode: Echo hops over what lies across the trail by itself (no points for it), so
+    // nothing needs a fast reaction. Jumping yourself still counts.
+    if (this.easy && !this.inAir && (this.mode === 'ride' || this.mode === 'pitIn') && this.jumpQueued <= 0) {
+      // The hop starts so that the obstacle passes under the top of the arc (about 0.3 s later).
+      const blk = c.hazards.find((h) => h.block && !h.hit && h.s > this.sB && h.s < this.sB + 0.1 + this.speed * 0.3);
+      if (blk) {
+        this.Y = c.h(this.sB) + ramp0(c, this.sB, this.u);
+        this.takeoff(null, false, Math.max(0, this.speed * c.dh(this.sB)));
+        this.assisted = true;
+        this.autoHops += 1;
+        if (!this.hints.autoJump) { this.hints.autoJump = true; this.toast(t('bikeAutoJump'), t('bikeAutoJumpSub'), 'xr-bike-jump', 2.6); }
+      }
+    }
     this.updateJump(dt, prev);
     // Weather: it turns ahead (live re-scan), the pit stop before it, the new ground.
     const w = c.weather.find((x) => x.sec === this.sec && !x.applied);
@@ -1787,13 +2081,13 @@ export class BikeScene extends BaseScene {
     // Little grip (the wrong tire): now and then the bike slips away in a curve.
     if (g < 0.72 && this.mode === 'ride' && this.slipT <= 0) {
       this.gripSlip = (this.gripSlip ?? 0) + dt * (0.72 - g) * (0.6 + Math.abs(c.ddcx(this.sB)) * 25 + Math.max(0, slope) * 6);
-      if (this.gripSlip > 1.6) {
+      if (this.gripSlip > this.tune.slipAt) {
         this.gripSlip = 0;
         this.slipT = 0.8;
         this.slipV = (c.ddcx(this.sB) > 0 ? -1 : 1) * (1.4 + (1 - g));
         this.wobble = 0.6;
         this.slowT = 0.5;
-        this.toast(t('bikeSlip', { name: this.terrainName(sec.kind) }), null, 'xr-warning', 1.2);
+        this.toast(t('bikeSlip', { name: this.terrainName(this.terrainNow ?? sec.kind) }), this.swapHint(), 'xr-warning', 1.8);
         sfx.whoosh();
         this.rider?.mood('surprised', 0.8);
         this.haptic(0.4, 80);
@@ -1821,7 +2115,8 @@ export class BikeScene extends BaseScene {
     const ground = c.h(this.sB) + (ramp ? RAMP_H * clamp((this.sB - (ramp.s - 0.8)) / 1.6, 0, 1) : 0);
     const climb = this.speed * c.dh(this.sB); // vertical speed when following the trail
     if (!this.inAir) {
-      if (this.jumpQueued > 0 && this.mode === 'ride') {
+      // (also on the way into the pit, while the stop is still far: a log may lie before it)
+      if (this.jumpQueued > 0 && (this.mode === 'ride' || (this.mode === 'pitIn' && this.stopS - this.sB > 4))) {
         this.jumpQueued = 0;
         // Pressed at the lip but the wheels just left it: still a jump off the ramp.
         const r = ramp ?? (this.onRamp && this.sB - this.onRamp.lip < 0.4 ? this.onRamp : null);
@@ -1859,10 +2154,16 @@ export class BikeScene extends BaseScene {
     if (tuck) this.tuckT += dt;
     let dir = (this.keys.right || this.btn.right ? 1 : 0) - (this.keys.left || this.btn.left ? 1 : 0);
     if (!dir && this.inputMode !== 'keys') {
-      const v = this.targetVel ?? 0; // a deliberate swipe or hand move tilts (dead zone 1.8 m/s)
-      dir = clamp(Math.sign(v) * Math.max(0, Math.abs(v) - 1.8) / 2.5, -1, 1);
+      // A deliberate quick swipe, mouse or hand move tilts; plain steering in the air does not
+      // (dead zone 3.2 m/s in the browser, 1.8 m/s for the hands in the headset).
+      const v = this.targetVel ?? 0;
+      const dead = this.engine.isXR ? 1.8 : 3.2;
+      dir = clamp(Math.sign(v) * Math.max(0, Math.abs(v) - dead) / 2.5, -1, 1);
     }
-    this.roll += (-dir * 0.6 - this.roll) * Math.min(1, dt * 7);
+    // Close to the ground Echo straightens the bike by itself: steering in the air is natural and
+    // never spoils a landing (only a wheelie held too long does).
+    const level = this.vy < 0 && this.y < 0.4;
+    this.roll += ((level ? 0 : -dir * 0.6) - this.roll) * Math.min(1, dt * (level ? 14 : 7));
     if (Math.abs(this.roll) > 0.3) this.tiltT += dt;
     if (this.Y <= ground && this.vy < climb) this.land(ground);
   }
@@ -1873,11 +2174,11 @@ export class BikeScene extends BaseScene {
     while (this.hzIdx < H.length && H[this.hzIdx].s <= s1) {
       const h = H[this.hzIdx++];
       if (h.s < s0 - 0.5 || h.hidden) continue;
-      const over = Math.abs(this.u - h.v) < h.r + 0.2;
-      if (this.y > CLEAR_Y) {
-        // Cleared in the air: it counts as a jump over something.
+      const over = Math.abs(this.u - h.v) < h.r + this.tune.hitPad;
+      if (this.y > this.tune.clearY) {
+        // Cleared in the air: it counts as a jump over something (not the automatic hop).
         h.passed = true;
-        if (over && this.inAir) this.feature = true;
+        if (over && this.inAir && !this.assisted) this.feature = true;
       } else if (h.block) this.crash(h);
       else if (over) this.hitHazard(h);
       else h.passed = true;
@@ -1887,7 +2188,13 @@ export class BikeScene extends BaseScene {
       const it = I[this.itIdx++];
       if (it.s < s0 - 0.5 || it.taken) continue;
       const lift = it.type === 'star' ? 0.62 : it.type === 'cart' ? 0.55 : 0.66;
-      if (Math.abs(this.u - it.v) < 0.62 && Math.abs((it.y ?? 0) + lift - (this.y + 0.65)) < 0.75) this.collect(it);
+      if (Math.abs(this.u - it.v) < this.tune.catchR && Math.abs((it.y ?? 0) + lift - (this.y + 0.65)) < 0.75) this.collect(it);
+      else if (it.type === 'star' && !it.air) {
+        // A star on the ground was left behind: the streak starts again (stars in the air are a bonus).
+        this.starsMissed += 1;
+        if (this.starRun > 1) this.gauge.redraw();
+        this.starRun = 0;
+      }
     }
   }
 
@@ -1899,7 +2206,9 @@ export class BikeScene extends BaseScene {
   spark(s, v, y, token, n = 14, speed = 2.2) {
     const p = this.course.point(s, v);
     p.y = y + this.course.h(s);
-    this.sparks.userData.emit(p, token, n, speed);
+    // Calm motion: fewer, slower particles.
+    if (this.calm) this.sparks.userData.emit(p, token, Math.ceil(n * 0.35), speed * 0.6);
+    else this.sparks.userData.emit(p, token, n, speed);
   }
 
   hitHazard(h) {
@@ -1920,7 +2229,7 @@ export class BikeScene extends BaseScene {
           this.haptic(0.4, 40);
           return;
         }
-        this.air -= 30 + 16 * (1 - g);
+        this.air -= (30 + 16 * (1 - g)) * this.tune.airLoss;
         this.punctures += 1;
         this.wobble = 1;
         this.slowT = 0.8;
@@ -1936,7 +2245,7 @@ export class BikeScene extends BaseScene {
         this.wobble = hard ? 1 : 0.6;
         this.slowT = hard ? 0.9 : 0.5;
         if (soft && h.type === 'pothole') {
-          this.air -= 20;
+          this.air -= 20 * this.tune.airLoss;
           this.toast(t('bikePinch'), name, 'xr-danger', 1.8);
           this.punctures += 1;
         } else this.toast(t('bikeBump', { name }), null, 'xr-warning', 1.3);
@@ -1977,6 +2286,15 @@ export class BikeScene extends BaseScene {
     if (it.type === 'star') {
       this.starsTaken += 1;
       this.pts.stars += STAR_PTS;
+      this.starRun += 1;
+      this.bestRun = Math.max(this.bestRun, this.starRun);
+      // Every fifth star in a row: a bonus.
+      const bonus = this.starRun % STREAK_N === 0 ? Math.min(STREAK_PTS, STREAK_CAP - this.pts.streak) : 0;
+      if (bonus > 0) {
+        this.pts.streak += bonus;
+        this.popup(t('bikeStreak', { n: this.starRun, pts: bonus }), 'xr-bike-combo');
+        sfx.powerup();
+      } else this.popup(t('bikeStar', { n: STAR_PTS }), 'xr-bike-gold');
       sfx.coin();
       this.spark(it.s, it.v, 0.62, 'xr-bike-gold', 14);
       this.rider?.mood('happy', 0.6);
@@ -1984,7 +2302,9 @@ export class BikeScene extends BaseScene {
     } else if (it.type === 'cart') {
       const add = Math.round(Math.min(40, 100 - this.air));
       this.air = Math.min(100, this.air + 40);
-      this.toast(t('bikeCartridge', { n: Math.max(0, add) }), null, 'xr-bike-cartridge-band', 1.6);
+      // A full tire cannot take more air: the cartridge gives a short push instead.
+      if (add >= 1) this.toast(t('bikeCartridge', { n: add }), null, 'xr-bike-cartridge-band', 1.6);
+      else { this.boostT = Math.max(this.boostT, 2.2); this.toast(t('bikeCartridgeFull'), null, 'xr-bike-cartridge-band', 1.6); }
       sfx.powerup();
       this.spark(it.s, it.v, 0.55, 'xr-bike-cartridge-band', 18);
     } else {
@@ -2004,7 +2324,7 @@ export class BikeScene extends BaseScene {
     this.sB += this.speed * dt;
     this.pumpAnim = Math.max(0, (this.pumpAnim ?? 0) - dt * 3);
     // After a while Echo pumps along slowly, so nobody gets stuck.
-    if (this.phaseT > 6) { this.air = Math.min(100, this.air + dt * 9); if (this.air >= 92) this.endFlat(); }
+    if (this.phaseT > this.tune.flatHelp) { this.air = Math.min(100, this.air + dt * (this.easy ? 22 : 9)); if (this.air >= 92) this.endFlat(); }
   }
 
   updateFinish(dt) {
@@ -2012,7 +2332,7 @@ export class BikeScene extends BaseScene {
     // Confetti from the arch in the first two seconds.
     this.confettiT -= dt;
     if (this.phaseT < 2.2 && this.confettiT <= 0) {
-      this.confettiT = 0.12;
+      this.confettiT = this.calm ? 0.4 : 0.12;
       const tok = ['xr-bike-confetti-1', 'xr-bike-confetti-2', 'xr-bike-confetti-3', 'xr-bike-confetti-4'][Math.floor(Math.random() * 4)];
       this.spark(this.course.finish, (Math.random() - 0.5) * 6, 4.4, tok, 8, 2.6);
     }
@@ -2082,7 +2402,7 @@ export class BikeScene extends BaseScene {
       this.bike.root.rotation.set(this.visPitch + this.pitch, c.yaw(s) + (riding ? yawRel : 0), 0, 'YXZ');
       const steer = clamp(yawRel * 1.4 - c.ddcx(s) * 4, -0.45, 0.45) * (riding ? 1 : 0);
       const roll = this.inAir ? this.roll : -clamp((this.latNow ?? 0) * 0.07, -0.25, 0.25) * (riding ? 1 : 0);
-      this.bike.update(dt, { speed: this.speed, steer: this.inAir ? steer * 0.3 : steer, roll, wobble: this.wobble ?? 0 });
+      this.bike.update(dt, { speed: this.speed, steer: this.inAir ? steer * 0.3 : steer, roll, wobble: (this.wobble ?? 0) * (this.calm ? 0.25 : 1) });
       this.bike.setBand(this.shields ?? 0);
       const look = this.mode === 'scan' ? this.drone?.root : this.mode === 'choose' || this.mode === 'over' || this.mode === 'intro' ? null : this.swallow?.root;
       const lookWorld = look ? look.getWorldPosition(new THREE.Vector3()) : this.engine.camera.getWorldPosition(new THREE.Vector3());
@@ -2249,10 +2569,10 @@ export class BikeScene extends BaseScene {
       this.sparks.userData.emit(p, kind === 'mud' ? 'xr-bike-mud-wet' : 'xr-bike-snow', 2, 0.7, 9, back, 0.55);
     }
     // The feel of speed on fast descents: speed lines, a wider view, the wind.
-    this.fast = clamp((this.speed - 5.6) / 1.6, 0, 1) * (riding ? 1 : 0);
+    this.fast = this.calm ? 0 : clamp((this.speed - 5.6) / 1.6, 0, 1) * (riding ? 1 : 0);
     this.speedLines.userData.update(dt, c, s, this.speed, this.fast);
     this.windT = (this.windT ?? 0) - dt;
-    if (this.fast > 0.45 && this.windT <= 0) { this.windT = 1.1; sfx.whoosh(); }
+    if (clamp((this.speed - 5.6) / 1.6, 0, 1) > 0.45 && riding && this.windT <= 0) { this.windT = 1.1; sfx.whoosh(); }
   }
 
   /** Browser: a chase camera behind the bike (higher while scanning, beside it while choosing). */
@@ -2268,7 +2588,7 @@ export class BikeScene extends BaseScene {
     let fov = portrait ? 64 : 52;
     if (this.mode === 'scan') { pos = portrait ? [bx * 0.5, 0.78, 0.48] : [bx * 0.5, 0.52, 0.55]; look = portrait ? [0, 0, -0.5] : [0, 0, -0.95]; }
     else if (this.mode === 'choose' || this.mode === 'pit') { pos = portrait ? [0.2, 0.32, 0.52] : [0.28, 0.24, 0.42]; look = [0, 0.03, -0.5]; fov = portrait ? 62 : 50; }
-    else if (this.mode === 'finish') { const a = 0.5 + this.phaseT * 0.35; pos = [Math.sin(a) * 0.42 + bx, 0.2, Math.cos(a) * 0.42]; look = [bx, 0.08, 0]; }
+    else if (this.mode === 'finish') { const a = 0.5 + (this.calm ? 0.4 : this.phaseT * 0.35); pos = [Math.sin(a) * 0.42 + bx, 0.2, Math.cos(a) * 0.42]; look = [bx, 0.08, 0]; }
     else { pos = [bx, portrait ? 0.5 : 0.4, portrait ? 0.72 : 0.6]; look = [bx * 1.1, 0, portrait ? -0.66 : -0.95]; }
     // Hills: the camera follows the slope behind the bike, looks at the trail's height ahead and
     // stays above any crest in between (so the trail beyond stays in view and it never clips).
@@ -2294,7 +2614,7 @@ export class BikeScene extends BaseScene {
       this.camPos = cam.position.clone();
       this.camLook = cam.position.clone().add(new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion));
     }
-    const k = Math.min(1, dt * 2.6);
+    const k = Math.min(1, dt * (this.calm ? 1.7 : 2.6));
     this.camPos.lerp(wantPos, k);
     this.camLook.lerp(wantLook, k);
     cam.position.copy(this.camPos);
@@ -2315,9 +2635,9 @@ export class BikeScene extends BaseScene {
     const alert = !!w && w.triggered && moving && (!w.decided || (this.liveT ?? 0) < 5) && this.sB < w.s + 6;
     const show = {
       scanPanel: m === 'scan' || m === 'choose',
-      livePanel: alert || m === 'pit',
-      pitBtn: !!w && w.triggered && !w.decided && m === 'ride',
-      chip: moving || m === 'flat',
+      livePanel: alert || (m === 'pit' && !this.swap),
+      pitBtn: (!!w && w.triggered && !w.decided && m === 'ride') || this.swapOpen(),
+      chip: moving || m === 'flat' || (m === 'pit' && this.swap),
       gauge: moving || m === 'flat' || m === 'scan' || m === 'choose' || m === 'finish' || m === 'pit',
       console: m === 'choose' || m === 'pit',
       pumpBtn: m === 'flat' && !this.engine.touchUI,
@@ -2326,6 +2646,15 @@ export class BikeScene extends BaseScene {
     this.ui.visible = m !== 'intro' && m !== 'over';
     if (!this.ui.visible) return;
     const e = this.engine;
+    // The stop button: "pit stop" before a change of the weather, else "change tire".
+    const swapBtn = show.pitBtn && !(w && w.triggered && !w.decided);
+    if (show.pitBtn && this.pitBtnSwap !== swapBtn) {
+      this.pitBtnSwap = swapBtn;
+      const name = t(swapBtn ? 'bikeSwapBtn' : 'bikePitBtn');
+      this.pitBtn.opts.label = e.isXR || e.touchUI ? name : `${name} (${t('bikePitKey')})`;
+      this.pitBtn.redraw();
+      this.pitBtn.userData.label = name;
+    }
     // Pop-in factors.
     const popK = (o) => { if (o.userData.pop === undefined) return 1; o.userData.pop = Math.min(1, o.userData.pop + dt * 4); return 0.85 + 0.15 * easeOut(o.userData.pop); };
     if (e.isXR) {
@@ -2347,7 +2676,7 @@ export class BikeScene extends BaseScene {
       con.visible = show.console;
       placeOnArc(con, 0.6, this.eye - 0.12, 0.95);
       con.rotation.x = -0.12;
-      con.scale.setScalar(popK(con));
+      con.scale.setScalar(0.86 * popK(con));
       this.layoutTiles();
       this.tireCard.visible = show.tirePreview;
       placeOnArc(this.tireCard, 1.12, this.eye - 0.06, 0.98);
@@ -2369,6 +2698,17 @@ export class BikeScene extends BaseScene {
       this.pumpBtn.visible = show.pumpBtn;
       this.pumpBtn.position.set(0, this.eye - 0.32, -0.75);
       this.pumpBtn.rotation.set(-0.5, 0, 0);
+      // Score popups rise above the bike on the diorama.
+      for (const p of this.popups) {
+        const life = p.userData.life;
+        p.visible = life > 0;
+        if (!p.visible) continue;
+        const k = 1 - life;
+        p.position.set(st.x + p.userData.slot * 0.05, st.y + 0.2 + (this.calm ? 0.04 : k * 0.09), st.z + 0.04);
+        p.rotation.set(-0.35, 0, 0);
+        p.scale.setScalar(0.62);
+        p.material.opacity = Math.min(1, life * 3);
+      }
       return;
     }
     // Browser: the UI layer follows the camera; panels sit at distance D, sized in pixels.
@@ -2402,14 +2742,30 @@ export class BikeScene extends BaseScene {
     let freeBot = 1 - (ins.bottom + 6) / H;
     const desk = num('xr-bike-ui-px') * clamp(H / 760, 0.75, 1.35);
     const phone = num('xr-bike-ui-px-phone');
+    // Score popups rise above the bike (where it is on the screen right now).
+    if (this.popups.some((p) => p.userData.life > 0)) {
+      const v = (this.tmpV ??= new THREE.Vector3());
+      if (this.bike) this.bike.root.getWorldPosition(v).project(cam); else v.set(0, -0.2, 0);
+      const bx = clamp((v.x + 1) / 2, 0.15, 0.85);
+      const by = clamp((1 - v.y) / 2, 0.3, 0.8);
+      for (const p of this.popups) {
+        const life = p.userData.life;
+        p.visible = life > 0;
+        if (!p.visible) continue;
+        const k = 1 - life;
+        place(p, bx + p.userData.slot * 0.035, by - 0.17 - (this.calm ? 0.03 : k * 0.09), 0.5, 0.5, (touch ? phone : desk) * 0.9);
+        p.material.opacity = Math.min(1, life * 3);
+      }
+    } else for (const p of this.popups) p.visible = false;
     for (const k of ['scanPanel', 'livePanel', 'pitBtn', 'chip', 'gauge', 'console', 'pumpBtn']) this[k].visible = show[k];
     this.scanSmall.visible = false;
     this.tireCard.visible = show.tirePreview && !touch;
     // Top bar (desktop: the 3D status bar and the menu button).
     if (!touch && this.hudObjs) {
-      const [info, menu] = this.hudObjs;
-      if (info) place(info, 0.012, 0.015, 0, 0, desk * 0.8);
-      if (menu) place(menu, 0.988, 0.015, 1, 0, desk * 0.8);
+      const [info] = this.hudObjs;
+      // The menu button sits next to the status bar (the top right corner belongs to the page's own close button).
+      const bar = info ? place(info, 0.012, 0.015, 0, 0, desk * 0.8) : { w: 0 };
+      if (this.menuHold) place(this.menuHold, 0.012 + (bar.w + 8) / W, 0.015, 0, 0, desk * 0.8);
       freeTop = (0.015 * H + 0.15 * desk * 0.8 + 8) / H;
     }
     if (!touch) {
@@ -2418,22 +2774,23 @@ export class BikeScene extends BaseScene {
       if (show.chip) leftY += place(this.chip, 0.012, leftY, 0, 0, desk * 0.85).h / H + 0.012;
       if (show.livePanel) leftY += place(this.livePanel, 0.012, leftY, 0, 0, desk * 0.8).h / H + 0.012;
       if (show.tirePreview) place(this.tireCard, 0.012, leftY, 0, 0, desk * (m === 'pit' ? 0.7 : 0.82));
-      if (show.console) { place(this.console, 0.988, 0.56, 1, 0.5, desk * 0.9); this.layoutTiles(); }
+      if (show.console) { place(this.console, 0.988, 0.56, 1, 0.5, desk * 0.86); this.layoutTiles(); }
       if (show.gauge) place(this.gauge, 0.012, 0.985, 0, 1, desk * 0.9);
       if (this.toastPanel) place(this.toastPanel, 0.5, freeTop + 0.07, 0.5, 0, desk * 0.85);
-      if (show.pumpBtn) place(this.pumpBtn, 0.5, 0.72, 0.5, 0.5, desk);
-      if (show.pitBtn) place(this.pitBtn, 0.5, 0.8, 0.5, 0.5, desk);
+      if (show.pumpBtn) place(this.pumpHold, 0.5, 0.72, 0.5, 0.5, desk);
+      // The stop button sits in the free lower right corner (not on the bike or the trail).
+      if (show.pitBtn) place(this.pitHold, 0.988, 0.985, 1, 1, desk * 0.85);
       this.freeShift = 0;
       return;
     }
     // Phones.
     const gap = 6 / H;
     if (portrait) {
-      const fitW = (W - 12) / 0.68;
+      const fitW = (W - 12) / 0.8;
       const ppm = Math.min(phone * 1.25, fitW);
       if (m === 'choose' || m === 'pit') {
-        const head = m === 'pit' ? this.livePanel : this.scanSmall;
-        const sh = place(head, 0.5, top, 0.5, 0, m === 'pit' ? Math.min(ppm, (H * 0.3) / 0.42) : ppm);
+        const head = m === 'pit' ? (this.swap ? this.chip : this.livePanel) : this.scanSmall;
+        const sh = place(head, 0.5, top, 0.5, 0, m === 'pit' ? Math.min(ppm, (H * 0.3) / 0.42) : Math.min(ppm, (W - 12) / 0.66));
         head.visible = true;
         this.scanPanel.visible = false;
         const c = place(this.console, 0.5, 1 - gap, 0.5, 1, ppm);
@@ -2441,11 +2798,11 @@ export class BikeScene extends BaseScene {
         freeTop = top + sh.h / H;
         freeBot = 1 - gap - c.h / H;
       } else if (show.scanPanel) {
-        const sh = place(this.scanPanel, 0.5, top, 0.5, 0, ppm);
+        const sh = place(this.scanPanel, 0.5, top, 0.5, 0, Math.min(ppm, (W - 12) / 0.66));
         freeTop = top + sh.h / H;
       }
       const small = Math.min(phone, (W - 18) / 0.94);
-      if (show.chip) place(this.chip, 0.012, top, 0, 0, small);
+      if (show.chip && m !== 'pit') place(this.chip, 0.012, top, 0, 0, small);
       if (show.gauge && m !== 'choose' && m !== 'scan' && m !== 'pit') {
         const gs = place(this.gauge, 0.988, top, 1, 0, small);
         freeTop = Math.max(freeTop, top + gs.h / H);
@@ -2454,29 +2811,30 @@ export class BikeScene extends BaseScene {
         const ls = place(this.livePanel, 0.5, freeTop + gap, 0.5, 0, Math.min(phone * 0.95, (W - 12) / 0.66));
         freeTop += gap + ls.h / H;
       }
-      if (show.pitBtn) place(this.pitBtn, 0.5, freeBot - 0.06, 0.5, 1, phone * 1.1);
+      if (show.pitBtn) place(this.pitHold, 0.5, freeBot - 0.06, 0.5, 1, Math.min(phone, (W - 24) / 0.66));
       if (this.toastPanel) place(this.toastPanel, 0.5, Math.max(freeTop + gap, top + 0.11), 0.5, 0, Math.min(ppm, phone * 1.1));
     } else {
       const avail = H - ins.top - 12;
       if (m === 'choose' || m === 'pit') {
-        const head = m === 'pit' ? this.livePanel : this.scanSmall;
-        const ppmS = Math.min(phone, avail / (m === 'pit' ? 0.42 : 0.36), (W * 0.42) / 0.66);
+        const head = m === 'pit' ? (this.swap ? this.chip : this.livePanel) : this.scanSmall;
+        const ppmS = Math.min(phone, avail / (m === 'pit' ? 0.42 : 0.35), (W * 0.4) / 0.66);
         place(head, 0.008, top, 0, 0, ppmS);
         head.visible = true;
         this.scanPanel.visible = false;
-        const ppmC = Math.min(phone * 1.1, avail / 0.62, (W * 0.5) / 0.68);
+        const ppmC = Math.min(phone * 1.1, avail / 0.62, (W * 0.5) / 0.8);
         place(this.console, 0.992, top + (1 - top) / 2, 1, 0.5, ppmC);
         this.layoutTiles();
       } else if (show.scanPanel) {
-        place(this.scanPanel, 0.008, top, 0, 0, Math.min(phone, avail / 0.6));
+        place(this.scanPanel, 0.008, top, 0, 0, Math.min(phone, avail / 0.5));
       }
       const small = Math.min(phone * 0.9, (W * 0.3) / 0.52);
       let leftY = top;
-      if (show.chip) leftY += place(this.chip, 0.008, top, 0, 0, small).h / H + gap;
+      if (show.chip && m !== 'pit') leftY += place(this.chip, 0.008, top, 0, 0, small).h / H + gap;
       if (show.gauge && m !== 'choose' && m !== 'scan' && m !== 'pit') place(this.gauge, 0.992, top, 1, 0, small);
       else this.gauge.visible = false;
       if (show.livePanel && m !== 'pit') place(this.livePanel, 0.008, leftY, 0, 0, Math.min(phone * 0.85, (H - leftY * H - 90) / 0.42, (W * 0.34) / 0.66));
-      if (show.pitBtn) place(this.pitBtn, 0.5, 0.97, 0.5, 1, Math.min(phone, (W * 0.3) / 0.5));
+      // The stop button: on the right between the gauge and the thumb buttons (not on the bike).
+      if (show.pitBtn) place(this.pitHold, 0.992, 0.52, 1, 0.5, Math.min(phone, (W * 0.3) / 0.66));
       if (this.toastPanel) place(this.toastPanel, 0.5, top + 0.02, 0.5, 0, Math.min(phone, (W * 0.44) / 0.64));
     }
     // The bike in the middle of the free band between the panels.

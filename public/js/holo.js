@@ -109,7 +109,8 @@ const tmp = new THREE.Vector3();
 export function tickHolo(u, dt, time, target) {
   u.uHoloTime.value = time;
   if (target?.parent) u.uHoloBase.value = target.parent.getWorldPosition(tmp).y;
-  u.nextGlitch -= dt;
+  // Calm motion (u.calm, set by the scene): a steady picture, no flicker and no tearing.
+  u.nextGlitch -= u.calm ? 0 : dt;
   if (u.nextGlitch <= 0) {
     u.glitch = 0.12 + Math.random() * 0.1;
     u.nextGlitch = 3 + Math.random() * 5;

@@ -799,20 +799,6 @@ export function toMC(id) {
 
 export const ALL_IDS = [...byId.keys()];
 
-// AI Pong opponents: game characters with simplified values (not benchmarks).
-// reaction: seconds the AI needs to re-plan, speed: paddle speed (m/s), error: aiming
-// error (m). Profiles: Claude most precise but slower to react and move, GPT reacts early
-// and moves fast but is imprecise, Gemini has the shortest latency, medium speed, rather
-// imprecise. ratings (1-5) are what the selection cards show. ease overrides the global
-// ease-up of the scene (see PONG_EASE in scenes/pong.js).
-export const PONG_OPPONENTS = [
-  { key: 'gpt', name: 'GPT-6.1', reaction: 0.14, speed: 1.25, error: 0.09, ratings: { reaction: 4, speed: 5, precision: 2 }, token: 'xr-pong-opp-gpt' },
-  { key: 'gemini', name: 'Gemini 4', reaction: 0.07, speed: 1.05, error: 0.08, ratings: { reaction: 5, speed: 3, precision: 2 }, token: 'xr-pong-opp-gemini' },
-  // The nemesis: always the last opponent of a tournament and only slightly eased.
-  { key: 'claude', name: 'Claude Opus 5.5', reaction: 0.22, speed: 0.95, error: 0.015, ratings: { reaction: 2, speed: 2, precision: 5 }, token: 'xr-pong-opp-claude', boss: true,
-    ease: { speed: 0.95, reaction: 0.02, catchError: 0.8, misjudge: 0.04, randomAim: 0.3 } },
-];
-
 // ---------- Walkable architecture: "Bank data landscape" (scenes/arch.js) ----------
 // Zones are placed on a ring around the player; the data platform floats above the center.
 // angle: direction of the zone (0 = in front, clockwise in radians), r: radius factor.

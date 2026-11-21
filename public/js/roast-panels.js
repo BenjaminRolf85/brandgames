@@ -1,7 +1,8 @@
 // "Röstmeister" (Roast Master): canvas panels in the design tokens. The guest's speech bubble,
 // the kraft paper tags on the jars (flavor bars), the AI panel (what it hears, similar guests,
 // its suggestion with confidence and the taste map of all rated cups), the blend bar with its
-// two shares, the roast gauge (stages, cracks, the AI's stop mark) and star and score sprites.
+// two shares, the roast gauge (stages, cracks, the zone the guest wishes for, the AI's stop mark)
+// and star and score sprites. No text is smaller than the xr-text-sm token.
 import * as THREE from 'three';
 import { Panel, roundRect, wrap, measureBlocks } from './ui3d.js';
 import { color, num, font } from './tokens.js';
@@ -18,9 +19,10 @@ export const stageName = (r) => t(`roastStage_${stageOf(r).key}`);
 export const beanName = (i) => t(`roastBean_${BEANS[i].key}`);
 
 const sz = (tk) => num(tk);
+const measure = document.createElement('canvas').getContext('2d');
 
 function text(ctx, p, s, x, y, { size = 'xr-text-sm', weight = 'regular', col = 'xr-panel-text', align = 'left', base = 'middle', max } = {}) {
-  ctx.font = font(weight, p.m(Math.max(sz(size), sz('xr-text-min'))));
+  ctx.font = font(weight, p.m(Math.max(sz(size), sz('xr-text-sm'))));
   ctx.fillStyle = col.startsWith('xr-') ? color(col) : col;
   ctx.textAlign = align;
   ctx.textBaseline = base;
@@ -29,7 +31,7 @@ function text(ctx, p, s, x, y, { size = 'xr-text-sm', weight = 'regular', col = 
 
 /** Wrapped text from (x, y) (top), returns the y below it. */
 function para(ctx, p, s, x, y, w, { size = 'xr-text-sm', weight = 'regular', col = 'xr-panel-text', lh = 1.22 } = {}) {
-  const px = p.m(Math.max(sz(size), sz('xr-text-min')));
+  const px = p.m(Math.max(sz(size), sz('xr-text-sm')));
   ctx.font = font(weight, px);
   ctx.fillStyle = color(col);
   ctx.textAlign = 'left';
@@ -98,14 +100,30 @@ export function flavorIcon(ctx, key, x, y, s, col) {
  * The guest's speech bubble (cream with a tail at the bottom). stars: 0 = none. active: the guest
  * you prepare for now (a thick warm border). tail: 'left' (bubble beside the head) or 'center'.
  */
-export function bubblePanel({ name, body, sub = null, stars: n = 0, w = 0.66, active = false, tail: tailAt = 'left', bodySize = 'xr-text-md' }) {
+export function bubblePanel({ name, body, sub = null, chips = null, stars: n = 0, w = 0.66, active = false, focus = false, tail: tailAt = 'left', bodySize = 'xr-text-md' }) {
   const pad = 0.035;
   const blocks = [{ text: name, size: 'xr-text-sm', weight: 'bold', gap: 0.012 }];
   if (body) blocks.push({ text: body, size: bodySize, weight: 'bold', gap: 0.012 });
   if (sub) blocks.push({ text: sub, size: 'xr-text-sm', gap: 0.012 });
   const starH = n ? 0.065 : 0;
+  // the chips, wrapped into rows that fit the bubble
+  const rows = [];
+  if (chips?.length) {
+    const ppm = num('xr-px-per-meter');
+    measure.font = font('bold', sz('xr-text-sm') * ppm);
+    let x = 0;
+    let row = [];
+    for (const chip of chips) {
+      const cw = measure.measureText(chip.text).width / ppm + 0.03 + (chip.icon ? 0.04 : 0);
+      if (row.length && x + cw > w - pad * 2) { rows.push(row); row = []; x = 0; }
+      row.push({ ...chip, cw });
+      x += cw + 0.012;
+    }
+    rows.push(row);
+  }
+  const chipH = rows.length * 0.056 + (rows.length ? 0.006 : 0);
   const tail = 0.045;
-  const h = measureBlocks(blocks, w, pad) + starH + tail;
+  const h = measureBlocks(blocks, w, pad) + starH + chipH + tail;
   const p = new Panel(w, h, (ctx, c) => {
     const W = c.canvas.width;
     const H = c.canvas.height - c.m(tail);
@@ -117,6 +135,15 @@ export function bubblePanel({ name, body, sub = null, stars: n = 0, w = 0.66, ac
       ctx.lineWidth = c.m(bw);
       ctx.strokeStyle = color('xr-roast-active');
       ctx.stroke();
+    }
+    // keyboard focus: a second, dashed border (dark, since the bubble is light)
+    if (focus) {
+      roundRect(ctx, c.m(0.012 + bw), c.m(0.012 + bw), W - c.m(0.024 + bw * 2), H - c.m(0.024 + bw * 2), c.m(0.032));
+      ctx.setLineDash([c.m(0.02), c.m(0.012)]);
+      ctx.lineWidth = c.m(0.007);
+      ctx.strokeStyle = color('xr-roast-bubble-ink');
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
     // the tail points down to the guest's head (left: the bubble sits beside it)
     const tx = tailAt === 'center' ? W / 2 : c.m(0.07);
@@ -130,6 +157,24 @@ export function bubblePanel({ name, body, sub = null, stars: n = 0, w = 0.66, ac
     let y = pad;
     y = para(ctx, c, name, pad, y, w - pad * 2, { size: 'xr-text-sm', weight: 'bold', col: 'xr-roast-bubble-muted' }) + 0.012;
     if (body) y = para(ctx, c, body, pad, y, w - pad * 2, { size: bodySize, weight: 'bold', col: 'xr-roast-bubble-ink' }) + 0.012;
+    // the wish: chips with an icon (flavor) or just the word (roast)
+    rows.forEach((row, k) => {
+      let x = pad;
+      const cy = y + k * 0.056;
+      for (const chip of row) {
+        const iw = chip.icon ? 0.04 : 0;
+        roundRect(ctx, c.m(x), c.m(cy), c.m(chip.cw), c.m(0.048), c.m(0.024));
+        ctx.fillStyle = color('xr-roast-tag');
+        ctx.fill();
+        ctx.lineWidth = c.m(0.003);
+        ctx.strokeStyle = color('xr-roast-tag-edge');
+        ctx.stroke();
+        if (chip.icon) flavorIcon(ctx, chip.icon, c.m(x + 0.03), c.m(cy + 0.024), c.m(0.034), color(FLAVOR_INK[chip.icon]));
+        text(ctx, c, chip.text, x + 0.015 + iw, cy + 0.026, { size: 'xr-text-sm', weight: 'bold', col: 'xr-roast-tag-ink' });
+        x += chip.cw + 0.012;
+      }
+    });
+    y += chipH;
     if (sub) y = para(ctx, c, sub, pad, y, w - pad * 2, { size: 'xr-text-sm', col: 'xr-roast-bubble-muted' }) + 0.012;
     if (n) stars(ctx, c, n, pad + 0.03, y + 0.03, 0.026, 0.065);
   });
@@ -372,7 +417,7 @@ export class AiPanel extends Panel {
       ctx.lineWidth = m(0.0025);
       ctx.strokeStyle = color('xr-panel-bg');
       ctx.stroke();
-      if (d.label) text(ctx, this, d.label, (px(d) / this.px) + 0.02, py(d) / this.px, { size: 'xr-text-min', weight: 'bold', col: 'xr-panel-muted' });
+      if (d.label) text(ctx, this, d.label, (px(d) / this.px) + 0.02, py(d) / this.px, { size: 'xr-text-min', weight: 'bold', col: 'xr-panel-text' });
     }
     if (v.aim) {
       starPath(ctx, px(v.aim), py(v.aim), m(0.016));
@@ -389,10 +434,11 @@ export function blendPanel() {
   const w = 0.62;
   const h = 0.16;
   const p = new Panel(w, h, (ctx, c) => {
-    const { a = null, b = null, share = 0.5, hover, who = null } = c.state;
+    const { a = null, b = null, share = 0.5, hover, who = null, taste = '' } = c.state;
     c.surface({ stroke: color(who ? 'xr-roast-active' : hover ? 'xr-accent' : 'xr-panel-border') });
     const pad = 0.03;
-    text(ctx, c, who ? t('roastBlendFor', { name: who }) : t('roastBlend'), pad, 0.034, { size: 'xr-text-min', weight: 'bold', col: who ? 'xr-roast-active' : 'xr-panel-muted', max: w - pad * 2 });
+    const head = who ? t('roastBlendFor', { name: who }) : t('roastBlend');
+    text(ctx, c, taste && a !== null && b !== null ? `${head} · ${taste}` : head, pad, 0.034, { size: 'xr-text-min', weight: 'bold', col: who ? 'xr-roast-active' : 'xr-panel-muted', max: w - pad * 2 });
     const bx = pad;
     const by = 0.062;
     const bw = w - pad * 2;
@@ -436,9 +482,9 @@ export const ratioIndex = (share) => RATIOS.reduce((best, r, i) => (Math.abs(r -
 /** Roast progress: the stage strip with the cracks, the AI's mark and a needle. */
 export function gaugePanel() {
   const w = 0.62;
-  const h = 0.22;
+  const h = 0.26;
   const p = new Panel(w, h, (ctx, c) => {
-    const { r = 0, aiStop = null, done = false, who = null, next = null, idle = false } = c.state;
+    const { r = 0, aiStop = null, zone = null, done = false, who = null, next = null, idle = false } = c.state;
     const roasting = !idle && !done;
     c.surface({ stroke: color(roasting ? 'xr-roast-active' : STAGE_TOKEN[stageOf(r).key] === 'xr-roast-bean-burnt' ? 'xr-danger' : 'xr-panel-border') });
     const pad = 0.03;
@@ -476,8 +522,18 @@ export function gaugePanel() {
       ctx.strokeStyle = color('xr-panel-text');
       ctx.lineWidth = c.m(0.003);
       ctx.beginPath(); ctx.moveTo(c.m(x), c.m(by - 0.006)); ctx.lineTo(c.m(x), c.m(by + bh + 0.006)); ctx.stroke();
-      text(ctx, c, t(key), x, by + bh + 0.026, { size: 'xr-text-min', weight: 'bold', col: r >= at ? 'xr-panel-text' : 'xr-panel-muted', align: 'center' });
+      if (!zone) text(ctx, c, t(key), x, by + bh + 0.026, { size: 'xr-text-min', weight: 'bold', col: r >= at ? 'xr-panel-text' : 'xr-panel-muted', align: 'center' });
     });
+    // the zone the guest wishes for: an outlined box around that part of the strip, with its label below
+    if (zone) {
+      const zx = bx + bw * zone[0];
+      const zw = bw * (Math.min(1, zone[1]) - zone[0]);
+      roundRect(ctx, c.m(zx), c.m(by - 0.008), c.m(zw), c.m(bh + 0.016), c.m(0.01));
+      ctx.lineWidth = c.m(0.006);
+      ctx.strokeStyle = color('xr-roast-active');
+      ctx.stroke();
+      text(ctx, c, t('roastWishLabel'), zx + zw / 2, by + bh + 0.034, { size: 'xr-text-min', weight: 'black', col: 'xr-roast-active', align: 'center' });
+    }
     // the AI's stop mark (cyan triangle above the strip)
     if (aiStop !== null) {
       const x = bx + bw * aiStop;
@@ -536,8 +592,8 @@ export function scoreSprite(s, token = 'xr-roast-star', size = 0.3) {
     ctx.textBaseline = 'middle';
     ctx.lineWidth = H * 0.12;
     ctx.strokeStyle = color('xr-panel-bg');
-    ctx.strokeText(s, W / 2, H / 2);
+    ctx.strokeText(s, W / 2, H / 2, W - H * 0.2);
     ctx.fillStyle = color(token);
-    ctx.fillText(s, W / 2, H / 2);
+    ctx.fillText(s, W / 2, H / 2, W - H * 0.2);
   }, 512, 128, size);
 }

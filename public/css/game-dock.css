@@ -22,6 +22,12 @@
   --xr-dock-atom-cl:       #38db76;
   --xr-dock-bond:          #d5dcea;
 
+  /* Signs and letters (nothing is coded by color alone): the minus, plus and hexagon of the
+     contact spots, the letters on the atoms, check and cross */
+  --xr-dock-sign-ink:      var(--p-white);   /* the sign or letter itself */
+  --xr-dock-sign-edge:     #0b0f24;          /* its dark edge, and the ink on light signs */
+  --xr-dock-guide:         #e8ecf8;          /* guide lines from atoms to their contact spots (browser) */
+
   /* Feedback while docking */
   --xr-dock-good:          var(--p-mint-400);  /* atoms on a good contact, high fit */
   --xr-dock-bad:           var(--p-red-500);   /* clashes and repelling contacts */
@@ -64,6 +70,7 @@
   --xr-dock-rim-light:     var(--p-violet-400);
 
   /* Sizes (meters) */
+  --xr-dock-ui-scale:      0.62;             /* desktop: panels shrink around the protein, so it fills the screen */
   --xr-dock-bond-length:   0.042;
   --xr-dock-atom-radius:   0.0148;
   --xr-dock-protein-radius: 0.19;

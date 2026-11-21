@@ -1,3 +1,4 @@
+import { Pause } from './pause.js';
 import { Engine } from './engine.js';
 import { MenuScene } from './scenes/menu.js';
 import { LeaderboardScene } from './scenes/leaderboard.js';
@@ -71,6 +72,7 @@ class App {
     this.visitActive = !EVENT;
     if (EVENT) this.kiosk = new EventKiosk(this);
     this.current = null;
+    this.pause = new Pause(this);
   }
 
   show(factory) {
@@ -138,6 +140,8 @@ class App {
     this.currentGame = key;
     track('start', key, EVENT);
     this.show(factory);
+    // Games can be paused in the browser (pause.js); the lobby and the leaderboard cannot.
+    if (this.current) this.current.pausable = true;
   }
 
   async enterXR(mode) {
@@ -180,6 +184,15 @@ class App {
     }
     document.body.classList.add('is-playing');
     this.stage.hidden = false;
+    // Keyboard and screen readers: the page behind the game is out of reach while the game is
+    // open, and the keys go to the game (Tab walks through its buttons, engine.js).
+    this.page = document.getElementById('page');
+    this.opener = document.activeElement;
+    if (this.page) this.page.inert = true;
+    const canvas = this.engine.canvas;
+    canvas.tabIndex = -1;
+    canvas.setAttribute('aria-label', t('stageLabel'));
+    canvas.focus({ preventScroll: true });
     this.engine._fit();
     this.engine.recenter();
     track('session', '-', EVENT);
@@ -194,6 +207,7 @@ class App {
   }
 
   closeStage() {
+    this.pause.close(false);
     this.nav = (this.nav ?? 0) + 1;
     this.current?.dispose();
     this.current = null;
@@ -203,6 +217,9 @@ class App {
     this.stage.hidden = true;
     if (document.fullscreenElement) document.exitFullscreen?.().catch?.(() => {});
     document.body.classList.remove('is-playing', 'is-xr');
+    if (this.page) this.page.inert = false;
+    this.opener?.focus?.({ preventScroll: true });
+    this.opener = null;
     loadPageLeaderboard();
   }
 }
@@ -248,6 +265,10 @@ async function detectXR() {
   }
   ar.hidden = !arOk;
   vr.hidden = !vrOk;
+  // Without a headset the browser is the way to play: its button is the main one.
+  const play = document.getElementById('btn-preview');
+  play.classList.toggle('btn--primary', !arOk && !vrOk);
+  play.classList.toggle('btn--secondary', arOk || vrOk);
   vr.classList.toggle('btn--primary', !arOk);
   vr.classList.toggle('btn--secondary', arOk);
   if (arOk) setStatus('supportAR', 'is-ok');
@@ -378,7 +399,12 @@ async function boot() {
   setupClientGames(app);
   document.querySelectorAll('[data-lab-open]').forEach((el) => el.addEventListener('click', () => app.openPreview(Number(el.dataset.labOpen))));
   document.getElementById('btn-close').addEventListener('click', () => app.closeStage());
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !app.stage.hidden) app.closeStage(); });
+  // Escape leaves the 3D view from the lobby; inside a game it pauses instead (pause.js).
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || app.stage.hidden || e.defaultPrevented) return;
+    if (app.pause.isOpen || app.pause.available) return;
+    app.closeStage();
+  });
   document.querySelectorAll('[data-mode]').forEach((el) => { el.hidden = !VISIBLE_MODES.includes(el.dataset.mode); });
   // Game icons (same drawings as in the 3D menu).
   document.querySelectorAll('article[data-mode]').forEach((el) => {

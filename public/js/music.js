@@ -287,6 +287,20 @@ export class Music {
     }, 1000);
   }
 
+  /** Pause in the browser (pause.js): all sound stands still and goes on where it stopped. */
+  pause() {
+    const ctx = audioContext();
+    this.held = (this.els ?? []).filter((a) => !a.paused);
+    this.held.forEach((a) => a.pause());
+    ctx?.suspend?.();
+  }
+
+  resume() {
+    audioContext()?.resume?.();
+    (this.held ?? []).forEach((a) => { if (this.on) this.playEl(a); });
+    this.held = null;
+  }
+
   /** Lowers the music for a few seconds (e.g. while the announcer speaks). */
   duck(seconds) {
     if (!this.on || !this.master) return;

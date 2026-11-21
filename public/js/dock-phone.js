@@ -1,11 +1,29 @@
 // "Andock-Labor" on phones: the key numbers as a readable strip on the screen (instead of small
 // 3D panels): the fit meter with its contact spots and the status, the AI's ranking as chips you
 // can tap to pick a candidate, the AI's estimate for your own molecule, and the lab result.
+// Hints and results ("Pocket solved!") appear in the status line too, never over the pocket.
+// Good and bad are told by a check or a cross, the AI's pick by a star (not by color alone).
 // It sits right below the status bar (data-inset="top", so the 3D view keeps clear of it).
 // Styled with the design tokens only (inline custom properties, 16 px text, 14 px at least).
 import { t } from './i18n.js';
 
 const css = (el, styles) => Object.assign(el.style, styles);
+const svg = (d, fill = false) => `<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" style="display:block"><path d="${d}" fill="${fill ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="${fill ? 0 : 2}" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const ICON = {
+  good: svg('M2.5 6.5l2.3 2.3 4.7-5.3'),
+  bad: svg('M3 3l6 6M9 3l-6 6'),
+  star: svg('M6 .8l1.5 3.3 3.6.4-2.7 2.4.8 3.5L6 8.6l-3.2 1.8.8-3.5L.9 4.5l3.6-.4z', true),
+};
+/** A small round mark with a check or a cross. */
+function mark(kind) {
+  const s = document.createElement('span');
+  s.innerHTML = ICON[kind];
+  css(s, {
+    width: '16px', height: '16px', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
+    background: kind === 'good' ? 'var(--xr-dock-good)' : 'var(--xr-dock-bad)', color: kind === 'good' ? 'var(--xr-dock-sign-edge)' : 'var(--xr-dock-sign-ink)',
+  });
+  return s;
+}
 const box = {
   background: 'var(--xr-panel-bg)', border: '1px solid var(--xr-panel-border)', borderRadius: 'var(--radius-md)',
   color: 'var(--xr-panel-text)', boxSizing: 'border-box',
@@ -25,14 +43,17 @@ export function phoneStrip({ onPick }) {
   el.hidden = true;
   const row1 = document.createElement('div');
   const rowS = document.createElement('div');
+  const rowN = document.createElement('div');
   const row2 = document.createElement('div');
+  rowS.setAttribute('aria-live', 'polite');
   css(row1, { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: '0' });
   css(rowS, { fontSize: 'var(--text-sm)', fontWeight: 'var(--font-weight-bold)', minHeight: '1.25em' });
-  css(row2, { display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', minWidth: '0' });
+  css(rowN, { fontSize: 'var(--text-sm)', color: 'var(--xr-panel-text)' });
+  css(row2, { display: 'flex', alignItems: 'center', gap: '3px', flexWrap: 'wrap', minWidth: '0' });
   // Upright: three rows. Landscape: one band, fit and status left, the ranking right.
   const left = document.createElement('div');
   css(left, { display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', minWidth: '0', flex: '1 1 auto' });
-  left.append(row1, rowS);
+  left.append(row1, rowS, rowN);
   el.append(left, row2);
   stage?.append(el);
   let key = '';
@@ -71,14 +92,22 @@ export function phoneStrip({ onPick }) {
       } else {
         const fitTok = st.fit >= 0.7 ? 'var(--xr-dock-good)' : st.fit >= 0.45 ? 'var(--xr-dock-mid)' : 'var(--xr-dock-bad)';
         row1.append(span(`${t('dockFit')} ${Math.round(st.fit * 100)} %`, { fontWeight: 'var(--font-weight-black)', color: fitTok, whiteSpace: 'nowrap' }));
-        const dots = span('', { display: 'inline-flex', gap: '4px', flex: 'none' });
+        const dots = span('', { display: 'inline-flex', gap: '4px', flex: 'none', alignItems: 'center' });
         for (let i = 0; i < st.special; i++) {
-          const tok = i < st.good ? 'var(--xr-dock-good)' : i < st.good + st.bad ? 'var(--xr-dock-bad)' : 'var(--xr-dock-ai-track)';
-          dots.append(span('', { width: '12px', height: '12px', borderRadius: '50%', background: tok, display: 'inline-block' }));
+          if (i < st.good) dots.append(mark('good'));
+          else if (i < st.good + st.bad) dots.append(mark('bad'));
+          else dots.append(span('', { width: '16px', height: '16px', borderRadius: '50%', background: 'var(--xr-dock-ai-track)', display: 'inline-block' }));
         }
         row1.append(dots);
         rowS.textContent = st.status;
         rowS.style.color = `var(--${st.statusToken})`;
+      }
+      // A hint or a result takes the status line for a few seconds (with an optional second line).
+      rowN.textContent = st.note?.sub ?? '';
+      rowN.hidden = !st.note?.sub;
+      if (st.note) {
+        rowS.textContent = st.note.text;
+        rowS.style.color = `var(--${st.note.token})`;
       }
       // Row 2: the AI's ranking as chips (tap to pick), your own molecule with the AI's estimate.
       row2.replaceChildren();
@@ -90,11 +119,19 @@ export function phoneStrip({ onPick }) {
         b.dataset.i = String(i);
         const border = c.tested ? (c.ok ? 'var(--xr-dock-good)' : 'var(--xr-dock-bad)') : c.top ? 'var(--xr-warning)' : c.own ? 'var(--xr-dock-you)' : 'var(--xr-panel-border)';
         css(b, {
-          font: 'inherit', fontSize: 'var(--text-md)', fontWeight: 'var(--font-weight-bold)', minHeight: '36px', padding: '2px 6px', whiteSpace: 'nowrap',
+          font: 'inherit', fontSize: 'var(--text-md)', fontWeight: 'var(--font-weight-bold)', minHeight: '44px', padding: '2px 5px', whiteSpace: 'nowrap',
+          display: 'inline-flex', alignItems: 'center', gap: '3px',
           borderRadius: 'var(--radius-pill)', border: `2px solid ${border}`, color: 'var(--xr-panel-text)',
-          background: c.active ? 'var(--xr-dock-row-hi)' : 'var(--xr-button-bg)', textDecoration: c.tested && !c.ok ? 'line-through' : 'none',
+          background: c.active ? 'var(--xr-dock-row-hi)' : 'var(--xr-button-bg)',
         });
-        b.textContent = `${c.letter} ${c.ai} %`;
+        // The AI's pick carries a star, a tested candidate the lab's check or cross.
+        if (c.tested) b.append(mark(c.ok ? 'good' : 'bad'));
+        else if (c.top) {
+          const st2 = span('', { color: 'var(--xr-warning)', display: 'inline-flex' });
+          st2.innerHTML = ICON.star;
+          b.append(st2);
+        }
+        b.append(span(`${c.letter} ${c.ai} %`, { textDecoration: c.tested && !c.ok ? 'line-through' : 'none' }));
         b.setAttribute('aria-label', c.own ? t('dockOwnEst', { n: c.ai }) : `${t('dockCandidate', { c: c.letter })}: ${c.ai} %`);
         row2.append(b);
       });
