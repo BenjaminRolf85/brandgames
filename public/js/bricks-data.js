@@ -1,79 +1,95 @@
-// "Stein auf Stein": the rules of the decision game, without any drawing. Seven decisions about
-// a house (walls, roof, windows, front door, heating, one extra, the garden), each with a pool of
-// options that carry plain tags: cost in steps, a style, energy, upkeep, what they are good for
-// (a wish of the family) and how they take the weather. A round has a brief (who builds, where,
-// the budget), a catalogue of three options per decision, and a neighbor family with a brief of
-// its own. judge() is the coherence check ("Stimmigkeits-Check"): five criteria from 0 to 100,
-// each with one true reason that names the parts it is about.
+// "Stein auf Stein": the rules of the decision game, without any drawing. Six required parts of
+// a house (walls, roof, windows, front door, heating, garden), each with three options from a
+// pool, and then a list of optional extras. Everything has a price in thousand euros and plain
+// tags: a style, energy, upkeep, a wish of the family it fulfills, weather it likes or dislikes.
+// A round has a brief (who builds, where, a fixed budget), a catalogue, and a neighbor family
+// with the same budget and wishes of its own. Money is the core: the budget pays for the basic
+// option of every part and two or three upgrades or extras, never for the best of everything,
+// and it cannot be overdrawn. judge() is the coherence check ("Stimmigkeits-Check"): five
+// criteria from 0 to 100, each with one true reason that names the parts it is about.
 
-export const DECISIONS = ['walls', 'roof', 'windows', 'door', 'heating', 'extra', 'garden'];
-export const CRITERIA = ['unity', 'people', 'place', 'budget', 'future'];
+export const DECISIONS = ['walls', 'roof', 'windows', 'door', 'heating', 'garden'];
+export const STEPS = [...DECISIONS, 'extras'];
+export const CRITERIA = ['unity', 'people', 'place', 'future', 'value'];
 export const STYLES = ['trad', 'mod', 'nat'];
 
-// style: 'trad' | 'mod' | 'nat' | null (goes with everything); cost 1..3; e: energy (-2..2);
-// u: upkeep (1 easy, -1 a lot of work); gives: a wish it fulfills; w: weather it likes (1) or
-// dislikes (-1); pop: how common it is among the houses the AI adviser has seen.
+// style: 'trad' | 'mod' | 'nat' | null (goes with everything); price in 1000 euros; e: energy
+// (-2..2); u: upkeep (1 easy, -1 a lot of work); gives: a wish it fulfills; w: weather it likes
+// (1) or dislikes (-1); pop: how common it is among the houses the AI adviser has seen.
 export const OPTIONS = {
   walls: [
-    { id: 'brick', style: 'trad', cost: 2, e: 0, u: 1, w: { wind: 1 }, pop: 5 },
-    { id: 'timber', style: 'trad', cost: 3, e: 0, u: -1, pop: 2 },
-    { id: 'concrete', style: 'mod', cost: 2, e: 0, u: 1, w: { rain: 1 }, pop: 3 },
-    { id: 'wood', style: 'nat', cost: 1, e: 1, u: 0, w: { rain: -1 }, pop: 3 },
+    { id: 'brick', style: 'trad', price: 96, e: 0, u: 1, w: { wind: 1 }, pop: 5 },
+    { id: 'timber', style: 'trad', price: 118, e: 0, u: -1, pop: 2 },
+    { id: 'concrete', style: 'mod', price: 92, e: 0, u: 1, w: { rain: 1 }, pop: 3 },
+    { id: 'wood', style: 'nat', price: 84, e: 1, u: 0, w: { rain: -1 }, pop: 3 },
   ],
   roof: [
-    { id: 'tiles', style: 'trad', cost: 2, e: 0, u: 1, w: { snow: 1 }, pop: 5 },
-    { id: 'thatch', style: 'trad', cost: 3, e: 1, u: -1, w: { wind: -1 }, pop: 1 },
-    { id: 'green', style: 'nat', cost: 2, e: 1, u: 0, w: { snow: -1 }, pop: 2 },
-    { id: 'metal', style: 'mod', cost: 1, e: 0, u: 1, w: { sun: -1 }, pop: 3 },
+    { id: 'tiles', style: 'trad', price: 38, e: 0, u: 1, w: { snow: 1 }, pop: 5 },
+    { id: 'thatch', style: 'trad', price: 62, e: 1, u: -1, w: { wind: -1 }, pop: 1 },
+    { id: 'green', style: 'nat', price: 48, e: 1, u: 0, w: { snow: -1 }, pop: 2 },
+    { id: 'metal', style: 'mod', price: 30, e: 0, u: 1, w: { sun: -1 }, pop: 3 },
   ],
   windows: [
-    { id: 'lattice', style: 'trad', cost: 2, e: 0, u: 0, w: { wind: 1 }, pop: 3 },
-    { id: 'panorama', style: 'mod', cost: 3, e: -1, u: 0, gives: 'light', pop: 3 },
-    { id: 'woodwin', style: 'nat', cost: 2, e: 1, u: 0, pop: 2 },
-    { id: 'plain', style: null, cost: 1, e: 0, u: 1, pop: 5 },
+    { id: 'plain', style: null, price: 16, e: 0, u: 1, pop: 5 },
+    { id: 'lattice', style: 'trad', price: 26, e: 0, u: 0, w: { wind: 1 }, pop: 3 },
+    { id: 'woodwin', style: 'nat', price: 30, e: 1, u: 0, pop: 2 },
+    { id: 'panorama', style: 'mod', price: 40, e: -1, u: 0, gives: 'light', pop: 3 },
   ],
   door: [
-    { id: 'canopy', style: 'trad', cost: 2, e: 0, u: 0, w: { rain: 1 }, pop: 3 },
-    { id: 'glassdoor', style: 'mod', cost: 2, e: 0, u: 0, gives: 'access', pop: 2 },
-    { id: 'painted', style: null, cost: 1, e: 0, u: 0, pop: 5 },
-    { id: 'ramp', style: null, cost: 2, e: 0, u: 0, gives: 'access', pop: 1 },
+    { id: 'painted', style: null, price: 4, e: 0, u: 0, pop: 5 },
+    { id: 'canopy', style: 'trad', price: 9, e: 0, u: 0, w: { rain: 1 }, pop: 3 },
+    { id: 'glassdoor', style: 'mod', price: 10, e: 0, u: 0, gives: 'access', pop: 2 },
+    { id: 'ramp', style: null, price: 12, e: 0, u: 0, gives: 'access', pop: 1 },
   ],
   heating: [
-    { id: 'heatpump', style: null, cost: 3, e: 2, u: 1, pop: 3 },
-    { id: 'gas', style: null, cost: 1, e: -2, u: 0, pop: 5 },
-    { id: 'pellets', style: 'nat', cost: 2, e: 1, u: -1, pop: 2 },
-  ],
-  extra: [
-    { id: 'carport', style: 'mod', cost: 1, e: 0, u: 0, gives: 'car', pop: 4 },
-    { id: 'conservatory', style: null, cost: 3, e: -1, u: 0, gives: 'light', w: { sun: 1 }, pop: 2 },
-    { id: 'solar', style: null, cost: 2, e: 2, u: 0, w: { sun: 1 }, pop: 3 },
-    { id: 'cellar', style: null, cost: 2, e: 0, u: 0, gives: 'space', w: { rain: -1 }, pop: 3 },
-    { id: 'annex', style: null, cost: 3, e: 0, u: 0, gives: 'space', pop: 2 },
+    { id: 'gas', style: null, price: 12, e: -2, u: 0, pop: 5 },
+    { id: 'pellets', style: 'nat', price: 22, e: 1, u: -1, pop: 2 },
+    { id: 'heatpump', style: null, price: 34, e: 2, u: 1, pop: 3 },
   ],
   garden: [
-    { id: 'picket', style: 'trad', cost: 2, e: 0, u: -1, pop: 4 },
-    { id: 'hedge', style: 'nat', cost: 1, e: 0, u: 0, w: { wind: 1 }, pop: 2 },
-    { id: 'gravel', style: 'mod', cost: 1, e: 0, u: 1, w: { sun: -1 }, pop: 3 },
-    { id: 'playlawn', style: null, cost: 2, e: 0, u: 0, gives: 'kids', pop: 3 },
+    { id: 'gravel', style: 'mod', price: 6, e: 0, u: 1, w: { sun: -1 }, pop: 3 },
+    { id: 'hedge', style: 'nat', price: 8, e: 0, u: 0, w: { wind: 1 }, pop: 2 },
+    { id: 'playlawn', style: null, price: 12, e: 0, u: 0, gives: 'kids', pop: 3 },
+    { id: 'picket', style: 'trad', price: 14, e: 0, u: -1, pop: 4 },
   ],
 };
+// The optional extras: none, one or several, as long as the money lasts.
+export const EXTRAS = [
+  { id: 'tank', style: null, price: 6, e: 1, u: 0, w: { rain: 1 }, pop: 2 },
+  { id: 'pond', style: 'nat', price: 8, e: 0, u: -1, pop: 2 },
+  { id: 'smart', style: null, price: 9, e: 1, u: 1, pop: 3 },
+  { id: 'carport', style: 'mod', price: 12, e: 0, u: 0, gives: 'car', pop: 5 },
+  { id: 'solar', style: null, price: 18, e: 2, u: 0, w: { sun: 1 }, pop: 4 },
+  { id: 'cellar', style: null, price: 28, e: 0, u: 0, gives: 'space', w: { rain: -1 }, pop: 4 },
+  { id: 'conservatory', style: null, price: 32, e: -1, u: 0, gives: 'light', w: { sun: 1 }, pop: 2 },
+  { id: 'annex', style: null, price: 36, e: 0, u: 0, gives: 'space', pop: 2 },
+];
 
 export const OPTION = {};
 for (const d of DECISIONS) for (const o of OPTIONS[d]) { o.decision = d; OPTION[o.id] = o; }
+EXTRAS.forEach((o, i) => { o.decision = 'extras'; o.bit = 1 << i; OPTION[o.id] = o; });
+const ALL = Object.values(OPTION);
+ALL.forEach((o, i) => { o.n = i; });
+const OUTSIDE = new Set(['walls', 'roof', 'windows', 'door', 'garden', 'extras']);
 
 // Pairs with a verdict of their own, whatever the styles say.
-const CLASH = [['thatch', 'carport'], ['thatch', 'solar'], ['thatch', 'gravel'], ['thatch', 'concrete'], ['timber', 'metal'], ['timber', 'panorama'], ['timber', 'glassdoor'], ['concrete', 'lattice'], ['concrete', 'picket']];
-const FIT = [['concrete', 'green'], ['wood', 'tiles'], ['brick', 'gravel']];
-const inPairs = (list, a, b) => list.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
-export const clashes = (a, b) => inPairs(CLASH, a, b);
-export const fits = (a, b) => inPairs(FIT, a, b);
+const CLASH = [['thatch', 'carport'], ['thatch', 'solar'], ['thatch', 'gravel'], ['thatch', 'concrete'], ['timber', 'metal'], ['timber', 'panorama'], ['timber', 'glassdoor'], ['concrete', 'lattice'], ['concrete', 'picket'], ['gravel', 'pond']];
+const FIT = [['concrete', 'green'], ['wood', 'tiles'], ['brick', 'gravel'], ['green', 'tank']];
+// PAIR[a.n * N + b.n]: 2 fits by name, -2 clashes by name, 1 same style, -1 other style, 0 no verdict.
+const N = ALL.length;
+const PAIR = new Int8Array(N * N);
+for (const a of ALL) for (const b of ALL) PAIR[a.n * N + b.n] = a.style && b.style ? (a.style === b.style ? 1 : -1) : 0;
+for (const [a, b] of CLASH) { PAIR[OPTION[a].n * N + OPTION[b].n] = -2; PAIR[OPTION[b].n * N + OPTION[a].n] = -2; }
+for (const [a, b] of FIT) { PAIR[OPTION[a].n * N + OPTION[b].n] = 2; PAIR[OPTION[b].n * N + OPTION[a].n] = 2; }
+export const clashes = (a, b) => PAIR[OPTION[a].n * N + OPTION[b].n] === -2;
 
-// Who builds: wishes (the adviser does not know them) and the budget in cost steps.
+// Who builds: wishes (the adviser does not know them) and how much money there is beyond the
+// basic option of every part (thousand euros).
 export const PEOPLE = [
-  { id: 'fam4', needs: ['kids', 'space', 'light'], budget: 15 },
-  { id: 'couple', needs: ['car', 'light'], budget: 13 },
-  { id: 'seniors', needs: ['access', 'easy'], budget: 13 },
-  { id: 'gen3', needs: ['access', 'space', 'kids'], budget: 15 },
+  { id: 'fam4', needs: ['kids', 'space', 'light'], spare: 62 },
+  { id: 'couple', needs: ['car', 'light'], spare: 46 },
+  { id: 'seniors', needs: ['access', 'easy'], spare: 44 },
+  { id: 'gen3', needs: ['access', 'space', 'kids'], spare: 62 },
 ];
 // Where: the style of the houses around and the weather.
 export const PLACES = [
@@ -81,12 +97,8 @@ export const PLACES = [
   { id: 'estate', style: 'mod', weather: ['sun'] },
   { id: 'lake', style: 'nat', weather: ['rain'] },
 ];
-// The neighbor family next door (same place, their own wishes and budget).
-const NEIGHBORS = [
-  { needs: ['kids', 'car'], budget: 13 },
-  { needs: ['kids', 'light'], budget: 14 },
-  { needs: ['space', 'light'], budget: 14 },
-];
+// The neighbor family next door (same place, same budget, their own wishes).
+const NEIGHBORS = [['kids', 'car'], ['kids', 'light'], ['space', 'car'], ['light', 'car']];
 // What kind of builders the neighbors are this round.
 export const NEIGHBOR_KINDS = ['careful', 'slip', 'slip', 'muddle'];
 
@@ -98,44 +110,96 @@ function shuffle(arr) {
   return a;
 }
 
-/** Is the wish fulfilled by these options (ids)? 'easy' means: no part that is a lot of work. */
-export function needMet(need, ids) {
-  if (need === 'easy') return ids.every((id) => OPTION[id].u >= 0);
-  return ids.some((id) => OPTION[id].gives === need);
+/** Is the wish fulfilled by these options? 'easy' means: no part that is a lot of work. */
+export function needMet(need, opts) {
+  if (need === 'easy') return opts.every((o) => o.u >= 0);
+  return opts.some((o) => o.gives === need);
+}
+
+export const priceOf = (ids) => ids.reduce((s, id) => s + OPTION[id].price, 0);
+
+/** The four criteria that do not depend on the money: [unity, people, place, future]. */
+function four(opts, brief, out) {
+  let sum = 0;
+  let n = 0;
+  let E = 0;
+  let U = 0;
+  let place = 40;
+  const style = brief.place.style;
+  const weather = brief.place.weather;
+  for (let i = 0; i < opts.length; i++) {
+    const a = opts[i];
+    E += a.e;
+    U += a.u;
+    if (a.style && OUTSIDE.has(a.decision)) place += a.style === style ? 12 : -8;
+    if (a.w) for (const k of weather) { const v = a.w[k]; if (v > 0) place += 18; else if (v < 0) place -= 22; }
+    for (let j = i + 1; j < opts.length; j++) {
+      const v = PAIR[a.n * N + opts[j].n];
+      if (v) { n += 1; sum += v === 2 ? 1 : v; }
+    }
+  }
+  let met = 0;
+  for (const need of brief.needs) if (needMet(need, opts)) met += 1;
+  out[0] = n ? Math.round(clamp(50 + (50 * sum) / n)) : 100;
+  out[1] = Math.round((100 * met) / brief.needs.length);
+  out[2] = Math.round(clamp(place));
+  out[3] = Math.round(clamp(50 + 9 * E + 5 * U));
+  return out[0] + out[1] + out[2] + out[3];
+}
+const tmp = [0, 0, 0, 0];
+const sum4 = (ids, brief) => four(ids.map((id) => OPTION[id]), brief, tmp);
+
+/**
+ * What the money bought: every upgrade (a required part that is not the cheapest of its three)
+ * and every extra, with the coherence it adds compared with the cheapest part or with leaving
+ * the extra out: [{ id, price (extra money), gain }].
+ */
+export function purchases(ids, round, brief = round.brief) {
+  const base = sum4(ids, brief);
+  const out = [];
+  ids.forEach((id, i) => {
+    const o = OPTION[id];
+    let other;
+    let price = o.price;
+    if (o.decision === 'extras') other = ids.filter((x) => x !== id);
+    else {
+      const cheap = round.cheapest[o.decision];
+      if (cheap.id === id) return;
+      other = ids.slice();
+      other[i] = cheap.id;
+      price -= cheap.price;
+    }
+    out.push({ id, price, gain: (base - sum4(other, brief)) / 5 });
+  });
+  return out;
 }
 
 /**
- * The coherence check. choices: option ids (the decisions made so far, in order); brief:
- * { needs, budget, place: { style, weather } }. Returns { total, rows: [{ key, score, why }] };
- * why: { key, ...option ids and numbers } for the text of the reason.
+ * The coherence check of a finished house. ids: the six required parts in order, then the
+ * extras. Returns { total, rows: [{ key, score, why }], price, left, bought }; why:
+ * { key, ...option ids and numbers } for the text of the reason.
  */
-export function judge(choices, brief) {
-  const opts = choices.map((id) => OPTION[id]);
-  const ids = opts.map((o) => o.id);
+export function judge(ids, round, brief = round.brief) {
+  const opts = ids.map((id) => OPTION[id]);
+  const s = [0, 0, 0, 0];
+  four(opts, brief, s);
   const rows = [];
 
-  // 1. The parts fit each other: pairs of parts with a style, and the pairs with their own verdict.
+  // 1. The parts fit each other.
   {
-    let sum = 0;
-    let n = 0;
     let clash = null;
     let fit = null;
     const odd = new Map();
+    const count = {};
     for (let i = 0; i < opts.length; i++) {
+      if (opts[i].style) count[opts[i].style] = (count[opts[i].style] ?? 0) + 1;
       for (let j = i + 1; j < opts.length; j++) {
-        const a = opts[i];
-        const b = opts[j];
-        if (clashes(a.id, b.id)) { sum -= 2; n += 1; clash ??= [a.id, b.id]; continue; }
-        if (fits(a.id, b.id)) { sum += 1; n += 1; fit ??= [a.id, b.id]; continue; }
-        if (!a.style || !b.style) continue;
-        n += 1;
-        if (a.style === b.style) sum += 1;
-        else { sum -= 1; odd.set(a.id, (odd.get(a.id) ?? 0) + 1); odd.set(b.id, (odd.get(b.id) ?? 0) + 1); }
+        const v = PAIR[opts[i].n * N + opts[j].n];
+        if (v === -2) clash ??= [opts[i].id, opts[j].id];
+        else if (v === 2) fit ??= [opts[i].id, opts[j].id];
+        else if (v === -1) { odd.set(opts[i].id, (odd.get(opts[i].id) ?? 0) + 1); odd.set(opts[j].id, (odd.get(opts[j].id) ?? 0) + 1); }
       }
     }
-    const score = n ? Math.round(clamp(50 + (50 * sum) / n)) : 100;
-    const count = {};
-    for (const o of opts) if (o.style) count[o.style] = (count[o.style] ?? 0) + 1;
     const main = Object.keys(count).sort((a, b) => count[b] - count[a])[0];
     const out = opts.filter((o) => o.style && o.style !== main).sort((a, b) => (odd.get(b.id) ?? 0) - (odd.get(a.id) ?? 0));
     let why;
@@ -143,82 +207,180 @@ export function judge(choices, brief) {
     else if (out.length) why = { key: 'odd', a: out[0].id, style: main, n: out.length };
     else if (fit) why = { key: 'fit', a: fit[0], b: fit[1] };
     else why = { key: 'one', style: main };
-    rows.push({ key: 'unity', score, why });
+    rows.push({ key: 'unity', score: s[0], why });
   }
 
   // 2. Fits the people: the wishes from the brief.
   {
-    const missing = brief.needs.filter((n) => !needMet(n, ids));
-    const score = Math.round((100 * (brief.needs.length - missing.length)) / brief.needs.length);
+    const missing = brief.needs.filter((n) => !needMet(n, opts));
     let why;
     if (!missing.length) why = { key: 'allNeeds' };
     else if (missing[0] === 'easy') why = { key: 'work', a: opts.find((o) => o.u < 0).id };
     else why = { key: 'missing', need: missing[0], n: missing.length };
-    rows.push({ key: 'people', score, why });
+    rows.push({ key: 'people', score: s[1], why });
   }
 
   // 3. Fits the place: the houses around and the weather.
   {
-    const outside = opts.filter((o) => ['walls', 'roof', 'windows', 'door', 'garden'].includes(o.decision) && o.style);
+    const outside = opts.filter((o) => o.style && OUTSIDE.has(o.decision));
     const match = outside.filter((o) => o.style === brief.place.style);
     const other = outside.filter((o) => o.style !== brief.place.style);
     const plus = [];
     const minus = [];
     for (const o of opts) for (const k of brief.place.weather) { if (o.w?.[k] > 0) plus.push([o.id, k]); else if (o.w?.[k] < 0) minus.push([o.id, k]); }
-    const score = Math.round(clamp(40 + 12 * match.length - 8 * other.length + 18 * plus.length - 22 * minus.length));
     let why;
     if (minus.length) why = { key: 'weatherBad', a: minus[0][0], weather: minus[0][1] };
     else if (other.length > match.length) why = { key: 'strange', a: other[0].id, style: brief.place.style };
     else if (plus.length) why = { key: 'weatherGood', a: plus[0][0], weather: plus[0][1] };
     else why = { key: 'around', n: match.length, style: brief.place.style };
-    rows.push({ key: 'place', score, why });
+    rows.push({ key: 'place', score: s[2], why });
   }
 
-  // 4. Fits the budget: over budget costs coherence, under budget is fine.
+  // 4. Fits the future: energy and upkeep.
   {
-    const cost = opts.reduce((s, o) => s + o.cost, 0);
-    const over = Math.max(0, cost - brief.budget);
-    rows.push({ key: 'budget', score: clamp(100 - 25 * over), why: { key: over ? 'over' : 'within', n: over || cost, budget: brief.budget } });
-  }
-
-  // 5. Fits the future: energy and upkeep.
-  {
-    const E = opts.reduce((s, o) => s + o.e, 0);
-    const U = opts.reduce((s, o) => s + o.u, 0);
-    const score = Math.round(clamp(50 + 9 * E + 5 * U));
     const worst = [...opts].sort((a, b) => a.e * 2 + a.u - (b.e * 2 + b.u))[0];
     const best = [...opts].sort((a, b) => b.e * 2 + b.u - (a.e * 2 + a.u))[0];
     let why;
-    if (worst && worst.e * 2 + worst.u < 0 && score < 75) why = { key: worst.e < 0 ? 'energyBad' : 'upkeepBad', a: worst.id };
-    else if (best && best.e > 0) why = { key: 'energyGood', a: best.id };
+    if (worst.e * 2 + worst.u < 0 && s[3] < 75) why = { key: worst.e < 0 ? 'energyBad' : 'upkeepBad', a: worst.id };
+    else if (best.e > 0) why = { key: 'energyGood', a: best.id };
     else why = { key: 'steady' };
-    rows.push({ key: 'future', score, why });
+    rows.push({ key: 'future', score: s[3], why });
   }
 
-  const total = Math.round(rows.reduce((s, r) => s + r.score, 0) / rows.length);
-  return { total, rows };
+  // 5. Money well spent: every upgrade and extra should add coherence; money left over while
+  // something fitting was affordable costs a little.
+  const price = priceOf(ids);
+  const left = brief.budget - price;
+  const bought = purchases(ids, round, brief);
+  {
+    const wasted = bought.filter((b) => b.gain <= 0).sort((a, b) => b.price - a.price);
+    let score = 100 - 20 * wasted.length;
+    let why = wasted.length ? { key: 'wasted', a: wasted[0].id, n: wasted.length } : { key: 'allPaid', n: bought.length };
+    if (!wasted.length) {
+      // Something affordable that would have added coherence?
+      const base = s[0] + s[1] + s[2] + s[3];
+      let miss = null;
+      for (const x of round.extras) {
+        if (ids.includes(x.id) || x.price > left) continue;
+        const gain = (sum4([...ids, x.id], brief) - base) / 5;
+        if (gain >= 2 && (!miss || gain > miss.gain)) miss = { id: x.id, gain };
+      }
+      if (miss) { score -= 12; why = { key: 'unused', a: miss.id, left }; }
+      else if (!bought.length) why = { key: 'basic' };
+    }
+    rows.push({ key: 'value', score: clamp(score), why });
+  }
+
+  const total = Math.round(rows.reduce((a, r) => a + r.score, 0) / rows.length);
+  return { total, rows, price, left, bought };
 }
 
-/** Running cost of the choices so far. */
-export const costOf = (choices) => choices.reduce((s, id) => s + OPTION[id].cost, 0);
-
-/** Every full house of a catalogue (3^7), each as an array of option ids. */
-export function allHouses(catalogue) {
-  let list = [[]];
-  for (const d of DECISIONS) list = list.flatMap((h) => catalogue[d].map((o) => [...h, o.id]));
-  return list;
-}
-
-/** The best total still reachable after these choices (the rest chosen as well as possible). */
-export function bestFrom(choices, round) {
-  let best = -1;
-  for (const h of round.houses) {
-    if (choices.every((id, i) => h.ids[i] === id) && h.total > best) best = h.total;
+/** One tip: the single change (swap a part, add, drop or swap an extra) that would have added most. */
+export function bestChange(ids, round, brief = round.brief) {
+  const now = judge(ids, round, brief).total;
+  let best = null;
+  const tryIt = (next, info) => {
+    if (priceOf(next) > brief.budget) return;
+    const gain = judge(next, round, brief).total - now;
+    if (gain > 0 && (!best || gain > best.gain)) best = { ...info, gain };
+  };
+  DECISIONS.forEach((d, i) => {
+    for (const o of round.catalogue[d]) if (o.id !== ids[i]) { const next = ids.slice(); next[i] = o.id; tryIt(next, { key: 'swap', a: ids[i], b: o.id }); }
+  });
+  const mine = ids.slice(DECISIONS.length);
+  for (const x of round.extras) {
+    if (mine.includes(x.id)) {
+      tryIt(ids.filter((id) => id !== x.id), { key: 'drop', a: x.id });
+      for (const y of round.extras) if (!mine.includes(y.id)) tryIt(ids.map((id) => (id === x.id ? y.id : id)), { key: 'swap', a: x.id, b: y.id });
+    } else tryIt([...ids, x.id], { key: 'add', a: x.id });
   }
   return best;
 }
 
-/** Three options per decision: one for every wish that needs one, the rest by chance. */
+// ---------- every possible house of a round ----------
+
+const idsOf = (round, r, mask) => {
+  const ids = [];
+  let k = r;
+  for (let i = DECISIONS.length - 1; i >= 0; i--) { ids[i] = round.catalogue[DECISIONS[i]][k % 3].id; k = Math.floor(k / 3); }
+  for (const x of round.extras) if (mask & x.bit) ids.push(x.id);
+  return ids;
+};
+
+/**
+ * Totals of every affordable house for a brief: 3^6 required parts times 2^8 sets of extras.
+ * Returns { total: Int8Array (-1: over budget), at(ids) }.
+ */
+function table(round, brief) {
+  const R = 3 ** DECISIONS.length;
+  const X = 1 << round.extras.length;
+  const s4 = new Int16Array(R * X);
+  const cost = new Int16Array(R * X);
+  const opts = [];
+  const out = [0, 0, 0, 0];
+  for (let r = 0; r < R; r++) {
+    let k = r;
+    for (let i = DECISIONS.length - 1; i >= 0; i--) { opts[i] = round.catalogue[DECISIONS[i]][k % 3]; k = Math.floor(k / 3); }
+    let base = 0;
+    for (let i = 0; i < DECISIONS.length; i++) base += opts[i].price;
+    for (let m = 0; m < X; m++) {
+      opts.length = DECISIONS.length;
+      let c = base;
+      for (const x of round.extras) if (m & x.bit) { opts.push(x); c += x.price; }
+      s4[r * X + m] = four(opts, brief, out);
+      cost[r * X + m] = c;
+    }
+  }
+  // The money criterion from the table itself: each upgrade against the cheapest part, each
+  // extra against the house without it.
+  const total = new Int8Array(R * X).fill(-1);
+  const pow = DECISIONS.map((_, i) => 3 ** (DECISIONS.length - 1 - i));
+  const cheapIdx = DECISIONS.map((d) => round.catalogue[d].indexOf(round.cheapest[d]));
+  for (let r = 0; r < R; r++) {
+    for (let m = 0; m < X; m++) {
+      const at = r * X + m;
+      if (cost[at] > brief.budget) continue;
+      const base = s4[at];
+      let wasted = 0;
+      for (let i = 0; i < DECISIONS.length; i++) {
+        const digit = Math.floor(r / pow[i]) % 3;
+        if (digit !== cheapIdx[i] && base - s4[(r + (cheapIdx[i] - digit) * pow[i]) * X + m] <= 0) wasted += 1;
+      }
+      let miss = false;
+      const left = brief.budget - cost[at];
+      for (const x of round.extras) {
+        if (m & x.bit) { if (base - s4[r * X + (m & ~x.bit)] <= 0) wasted += 1; } else if (x.price <= left && s4[r * X + (m | x.bit)] - base >= 10) miss = true;
+      }
+      const value = Math.max(0, 100 - 20 * wasted - (!wasted && miss ? 12 : 0));
+      total[at] = Math.round((base + value) / 5);
+    }
+  }
+  return { total, R, X, pow };
+}
+
+/** The best total still reachable after the first required parts (ids so far, in order). */
+export function bestFrom(ids, round) {
+  const { total, X, pow } = round.table;
+  let lo = 0;
+  ids.forEach((id, i) => { lo += round.catalogue[DECISIONS[i]].findIndex((o) => o.id === id) * pow[i]; });
+  const span = ids.length ? pow[ids.length - 1] : 3 ** DECISIONS.length;
+  let best = -1;
+  for (let at = lo * X; at < (lo + span) * X; at++) if (total[at] > best) best = total[at];
+  return best;
+}
+
+/** The best sets of extras for the six required parts: the best total and one set that reaches it. */
+export function bestExtras(ids, round) {
+  const { total, X, pow } = round.table;
+  let r = 0;
+  ids.slice(0, DECISIONS.length).forEach((id, i) => { r += round.catalogue[DECISIONS[i]].findIndex((o) => o.id === id) * pow[i]; });
+  let best = -1;
+  let mask = 0;
+  for (let m = 0; m < X; m++) if (total[r * X + m] > best) { best = total[r * X + m]; mask = m; }
+  return { total: best, ids: round.extras.filter((x) => mask & x.bit).map((x) => x.id) };
+}
+
+/** Three options per required part: one for every wish that needs one, the rest by chance; sorted by price. */
 function makeCatalogue(needs) {
   const cat = {};
   for (const d of DECISIONS) {
@@ -229,55 +391,70 @@ function makeCatalogue(needs) {
       if (givers.length && !must.some((o) => o.gives === need)) must.push(pick(givers));
     }
     const rest = shuffle(pool.filter((o) => !must.includes(o)));
-    cat[d] = shuffle([...must.slice(0, 3), ...rest].slice(0, 3));
+    cat[d] = [...must.slice(0, 3), ...rest].slice(0, 3).sort((a, b) => a.price - b.price);
   }
   return cat;
 }
 
 /** The neighbors' house: careful builders come close to their best, others slip once or twice. */
-function neighborHouse(kind, brief, catalogue) {
-  const ranked = allHouses(catalogue).map((ids) => ({ ids, total: judge(ids, brief).total })).sort((a, b) => b.total - a.total);
-  // One of their better houses, not always the very best.
-  const base = ranked[Math.floor(Math.random() * Math.min(ranked.length, 12))].ids.slice();
+function neighborHouse(kind, round, brief) {
+  const t = table(round, brief);
+  const ranked = [];
+  for (let at = 0; at < t.total.length; at++) if (t.total[at] >= 0) ranked.push(at);
+  ranked.sort((a, b) => t.total[b] - t.total[a]);
+  const at = ranked[Math.floor(Math.random() * Math.min(ranked.length, 12))];
+  let ids = idsOf(round, Math.floor(at / t.X), at % t.X);
   const slips = kind === 'slip' ? 1 : kind === 'muddle' ? 2 : 0;
   const slipped = [];
   for (let k = 0; k < slips; k++) {
-    // The slip: one part that visibly breaks the style of the rest (an obvious break, about
-    // ten points of coherence), not the worst possible choice.
-    const now = judge(base, brief);
+    // The slip: one part that visibly breaks the style of the rest, or an extra that only
+    // costs money (about eight points of coherence), not the worst possible choice.
+    const now = judge(ids, round, brief);
     const cands = [];
-    DECISIONS.forEach((d, i) => {
-      if (slipped.includes(i)) return;
-      for (const o of catalogue[d]) {
-        if (o.id === base[i]) continue;
-        const next = base.slice();
-        next[i] = o.id;
-        const res = judge(next, brief);
-        const drop = now.total - res.total;
-        if (res.rows[0].score < now.rows[0].score && drop > 0) cands.push({ i, id: o.id, d: Math.abs(drop - 10) });
-      }
-    });
+    const tryIt = (next, id) => {
+      if (slipped.includes(id) || priceOf(next) > brief.budget) return;
+      const res = judge(next, round, brief);
+      const drop = now.total - res.total;
+      if (drop > 2 && (res.rows[0].score < now.rows[0].score || res.rows[4].score < now.rows[4].score)) cands.push({ next, id, d: Math.abs(drop - 8) });
+    };
+    DECISIONS.forEach((d, i) => { for (const o of round.catalogue[d]) if (o.id !== ids[i]) { const next = ids.slice(); next[i] = o.id; tryIt(next, o.id); } });
+    for (const x of round.extras) if (!ids.includes(x.id)) tryIt([...ids, x.id], x.id);
     cands.sort((a, b) => a.d - b.d);
     const c = cands[Math.floor(Math.random() * Math.min(2, cands.length))];
-    if (c) { base[c.i] = c.id; slipped.push(c.i); }
+    if (c) { ids = c.next; slipped.push(c.id); }
   }
-  return { ids: base, slipped };
+  return { ids, slipped };
 }
 
 /** A new round: the brief, the catalogue, every possible house with its total, the neighbors. */
 export function makeRound(avoid = null) {
   let people = pick(PEOPLE);
   let place = pick(PLACES);
-  for (let i = 0; i < 8 && avoid && people.id === avoid.people && place.id === avoid.place; i++) { people = pick(PEOPLE); place = pick(PLACES); }
   // A second round always has other builders (and mostly another place).
-  if (avoid) { const others = PEOPLE.filter((p) => p.id !== avoid.people); people = pick(others); if (Math.random() < 0.7) place = pick(PLACES.filter((p) => p.id !== avoid.place)); }
-  const brief = { people: people.id, needs: people.needs, budget: people.budget, place };
-  const nbBase = pick(NEIGHBORS);
-  const nbBrief = { people: 'winter', needs: nbBase.needs, budget: nbBase.budget, place };
-  const catalogue = makeCatalogue([...brief.needs, ...nbBrief.needs]);
-  const houses = allHouses(catalogue).map((ids) => ({ ids, total: judge(ids, brief).total }));
-  const best = Math.max(...houses.map((h) => h.total));
+  if (avoid) {
+    people = pick(PEOPLE.filter((p) => p.id !== avoid.people));
+    if (Math.random() < 0.7) place = pick(PLACES.filter((p) => p.id !== avoid.place));
+  }
+  const nbNeeds = pick(NEIGHBORS);
+  const catalogue = makeCatalogue([...people.needs, ...nbNeeds]);
+  const cheapest = {};
+  for (const d of DECISIONS) cheapest[d] = catalogue[d][0];
+  const basic = DECISIONS.reduce((s, d) => s + cheapest[d].price, 0);
+  const budget = Math.ceil((basic + people.spare) / 5) * 5;
+  const brief = { people: people.id, needs: people.needs, budget, place };
+  const nbBrief = { people: 'winter', needs: nbNeeds, budget, place };
+  const round = { brief, nbBrief, catalogue, cheapest, extras: EXTRAS, basic };
+  round.table = table(round, brief);
+  round.best = bestFrom([], round);
   const kind = pick(NEIGHBOR_KINDS);
-  const nb = neighborHouse(kind, nbBrief, catalogue);
-  return { brief, nbBrief, catalogue, houses, best, neighbor: { kind, ids: nb.ids, slipped: nb.slipped, result: judge(nb.ids, nbBrief) } };
+  const nb = neighborHouse(kind, round, nbBrief);
+  round.neighbor = { kind, ids: nb.ids, slipped: nb.slipped, result: judge(nb.ids, round, nbBrief) };
+  return round;
+}
+
+/** The least the required parts after step `from` will cost (the reserve that stays untouched). */
+export function reserve(round, from) {
+  let s = 0;
+  for (let i = from; i < DECISIONS.length; i++) s += round.cheapest[DECISIONS[i]].price;
+  return s;
 }
