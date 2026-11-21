@@ -1,18 +1,15 @@
-// "Stein auf Stein": the 3D parts. The Blender model (blender/build_bricks.py,
-// assets/models/bricks.glb) recolored from the --xr-bricks-* tokens; the pieces of a house
-// (instanced bricks, half bricks and sandstone corners; frames, lintels and roof trusses as single
-// models) with wobbling and skewed pieces; the ghost plan (blueprint lines, glowing places for the
-// item in hand, amber where it would wobble, the place it snaps to); the tower crane; mortar puffs
-// and chimney smoke; the neighbor family; a few sounds of its own. The 2D drawings (chart, cards)
-// are in bricks-panels.js.
+// "Stein auf Stein": shared 3D parts. The Blender model (blender/build_bricks.py,
+// assets/models/bricks.glb) recolored from the --xr-bricks-* tokens, extra materials for the
+// parts built in code (bricks-house.js), the tower crane, dust puffs and chimney smoke, the
+// neighbor family, and a few sounds of the game's own.
 import * as THREE from 'three';
 import { loadGLTF } from './models.js';
-import { hex, color, num, font } from './tokens.js';
+import { hex } from './tokens.js';
 import { radialTexture } from './robot-visuals.js';
 import { audioContext } from './sfx.js';
 import { winterize } from './snow.js';
 import { gfxTier } from './gfx.js';
-import { L, H, D, GAP, TOP, OX, OZ, RIDGE, EAVE, WALLS, ANNEX_COURSES, XA, ZA } from './bricks-plan.js';
+import { L, H, D, GAP, OX, OZ } from './bricks-plan.js';
 
 export const BRICKS_URL = 'assets/models/bricks.glb';
 
@@ -47,19 +44,34 @@ const MATS = {
   Crane: ['xr-bricks-crane', 0.45, 0.3],
   CraneDark: ['xr-bricks-crane-dark', 0.45, 0.5],
   CraneGlass: ['xr-bricks-crane-glass', 0.1, 0],
-  Belt: ['xr-bricks-belt', 0.8, 0],
-  Machine: ['xr-bricks-machine', 0.4, 0.2],
-  MachineTrim: ['xr-bricks-machine-trim', 0.35, 0.3],
-  Bag: ['xr-bricks-bag', 0.85, 0],
-  BagHandle: ['xr-bricks-bag-handle', 0.7, 0],
   Quoin: ['xr-bricks-quoin', 0.85, 0],
   SolarCell: ['xr-bricks-solar', 0.15, 0.4],
 };
+// Materials of the parts built in code (plain geometry without baked shading).
+const OWN = {
+  Plaster: ['xr-bricks-plaster', 0.9, 0],
+  Beam: ['xr-bricks-beam', 0.8, 0],
+  ConcreteWall: ['xr-bricks-concrete-wall', 0.85, 0],
+  Plank: ['xr-bricks-plank', 0.8, 0],
+  Thatch: ['xr-bricks-thatch', 1, 0],
+  ThatchDark: ['xr-bricks-thatch-dark', 1, 0],
+  MetalRoof: ['xr-bricks-metal-roof', 0.35, 0.7],
+  Sedum: ['xr-bricks-sedum', 0.95, 0],
+  Shutter: ['xr-bricks-shutter', 0.6, 0],
+  Slim: ['xr-bricks-slim', 0.4, 0.5],
+  Unit: ['xr-bricks-unit', 0.5, 0.1],
+  GasBox: ['xr-bricks-gas', 0.5, 0.1],
+  Car: ['xr-bricks-car', 0.3, 0.3],
+  Hedge: ['xr-bricks-hedge', 0.95, 0],
+  FlowerA: ['xr-bricks-flower-1', 0.6, 0],
+  FlowerB: ['xr-bricks-flower-2', 0.6, 0],
+  Pebble: ['xr-bricks-pebble', 0.9, 0],
+};
 // Materials that get snow in winter (everything facing up in the garden, and the roof).
-const SNOWY = ['Grass', 'GrassDark', 'Leaf', 'LeafDark', 'Fence', 'Stone', 'Sand', 'Soil', 'Roof', 'RoofDark', 'Mailbox', 'Bark'];
+const SNOWY = ['Grass', 'GrassDark', 'Leaf', 'LeafDark', 'Fence', 'Stone', 'Sand', 'Soil', 'Roof', 'RoofDark', 'Mailbox', 'Bark', 'Thatch', 'MetalRoof', 'Sedum', 'Hedge', 'Pebble'];
 
-// Glossy parts get a clear coat (gold, the door's paint, the toy-like machine, the solar glass).
-const COAT = { BrickGold: 1, Door: 0.5, Machine: 0.6, SolarCell: 0.8, Mailbox: 0.4, Crane: 0.3 };
+// Glossy parts get a clear coat (the door's paint and knob, the solar glass, the little car).
+const COAT = { BrickGold: 1, Door: 0.5, SolarCell: 0.8, Mailbox: 0.4, Crane: 0.3, Car: 0.8 };
 // Fine surface detail (procedural, object space): [scale of the blotches, of the grain, strength].
 const DETAIL = {
   Grass: [14, 120, 0.34], GrassDark: [14, 120, 0.3], Soil: [30, 160, 0.25], SoilDark: [30, 160, 0.25],
@@ -107,6 +119,11 @@ export function bricksMaterials() {
       ? new THREE.MeshPhysicalMaterial({ ...opts, clearcoat: COAT[name], clearcoatRoughness: 0.25 })
       : new THREE.MeshStandardMaterial(opts);
     if (DETAIL[name] && tier !== 'low') addDetail(out[name], DETAIL[name]);
+    if (SNOWY.includes(name)) winterize(out[name]);
+  }
+  for (const [name, [token, roughness, metalness]] of Object.entries(OWN)) {
+    const opts = { name, color: hex(token), roughness, metalness };
+    out[name] = COAT[name] && tier === 'high' ? new THREE.MeshPhysicalMaterial({ ...opts, clearcoat: COAT[name], clearcoatRoughness: 0.25 }) : new THREE.MeshStandardMaterial(opts);
     if (SNOWY.includes(name)) winterize(out[name]);
   }
   // Glass reflects the sky a little (studio environment) until the lights go on.
@@ -174,406 +191,6 @@ export function plainPlot(mats) {
   g.add(grass, found);
   g.traverse((o) => { if (o.isMesh) { o.receiveShadow = true; o.material.vertexColors = false; } });
   return g;
-}
-
-// ---------- the pieces of a house ----------
-
-const _m = new THREE.Matrix4();
-const _q = new THREE.Quaternion();
-const _q2 = new THREE.Quaternion();
-const _s = new THREE.Vector3();
-const _p = new THREE.Vector3();
-const UP = new THREE.Vector3(0, 1, 0);
-const AX = new THREE.Vector3(1, 0, 0);
-const AZ = new THREE.Vector3(0, 0, 1);
-const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
-
-function instanced(geo, mat, n, vary) {
-  const m = new THREE.InstancedMesh(geo, mat, Math.max(1, n));
-  m.castShadow = true;
-  m.receiveShadow = true;
-  m.frustumCulled = false;
-  const c = new THREE.Color();
-  for (let i = 0; i < m.count; i++) {
-    m.setMatrixAt(i, ZERO);
-    // Every clay brick a little different (lighter, darker, warmer).
-    const k = vary ? 0.84 + Math.random() * 0.24 : 1;
-    const warm = vary ? (Math.random() - 0.5) * 0.08 : 0;
-    m.setColorAt(i, c.setRGB(k * (1 + warm), k, k * (1 - warm)));
-  }
-  m.instanceMatrix.needsUpdate = true;
-  m.instanceColor.needsUpdate = true;
-  return m;
-}
-
-/**
- * Every piece of a house: clay bricks, golden bricks, half bricks and sandstone corners (instanced),
- * window and door frames, lintels and roof trusses (single models). Pieces can wobble (statics)
- * or sit skewed.
- */
-export class BrickField {
-  constructor(parent, plan, M, { clay = M.mats.BrickClay, quoin = M.mats.Quoin } = {}) {
-    this.plan = plan;
-    const by = { full: [], half: [], post: [] };
-    for (const p of plan.pieces) by[p.kind]?.push(p);
-    this.inst = {
-      clay: instanced(M.geo.brick, clay, by.full.length, true),
-      gold: instanced(M.geo.gold, M.mats.BrickGold, by.full.length, false),
-      half: instanced(M.geo.half, clay, by.half.length, true),
-      post: instanced(M.geo.quoin, quoin, by.post.length, true),
-    };
-    Object.values(this.inst).forEach((m) => parent.add(m));
-    this.slot = new Map();
-    for (const k of ['full', 'half', 'post']) by[k].forEach((p, i) => this.slot.set(p.id, i));
-    this.single = new Map();
-    for (const p of plan.pieces) {
-      let o = null;
-      if (p.kind === 'frame') o = M.make(p.frame === 'door' ? 'DoorFrame' : 'Window');
-      else if (p.kind === 'lintel') o = M.make('Lintel');
-      else if (p.kind === 'truss') o = M.make('Truss');
-      if (!o) continue;
-      o.position.set(p.x, p.y, p.z);
-      o.rotation.y = p.kind === 'frame' ? p.face : p.kind === 'truss' ? 0 : p.yaw;
-      o.visible = false;
-      parent.add(o);
-      this.single.set(p.id, o);
-    }
-    this.tilts = new Map(); // id -> { wobble, lean, yaw, phase }
-    this.calm = false; // calm motion (assist.js)
-    this.gold = new Set();
-    this.anims = [];
-  }
-
-  meshOf(p, gold) { return p.kind === 'full' ? (gold ? this.inst.gold : this.inst.clay) : p.kind === 'half' ? this.inst.half : this.inst.post; }
-
-  matrix(p, lift = 0, scale = 1, time = 0) {
-    _q.setFromAxisAngle(UP, p.kind === 'post' ? (p.course % 2 ? Math.PI / 2 : 0) : p.yaw);
-    const tl = this.tilts.get(p.id);
-    if (tl) {
-      // Lean across the wall (and a little twist when skewed); wobbling pieces rock.
-      // Calm motion: a slow, small rocking instead of a rattle.
-      const lean = tl.lean + tl.wobble * (this.calm ? 0.05 * Math.sin(time * 3 + tl.phase) : 0.12 * Math.sin(time * 11 + tl.phase));
-      _q.multiply(_q2.setFromAxisAngle(UP, tl.yaw)).multiply(_q2.setFromAxisAngle(AX, lean));
-    }
-    _s.setScalar(scale);
-    return _m.compose(_p.set(p.x, p.y + lift, p.z), _q, _s);
-  }
-
-  /** Shows (or hides) a piece; pop >= 0: drops in with a little bounce after that delay. */
-  set(p, on, gold = false, pop = -1) {
-    const single = this.single.get(p.id);
-    this.anims = this.anims.filter((a) => a.p !== p);
-    if (!on) this.tilts.delete(p.id);
-    if (single) {
-      single.visible = on;
-      single.scale.setScalar(1);
-      if (on && pop >= 0) { single.scale.setScalar(0.001); this.anims.push({ p, single, t: -pop }); }
-      return;
-    }
-    if (!this.slot.has(p.id)) return;
-    const i = this.slot.get(p.id);
-    if (gold) this.gold.add(p.id); else this.gold.delete(p.id);
-    const mesh = this.meshOf(p, gold);
-    if (p.kind === 'full') {
-      const other = gold ? this.inst.clay : this.inst.gold;
-      other.setMatrixAt(i, ZERO);
-      other.instanceMatrix.needsUpdate = true;
-    }
-    if (on && pop >= 0) {
-      mesh.setMatrixAt(i, ZERO);
-      this.anims.push({ p, mesh, i, t: -pop });
-    } else mesh.setMatrixAt(i, on ? this.matrix(p) : ZERO);
-    mesh.instanceMatrix.needsUpdate = true;
-  }
-
-  /** Statics: { wobble: 0..1, lean, yaw } or null (straight). */
-  setTilt(p, tilt) {
-    if (tilt) this.tilts.set(p.id, { wobble: 0, lean: 0, yaw: 0, phase: Math.random() * 6, ...tilt });
-    else this.tilts.delete(p.id);
-    if (this.plan.isFilled(p.id) && this.slot.has(p.id)) {
-      const mesh = this.meshOf(p, this.gold.has(p.id));
-      mesh.setMatrixAt(this.slot.get(p.id), this.matrix(p));
-      mesh.instanceMatrix.needsUpdate = true;
-    }
-  }
-
-  update(dt, time) {
-    if (this.anims.length) {
-      this.anims = this.anims.filter((a) => {
-        a.t += dt;
-        if (a.t < 0) return true;
-        const k = Math.min(1, a.t / 0.2);
-        const back = 1 + 2.4 * (k - 1) ** 3 + 1.4 * (k - 1) ** 2; // ease out back
-        if (a.single) a.single.scale.setScalar(Math.max(0.001, 0.55 + 0.45 * back));
-        else {
-          a.mesh.setMatrixAt(a.i, this.matrix(a.p, (1 - k) * 0.02, 0.55 + 0.45 * back, time));
-          a.mesh.instanceMatrix.needsUpdate = true;
-        }
-        return k < 1;
-      });
-    }
-    for (const [id, tl] of this.tilts) {
-      if (!tl.wobble) continue;
-      const p = this.plan.pieces[id];
-      if (!this.plan.isFilled(id) || !this.slot.has(id)) continue;
-      const mesh = this.meshOf(p, this.gold.has(id));
-      mesh.setMatrixAt(this.slot.get(id), this.matrix(p, 0, 1, time));
-      mesh.instanceMatrix.needsUpdate = true;
-    }
-  }
-
-  /** All built pieces at once (after a plan change). */
-  showAll() {
-    for (const [id, info] of this.plan.filled) this.set(this.plan.pieces[id], true, info.gold);
-  }
-}
-
-// ---------- the ghost plan ----------
-
-/** Blueprint lines of the house (walls, openings, courses, roof; the extension if planned). */
-function blueprint(plan) {
-  const main = [];
-  const fine = [];
-  const seg = (arr, a, b) => arr.push(new THREE.Vector3(...a), new THREE.Vector3(...b));
-  const walls = WALLS.slice(0, plan.opts.annex ? 7 : 4);
-  walls.forEach((w, wi) => {
-    const top = w.courses * H;
-    const face = (u, y) => {
-      const [x, z] = w.at(u);
-      return [x + Math.sin(w.face) * (D / 2 + 0.002), y, z + Math.cos(w.face) * (D / 2 + 0.002)];
-    };
-    const ext = wi < 4 ? D / L : 0;
-    seg(main, face(-ext, top), face(w.len + (wi < 4 || wi === 5 ? D / L : 0), top));
-    for (let c = 1; c < w.courses; c++) seg(fine, face(-ext, c * H), face(w.len + ext, c * H));
-    for (const o of w.openings) {
-      const y0 = o.c0 * H;
-      const y1 = o.c1 * H;
-      seg(main, face(o.u0, y0), face(o.u0, y1));
-      seg(main, face(o.u1, y0), face(o.u1, y1));
-      seg(main, face(o.u0, y1), face(o.u1, y1));
-      if (o.c0 > 0) seg(main, face(o.u0, y0), face(o.u1, y0));
-    }
-  });
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) seg(main, [sx * OX, 0, sz * OZ], [sx * OX, TOP, sz * OZ]);
-  if (plan.opts.annex) {
-    const ax = XA - D / 2;
-    const az = ZA + D / 2;
-    for (const sz of [-1, 1]) seg(main, [ax, 0, sz * az], [ax, ANNEX_COURSES * H, sz * az]);
-    seg(fine, [ax, ANNEX_COURSES * H + 0.012, -az], [ax, ANNEX_COURSES * H + 0.012, az]);
-  }
-  const RX = OX + 0.03;
-  const EZ = OZ + EAVE;
-  const EY = TOP - (EAVE * RIDGE) / OZ;
-  for (const sx of [-1, 1]) {
-    seg(main, [sx * OX, TOP, -OZ], [sx * OX, TOP + RIDGE, 0]);
-    seg(main, [sx * OX, TOP, OZ], [sx * OX, TOP + RIDGE, 0]);
-    seg(fine, [sx * RX, EY, -EZ], [sx * RX, TOP + RIDGE, 0]);
-    seg(fine, [sx * RX, EY, EZ], [sx * RX, TOP + RIDGE, 0]);
-  }
-  seg(main, [-RX, TOP + RIDGE, 0], [RX, TOP + RIDGE, 0]);
-  seg(fine, [-RX, EY, EZ], [RX, EY, EZ]);
-  seg(fine, [-RX, EY, -EZ], [RX, EY, -EZ]);
-  return { main, fine };
-}
-
-/** Box of a piece or a target (center, size, yaw) for the ghost. */
-export function ghostBox(g) {
-  const k = g.kind ?? g.pieces?.[0]?.kind;
-  const p = g.pieces?.[0] ?? g;
-  if (p.kind === 'frame') return { x: g.x, y: g.y, z: g.z, sx: L - 0.006, sy: (p.opening.c1 - p.opening.c0) * H - 0.006, sz: D * 0.55, yaw: p.yaw };
-  if (p.kind === 'truss') return { x: g.x, y: g.y + RIDGE * 0.45, z: g.z, sx: 0.01, sy: RIDGE * 0.9, sz: 2 * OZ, yaw: 0 };
-  if (p.kind === 'post') return { x: g.x, y: g.y, z: g.z, sx: D - GAP, sy: H - GAP, sz: D - GAP, yaw: 0 };
-  const len = g.pieces ? g.pieces.reduce((s, q) => s + q.len, 0) : p.len;
-  return { x: g.x, y: g.y, z: g.z, sx: len - GAP, sy: H - GAP, sz: D - GAP, yaw: p.yaw, kind: k };
-}
-
-/** A roof truss's place seen from above: a strip across the wall tops. */
-const trussStrip = (x) => ({ x, y: TOP + 0.005, z: 0, sx: 0.026, sy: 0.008, sz: 2 * OZ + 0.03, yaw: 0 });
-
-const BOX_EDGES = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
-const CORNER = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
-
-function boxMatrix(b, pad = 0) {
-  _q.setFromAxisAngle(UP, b.yaw);
-  _s.set(b.sx + pad, b.sy + pad, b.sz + pad);
-  return _m.compose(_p.set(b.x, b.y, b.z), _q, _s);
-}
-
-/**
- * The plan as a hologram: blueprint lines; faint boxes where the next courses go; bright boxes
- * with outlines for the places the item in hand (or anything on the pallet) can go, amber where it
- * would wobble; the snap highlight; a red flash for a refused place.
- */
-export class GhostPlan {
-  constructor(parent, plan) {
-    this.plan = plan;
-    this.group = new THREE.Group();
-    this.group.userData.noFit = true;
-    parent.add(this.group);
-    const lines = blueprint(plan);
-    const lineMat = (opacity) => new THREE.LineBasicMaterial({ color: hex('xr-bricks-ghost-line'), transparent: true, opacity, depthWrite: false, toneMapped: false });
-    this.lineMain = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(lines.main), lineMat(0.55));
-    this.lineFine = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(lines.fine), lineMat(0.2));
-    this.group.add(this.lineMain, this.lineFine);
-    const box = new THREE.BoxGeometry(1, 1, 1);
-    const mat = (token, opacity) => new THREE.MeshBasicMaterial({ color: hex(token), transparent: true, opacity, depthWrite: false, toneMapped: false });
-    const n = plan.pieces.length + plan.pairs.length;
-    this.rest = new THREE.InstancedMesh(box, mat('xr-bricks-ghost', 0.07), plan.pieces.length);
-    this.solid = new THREE.InstancedMesh(box, mat('xr-bricks-ghost', 0.45), n);
-    this.warn = new THREE.InstancedMesh(box, mat('xr-bricks-ghost-warn', 0.4), n);
-    for (const m of [this.rest, this.solid, this.warn]) {
-      m.frustumCulled = false;
-      m.renderOrder = 3;
-      m.count = 0;
-      this.group.add(m);
-    }
-    this.edges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false }));
-    this.edges.frustumCulled = false;
-    this.edges.renderOrder = 4;
-    this.group.add(this.edges);
-    this.cBright = new THREE.Color(hex('xr-bricks-ghost'));
-    this.cHot = new THREE.Color(hex('xr-bricks-ghost-hot'));
-    this.cWarn = new THREE.Color(hex('xr-bricks-ghost-warn'));
-    this.hiMat = new THREE.MeshBasicMaterial({ color: this.cHot, transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false });
-    this.hi = new THREE.Mesh(box, this.hiMat);
-    this.hi.visible = false;
-    this.hi.renderOrder = 4;
-    this.group.add(this.hi);
-    // A roof truss place glows as a triangle.
-    const EZ = OZ + EAVE;
-    const EY = TOP - (EAVE * RIDGE) / OZ;
-    const tri = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, EY, -EZ), new THREE.Vector3(0, TOP + RIDGE, 0), new THREE.Vector3(0, EY, EZ)]);
-    tri.computeVertexNormals();
-    this.hiTri = new THREE.Mesh(tri, new THREE.MeshBasicMaterial({ color: this.cHot, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
-    this.hiTri.visible = false;
-    this.hiTri.renderOrder = 4;
-    this.group.add(this.hiTri);
-    // Free places for roof trusses: soft triangles (thin lines alone are easy to miss).
-    this.triMat = new THREE.MeshBasicMaterial({ color: this.cBright, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false, toneMapped: false });
-    this.tris = [];
-    this.noMat = new THREE.MeshBasicMaterial({ color: hex('xr-bricks-reject'), transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
-    this.no = new THREE.Mesh(box, this.noMat);
-    this.no.visible = false;
-    this.no.renderOrder = 4;
-    this.group.add(this.no);
-    // The marked place (mouse, finger, keys) also carries a bobbing arrow: a shape, not only a color.
-    this.arrow = new THREE.Mesh(new THREE.ConeGeometry(0.017, 0.034, 4), new THREE.MeshBasicMaterial({ color: this.cHot, transparent: true, opacity: 0.95, depthTest: false, toneMapped: false }));
-    this.arrow.rotation.x = Math.PI;
-    this.arrow.renderOrder = 5;
-    this.arrow.visible = false;
-    this.group.add(this.arrow);
-    this.flash = null;
-    this.key = '';
-    this.dirty = true;
-    this.fade = 1;
-    this.calm = false; // calm motion: a steady glow, no flicker
-  }
-
-  refresh() { this.dirty = true; }
-
-  reject(p) { this.flash = { p, t: 0 }; }
-
-  dispose() {
-    this.group.removeFromParent();
-    this.group.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
-  }
-
-  update(dt, time, { show = [], hover = null }) {
-    const plan = this.plan;
-    const key = show.map((g) => `${g.pieces.map((p) => p.id).join('+')}${g.state[0]}`).join(',');
-    if (this.dirty || key !== this.key) {
-      this.key = key;
-      let top = -1;
-      for (const id of plan.filled.keys()) if (plan.pieces[id].kind !== 'truss') top = Math.max(top, plan.pieces[id].course);
-      let n = 0;
-      for (const p of plan.pieces) {
-        if (plan.isFilled(p.id) || p.kind === 'truss' || p.course > top + 1) continue;
-        this.rest.setMatrixAt(n++, boxMatrix(ghostBox(p)));
-      }
-      this.rest.count = n;
-      let ns = 0;
-      let nw = 0;
-      let nt = 0;
-      const pts = [];
-      const cols = [];
-      const EZ = OZ + EAVE;
-      const EY = TOP - (EAVE * RIDGE) / OZ;
-      for (const g of show) {
-        if (g.pieces[0].kind === 'truss') {
-          // Trusses: a triangle with the joist, no box.
-          const x = g.x;
-          const v = [[x, EY, -EZ], [x, TOP + RIDGE, 0], [x, EY, EZ], [x, TOP + 0.006, -OZ], [x, TOP + 0.006, OZ]].map((a) => new THREE.Vector3(...a));
-          for (const [a, e] of [[0, 1], [1, 2], [3, 4]]) { pts.push(v[a], v[e]); cols.push(this.cHot.r, this.cHot.g, this.cHot.b, this.cHot.r, this.cHot.g, this.cHot.b); }
-          if (!this.tris[nt]) { this.tris[nt] = new THREE.Mesh(this.hiTri.geometry, this.triMat); this.tris[nt].renderOrder = 3; this.group.add(this.tris[nt]); }
-          this.tris[nt].position.x = x;
-          this.tris[nt++].visible = true;
-          // Seen from the front a truss is edge-on: its place also glows as a strip across the wall tops.
-          this.solid.setMatrixAt(ns++, boxMatrix(trussStrip(x)));
-          continue;
-        }
-        const b = ghostBox(g);
-        const warn = g.state === 'wobbly';
-        (warn ? this.warn : this.solid).setMatrixAt(warn ? nw++ : ns++, boxMatrix(b));
-        const c = warn ? this.cWarn : this.cHot;
-        const cs = Math.cos(b.yaw);
-        const sn = Math.sin(b.yaw);
-        const v = CORNER.map(([x, y, z]) => {
-          const hx = (x * (b.sx + 0.002)) / 2;
-          const hz = (z * (b.sz + 0.002)) / 2;
-          return new THREE.Vector3(b.x + hx * cs + hz * sn, b.y + (y * (b.sy + 0.002)) / 2, b.z - hx * sn + hz * cs);
-        });
-        for (const [a, e] of BOX_EDGES) { pts.push(v[a], v[e]); cols.push(c.r, c.g, c.b, c.r, c.g, c.b); }
-      }
-      this.solid.count = ns;
-      this.warn.count = nw;
-      for (let i = nt; i < this.tris.length; i++) this.tris[i].visible = false;
-      for (const m of [this.rest, this.solid, this.warn]) m.instanceMatrix.needsUpdate = true;
-      this.edges.geometry.dispose();
-      const geo = new THREE.BufferGeometry().setFromPoints(pts);
-      geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
-      this.edges.geometry = geo;
-      this.dirty = false;
-    }
-    const pulse = this.calm ? 0.6 : 0.5 + 0.5 * Math.sin(time * 4.2);
-    this.solid.material.color.copy(this.cBright).lerp(this.cHot, pulse * 0.6);
-    this.solid.material.opacity = (0.5 + 0.25 * pulse) * this.fade;
-    this.warn.material.opacity = (0.3 + 0.18 * pulse) * this.fade;
-    this.edges.material.opacity = (0.6 + 0.4 * pulse) * this.fade;
-    this.rest.material.opacity = 0.07 * this.fade;
-    this.triMat.opacity = (0.16 + 0.12 * pulse) * this.fade;
-    this.lineMain.material.opacity = 0.4 * this.fade;
-    this.lineFine.material.opacity = 0.12 * this.fade;
-    this.group.visible = this.fade > 0.01;
-    const triHover = hover?.pieces?.[0]?.kind === 'truss';
-    this.hiTri.visible = triHover;
-    if (triHover) {
-      this.hiTri.position.x = hover.x;
-      this.hiTri.material.opacity = this.calm ? 0.45 : 0.3 + 0.2 * Math.sin(time * 10);
-    }
-    this.hi.visible = !!hover;
-    if (hover) {
-      const b = triHover ? trussStrip(hover.x) : ghostBox(hover);
-      this.hi.matrix.copy(boxMatrix(b, 0.004));
-      this.hi.matrixAutoUpdate = false;
-      this.hiMat.color.copy(hover.state === 'wobbly' ? this.cWarn : this.cHot);
-      this.hiMat.opacity = this.calm ? 0.7 : 0.6 + 0.25 * Math.sin(time * 10);
-    }
-    this.arrow.visible = !!hover;
-    if (hover) {
-      const top = triHover ? TOP + RIDGE + 0.04 : ghostBox(hover).y + ghostBox(hover).sy / 2 + 0.04;
-      this.arrow.position.set(hover.x, top + (this.calm ? 0 : Math.abs(Math.sin(time * 5)) * 0.01), hover.z);
-      this.arrow.material.color.copy(hover.state === 'wobbly' ? this.cWarn : this.cHot);
-    }
-    const f = this.flash;
-    this.no.visible = !!f;
-    if (f) {
-      f.t += dt;
-      this.no.matrix.copy(boxMatrix(ghostBox(f.p), 0.004));
-      this.no.matrixAutoUpdate = false;
-      this.noMat.opacity = 0.7 * Math.max(0, 1 - f.t / 0.9) * (this.calm ? 0.8 : 0.6 + 0.4 * Math.sin(f.t * 30));
-      if (f.t > 0.9) this.flash = null;
-    }
-  }
 }
 
 // ---------- the tower crane ----------
@@ -752,172 +369,26 @@ function hiss(a, start, dur, freq, gain, q = 1.2) {
 const play = (fn) => () => { const a = audioContext(); if (a) fn(a); };
 
 export const bsfx = {
-  // A brick snaps in: a woody knock, a click and a little mortar crunch.
+  // A part snaps in: a woody knock, a click and a little mortar crunch.
   place: play((a) => { tone(a, 170, 0, 0.11, 'sine', 0.14, 90); tone(a, 1900, 0, 0.025, 'square', 0.025); hiss(a, 0.01, 0.09, 2400, 0.05); }),
-  // A held brick finds a free place.
-  snap: play((a) => { tone(a, 1320, 0, 0.05, 'triangle', 0.035); }),
-  // Back to the pallet, friendly.
-  refuse: play((a) => { tone(a, 420, 0, 0.12, 'triangle', 0.05, 300); tone(a, 330, 0.08, 0.14, 'triangle', 0.04, 260); }),
-  // A coin drops into the machine.
-  deposit: play((a) => { tone(a, 2100, 0, 0.05, 'triangle', 0.03); tone(a, 2700, 0.05, 0.08, 'sine', 0.03); hiss(a, 0.12, 0.25, 900, 0.015, 0.8); }),
+  // A decision is made: two rising notes.
+  pick: play((a) => { tone(a, 660, 0, 0.09, 'triangle', 0.05); tone(a, 990, 0.07, 0.14, 'triangle', 0.045); }),
+  // "Back": the part goes away again.
+  undo: play((a) => { tone(a, 520, 0, 0.1, 'triangle', 0.045, 380); tone(a, 380, 0.08, 0.14, 'triangle', 0.035, 300); }),
   // The crane: a low motor hum.
   motor: play((a) => { tone(a, 70, 0, 0.7, 'sawtooth', 0.025, 95); tone(a, 140, 0, 0.7, 'triangle', 0.015, 190); }),
-  // A wall section or the roof lands.
+  // The roof (or another big part) lands.
   land: play((a) => { tone(a, 110, 0, 0.25, 'sine', 0.18, 55); hiss(a, 0.0, 0.3, 500, 0.06, 0.7); }),
   // The door swings open.
   door: play((a) => { tone(a, 380, 0, 0.5, 'sawtooth', 0.012, 520); tone(a, 520, 0.2, 0.4, 'triangle', 0.012, 300); }),
   // Lights going on, one after another.
   lights: play((a) => { [1568, 1760, 2093, 2349, 2637].forEach((f, i) => tone(a, f, i * 0.07, 0.18, 'sine', 0.025)); }),
-  // Spending: bricks fly away.
-  spend: play((a) => { [660, 520, 400, 300].forEach((f, i) => tone(a, f, i * 0.08, 0.14, 'triangle', 0.04)); }),
-  // A wobbling wall: a creak and a rattle.
-  wobble: play((a) => { tone(a, 140, 0, 0.35, 'sawtooth', 0.03, 110); hiss(a, 0.05, 0.2, 700, 0.03, 2); tone(a, 520, 0.12, 0.08, 'square', 0.02); }),
-  // It settles: a firm knock.
-  settle: play((a) => { tone(a, 240, 0, 0.08, 'sine', 0.1, 160); tone(a, 1600, 0.02, 0.03, 'square', 0.02); }),
-  // A life event: a soft chime.
-  event: play((a) => { [523, 659, 784].forEach((f, i) => tone(a, f, i * 0.09, 0.3, 'sine', 0.05)); }),
   // The neighbors cheer.
   cheer: play((a) => { [784, 988, 1175].forEach((f, i) => tone(a, f, i * 0.06, 0.12, 'triangle', 0.03)); hiss(a, 0, 0.4, 3000, 0.012, 0.6); }),
-  // Snow begins: a cold shimmer.
-  snow: play((a) => { [2093, 2637, 3136, 2349].forEach((f, i) => tone(a, f, i * 0.12, 0.4, 'sine', 0.018)); }),
+  // A row of the check appears.
+  row: play((a) => { tone(a, 880, 0, 0.08, 'sine', 0.04); tone(a, 1320, 0.05, 0.1, 'sine', 0.03); }),
 };
 
-// ---------- the month display on the savings machine ----------
-
-export function drawMonthDisplay(ctx, p, { month, vacation, flash }) {
-  const W = p.canvas.width;
-  const Hh = p.canvas.height;
-  ctx.clearRect(0, 0, W, Hh);
-  ctx.fillStyle = color('xr-bricks-dark');
-  ctx.beginPath();
-  ctx.roundRect(1, 1, W - 2, Hh - 2, Hh * 0.18);
-  ctx.fill();
-  const tint = color(flash ? 'xr-bricks-gold-glow' : vacation ? 'xr-bricks-ghost' : 'xr-bricks-lamp');
-  // a little calendar sheet
-  const s = Hh * 0.62;
-  const x0 = Hh * 0.22;
-  const y0 = (Hh - s) / 2;
-  ctx.strokeStyle = tint;
-  ctx.lineWidth = Hh * 0.06;
-  ctx.strokeRect(x0, y0 + s * 0.12, s, s * 0.88);
-  ctx.fillStyle = tint;
-  ctx.fillRect(x0, y0 + s * 0.12, s, s * 0.22);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = font('black', Hh * 0.6);
-  ctx.fillText(vacation ? '–' : String(month), x0 + s + (W - x0 - s) / 2, Hh * 0.54);
-}
-
-
-// ---------- score popups ----------
-
-/** A short text as a sprite (points, the run, a finished row): bold, outlined, h meters tall. */
-export function popSprite(text, token, h) {
-  const px = 56;
-  const c = document.createElement('canvas');
-  let ctx = c.getContext('2d');
-  ctx.font = font('black', px);
-  const w = Math.ceil(ctx.measureText(text).width) + 28;
-  c.width = w;
-  c.height = px + 28;
-  ctx = c.getContext('2d');
-  ctx.font = font('black', px);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = 12;
-  ctx.strokeStyle = color('xr-bricks-pop-edge');
-  ctx.strokeText(text, w / 2, c.height / 2 + 2);
-  ctx.fillStyle = color(token);
-  ctx.fillText(text, w / 2, c.height / 2 + 2);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, toneMapped: false }));
-  const sh = h * (c.height / px);
-  sp.scale.set(sh * (w / c.height), sh, 1);
-  sp.renderOrder = 8;
-  sp.userData.noFit = true;
-  return sp;
-}
-
-// ---------- the crane's load: where it goes, where it hangs ----------
-
-/**
- * Shows where the crane's load belongs (a ring at its place) and where it hangs right now (a
- * disc on a plumb line under the hook). Over the place the ring swells and the disc fills it:
- * the moment to set the load down is a shape, not only a color.
- */
-export class DropMarker {
-  constructor(parent) {
-    this.group = new THREE.Group();
-    this.group.userData.noFit = true;
-    this.group.visible = false;
-    parent.add(this.group);
-    const basic = (token, opacity) => new THREE.MeshBasicMaterial({ color: hex(token), transparent: true, opacity, depthTest: false, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
-    this.cIdle = new THREE.Color(hex('xr-bricks-drop-ring'));
-    this.cHot = new THREE.Color(hex('xr-bricks-drop-hot'));
-    this.ring = new THREE.Mesh(new THREE.RingGeometry(0.046, 0.06, 48), basic('xr-bricks-drop-ring', 0.95));
-    this.ring.rotation.x = -Math.PI / 2;
-    this.disc = new THREE.Mesh(new THREE.CircleGeometry(0.036, 32), basic('xr-bricks-drop-disc', 0.95));
-    this.disc.rotation.x = -Math.PI / 2;
-    this.line = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.0022, 1, 6), basic('xr-bricks-drop-disc', 0.7));
-    for (const m of [this.ring, this.disc, this.line]) { m.renderOrder = 7; m.userData.noFit = true; this.group.add(m); }
-  }
-
-  show(tgt) {
-    this.tgt = tgt.clone();
-    this.ring.position.copy(tgt);
-    this.group.visible = true;
-  }
-
-  hide() { this.group.visible = false; }
-
-  /** hook: where the load hangs (parent space); over: it is over its place right now. */
-  update(hook, over) {
-    if (!this.group.visible) return;
-    const y = this.tgt.y + 0.001;
-    this.disc.position.set(hook.x, y, hook.z);
-    const len = Math.max(0.01, hook.y - y);
-    this.line.position.set(hook.x, y + len / 2, hook.z);
-    this.line.scale.y = len;
-    this.ring.scale.setScalar(over ? 1.3 : 1);
-    this.ring.material.color.copy(over ? this.cHot : this.cIdle);
-    this.disc.scale.setScalar(over ? 1.25 : 1);
-  }
-}
-
-// ---------- statics warning ----------
-
-let warnTex = null;
-/** A warning sign (amber triangle with an exclamation mark) for wobbling parts. */
-export function warnSprite() {
-  if (!warnTex) {
-    const c = document.createElement('canvas');
-    c.width = c.height = 96;
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = color('xr-bricks-ghost-warn');
-    ctx.strokeStyle = color('xr-bricks-dark');
-    ctx.lineWidth = 6;
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(48, 8);
-    ctx.lineTo(90, 84);
-    ctx.lineTo(6, 84);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = color('xr-bricks-dark');
-    ctx.fillRect(43, 32, 10, 30);
-    ctx.fillRect(43, 68, 10, 9);
-    warnTex = new THREE.CanvasTexture(c);
-    warnTex.colorSpace = THREE.SRGBColorSpace;
-  }
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: warnTex, transparent: true, depthTest: false, toneMapped: false }));
-  sp.scale.setScalar(0.035);
-  sp.renderOrder = 6;
-  sp.userData.noFit = true;
-  return sp;
-}
 
 // ---------- the neighbor family ----------
 
