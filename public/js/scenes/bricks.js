@@ -382,7 +382,7 @@ export class BricksScene extends BaseScene {
     this.meters = { full: ui(meterPanel(...METER.full, live, 'full')), strip: ui(meterPanel(...METER.strip, live, 'strip')), mini: ui(meterPanel(...METER.mini, live, 'strip')) };
     const nbState = () => ({ kind: this.round.neighbor.kind, last: this.nb.last, spent: this.nb.spent, budget: this.round.nbBrief.budget });
     this.signs = { full: ui(neighborSign(...SIGN.full, nbState)), small: ui(neighborSign(...SIGN.small, nbState, true)) };
-    this.ask = ui(strip(1.5, 0.13, () => this.askState()));
+    this.ask = ui(strip(1.5, 0.17, () => this.askState()));
     this.coach = ui(strip(1.5, 0.2, () => ({ text: this.coachText ?? '', small: true, token: 'xr-accent', lines: 3 })));
     this.hint = ui(strip(1.5, 0.2, () => ({ text: this.mode === 'brief' ? (this.replay ? `${t('bricksSameBest', { n: this.replay.total })}. ${t('bricksBriefHint')}` : t('bricksBriefHint')) : '', small: true, scale: 0.95, lines: 3 })));
     this.labelMe = ui(strip(0.6, 0.09, () => ({ text: t('bricksYourHouse'), small: true, token: 'xr-bricks-you' })));
@@ -434,7 +434,7 @@ export class BricksScene extends BaseScene {
 
   askState() {
     const small = this.engine.touchUI || this.engine.isXR;
-    if (this.note) return { text: this.note.text, token: this.note.token, small };
+    if (this.note) return { text: this.note.text, token: this.note.token, small: small || this.note.text.length > 34, lines: 3 };
     if (this.mode !== 'choose') return { text: '' };
     const key = this.drawer ? 'wish' : STEPS[this.step];
     // Headset: the money in the question too (the brief stands off to the side there).
@@ -961,7 +961,7 @@ export class BricksScene extends BaseScene {
       { text: this.round.best > me.total && other.length ? t('bricksBestPlan', { n: this.round.best, list: other.map(optName).join(', ') }) : t('bricksBestIs'), token: 'xr-warning', big: true },
       { text: `${t('bricksMoneyLine', { who: t('bricksWho_winter'), spent: euro(them.price), budget: euro(budget) })} (${t(`bricksNbKind_${this.round.neighbor.kind}`)}). ${them.bought.length ? t('bricksBought', { list: names(them.bought) }) : t('bricksBoughtNone')}`, token: 'xr-bricks-neighbor' },
     ].filter(Boolean);
-    this.paidText = this.moneyLines.slice(1, 3).filter(Boolean).map((m) => m.text).join('. ');
+    this.paidText = [paid.length ? t('bricksPaid', { list: names(paid) }) : t('bricksBoughtNone'), not.length ? t('bricksNotPaid', { list: names(not) }) : ''].filter(Boolean).join('. ');
     this.planText = this.moneyLines.find((m) => m.token === 'xr-warning').text;
     const verdict = diff > 0 ? t('bricksWin', { n: points(diff) }) : diff < 0 ? t('bricksLose', { n: points(-diff) }) : t('bricksTie');
     this.mode = 'check';
@@ -1280,7 +1280,7 @@ export class BricksScene extends BaseScene {
       s.meterFull = { x: W - m - rightW, y: top + m + (rightW / sw) * sh, w: rightW, h: (rightW / mw) * mh };
       const px = leftW + 2 * m;
       const pw = W - leftW - rightW - 4 * m;
-      out.plot = { x: px, y: top + (coachOn ? 40 : 0), w: pw, h: stripY - top - 50 - (coachOn ? 40 : 0) };
+      out.plot = { x: px, y: top, w: pw, h: stripY - top - 8 };
       out.pip = { x: px + pw * 0.72, y: top + 2, w: pw * 0.28, h: Math.min(pw * 0.2, colH * 0.3) };
       if (coachOn) s.coach = { x: px, y: top, w: pw * 0.7, h: 64, wrap: 420 };
       s.ask = { x: px + 124, y: stripY - 50, w: pw - 248 - (extras ? 120 : 0), h: 46, wrap: 440 };
@@ -1361,7 +1361,7 @@ export class BricksScene extends BaseScene {
     const tall = this.crane?.root.visible && (this.step <= 1 || !!this.roofHang);
     const box = both
       ? (wide ? [[-0.5, 1.82], [0, 0.42], [-0.36, 0.38]] : [[-0.5, 1.25], [0, 0.42], [-1.3, 0.38]])
-      : [[has(['annex', 'conservatory']) ? -0.5 : -0.42, has(['carport']) ? 0.62 : 0.46], [-0.02, tall ? 0.6 : 0.42], [-0.3, 0.4]];
+      : [[has(['annex', 'conservatory']) ? -0.48 : -0.4, has(['carport']) ? 0.6 : 0.44], [0, tall ? 0.56 : 0.4], [-0.24, 0.38]];
     const C = new THREE.Vector3((box[0][0] + box[0][1]) / 2, (box[1][0] + box[1][1]) / 2, (box[2][0] + box[2][1]) / 2);
     this.plotRoot.updateMatrixWorld(true);
     const Cw = this.plotRoot.localToWorld(C.clone());

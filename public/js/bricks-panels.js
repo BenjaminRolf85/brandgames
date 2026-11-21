@@ -779,6 +779,7 @@ export function strip(w, h, get) {
     ctx.font = font('black', px);
     // wrapW (meters): the room the layout has for it (the panel itself may be wider than the screen).
     const lines = wrap(ctx, s.text, Math.min(p.canvas.width, p.m(p.wrapW ?? p.w)) - px * 1.6).slice(0, s.lines ?? 2);
+    if (!lines.length) return;
     const tw = Math.max(...lines.map((ln) => ctx.measureText(ln).width)) + px * 1.6;
     const th = Math.min(p.canvas.height, lines.length * px * 1.25 + px * 0.7);
     const x = (p.canvas.width - tw) / 2;
@@ -825,7 +826,7 @@ export const SIGN = { full: [0.62, 0.3], small: [0.46, 0.24] };
 
 // ---------- the coherence check ----------
 
-export const CHECK_SIZE = { wide: [2.3, 0.74], tall: [0.95, 0.98], side: [1.08, 0.78], xr: [1.9, 0.78] };
+export const CHECK_SIZE = { wide: [2.3, 0.58], tall: [0.95, 0.98], side: [1.08, 0.66], xr: [1.9, 0.6] };
 
 /**
  * The check, staged. get(): { me, them (results of judge()), shown (rows revealed, with a
