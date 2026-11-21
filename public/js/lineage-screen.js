@@ -488,8 +488,18 @@ export function screenView({ onPickOdd, onNode, onLink, onAccept, onHint, onNext
       while (root.querySelectorAll('.lin-pop').length > 4) root.querySelector('.lin-pop').remove();
     },
 
+    /** The free room below the board (px from the top): where the scene shows its landscape. */
+    band() {
+      const H = window.innerHeight;
+      if (root.hidden) return { top: H, bottom: H };
+      const card = cardWrap.hidden ? null : cardWrap.firstElementChild;
+      const top = card ? card.getBoundingClientRect().bottom + 8 : root.getBoundingClientRect().bottom;
+      return { top: Math.min(H, top), bottom: H };
+    },
+
     showCard(card) {
       cardWrap.hidden = !card;
+      root.classList.toggle('is-card', !!card);
       if (!card) { cardWrap.replaceChildren(); return; }
       const box = el('div', 'lin-card');
       box.setAttribute('role', 'dialog');

@@ -13,6 +13,9 @@
   --xr-lineage-floor:        rgb(255 255 255 / 0.95);
   --xr-lineage-floor-edge:   rgb(255 255 255 / 0);
   --xr-lineage-key-light:    #fff4e0;
+  --xr-lineage-hill-near:    #d9f1e6;
+  --xr-lineage-hill-far:     #cfd3f7;
+  --xr-lineage-cloud:        #ffffff;
 
   /* the data landscape */
   --xr-lineage-tray:         #f4f7fb;
@@ -30,7 +33,6 @@
 
   /* cards, text and states (screen layout and headset panels) */
   --xr-lineage-scrim:        rgb(236 244 255 / 0.2);
-  --xr-lineage-card-veil:    rgb(236 244 255 / 0.72);  /* behind the card that opens a stage */
   --xr-lineage-board:        rgb(238 244 252 / 0.96);  /* headset: the board behind the cards, solid enough for a bright room */
   --xr-lineage-board-edge:   #9fb4d6;
   --xr-lineage-card:         #ffffff;
@@ -66,7 +68,7 @@
   --xr-lineage-gap:          0.5rem;
   --xr-lineage-lines-gap:    2.5rem;    /* room between two columns for the lines */
   --xr-lineage-max:          68rem;
-  --xr-lineage-world-band:   19vh;      /* desktop: room below the board for the data landscape */
+  --xr-lineage-world-band:   0.5rem;    /* room below the board for the data landscape (per device and stage, see below) */
   --xr-lineage-line-width:   3px;
 
   /* headset: the boards as 3D panels (m) */
@@ -106,7 +108,7 @@
   top: calc(max(var(--space-3), env(safe-area-inset-top)) + var(--tap-min) + var(--space-2));
   left: max(var(--space-2), env(safe-area-inset-left));
   right: max(var(--space-2), env(safe-area-inset-right));
-  bottom: max(var(--space-2), env(safe-area-inset-bottom));
+  bottom: max(var(--xr-lineage-world-band), env(safe-area-inset-bottom));
   z-index: 1;
   display: flex;
   flex-direction: column;
@@ -313,7 +315,8 @@
 }
 
 /* ---------- the card that opens a stage ---------- */
-.lin-cardwrap { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; padding: var(--space-4); background: var(--xr-lineage-card-veil); }
+.lin-cardwrap { position: absolute; inset: 0; z-index: 2; display: grid; place-items: start center; padding: 5.5rem var(--space-4) var(--space-4); }
+.lin-play.is-card .lin-row, .lin-play.is-card .lin-board, .lin-play.is-card .lin-feedback { visibility: hidden; }
 .lin-card {
   display: grid; gap: var(--space-3); width: min(100%, 30rem); padding: var(--space-5);
   border: 2px solid var(--xr-lineage-card-border); border-radius: var(--radius-lg);
@@ -403,6 +406,7 @@
   .lin-board--graph .lin-col__label { display: none; }
 .lin-board--graph .lin-col { padding-top: 0; }
   .lin-col { gap: 0.3rem; }
+  .lin-cardwrap { place-items: center; padding: var(--space-3); }
   .lin-card { padding: var(--space-3); gap: var(--space-2); width: min(100%, 36rem); }
   .lin-card h2 { font-size: 1.25em; }
 }
@@ -411,7 +415,9 @@
 .lin-board--graph.is-tight .lin-col { gap: 0.2rem; }
 /* A phone held upright has room in stage 1: larger tiles. */
 @media (orientation: portrait) and (min-height: 640px) {
-  .lin-play:not(.lin-play--desk) .lin-tile { min-height: 8.5rem; justify-content: center; }
+  .lin-play:not(.lin-play--desk)[data-kind="odd"] { --xr-lineage-world-band: 27vh; }
+  .lin-play:not(.lin-play--desk) .lin-tile { min-height: 7.5rem; justify-content: center; }
+  .lin-play:not(.lin-play--desk) .lin-n3 .lin-tile { min-height: 5.5rem; }
   .lin-play:not(.lin-play--desk) .lin-tile__name { font-size: clamp(0.875rem, 10cqi, 1.3em); }
 }
 /* Narrow phones: the bar keeps to one line (numbers without their words). */
@@ -455,9 +461,11 @@
   top: calc(var(--space-3) + var(--tap-min) + var(--space-4));
   left: var(--space-5);
   right: var(--space-5);
-  bottom: var(--xr-lineage-world-band);
+  --xr-lineage-world-band: 19vh;
   gap: var(--space-3);
 }
+/* Stage 1 needs little room: the landscape gets a third of the window. */
+.lin-play--desk[data-kind="odd"] { --xr-lineage-world-band: 36vh; }
 .lin-play--desk .lin-tile { min-height: 12.5rem; padding: var(--space-4) var(--space-5); gap: var(--space-3); justify-content: center; }
 .lin-play--desk .lin-tile__name { font-size: clamp(1rem, 10cqi, 1.6em); }
 .lin-play--desk .lin-tile__meta { font-size: 1.05em; gap: 0.45em; }
@@ -472,13 +480,19 @@
 .lin-play--desk .lin-feedback { height: 3.4em; }
 @media (max-height: 800px) {
   .lin-play--desk { --xr-lineage-world-band: 13vh; gap: var(--space-2); --xr-lineage-gap: 0.5rem; }
+  .lin-play--desk[data-kind="odd"] { --xr-lineage-world-band: 35vh; }
   .lin-play--desk .lin-tile { min-height: 11rem; }
 }
 /* A low desktop window (a small laptop): the landscape gives its room to the board. */
 @media (max-height: 680px) {
   .lin-play--desk { --xr-lineage-world-band: var(--space-2); }
+  .lin-play--desk[data-kind="odd"] { --xr-lineage-world-band: 26vh; }
   .lin-play--desk .lin-tile { min-height: 8.5rem; }
   .lin-play--desk .lin-node__main { padding-block: var(--space-1); }
+}
+@media (min-height: 900px) {
+  .lin-play--desk { --xr-lineage-world-band: 26vh; }
+  .lin-play--desk[data-kind="odd"] { --xr-lineage-world-band: 40vh; }
 }
 @media (min-width: 1600px) and (min-height: 900px) {
   .lin-play--desk { --xr-lineage-font: 1.25rem; --xr-lineage-font-small: 1.0625rem; --xr-lineage-max: 84rem; --xr-lineage-lines-gap: 7rem; }

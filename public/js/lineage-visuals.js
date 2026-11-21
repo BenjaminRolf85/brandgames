@@ -29,7 +29,11 @@ export function makeSky() {
   return tex;
 }
 
-/** Far decor: drifting cards (one instanced mesh) and, in VR, a soft floor disc. */
+/**
+ * The surrounding (browser and VR): a soft floor, pastel hills on the horizon, data towers linked
+ * by arcs of pipe with travelling light, a few clouds, and far, softly drifting catalog cards.
+ * around: all the way round (VR), else only ahead. About 9k triangles in 12 to 14 draw calls.
+ */
 export function makeBackdrop({ calm = false, around = false, floorY = 0 } = {}) {
   const group = new THREE.Group();
   group.userData.noFit = true;
@@ -64,28 +68,117 @@ export function makeBackdrop({ calm = false, around = false, floorY = 0 } = {}) 
   place(0);
   cards.frustumCulled = false;
   group.add(cards);
-  if (around) {
-    // VR: a soft floor to stand on, fading out towards the horizon.
+  // A soft floor that fades out towards the horizon.
+  {
     const c = document.createElement('canvas');
     c.width = c.height = 256;
     const g = c.getContext('2d');
     const grad = g.createRadialGradient(128, 128, 10, 128, 128, 128);
     grad.addColorStop(0, color('xr-lineage-floor'));
+    grad.addColorStop(0.75, color('xr-lineage-floor'));
     grad.addColorStop(1, color('xr-lineage-floor-edge'));
     g.fillStyle = grad;
     g.fillRect(0, 0, 256, 256);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
-    const floor = new THREE.Mesh(new THREE.CircleGeometry(7, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: tex, transparent: true, fog: false }));
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(9, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: tex, transparent: true, fog: false, depthWrite: false }));
     floor.position.y = floorY;
-    group.userData.floor = floor;
+    floor.renderOrder = -3;
     group.add(floor);
   }
+
+  // Rolling pastel hills on the horizon (one mesh, vertex colors).
+  {
+    const geo2 = new THREE.RingGeometry(8, 19, 72, 5).rotateX(-Math.PI / 2);
+    const pos = geo2.attributes.position;
+    const cols = new Float32Array(pos.count * 3);
+    const near = new THREE.Color(hex('xr-lineage-hill-near'));
+    const far = new THREE.Color(hex('xr-lineage-hill-far'));
+    const col = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const z = pos.getZ(i);
+      const r = Math.hypot(x, z);
+      const th = Math.atan2(x, z);
+      const k = Math.pow((r - 8) / 11, 1.25);
+      const h = k * (1.5 + 1.0 * Math.sin(3 * th + 1) + 0.55 * Math.sin(7 * th + 2) + 0.3 * Math.sin(13 * th));
+      pos.setY(i, Math.max(0, h));
+      col.copy(near).lerp(far, clamp(k * 1.15 + 0.12 * Math.sin(5 * th), 0, 1));
+      cols.set([col.r, col.g, col.b], i * 3);
+    }
+    geo2.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    const hills = new THREE.Mesh(geo2, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }));
+    hills.position.y = floorY - 0.02;
+    hills.renderOrder = -2;
+    group.add(hills);
+  }
+
+  // Data towers on the hills' feet (stacks of discs like the sources of the little landscape),
+  // linked by arcs of pipe in which light travels; and a few clouds. Instanced: 4 draw calls.
+  const sway = new THREE.Group();
+  group.add(sway);
+  const towerAngles = around ? [-2.6, -1.75, -0.95, -0.35, 0.4, 1.05, 1.9, 2.75] : [-1.15, -0.62, -0.2, 0.3, 0.72, 1.2];
+  const towerCols = ['xr-lineage-source', 'xr-lineage-machine', 'xr-lineage-house', 'xr-lineage-bar'].map((k2) => new THREE.Color(hex(k2)).lerp(new THREE.Color(hex('xr-lineage-sky-mid')), 0.45));
+  const discGeo = new THREE.CylinderGeometry(0.62, 0.62, 0.26, 20);
+  const towers = new THREE.InstancedMesh(discGeo, new THREE.MeshLambertMaterial({ fog: false }), towerAngles.length * 6);
+  const tops = [];
+  let ti = 0;
+  towerAngles.forEach((a, t) => {
+    const r = 9.2 + ((t * 7) % 4) * 0.55;
+    const layers = 3 + ((t * 5) % 4);
+    const x = Math.sin(a) * r;
+    const z = -Math.cos(a) * r;
+    for (let l = 0; l < 6; l++) {
+      if (l < layers) { towers.setMatrixAt(ti, m.makeTranslation(x, floorY + 0.14 + l * 0.33, z)); towers.setColorAt(ti, towerCols[t % towerCols.length]); } else towers.setMatrixAt(ti, m.makeScale(0, 0, 0));
+      ti += 1;
+    }
+    tops.push(new THREE.Vector3(x, floorY + 0.1 + layers * 0.33, z));
+  });
+  towers.frustumCulled = false;
+  group.add(towers);
+  const arcs = [];
+  for (let t = 0; t + 1 < tops.length; t++) {
+    const mid = tops[t].clone().add(tops[t + 1]).multiplyScalar(0.5);
+    mid.y += 1.1 + (t % 2) * 0.5;
+    arcs.push(new THREE.QuadraticBezierCurve3(tops[t], mid, tops[t + 1]));
+  }
+  const arcMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(hex('xr-lineage-flow')).lerp(new THREE.Color(hex('xr-lineage-sky-mid')), 0.35), fog: false });
+  arcs.forEach((c) => group.add(new THREE.Mesh(new THREE.TubeGeometry(c, 20, 0.045, 6, false), arcMat)));
+  const lightGeo = new THREE.SphereGeometry(0.11, 8, 6);
+  const lights = new THREE.InstancedMesh(lightGeo, new THREE.MeshBasicMaterial({ color: hex('xr-lineage-far-card'), fog: false, toneMapped: false }), arcs.length * 2);
+  lights.frustumCulled = false;
+  group.add(lights);
+  const puff = new THREE.IcosahedronGeometry(1, 1);
+  const clouds = new THREE.InstancedMesh(puff, new THREE.MeshLambertMaterial({ color: hex('xr-lineage-cloud'), emissive: hex('xr-lineage-cloud'), emissiveIntensity: 0.55, fog: false }), around ? 40 : 24);
+  for (let i = 0; i < clouds.count; i++) {
+    const cl = Math.floor(i / 4);
+    const a = around ? (cl / (clouds.count / 4)) * Math.PI * 2 + 0.5 : -1.2 + (cl / 5) * 2.4;
+    const r = 12 + ((cl * 5) % 3) * 1.6;
+    const j = i % 4;
+    p.set(Math.sin(a) * r + (j - 1.5) * 1.1, floorY + 4.2 + ((cl * 3) % 4) * 0.7 + (j % 2) * 0.35, -Math.cos(a) * r);
+    s.set(1.2 - Math.abs(j - 1.5) * 0.25, 0.62, 0.9);
+    clouds.setMatrixAt(i, m.compose(p, q.identity(), s));
+  }
+  clouds.frustumCulled = false;
+  sway.add(clouds);
+
   let time = 0;
+  const lp = new THREE.Vector3();
+  const one = new THREE.Vector3(1, 1, 1);
+  const moveLights = () => {
+    for (let i = 0; i < lights.count; i++) {
+      arcs[Math.floor(i / 2)].getPoint((time * 0.16 + (i % 2) * 0.5 + i * 0.13) % 1, lp);
+      lights.setMatrixAt(i, m.compose(lp, q.identity(), one));
+    }
+    lights.instanceMatrix.needsUpdate = true;
+  };
+  moveLights();
   group.userData.tick = (dt) => {
     if (calm) return;
     time += dt;
     place(time);
+    moveLights();
+    sway.rotation.y = Math.sin(time * 0.02) * 0.25; // the clouds drift a little
   };
   return group;
 }
@@ -105,7 +198,7 @@ const SAMPLES = 20;
  * The data landscape. setProgress(p): p from 0 to 3 (the stage plus the share of it that is
  * done); tick(dt) eases towards it and moves the data. cheer() sends a wave through the pipes.
  */
-export function makeLandscape({ calm = false, shadows = false } = {}) {
+export function makeLandscape({ calm = false, shadows = false, pedestal = 0 } = {}) {
   const group = new THREE.Group();
   group.userData.noFit = true;
   const std = (token, extra = {}) => new THREE.MeshStandardMaterial({ color: hex(token), roughness: 0.55, metalness: 0.05, ...extra });
@@ -150,15 +243,33 @@ export function makeLandscape({ calm = false, shadows = false } = {}) {
   mesh(rimGeo, mats.rim, 0, -0.026, 0).castShadow = false;
   if (!shadows) { const blob = contactShadow(0.62, 0.3); blob.scale.z = 0.5; blob.position.y = -0.045; group.add(blob); }
 
-  // three source stores: stacks of discs (instanced)
+  // three source stores: stacks of discs that grow while stage 1 is played (instanced)
   const discGeo = new THREE.CylinderGeometry(0.044, 0.044, 0.02, 24);
-  const discs = new THREE.InstancedMesh(discGeo, mats.source, 9);
+  const DISCS = 15;
+  const discs = new THREE.InstancedMesh(discGeo, mats.source, DISCS);
   const m4 = new THREE.Matrix4();
-  let k = 0;
-  for (const z of ZS) for (let i = 0; i < 3; i++) discs.setMatrixAt(k++, m4.makeTranslation(-0.49, 0.012 + i * 0.026, z));
+  let shownDiscs = -1;
+  const setDiscs = (lvl) => {
+    const f = 3 + lvl * (DISCS - 3); // one disc per stack from the start, five at the end
+    if (Math.abs(f - shownDiscs) < 0.01) return;
+    shownDiscs = f;
+    for (let i = 0; i < DISCS; i++) {
+      const k = clamp(f - i, 0, 1); // the newest disc grows in
+      const layer = Math.floor(i / 3);
+      if (k <= 0) discs.setMatrixAt(i, m4.makeScale(0, 0, 0));
+      else discs.setMatrixAt(i, m4.makeScale(k, k, k).setPosition(-0.49, 0.012 + layer * 0.026, ZS[i % 3]));
+    }
+    discs.instanceMatrix.needsUpdate = true;
+  };
+  setDiscs(0);
   discs.castShadow = shadows;
   discs.receiveShadow = shadows;
+  discs.frustumCulled = false;
   group.add(discs);
+  if (pedestal > 0) { // headset: the tray stands on a slim column
+    const col = mesh(new THREE.CylinderGeometry(0.11, 0.2, pedestal, 20), mats.rim, 0, -0.03 - pedestal / 2, 0);
+    col.castShadow = false;
+  }
 
   // the transformation machine with a turning gear
   mesh(new THREE.BoxGeometry(0.12, 0.085, 0.13), mats.machine, -0.16, 0.044, 0);
@@ -222,6 +333,7 @@ export function makeLandscape({ calm = false, shadows = false } = {}) {
   const hide = new THREE.Matrix4().makeScale(0, 0, 0);
   const apply = () => {
     mats.source.emissiveIntensity = 0.1 + level.src * 0.35;
+    setDiscs(level.src);
     [0, 1, 2].forEach((s) => {
       mats.pipes[s].color.copy(idle).lerp(live, level.seg[s]);
       mats.pipes[s].emissiveIntensity = level.seg[s] * 0.45;
@@ -237,7 +349,7 @@ export function makeLandscape({ calm = false, shadows = false } = {}) {
     target.seg[2] = clamp(p - 2, 0, 1);
     target.bars = clamp(p - 2, 0, 1);
   };
-  group.userData.cheer = () => { boost = 1; };
+  group.userData.cheer = (k = 1) => { boost = Math.max(boost, k); };
   group.userData.tick = (dt) => {
     time += dt;
     const kk = Math.min(1, dt * 2.5);
@@ -251,13 +363,14 @@ export function makeLandscape({ calm = false, shadows = false } = {}) {
     for (let i = 0; i < PULSES; i++) {
       const pi = i % PIPES.length;
       const lvl = level.seg[PIPES[pi].seg];
-      if (lvl < 0.5) { pulses.setMatrixAt(i, hide); continue; }
+      if (lvl < 0.04) { pulses.setMatrixAt(i, hide); continue; }
       us[i] = (us[i] + dt * speed) % 1;
-      const f = us[i] * SAMPLES;
+      // The data reaches as far as this part of the trail is done: a front that moves on.
+      const f = us[i] * lvl * SAMPLES;
       const a = paths[pi][Math.floor(f)];
       const b = paths[pi][Math.min(SAMPLES, Math.floor(f) + 1)];
       pos.copy(a).lerp(b, f - Math.floor(f));
-      const sz = (0.7 + 0.3 * Math.sin(time * 5 + i)) * clamp(lvl * 2 - 1, 0, 1);
+      const sz = (0.75 + 0.25 * Math.sin(time * 5 + i)) * Math.min(1, (1 - us[i]) * 6) * (1 + boost * 0.5);
       scl.setScalar(sz);
       pulses.setMatrixAt(i, m4.compose(pos, quat, scl));
     }

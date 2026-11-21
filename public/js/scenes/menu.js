@@ -40,6 +40,7 @@ const ALL_GAMES = [
   { key: 'pinball', name: 'pinballName', tag: 'pinballTag', group: 'clients' },
   { key: 'summit', name: 'summitName', tag: 'summitTag', group: 'clients' },
   { key: 'lineage', name: 'lineageName', tag: 'lineageTag', group: 'clients' },
+  { key: 'cars', name: 'carsName', tag: 'carsTag', group: 'clients' },
 ];
 
 export const GAMES = ALL_GAMES.filter((g) => VISIBLE_MODES.includes(g.key));
@@ -49,7 +50,7 @@ export const GAMES = ALL_GAMES.filter((g) => VISIBLE_MODES.includes(g.key));
 // further rows (up to four each). The games for our clients have a view of their own (the gift
 // coin opens it): CLIENT_ROWS.
 const MENU_ROWS = [['parkour', 'pong', 'clients'], ['quiz', 'fight', 'dataflight']];
-const CLIENT_ROWS = [['bike', 'roast', 'bricks', 'green'], ['dock', 'pinball', 'summit', 'lineage']];
+const CLIENT_ROWS = [['bike', 'roast', 'bricks'], ['green', 'dock', 'pinball'], ['summit', 'lineage', 'cars']];
 // Games that show a 'New' hint on their name plate.
 const NEW_GAMES = ['dataflight', ...CLIENT_GAMES];
 // The gift coin of the main menu that opens the games for our clients.

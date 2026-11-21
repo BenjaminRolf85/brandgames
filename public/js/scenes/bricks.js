@@ -307,7 +307,7 @@ export class BricksScene extends BaseScene {
     const ui = (o) => { o.userData.noFit = true; this.ui.add(o); return o; };
     const money = () => ({ round: this.round, spent: this.spent(), reserve: this.step < DECISIONS.length ? reserve(this.round, this.step) : 0 });
     this.brief = ui(briefPanel(0.62, BRIEF_H, money));
-    this.briefSmall = { col: ui(briefPanel(0.9, 0.375, money, true)), side: ui(briefPanel(0.7, 0.42, money, true)) };
+    this.briefSmall = { slim: ui(briefPanel(0.9, 0.225, money, 'slim')), col: ui(briefPanel(0.9, 0.375, money, true)), side: ui(briefPanel(0.7, 0.42, money, true)) };
     this.aiNote = ui(aiPanel(0.62, 0.34, () => this.aiState()));
     this.ask = ui(strip(1.5, 0.13, () => this.askState()));
     this.sign = ui(neighborSign(SIGN_W, SIGN_H, () => ({ last: this.nb.last, spent: this.nb.spent, budget: this.round.nbBrief.budget, needs: this.round.nbBrief.needs })));
@@ -503,7 +503,7 @@ export class BricksScene extends BaseScene {
   }
 
   refreshPanels() {
-    for (const p of [this.brief, this.briefSmall.col, this.briefSmall.side, this.aiNote, this.ask, this.sign, this.signSmall]) p.redraw();
+    for (const p of [this.brief, this.briefSmall.slim, this.briefSmall.col, this.briefSmall.side, this.aiNote, this.ask, this.sign, this.signSmall]) p.redraw();
     this.refreshHud?.();
   }
 
@@ -992,14 +992,15 @@ export class BricksScene extends BaseScene {
       const cols = extras ? 2 : 1;
       const rows = extras ? 4 : 3;
       const cardW = (W - (cols + 1) * m) / cols;
-      const briefH = ((W - 2 * m) / 0.9) * 0.375;
+      const slim = extras && cardsOn;
+      const briefH = ((W - 2 * m) / 0.9) * (slim ? 0.225 : 0.375);
       const askH = 48;
-      const cardH = Math.min((cardW / cw) * ch, (Hh - top - briefH - askH - 175 - (rows + 3) * m) / rows);
+      const cardH = Math.min((cardW / cw) * ch, (Hh - top - briefH - askH - (slim ? 120 : 175) - (rows + 3) * m) / rows);
       const cardsH = rows * cardH + (rows - 1) * (m - 2);
       const cardsY = Hh - m - cardsH;
       out.cards = Array.from({ length: n }, (_, i) => ({ x: m + (i % cols) * (cardW + m), y: cardsY + Math.floor(i / cols) * (cardH + m - 2), w: cardW, h: cardH }));
       out.cols = cols;
-      out.show.briefCol = { x: m, y: top + 2, w: W - 2 * m, h: briefH };
+      out.show[slim ? 'briefSlim' : 'briefCol'] = { x: m, y: top + 2, w: W - 2 * m, h: briefH };
       const askY = cardsY - askH - 2;
       const y0 = top + briefH + m;
       const signW = 150;
@@ -1015,25 +1016,26 @@ export class BricksScene extends BaseScene {
       const cols = extras ? 2 : 1;
       const rows = extras ? 4 : 3;
       const availH = Hh - top - m;
-      const cardH = (availH - (rows - 1) * 5 - (extras ? 50 : 0)) / rows;
+      const cardH = (availH - (rows - 1) * 5) / rows;
       const cardW = Math.min((cardH / ch) * cw, extras ? 190 : 330);
       const colW = cols * cardW + (cols - 1) * 5;
       const x0 = W - m - colW;
       out.cards = Array.from({ length: n }, (_, i) => ({ x: x0 + (i % cols) * (cardW + 5), y: top + Math.floor(i / cols) * (cardH + 5), w: cardW, h: cardH }));
       out.cols = cols;
-      if (extras) out.show.go = { x: x0, y: Hh - m - 46, w: colW, h: 46 };
       const leftW = Math.min(240, (W - colW) * 0.5);
       const briefH = (leftW / 0.7) * 0.42;
       out.show.briefSide = { x: m, y: top, w: leftW, h: briefH };
       const signW = Math.min(150, leftW * 0.62);
       const signH = (signW / SIGN_SMALL[0]) * SIGN_SMALL[1];
       out.show.signSmall = { x: m, y: top + briefH + 4, w: signW, h: signH };
-      out.pip = { x: m + signW * 0.3, y: top + briefH + 4 + signH * 0.5, w: leftW - signW * 0.3, h: availH - briefH - signH * 0.5 - 4 };
+      out.pip = { x: m + 104, y: top + briefH + signH * 0.7, w: leftW - 104, h: availH - briefH - signH * 0.7 };
       out.show.back = { x: m, y: Hh - m - 46, w: 100, h: 46 };
       const px = leftW + 2 * m;
       const pw = x0 - px - m;
-      out.show.ask = { x: px, y: Hh - m - 44, w: pw, h: 44, wrap: 350 };
-      out.plot = { x: px, y: top, w: pw, h: availH - 44 };
+      // The message above the house; with the extras, the button to confirm below it.
+      out.show.ask = { x: px, y: extras ? top : Hh - m - 44, w: pw, h: 44, wrap: 350 };
+      if (extras) out.show.go = { x: px + Math.max(0, (pw - 220) / 2), y: Hh - m - 46, w: Math.min(220, pw), h: 46 };
+      out.plot = { x: px, y: top + (extras ? 44 : 0), w: pw, h: availH - 46 - (extras ? 44 : 0) };
     }
     if (!cardsOn) { out.cards = []; delete out.show.go; delete out.show.back; }
     return out;
@@ -1090,6 +1092,7 @@ export class BricksScene extends BaseScene {
     const set = (obj, r, max) => { if (r) this.fit(obj, r, r.max ?? max); else obj.visible = false; };
     set(this.brief, s.brief);
     set(this.briefSmall.col, s.briefCol);
+    set(this.briefSmall.slim, s.briefSlim);
     set(this.briefSmall.side, s.briefSide);
     set(this.aiNote, s.ai);
     set(this.ask, s.ask);

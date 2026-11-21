@@ -431,7 +431,7 @@ function budgetBar(ctx, x, y, w, h, { budget, spent, reserve }, token = 'xr-bric
 
 /**
  * The brief with the budget. get(): { round, spent, reserve }. compact: a short strip for
- * phones. Returns a Panel.
+ * phones ('slim': shorter still, the wishes as one line). Returns a Panel.
  */
 export function briefPanel(w, h, get, compact = false) {
   return new Panel(w, h, (ctx, p) => {
@@ -456,14 +456,21 @@ export function briefPanel(w, h, get, compact = false) {
       ctx.fillStyle = color('xr-panel-text');
       ctx.fillText(fitText(ctx, t(`bricksWho_${b.people}`), W - 2 * pad), pad, y);
       y += sm * 1.25;
-      ctx.font = font('bold', sm * 0.92);
-      ctx.fillStyle = color('xr-panel-muted');
-      ctx.fillText(fitText(ctx, [t(`bricksWhere_${b.place.id}`), styleName(b.place.style), ...b.place.weather.map((k) => t(`bricksWeather_${k}`))].join(' · '), W - 2 * pad), pad, y);
-      y += sm * 1.35;
       const bh = sm * 0.8;
       const foot = bh + sm * 1.75;
-      const rows = Math.max(1, Math.floor((Hh - pad - foot - y) / (sm * 0.86 * 1.9)));
-      chips(ctx, wishes, pad, y, W - 2 * pad, sm * 0.86, rows);
+      if (compact === 'slim') {
+        // The extras step on an upright phone: the wishes as one line, so the cards get the room.
+        ctx.font = font('bold', sm * 0.92);
+        ctx.fillStyle = color('xr-warning');
+        ctx.fillText(fitText(ctx, `${t('bricksLblWishes')}: ${b.needs.map((n) => t(`bricksNeed_${n}`)).join(', ')}`, W - 2 * pad), pad, y);
+      } else {
+        ctx.font = font('bold', sm * 0.92);
+        ctx.fillStyle = color('xr-panel-muted');
+        ctx.fillText(fitText(ctx, [t(`bricksWhere_${b.place.id}`), styleName(b.place.style), ...b.place.weather.map((k) => t(`bricksWeather_${k}`))].join(' · '), W - 2 * pad), pad, y);
+        y += sm * 1.35;
+        const rows = Math.max(1, Math.floor((Hh - pad - foot - y) / (sm * 0.86 * 1.9)));
+        chips(ctx, wishes, pad, y, W - 2 * pad, sm * 0.86, rows);
+      }
       y = Hh - pad - foot + sm * 0.2;
       budgetBar(ctx, pad, y, W - 2 * pad, bh, { budget: b.budget, spent, reserve });
       y += bh + sm * 0.3;

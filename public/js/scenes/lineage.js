@@ -116,9 +116,12 @@ export class LineageScene extends BaseScene {
     // One shadow-casting light at most; in the headset only on the strongest tier.
     const shadows = e.isXR ? tier === 'high' : tier !== 'low';
     this.onSceneDispose(sceneLook(e, { tone: 'neutral', exposure: 1, env: 'studio', envIntensity: 0.55, shadows: shadows ? 'soft' : false }));
-    this.land = makeLandscape({ calm: this.calm, shadows });
+    // Headset: the tray stands on a slim column that reaches the floor.
+    const landY = this.eye - 0.82;
+    const floorY = e.floorY - e.root.position.y;
+    this.land = makeLandscape({ calm: this.calm, shadows, pedestal: e.isXR ? Math.max(0.2, (landY - floorY) / 0.75 - 0.03) : 0 });
     this.landTo = new THREE.Vector3(0, this.eye - 0.93, -1.3);
-    if (e.isXR) { this.land.position.set(0, this.eye - 0.82, -0.7); this.land.scale.setScalar(0.75); } else this.land.position.copy(this.landTo);
+    if (e.isXR) { this.land.position.set(0, landY, -0.7); this.land.scale.setScalar(0.75); } else this.land.position.copy(this.landTo);
     this.group.add(this.land);
     const key = makeKeyLight();
     key.position.add(this.land.position);
@@ -134,7 +137,7 @@ export class LineageScene extends BaseScene {
     e.backdrop.visible = false;
     this.prevFog = e.scene.fog?.color.getHex();
     e.scene.fog?.color.set(this.sky.userData.horizon);
-    this.backdrop = makeBackdrop({ calm: this.calm, around: e.isXR, floorY: e.floorY - e.root.position.y });
+    this.backdrop = makeBackdrop({ calm: this.calm, around: e.isXR, floorY });
     this.group.add(this.backdrop);
   }
 
@@ -202,7 +205,21 @@ export class LineageScene extends BaseScene {
       // The landscape stands below the boards during play; in the intro and on the result it
       // stands below the lowest panel (desktop: the view fits it in; phones keep the panels large).
       const play = this.playing();
-      if (play) this.landTo.set(0, this.eye - 1.0, -1.6);
+      if (play) {
+        // As large as the room below the board allows (the screen layout says how much that is).
+        const band = this.view.band();
+        const H = window.innerHeight;
+        const tv = Math.tan(THREE.MathUtils.degToRad(30));
+        const hf = (band.bottom - band.top) / H;
+        if (hf < 0.09) this.landTo.set(0, this.eye - 1.0, -1.6); // no room: a glimpse behind the cards
+        else {
+          const yc = 1 - (band.top + band.bottom) / H; // the band's middle (-1 is the lower edge)
+          const down = Math.atan(-yc * tv);
+          const tall = 0.2 + 0.56 * Math.sin(Math.max(0, down)); // how tall the landscape looks (m)
+          const d = Math.max(tall / (1.7 * hf * tv), 1.36 / (2 * tv * (window.innerWidth / H) * 0.9), 0.95);
+          this.landTo.set(0, this.eye + 0.05 + yc * tv * d - 0.05, 0.6 - d);
+        }
+      }
       else {
         let low = this.eye;
         for (const o of this.layer.children) if (o.h) low = Math.min(low, o.position.y - o.h / 2);
@@ -252,7 +269,8 @@ export class LineageScene extends BaseScene {
     if (this.screenUI && this.app.echo?.setCompanion) {
       this.echoSpot = { target: new THREE.Vector3(), look: new THREE.Vector3() };
       this.app.echo.setCompanion(() => {
-        this.group.localToWorld(this.echoSpot.target.set(0.98, this.eye - 0.86, -1.5));
+        const l = this.land.position; // beside the landscape, wherever it stands
+        this.group.localToWorld(this.echoSpot.target.set(l.x + 0.84, l.y + 0.2, l.z + 0.05));
         this.group.localToWorld(this.echoSpot.look.set(0, this.eye + 0.05, 0.6));
         return this.echoSpot;
       });
@@ -295,7 +313,10 @@ export class LineageScene extends BaseScene {
       stage: step.stage, done: inStage.indexOf(step), total: inStage.length,
     });
     // The world shows the progress: the landscape fills with flowing data.
-    this.land.userData.setProgress(step.stage + inStage.indexOf(step) / inStage.length);
+    // (within a board every link counts, so the data moves on with each right answer)
+    const b = this.board;
+    const part = step.kind !== 'odd' && b && this.mode !== 'card' ? (b.needs.filter((n) => n.done).length + (b.impact?.found.size ?? 0)) / (b.needs.length + (b.impactData?.hit.length ?? 0)) : 0;
+    this.land.userData.setProgress(step.stage + (inStage.indexOf(step) + Math.min(1, part)) / inStage.length);
   }
 
   /** Points for a right answer: times the streak's factor; the streak grows. */
@@ -305,6 +326,7 @@ export class LineageScene extends BaseScene {
     this.streak += 1;
     this.bestStreak = Math.max(this.bestStreak, this.streak);
     this.view.pop(`+${pts}`, target, 'good');
+    this.land.userData.cheer(0.4);
     // Echo cheers for a streak (where the host is there).
     if (this.streak === 5 || this.streak === 10) {
       this.app.echo?.celebrate?.();
@@ -326,6 +348,7 @@ export class LineageScene extends BaseScene {
     const step = this.steps[this.stepIndex];
     if (!step) { this.finish(); return; }
     this.sel = null;
+    this.board = null;
     this.refreshHud();
     // Stages 2 and 3 open with a short card: what to do, and what the assistant does.
     if (step.first && !step.shown) {

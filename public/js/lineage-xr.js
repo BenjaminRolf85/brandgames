@@ -657,6 +657,7 @@ export function xrView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, onN
     },
 
     focusFirst() {}, focusNode() {}, moveFocus() {},
+    band() { return { top: 0, bottom: 0 }; },
 
     tick(dt) {
       if (!holder.visible) return;
