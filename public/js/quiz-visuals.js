@@ -23,7 +23,11 @@ const pad = (h) => Math.min(num('xr-padding'), h * 0.16);
 export class AnswerBubble extends Button {
   static measure(w, h, opts) {
     const blocks = [{ text: opts.label, size: opts.labelSize ?? 'xr-text-md', weight: 'bold' }];
-    return Math.max(h, measureBlocks(blocks, w - BADGE - ICON, pad(h)) + TAIL);
+    // The padding grows with the height (up to the token), which can wrap the text once more:
+    // measured again with the padding the bubble will really have, so no line hangs out.
+    let need = h;
+    for (let i = 0; i < 3; i++) need = Math.max(h, measureBlocks(blocks, w - BADGE - ICON, pad(need)) + TAIL);
+    return need;
   }
 
   constructor(w, h, opts) {

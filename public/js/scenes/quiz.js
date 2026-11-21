@@ -191,11 +191,11 @@ export class QuizScene extends BaseScene {
   }
 
   /** Right of the question, facing you; below the quiz on a phone held upright. */
-  placeBot() {
+  placeBot(lower = 0) {
     const portrait = this.portrait;
     const g = this.bot.group;
     if (portrait) {
-      g.position.set(0.38, this.eye - 1.38, -1.35);
+      g.position.set(0.38, this.eye - 1.62 - lower, -1.35);
       g.rotation.set(0, 0, 0);
       g.scale.setScalar(0.6);
     } else {
@@ -216,10 +216,10 @@ export class QuizScene extends BaseScene {
    * below the quiz (the view zooms in on the questions); desktop: further out and smaller; phones
    * held sideways: further out.
    */
-  placeDecor() {
+  placeDecor(lower = 0) {
     const g = this.house.group;
     if (this.portrait) {
-      g.position.set(0, this.eye - 1.56, -1.4);
+      g.position.set(0, this.eye - 1.8 - lower, -1.4);
       g.rotation.set(0, 0, 0);
       g.scale.setScalar(0.95);
     } else if (this.desk) {
@@ -505,6 +505,10 @@ export class QuizScene extends BaseScene {
     if (portrait) {
       fb.position.set(0, y, 0);
       next.position.set(0, y - fb.h / 2 - 0.03 - next.h / 2, 0);
+      // A long explanation: the tree and the buddy below it make room.
+      const bottom = this.eye + 0.47 + next.position.y - next.h / 2;
+      const lower = Math.max(0, this.eye - 1.8 + 0.66 - bottom);
+      if (lower > 0) { this.placeDecor(lower); this.placeBot(lower); this.wakeShadows?.(1); }
     } else {
       fb.position.set(-0.16, y, 0);
       next.position.set(0.47, y, 0);
