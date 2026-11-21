@@ -124,7 +124,8 @@ export function bricksMaterials() {
     if (SNOWY.includes(name)) winterize(out[name]);
   }
   for (const [name, [token, roughness, metalness]] of Object.entries(OWN)) {
-    const opts = { name, color: hex(token), roughness, metalness };
+    // Vertex colors carry the little differences from piece to piece (planks, hedge) once parts are merged.
+    const opts = { name, color: hex(token), roughness, metalness, vertexColors: true };
     out[name] = COAT[name] && tier === 'high' ? new THREE.MeshPhysicalMaterial({ ...opts, clearcoat: COAT[name], clearcoatRoughness: 0.25 }) : new THREE.MeshStandardMaterial(opts);
     if (DETAIL[name] && tier !== 'low') addDetail(out[name], DETAIL[name]);
     if (SNOWY.includes(name)) winterize(out[name]);
@@ -394,35 +395,54 @@ export const bsfx = {
 
 // ---------- the neighbor family ----------
 
-/** A little figure (meters in its own space): legs, body, head, a winter hat, arms that move. */
-function person({ h, shirt, pants, hat, skin }) {
+const _col = new THREE.Color();
+/** A geometry painted in one token color (vertex colors), moved and scaled into place. */
+function painted(geo, token, { x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, rx = 0 } = {}) {
+  const g = geo.index ? geo.toNonIndexed() : geo;
+  if (g !== geo) geo.dispose();
+  if (rx) g.rotateX(rx);
+  g.scale(sx, sy, sz);
+  g.translate(x, y, z);
+  _col.set(hex(token));
+  const n = g.attributes.position.count;
+  const arr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { arr[i * 3] = _col.r; arr[i * 3 + 1] = _col.g; arr[i * 3 + 2] = _col.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+  g.deleteAttribute('uv');
+  return g;
+}
+function joined(geos) {
+  const out = new THREE.BufferGeometry();
+  for (const name of ['position', 'normal', 'color']) {
+    const arr = new Float32Array(geos.reduce((n, g) => n + g.attributes[name].count * 3, 0));
+    let at = 0;
+    for (const g of geos) { arr.set(g.attributes[name].array, at); at += g.attributes[name].count * 3; }
+    out.setAttribute(name, new THREE.BufferAttribute(arr, 3));
+  }
+  geos.forEach((g) => g.dispose());
+  return out;
+}
+
+/** A little figure (meters in its own space): legs, body, head, a winter hat (one mesh), arms that move. */
+function person({ h, shirt, pants, hat, skin }, mat) {
   const g = new THREE.Group();
-  const std = (token, rough = 0.8) => new THREE.MeshStandardMaterial({ color: hex(token), roughness: rough });
   const r = h * 0.13;
-  const legs = new THREE.Mesh(new THREE.CapsuleGeometry(r * 0.75, h * 0.22, 4, 10), std(pants));
-  legs.position.y = h * 0.2;
-  legs.scale.set(1.25, 1, 0.9);
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(r, h * 0.22, 4, 12), std(shirt));
-  body.position.y = h * 0.5;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(r * 1.05, 14, 10), std(skin, 0.6));
-  head.position.y = h * 0.8;
-  const cap = new THREE.Mesh(new THREE.ConeGeometry(r * 1.0, r * 1.5, 12), std(hat, 0.9));
-  cap.position.set(0, h * 0.8 + r * 1.05, -r * 0.1);
-  cap.rotation.x = -0.25;
-  const pom = new THREE.Mesh(new THREE.SphereGeometry(r * 0.32, 8, 6), std('xr-bricks-fence', 1));
-  pom.position.set(0, h * 0.8 + r * 1.75, -r * 0.3);
-  g.add(legs, body, head, cap, pom);
+  const body = new THREE.Mesh(joined([
+    painted(new THREE.CapsuleGeometry(r * 0.75, h * 0.22, 4, 10), pants, { y: h * 0.2, sx: 1.25, sz: 0.9 }),
+    painted(new THREE.CapsuleGeometry(r, h * 0.22, 4, 12), shirt, { y: h * 0.5 }),
+    painted(new THREE.SphereGeometry(r * 1.05, 14, 10), skin, { y: h * 0.8 }),
+    painted(new THREE.ConeGeometry(r * 1.0, r * 1.5, 12), hat, { y: h * 0.8 + r * 1.05, z: -r * 0.1, rx: -0.25 }),
+    painted(new THREE.SphereGeometry(r * 0.32, 8, 6), 'xr-bricks-fence', { y: h * 0.8 + r * 1.75, z: -r * 0.3 }),
+  ]), mat);
+  g.add(body);
+  const armGeo = painted(new THREE.CapsuleGeometry(r * 0.32, h * 0.2, 3, 8), shirt, { y: -h * 0.13 });
   const arms = [-1, 1].map((sx) => {
-    const pivot = new THREE.Group();
+    const pivot = new THREE.Mesh(armGeo, mat);
     pivot.position.set(sx * r * 1.05, h * 0.62, 0);
-    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(r * 0.32, h * 0.2, 3, 8), std(shirt));
-    arm.position.y = -h * 0.13;
-    pivot.add(arm);
     pivot.rotation.z = sx * 0.15;
     g.add(pivot);
     return pivot;
   });
-  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   return { g, arms, h };
 }
 
@@ -433,10 +453,11 @@ function person({ h, shirt, pants, hat, skin }) {
 export function makeFamily() {
   const group = new THREE.Group();
   group.userData.noFit = true;
+  const mat = new THREE.MeshStandardMaterial({ roughness: 0.8, vertexColors: true });
   const ppl = [
-    person({ h: 0.17, shirt: 'xr-bricks-family-1', pants: 'xr-bricks-family-pants', hat: 'xr-bricks-family-hat-1', skin: 'xr-bricks-family-skin-1' }),
-    person({ h: 0.16, shirt: 'xr-bricks-family-2', pants: 'xr-bricks-family-pants', hat: 'xr-bricks-family-hat-2', skin: 'xr-bricks-family-skin-2' }),
-    person({ h: 0.11, shirt: 'xr-bricks-family-3', pants: 'xr-bricks-family-pants', hat: 'xr-bricks-family-hat-1', skin: 'xr-bricks-family-skin-1' }),
+    person({ h: 0.17, shirt: 'xr-bricks-family-1', pants: 'xr-bricks-family-pants', hat: 'xr-bricks-family-hat-1', skin: 'xr-bricks-family-skin-1' }, mat),
+    person({ h: 0.16, shirt: 'xr-bricks-family-2', pants: 'xr-bricks-family-pants', hat: 'xr-bricks-family-hat-2', skin: 'xr-bricks-family-skin-2' }, mat),
+    person({ h: 0.11, shirt: 'xr-bricks-family-3', pants: 'xr-bricks-family-pants', hat: 'xr-bricks-family-hat-1', skin: 'xr-bricks-family-skin-1' }, mat),
   ];
   [[-0.05, 0.02], [0.06, 0], [0.005, 0.05]].forEach(([x, z], i) => { ppl[i].g.position.set(x, 0, z); ppl[i].g.rotation.y = (i - 1) * -0.2; group.add(ppl[i].g); });
   let mood = null; // { kind, t, who }

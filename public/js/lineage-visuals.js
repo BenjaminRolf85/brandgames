@@ -1,6 +1,6 @@
 // "Datenspur": the small 3D world around the boards. All colors are tokens (css/game-lineage.css).
-//   makeSky        a bright gradient as scene background (browser and VR; AR keeps the real room)
-//   makeBackdrop   far, softly drifting catalog cards and a soft floor (browser and VR)
+//   makeSky        a deep, dark gradient as scene background (browser and VR; AR keeps the real room)
+//   makeBackdrop   the data room around the field: floor glow, data towers, arcs of light, stars
 //   makeLandscape  a little data landscape on a tray: three source stores, pipes into a
 //                  transformation machine, a warehouse, three report screens. It fills with
 //                  flowing data as the round goes on (setProgress), so progress shows in the world.
@@ -30,16 +30,16 @@ export function makeSky() {
 }
 
 /**
- * The surrounding (browser and VR): a soft floor, pastel hills on the horizon, data towers linked
- * by arcs of pipe with travelling light, a few clouds, and far, softly drifting catalog cards.
- * around: all the way round (VR), else only ahead. About 9k triangles in 12 to 14 draw calls.
+ * The data room around the playing field (browser and VR): a softly lit floor, data towers in the
+ * distance linked by arcs of pipe with travelling light, far points of light and faint, drifting
+ * holo panels. around: all the way round (VR), else only ahead. About 6k triangles, 12 to 14 draw calls.
  */
 export function makeBackdrop({ calm = false, around = false, floorY = 0 } = {}) {
   const group = new THREE.Group();
   group.userData.noFit = true;
   const n = around ? 26 : 16;
   const geo = new THREE.PlaneGeometry(1, 0.62);
-  const mat = new THREE.MeshBasicMaterial({ color: hex('xr-lineage-far-card'), transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, fog: false });
+  const mat = new THREE.MeshBasicMaterial({ color: hex('xr-lineage-far-card'), transparent: true, opacity: 0.05, depthWrite: false, side: THREE.DoubleSide, fog: false });
   const cards = new THREE.InstancedMesh(geo, mat, n);
   const tints = ['xr-lineage-far-card', 'xr-lineage-far-card-2', 'xr-lineage-far-card-3'].map((k) => new THREE.Color(hex(k)));
   const items = [];
@@ -67,7 +67,7 @@ export function makeBackdrop({ calm = false, around = false, floorY = 0 } = {}) 
   };
   place(0);
   cards.frustumCulled = false;
-  group.add(cards);
+  if (around) group.add(cards); // faint holo panels, only in VR (in the browser they would sit behind the labels)
   // A soft floor that fades out towards the horizon.
   {
     const c = document.createElement('canvas');
@@ -87,40 +87,26 @@ export function makeBackdrop({ calm = false, around = false, floorY = 0 } = {}) 
     group.add(floor);
   }
 
-  // Rolling pastel hills on the horizon (one mesh, vertex colors).
+  // Far points of light all around, like the app's other data spaces (one draw call).
   {
-    const geo2 = new THREE.RingGeometry(8, 19, 72, 5).rotateX(-Math.PI / 2);
-    const pos = geo2.attributes.position;
-    const cols = new Float32Array(pos.count * 3);
-    const near = new THREE.Color(hex('xr-lineage-hill-near'));
-    const far = new THREE.Color(hex('xr-lineage-hill-far'));
-    const col = new THREE.Color();
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const z = pos.getZ(i);
-      const r = Math.hypot(x, z);
-      const th = Math.atan2(x, z);
-      const k = Math.pow((r - 8) / 11, 1.25);
-      const h = k * (1.5 + 1.0 * Math.sin(3 * th + 1) + 0.55 * Math.sin(7 * th + 2) + 0.3 * Math.sin(13 * th));
-      pos.setY(i, Math.max(0, h));
-      col.copy(near).lerp(far, clamp(k * 1.15 + 0.12 * Math.sin(5 * th), 0, 1));
-      cols.set([col.r, col.g, col.b], i * 3);
+    const N = around ? 420 : 260;
+    const pts = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      const a = around ? Math.random() * Math.PI * 2 : (Math.random() - 0.5) * 2.6;
+      const r = 9 + Math.random() * 9;
+      pts.set([Math.sin(a) * r, floorY + 0.3 + Math.random() * 7, -Math.cos(a) * r], i * 3);
     }
-    geo2.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-    const hills = new THREE.Mesh(geo2, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }));
-    hills.position.y = floorY - 0.02;
-    hills.renderOrder = -2;
-    group.add(hills);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+    group.add(new THREE.Points(g, new THREE.PointsMaterial({ color: hex('xr-lineage-star'), size: 0.05, sizeAttenuation: true, transparent: true, opacity: 0.8, fog: false, depthWrite: false })));
   }
 
-  // Data towers on the hills' feet (stacks of discs like the sources of the little landscape),
-  // linked by arcs of pipe in which light travels; and a few clouds. Instanced: 4 draw calls.
-  const sway = new THREE.Group();
-  group.add(sway);
+  // Data towers in the distance (stacks of discs like the sources of the landscape), linked by
+  // arcs of pipe in which light travels. Instanced.
   const towerAngles = around ? [-2.6, -1.75, -0.95, -0.35, 0.4, 1.05, 1.9, 2.75] : [-1.15, -0.62, -0.2, 0.3, 0.72, 1.2];
-  const towerCols = ['xr-lineage-source', 'xr-lineage-machine', 'xr-lineage-house', 'xr-lineage-bar'].map((k2) => new THREE.Color(hex(k2)).lerp(new THREE.Color(hex('xr-lineage-sky-mid')), 0.45));
+  const towerCols = ['xr-lineage-source', 'xr-lineage-machine', 'xr-lineage-house', 'xr-lineage-bar'].map((k2) => new THREE.Color(hex(k2)).lerp(new THREE.Color(hex('xr-lineage-sky-mid')), 0.35));
   const discGeo = new THREE.CylinderGeometry(0.62, 0.62, 0.26, 20);
-  const towers = new THREE.InstancedMesh(discGeo, new THREE.MeshLambertMaterial({ fog: false }), towerAngles.length * 6);
+  const towers = new THREE.InstancedMesh(discGeo, new THREE.MeshLambertMaterial({ fog: false, emissive: hex('xr-lineage-tok-glow') }), towerAngles.length * 6);
   const tops = [];
   let ti = 0;
   towerAngles.forEach((a, t) => {
@@ -142,26 +128,12 @@ export function makeBackdrop({ calm = false, around = false, floorY = 0 } = {}) 
     mid.y += 1.1 + (t % 2) * 0.5;
     arcs.push(new THREE.QuadraticBezierCurve3(tops[t], mid, tops[t + 1]));
   }
-  const arcMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(hex('xr-lineage-flow')).lerp(new THREE.Color(hex('xr-lineage-sky-mid')), 0.35), fog: false });
-  arcs.forEach((c) => group.add(new THREE.Mesh(new THREE.TubeGeometry(c, 20, 0.045, 6, false), arcMat)));
-  const lightGeo = new THREE.SphereGeometry(0.11, 8, 6);
+  const arcMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(hex('xr-lineage-flow')).lerp(new THREE.Color(hex('xr-lineage-sky-mid')), 0.6), fog: false });
+  arcs.forEach((c) => group.add(new THREE.Mesh(new THREE.TubeGeometry(c, 20, 0.022, 6, false), arcMat)));
+  const lightGeo = new THREE.SphereGeometry(0.06, 8, 6);
   const lights = new THREE.InstancedMesh(lightGeo, new THREE.MeshBasicMaterial({ color: hex('xr-lineage-far-card'), fog: false, toneMapped: false }), arcs.length * 2);
   lights.frustumCulled = false;
   group.add(lights);
-  const puff = new THREE.IcosahedronGeometry(1, 1);
-  const clouds = new THREE.InstancedMesh(puff, new THREE.MeshLambertMaterial({ color: hex('xr-lineage-cloud'), emissive: hex('xr-lineage-cloud'), emissiveIntensity: 0.55, fog: false }), around ? 40 : 24);
-  for (let i = 0; i < clouds.count; i++) {
-    const cl = Math.floor(i / 4);
-    const a = around ? (cl / (clouds.count / 4)) * Math.PI * 2 + 0.5 : -1.2 + (cl / 5) * 2.4;
-    const r = 12 + ((cl * 5) % 3) * 1.6;
-    const j = i % 4;
-    p.set(Math.sin(a) * r + (j - 1.5) * 1.1, floorY + 4.2 + ((cl * 3) % 4) * 0.7 + (j % 2) * 0.35, -Math.cos(a) * r);
-    s.set(1.2 - Math.abs(j - 1.5) * 0.25, 0.62, 0.9);
-    clouds.setMatrixAt(i, m.compose(p, q.identity(), s));
-  }
-  clouds.frustumCulled = false;
-  sway.add(clouds);
-
   let time = 0;
   const lp = new THREE.Vector3();
   const one = new THREE.Vector3(1, 1, 1);
@@ -178,7 +150,6 @@ export function makeBackdrop({ calm = false, around = false, floorY = 0 } = {}) 
     time += dt;
     place(time);
     moveLights();
-    sway.rotation.y = Math.sin(time * 0.02) * 0.25; // the clouds drift a little
   };
   return group;
 }

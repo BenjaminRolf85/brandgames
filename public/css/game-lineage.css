@@ -1,84 +1,93 @@
-/* Design tokens and screen layout of the game 'lineage' ("Datenspur" / "Data Trail").
-   The tokens are read by tokens.js like tokens.css (3D world, headset panels) and used by the
-   screen layout below (desktop and phones, lineage-screen.js). The game brings its own bright
-   palette, like a tidy data catalog; it looks the same in every skin of the app. */
+/* Design tokens and the slim screen elements of the game 'lineage' ("Datenspur" / "Data Trail").
+   The tokens are read by tokens.js like tokens.css: the game is a dark data room of glowing
+   objects (it belongs to the app's data spaces: the bank data landscape and the data flight).
+   On screen only the status strip, the stage progress, the prompt, one line of feedback and the
+   card that opens a stage are HTML (lineage-hud.js); everything else is the 3D room. */
 :root {
-  /* sky and far decor (browser and VR; AR keeps the real room) */
-  --xr-lineage-sky-top:      #cfe6ff;
-  --xr-lineage-sky-mid:      #e9f3ff;
-  --xr-lineage-sky-low:      #f7f1ff;
-  --xr-lineage-far-card:     #ffffff;
-  --xr-lineage-far-card-2:   #d7f3ea;
-  --xr-lineage-far-card-3:   #e4dcff;
-  --xr-lineage-floor:        rgb(255 255 255 / 0.95);
-  --xr-lineage-floor-edge:   rgb(255 255 255 / 0);
-  --xr-lineage-key-light:    #fff4e0;
-  --xr-lineage-hill-near:    #d9f1e6;
-  --xr-lineage-hill-far:     #cfd3f7;
-  --xr-lineage-cloud:        #ffffff;
+  /* the room (browser and VR; AR keeps the real room) */
+  --xr-lineage-sky-top:      #05071a;
+  --xr-lineage-sky-mid:      #0b1030;
+  --xr-lineage-sky-low:      #1a1446;
+  --xr-lineage-far-card:     #8fa3ff;
+  --xr-lineage-far-card-2:   #5ad8f0;
+  --xr-lineage-far-card-3:   #b7a6ff;
+  --xr-lineage-floor:        rgb(40 52 120 / 0.55);
+  --xr-lineage-floor-edge:   rgb(40 52 120 / 0);
+  --xr-lineage-key-light:    #cfd8ff;
+  --xr-lineage-star:         #b9c6ff;
 
-  /* the data landscape */
-  --xr-lineage-tray:         #f4f7fb;
-  --xr-lineage-tray-rim:     #c9d6ea;
-  --xr-lineage-source:       #19a7b8;
-  --xr-lineage-machine:      #7a5cf0;
-  --xr-lineage-gear:         #ffd166;
-  --xr-lineage-house:        #3f7de0;
-  --xr-lineage-roof:         #244a8f;
-  --xr-lineage-screen:       #1d2a44;
-  --xr-lineage-bar:          #ffb347;
-  --xr-lineage-pipe:         #b4c2d8;
-  --xr-lineage-flow:         #12b886;
-  --xr-lineage-flow-light:   #d6fff0;
+  /* the data landscape: sources, machine, warehouse, reports, pipes */
+  --xr-lineage-tray:         #121a3c;
+  --xr-lineage-tray-rim:     #5b6ee0;
+  --xr-lineage-source:       var(--p-cyan-400);
+  --xr-lineage-machine:      var(--p-violet-400);
+  --xr-lineage-gear:         var(--p-amber-400);
+  --xr-lineage-house:        var(--p-blue-400);
+  --xr-lineage-roof:         #2c3f8f;
+  --xr-lineage-screen:       #0d1330;
+  --xr-lineage-bar:          var(--p-amber-400);
+  --xr-lineage-pipe:         #33407a;
+  --xr-lineage-flow:         var(--p-mint-400);
+  --xr-lineage-flow-light:   #eafff6;
 
-  /* cards, text and states (screen layout and headset panels) */
-  --xr-lineage-scrim:        rgb(236 244 255 / 0.2);
-  --xr-lineage-board:        rgb(238 244 252 / 0.96);  /* headset: the board behind the cards, solid enough for a bright room */
-  --xr-lineage-board-edge:   #9fb4d6;
-  --xr-lineage-card:         #ffffff;
-  --xr-lineage-card-soft:    #f3f7fc;
-  --xr-lineage-card-border:  #c5d2e6;
-  --xr-lineage-ink:          #14213d;
-  --xr-lineage-muted:        #45546f;
-  --xr-lineage-tag:          #e6edf7;
-  --xr-lineage-accent:       #0b7285;   /* selection */
-  --xr-lineage-accent-soft:  #d9f2f6;
-  --xr-lineage-ai:           #5b3fd6;   /* the assistant: dashed lines and tags */
-  --xr-lineage-ai-soft:      #ece7ff;
-  --xr-lineage-good:         #0b7a4b;
-  --xr-lineage-good-line:    #12b886;
-  --xr-lineage-good-soft:    #dcf7ea;
-  --xr-lineage-bad:          #b3243d;
-  --xr-lineage-bad-soft:     #fde3e7;
-  --xr-lineage-pulse:        #9a5b00;   /* impact: the trail of a change */
+  /* field tokens: one shape and one color per kind of data (the shape says it, not the color alone) */
+  --xr-lineage-tok-date:     var(--p-violet-400);
+  --xr-lineage-tok-amt:      var(--p-amber-400);
+  --xr-lineage-tok-num:      var(--p-cyan-400);
+  --xr-lineage-tok-text:     var(--p-blue-400);
+  --xr-lineage-tok-bool:     var(--p-mint-400);
+  --xr-lineage-tok-desc:     var(--p-lavender-300);
+  --xr-lineage-tok-light:    #f4f6ff;
+  --xr-lineage-tok-glow:     #1a2150;   /* tokens never go black in the dark room */
+  /* owners: a band on the label, always with the owner's name */
+  --xr-lineage-own-sales:    var(--p-cyan-400);
+  --xr-lineage-own-fin:      var(--p-amber-400);
+  --xr-lineage-own-hr:       var(--p-pink-400);
+  --xr-lineage-own-log:      var(--p-mint-400);
+  --xr-lineage-own-mkt:      var(--p-violet-400);
+  --xr-lineage-own-it:       var(--p-blue-400);
+
+  /* labels (dark glass), text and states */
+  --xr-lineage-board:        rgb(9 13 32 / 0.55);    /* the plane behind a board of labels */
+  --xr-lineage-board-solid:  rgb(9 13 32 / 0.94);    /* AR: solid enough for a bright room */
+  --xr-lineage-board-edge:   #4b5bc4;
+  --xr-lineage-card:         #0d1228;                /* labels are solid: text comes first */
+  --xr-lineage-card-soft:    #0a0e20;
+  --xr-lineage-card-border:  #46549c;
+  --xr-lineage-card-shadow:  rgb(0 0 0 / 0.55);
+  --xr-lineage-ink:          #dfe5f7;
+  --xr-lineage-muted:        #aab3d4;
+  --xr-lineage-tag:          #1c2548;
+  --xr-lineage-accent:       #5ad8f0;   /* selection */
+  --xr-lineage-accent-soft:  #0f2f44;
+  --xr-lineage-ai:           #b7a6ff;   /* the assistant: dotted beams, tags, the drone */
+  --xr-lineage-ai-soft:      #231c52;
+  --xr-lineage-good:         #5fe0a8;
+  --xr-lineage-good-line:    #2fcf8a;
+  --xr-lineage-good-soft:    #0f3329;
+  --xr-lineage-bad:          #ff8fa3;
+  --xr-lineage-bad-soft:     #3d1424;
+  --xr-lineage-pulse:        #ffc65a;   /* impact: the trail of a change */
   --xr-lineage-pulse-line:   #f59f00;
-  --xr-lineage-pulse-soft:   #fff1cf;
-  --xr-lineage-line:         #7d8fae;   /* links that were there from the start */
-  --xr-lineage-line-under:   #ffffff;   /* light edge under every line: visible on dark and bright ground */
-  --xr-lineage-line-dark:    #14213d;   /* dark edge under glowing lines in the headset (bright rooms) */
-  --xr-lineage-card-shadow:  rgb(20 33 61 / 0.3);   /* headset: the soft shadow painted under a card */
-  --xr-lineage-shadow:       0 1px 2px rgb(20 33 61 / 0.10), 0 6px 16px rgb(20 33 61 / 0.10);
-  --xr-lineage-shadow-lift:  0 2px 4px rgb(20 33 61 / 0.12), 0 12px 28px rgb(20 33 61 / 0.18);
+  --xr-lineage-pulse-soft:   #3a2a0a;
+  --xr-lineage-line:         #5a6aa8;   /* links that were there from the start */
+  --xr-lineage-focus:        #ffffff;   /* keyboard focus ring */
+  --xr-lineage-on-good:      #06231a;   /* text on a filled good tag (points) */
+  --xr-lineage-shadow:       0 6px 18px rgb(0 0 0 / 0.45);
   --xr-lineage-spring:       cubic-bezier(0.34, 1.56, 0.64, 1);
 
-  /* screen layout: sizes */
+  /* screen strip: sizes */
   --xr-lineage-font:         0.9375rem;
   --xr-lineage-font-small:   0.875rem;
   --xr-lineage-radius:       0.875rem;
-  --xr-lineage-gap:          0.5rem;
-  --xr-lineage-lines-gap:    2.5rem;    /* room between two columns for the lines */
   --xr-lineage-max:          68rem;
-  --xr-lineage-world-band:   0.5rem;    /* room below the board for the data landscape (per device and stage, see below) */
-  --xr-lineage-line-width:   3px;
 
-  /* headset: the boards as 3D panels (m) */
-  --xr-lineage-xr-dist:      1.05;      /* distance of the board from the player */
-  --xr-lineage-xr-drop:      0.12;      /* the board's center below eye height */
-  --xr-lineage-xr-width:     1.5;
-  --xr-lineage-xr-width-graph: 1.92;
-  --xr-lineage-xr-height:    0.86;
-  --xr-lineage-xr-lift:      0.018;     /* a card comes forward when pointed at */
-  --xr-lineage-xr-tube:      0.0055;    /* radius of a link */
+  /* the playing field (m): labels and their text; the headset places it at arm's length */
+  --xr-lineage-xr-dist:      1.05;
+  --xr-lineage-xr-drop:      0.12;      /* its center below eye height */
+  --xr-lineage-lift:         0.02;      /* a label comes forward when pointed at */
+  --xr-lineage-tube:         0.0055;    /* radius of a link */
+  --xr-lineage-zone:         2.6;       /* distance between the zones of the three stages */
 }
 
 /* ---------- status bar ---------- */
@@ -103,32 +112,26 @@
 .lin-bar--desk { right: auto; padding-right: var(--space-4); gap: var(--space-4); }
 
 /* ---------- the play area ---------- */
-.lin-play {
+.lin-play, .lin-foot {
   position: absolute;
-  top: calc(max(var(--space-3), env(safe-area-inset-top)) + var(--tap-min) + var(--space-2));
   left: max(var(--space-2), env(safe-area-inset-left));
   right: max(var(--space-2), env(safe-area-inset-right));
-  bottom: max(var(--xr-lineage-world-band), env(safe-area-inset-bottom));
   z-index: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--xr-lineage-gap);
   color: var(--xr-lineage-ink);
   font-size: var(--xr-lineage-font);
   line-height: 1.25;
+  pointer-events: none; /* the room below is the playing field */
   -webkit-user-select: none;
   user-select: none;
 }
+/* a shade behind the strip, so the prompt reads over whatever the room shows there */
+.lin-play::before { content: ""; position: absolute; inset: -5rem -2rem -0.5rem; z-index: -1; background: linear-gradient(to bottom, var(--xr-lineage-sky-top) 78%, transparent); opacity: 0.86; }
+.lin-play { top: calc(max(var(--space-3), env(safe-area-inset-top)) + var(--tap-min) + var(--space-2)); }
+.lin-foot { bottom: max(var(--space-2), env(safe-area-inset-bottom)); }
+.lin-play button { pointer-events: auto; }
+.lin-foot[hidden] { display: none; }
 .lin-play[hidden], .lin-bar[hidden], .lin-cardwrap[hidden] { display: none; }
-.lin-play::before { /* a light veil over the 3D world, so the cards read well */
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background: var(--xr-lineage-scrim);
-  pointer-events: none;
-}
-.lin-play > :not(.lin-pop) { width: 100%; max-width: var(--xr-lineage-max); margin-inline: auto; }
+.lin-play > *, .lin-foot > * { width: 100%; max-width: var(--xr-lineage-max); margin-inline: auto; }
 .lin-mono { font-family: var(--font-mono); font-weight: var(--font-weight-bold); letter-spacing: -0.01em; overflow-wrap: break-word; min-width: 0; }
 
 .lin-head { display: grid; gap: var(--space-1); flex: none; }
@@ -146,11 +149,11 @@
 .lin-strip__fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--xr-lineage-accent-soft); transition: width var(--motion-slow) var(--ease-out); }
 .lin-strip__num, .lin-strip__mark { position: relative; }
 .lin-strip__item.is-now { color: var(--xr-lineage-ink); border-color: var(--xr-lineage-accent); }
-.lin-strip__item.is-now .lin-strip__num { background: var(--xr-lineage-accent); color: var(--xr-lineage-card); }
+.lin-strip__item.is-now .lin-strip__num { background: var(--xr-lineage-accent); color: var(--xr-lineage-on-good); }
 .lin-strip__item.is-done { color: var(--xr-lineage-good); border-color: var(--xr-lineage-good-line); background: var(--xr-lineage-good-soft); }
-.lin-strip__item.is-done .lin-strip__num { background: var(--xr-lineage-good); color: var(--xr-lineage-card); }
+.lin-strip__item.is-done .lin-strip__num { background: var(--xr-lineage-good); color: var(--xr-lineage-on-good); }
 .lin-row { display: flex; align-items: center; gap: var(--space-2); min-height: 2.5em; }
-.lin-prompt { flex: 1 1 auto; margin: 0; font-weight: var(--font-weight-bold); font-size: 1.05em; }
+.lin-prompt { flex: 1 1 auto; margin: 0; font-weight: var(--font-weight-bold); font-size: 1.05em; text-shadow: 0 1px 6px var(--xr-lineage-sky-top), 0 0 2px var(--xr-lineage-sky-top); }
 .lin-speed { flex: none; display: grid; gap: 2px; width: 6.5em; font-size: var(--xr-lineage-font-small); color: var(--xr-lineage-muted); font-weight: var(--font-weight-bold); text-align: right; }
 .lin-speed[hidden] { display: grid; visibility: hidden; }
 .lin-speed__bar { height: 6px; border-radius: var(--radius-pill); background: var(--xr-lineage-tag); overflow: hidden; }
@@ -165,7 +168,6 @@
 .lin-hint[hidden] { display: none; }
 .lin-icon { width: 1.15em; height: 1.15em; flex: none; vertical-align: -0.2em; }
 
-.lin-board { position: relative; flex: 1 1 auto; min-height: 0; }
 .lin-feedback { /* a fixed line below the board; a long reason grows upwards over the board's edge, so nothing jumps */
   position: relative; flex: none; height: 3.1em; margin: 0; pointer-events: none; z-index: 2;
   font-weight: var(--font-weight-bold); font-size: var(--xr-lineage-font);
@@ -181,146 +183,13 @@
 .lin-feedback__box.is-new { animation: lin-rise var(--motion-base) var(--ease-out); }
 .lin-feedback .lin-icon { width: 1.5em; height: 1.5em; }
 
-/* ---------- stage 1: tiles ---------- */
-.lin-board--odd { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); align-content: center; }
-.lin-board--odd.lin-n3 { grid-template-columns: minmax(0, 1fr); }
-.lin-tile {
-  position: relative; display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start;
-  min-height: 6.5rem; padding: var(--space-3); text-align: left;
-  border: 2px solid var(--xr-lineage-card-border); border-radius: var(--xr-lineage-radius);
-  background: var(--xr-lineage-card); color: var(--xr-lineage-ink); box-shadow: var(--xr-lineage-shadow);
-  font: inherit; cursor: pointer;
-  transition: transform var(--motion-base) var(--xr-lineage-spring), box-shadow var(--motion-base), border-color var(--motion-fast), opacity var(--motion-base);
-  animation: lin-deal var(--motion-slow) var(--xr-lineage-spring) backwards;
-}
-.lin-tile:nth-child(2) { animation-delay: 60ms; }
-.lin-tile:nth-child(3) { animation-delay: 120ms; }
-.lin-tile:nth-child(4) { animation-delay: 180ms; }
-.lin-tile__num {
-  position: absolute; top: var(--space-2); right: var(--space-2);
-  display: none; place-items: center; width: 1.6em; height: 1.6em; border-radius: var(--radius-sm);
-  background: var(--xr-lineage-tag); color: var(--xr-lineage-muted); font-size: var(--xr-lineage-font-small); font-weight: var(--font-weight-bold);
-}
-.lin-play--desk .lin-tile__num { display: grid; }
-.lin-tile { container-type: inline-size; }
-.lin-tile__name { font-size: clamp(0.875rem, 10cqi, 1.15em); max-width: 100%; }
-.lin-tile__name:not(.lin-mono) { font-weight: var(--font-weight-bold); padding-right: 0; }
-.lin-tile__meta { display: grid; gap: 0.3em; font-size: var(--xr-lineage-font-small); color: var(--xr-lineage-muted); }
-.lin-part { display: flex; align-items: baseline; gap: 0.5em; flex-wrap: wrap; }
-.lin-part__label { flex: none; min-width: 3.2em; font-weight: var(--font-weight-bold); }
-.lin-part__text { color: var(--xr-lineage-ink); overflow-wrap: anywhere; }
-.lin-part.is-key { margin-inline: -0.35em; padding: 0.1em 0.35em; border-radius: var(--radius-sm); background: var(--xr-lineage-pulse-soft); outline: 2px solid var(--xr-lineage-pulse-line); }
-.lin-glyph {
-  display: inline-grid; place-items: center; min-width: 1.9em; height: 1.45em; padding: 0 0.3em; margin-right: 0.35em;
-  border-radius: 0.35em; background: var(--xr-lineage-ink); color: var(--xr-lineage-card);
-  font-family: var(--font-mono); font-size: 0.82em; font-weight: var(--font-weight-bold); line-height: 1; vertical-align: 0.05em;
-}
-.lin-tile__mark { position: absolute; right: var(--space-2); bottom: var(--space-2); display: none; align-items: center; gap: 0.3em; font-size: var(--xr-lineage-font-small); font-weight: var(--font-weight-bold); }
-.lin-tile.is-right { border-color: var(--xr-lineage-good-line); background: var(--xr-lineage-good-soft); animation: lin-snap var(--motion-slow) var(--xr-lineage-spring); }
-.lin-tile.is-answer { border-color: var(--xr-lineage-good-line); border-style: dashed; }
-.lin-tile.is-wrong { border-color: var(--xr-lineage-bad); background: var(--xr-lineage-bad-soft); animation: lin-shake var(--motion-slow) var(--ease-out); }
-.lin-tile.is-right .lin-tile__mark, .lin-tile.is-answer .lin-tile__mark { display: inline-flex; color: var(--xr-lineage-good); }
-.lin-tile.is-wrong .lin-tile__mark { display: inline-flex; color: var(--xr-lineage-bad); }
-.lin-tile.is-dim { opacity: 0.4; cursor: default; border-style: dotted; box-shadow: none; }
-.lin-tile:disabled { cursor: default; }
-.lin-tile.is-rest { opacity: 0.6; }
-
-/* ---------- stages 2 and 3: cards and lines ---------- */
-.lin-board--pairs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: var(--xr-lineage-lines-gap); touch-action: none; }
-.lin-board--graph { display: flex; flex-direction: column; justify-content: center; gap: 1.6rem; touch-action: none; }
-.lin-col { position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: center; gap: var(--xr-lineage-gap); min-width: 0; }
-.lin-board--graph .lin-col { flex-direction: row; align-items: stretch; }
-.lin-board--graph .lin-col > .lin-node { flex: 1 1 0; }
-.lin-col { padding-top: 1.5em; }
-.lin-col__label { position: absolute; top: 0; left: 0; margin: 0; font-size: var(--xr-lineage-font-small); font-weight: var(--font-weight-black); color: var(--xr-lineage-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.lin-board--graph .lin-col__label { display: none; }
-.lin-board--graph .lin-col { padding-top: 0; }
-.lin-node {
-  position: relative; display: flex; flex-direction: column; min-width: 0;
-  border: 2px solid var(--xr-lineage-card-border); border-radius: var(--xr-lineage-radius);
-  background: var(--xr-lineage-card); box-shadow: var(--xr-lineage-shadow);
-  transition: transform var(--motion-base) var(--xr-lineage-spring), box-shadow var(--motion-base), border-color var(--motion-fast), background var(--motion-base), opacity var(--motion-base);
-}
-.lin-node__main {
-  flex: 1 1 auto; display: flex; flex-direction: column; gap: 0.25em; align-items: flex-start; justify-content: center;
-  min-height: var(--tap-min); padding: var(--space-2); margin: 0; border: 0; border-radius: inherit;
-  background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; touch-action: none;
-}
-.lin-node__main:disabled { cursor: default; color: inherit; }
-.lin-node__title { display: flex; gap: 0.4em; align-items: flex-start; font-weight: var(--font-weight-bold); }
-.lin-node__title .lin-icon { margin-top: 0.05em; color: var(--xr-lineage-muted); }
-.lin-node__meta { font-size: var(--xr-lineage-font-small); color: var(--xr-lineage-muted); overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
-.lin-node__meta .lin-mono, .lin-part__text.lin-mono { overflow-wrap: anywhere; }
-.lin-node__meta b { color: var(--xr-lineage-ink); font-weight: var(--font-weight-medium); }
-.lin-node__need { font-size: var(--xr-lineage-font-small); color: var(--xr-lineage-accent); font-weight: var(--font-weight-bold); }
-.lin-node__need[hidden], .lin-node__tag[hidden], .lin-node__chips:empty { display: none; }
-.lin-node__tag { display: inline-flex; align-items: center; gap: 0.3em; font-size: var(--xr-lineage-font-small); font-weight: var(--font-weight-bold); }
-.lin-node__chips { display: flex; flex-wrap: wrap; gap: var(--space-1); padding: 0 var(--space-2) var(--space-2); }
-.lin-chip {
-  display: inline-flex; align-items: center; gap: 0.3em; min-height: 2.25rem; padding: 0.2em 0.7em;
-  border: 2px dashed var(--xr-lineage-ai); border-radius: var(--radius-pill);
-  background: var(--xr-lineage-ai-soft); color: var(--xr-lineage-ai);
-  font: inherit; font-size: var(--xr-lineage-font-small); font-weight: var(--font-weight-bold); text-align: left; cursor: pointer;
-  position: relative; overflow-wrap: anywhere;
-  transition: transform var(--motion-base) var(--xr-lineage-spring), background var(--motion-fast);
-}
-.lin-chip { flex-wrap: wrap; column-gap: 0.45em; row-gap: 0; }
-.lin-chip__conf { white-space: nowrap; }
-.lin-chip__name { color: var(--xr-lineage-ink); }
-.lin-chip::after { content: ""; position: absolute; inset: -5px -2px; } /* finger-sized target */
-.lin-chip:hover { background: var(--xr-lineage-card); transform: translateY(-1px); }
-.lin-chip:active { transform: scale(0.97); }
-.lin-chip--missed { border-style: solid; border-color: var(--xr-lineage-bad); background: var(--xr-lineage-bad-soft); color: var(--xr-lineage-bad); cursor: default; min-height: 0; padding: 0.1em 0.6em; }
-.lin-chip--missed::after { display: none; }
-.lin-node.is-on:hover, .lin-tile:hover:not(:disabled) { transform: translateY(-3px); box-shadow: var(--xr-lineage-shadow-lift); border-color: var(--xr-lineage-accent); }
-.lin-node.is-on:active, .lin-tile:active:not(:disabled) { transform: translateY(0) scale(0.985); }
-.lin-node.is-off { box-shadow: none; background: var(--xr-lineage-card-soft); }
-.lin-node.is-off:not(.is-done) .lin-node__main { opacity: 0.75; }
-.lin-node.is-sel { border-color: var(--xr-lineage-accent); background: var(--xr-lineage-accent-soft); transform: translateY(-3px) scale(1.02); box-shadow: var(--xr-lineage-shadow-lift); }
-.lin-node.is-done { border-color: var(--xr-lineage-good-line); background: var(--xr-lineage-good-soft); }
-.lin-node.is-done .lin-node__tag { color: var(--xr-lineage-good); }
-.lin-node.is-snap { animation: lin-snap var(--motion-slow) var(--xr-lineage-spring); }
-.lin-node.is-shake { animation: lin-shake var(--motion-slow) var(--ease-out); border-color: var(--xr-lineage-bad); }
-.lin-node.is-changed { border-color: var(--xr-lineage-pulse-line); background: var(--xr-lineage-pulse-soft); animation: lin-glow 1.6s ease-in-out infinite; }
-.lin-node.is-changed .lin-node__tag { color: var(--xr-lineage-pulse); }
-.lin-node.is-ask { border-color: var(--xr-lineage-accent); border-style: dashed; }
-.lin-node.is-pick { border-color: var(--xr-lineage-pulse-line); border-style: dashed; box-shadow: var(--xr-lineage-shadow-lift); }
-.lin-node.is-hit { border-color: var(--xr-lineage-pulse-line); background: var(--xr-lineage-pulse-soft); }
-.lin-node.is-hit .lin-node__tag { color: var(--xr-lineage-pulse); }
-.lin-node.is-miss { border-color: var(--xr-lineage-bad); border-style: dotted; background: var(--xr-lineage-card-soft); }
-.lin-node.is-miss .lin-node__tag { color: var(--xr-lineage-bad); }
-.lin-node--rep .lin-node__main { justify-content: flex-start; }
-
-.lin-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
-.lin-line { fill: none; stroke-linecap: round; }
-.lin-line--under { stroke: var(--xr-lineage-line-under); stroke-width: calc(var(--xr-lineage-line-width) + 4px); }
-.lin-line--fixed { stroke: var(--xr-lineage-line); stroke-width: var(--xr-lineage-line-width); }
-.lin-line--done { stroke: var(--xr-lineage-good-line); stroke-width: calc(var(--xr-lineage-line-width) + 1px); filter: drop-shadow(0 0 4px var(--xr-lineage-good-line)); }
-.lin-line--flow { stroke: var(--xr-lineage-line-under); stroke-width: 2px; stroke-dasharray: 3 15; animation: lin-flow 0.9s linear infinite; opacity: 0.95; }
-.lin-line--ai { stroke: var(--xr-lineage-ai); stroke-width: 2.5px; stroke-dasharray: 2 8; opacity: 0.75; }
-.lin-line--pulse { stroke: var(--xr-lineage-pulse-line); stroke-width: calc(var(--xr-lineage-line-width) + 2px); filter: drop-shadow(0 0 5px var(--xr-lineage-pulse-line)); }
-.lin-line--pulseflow { stroke: var(--xr-lineage-ink); stroke-width: 2px; stroke-dasharray: 2 12; animation: lin-flow 0.6s linear infinite; }
-.lin-line--drag { stroke: var(--xr-lineage-accent); stroke-width: var(--xr-lineage-line-width); stroke-dasharray: 6 6; }
-.lin-line--wrong { stroke: var(--xr-lineage-bad); stroke-width: var(--xr-lineage-line-width); animation: lin-wrong-line 0.7s var(--ease-out) forwards; }
-.lin-line--draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: lin-draw var(--motion-slow) var(--ease-out) forwards; }
-.lin-dot { fill: var(--xr-lineage-good); stroke: var(--xr-lineage-line-under); stroke-width: 2px; }
-.lin-dot__mark { fill: none; stroke: var(--xr-lineage-card); stroke-width: 2px; stroke-linecap: round; stroke-linejoin: round; }
-
-.lin-pop {
-  position: fixed; z-index: 3; transform: translate(-50%, -50%); pointer-events: none;
-  padding: 0.1em 0.6em; border-radius: var(--radius-pill); white-space: nowrap;
-  background: var(--xr-lineage-good); color: var(--xr-lineage-card); box-shadow: var(--xr-lineage-shadow-lift);
-  font-size: 1.15rem; font-weight: var(--font-weight-black);
-  animation: lin-pop 1.1s var(--ease-out) forwards;
-}
-
 /* ---------- the card that opens a stage ---------- */
 .lin-cardwrap { position: absolute; inset: 0; z-index: 2; display: grid; place-items: start center; padding: 5.5rem var(--space-4) var(--space-4); }
-.lin-play.is-card .lin-row, .lin-play.is-card .lin-board, .lin-play.is-card .lin-feedback { visibility: hidden; }
+.lin-play.is-card .lin-row { visibility: hidden; }
 .lin-card {
   display: grid; gap: var(--space-3); width: min(100%, 30rem); padding: var(--space-5);
   border: 2px solid var(--xr-lineage-card-border); border-radius: var(--radius-lg);
-  background: var(--xr-lineage-card); color: var(--xr-lineage-ink); box-shadow: var(--xr-lineage-shadow-lift);
+  background: var(--xr-lineage-card); color: var(--xr-lineage-ink); box-shadow: var(--xr-lineage-shadow);
   font-size: var(--xr-lineage-font); animation: lin-deal var(--motion-slow) var(--xr-lineage-spring);
 }
 .lin-card h2 { margin: 0; font-size: 1.5em; font-weight: var(--font-weight-black); }
@@ -328,174 +197,50 @@
 .lin-card__ai { display: flex; gap: var(--space-2); align-items: flex-start; padding: var(--space-2) var(--space-3); border: 2px dashed var(--xr-lineage-ai); border-radius: var(--xr-lineage-radius); background: var(--xr-lineage-ai-soft); color: var(--xr-lineage-ai); font-weight: var(--font-weight-bold); }
 .lin-card__go {
   justify-self: center; min-height: var(--tap-min); min-width: 10rem; padding: 0 var(--space-5);
-  border: 0; border-radius: var(--radius-pill); background: var(--xr-lineage-accent); color: var(--xr-lineage-card);
+  border: 0; border-radius: var(--radius-pill); background: var(--xr-lineage-accent); color: var(--xr-lineage-on-good);
   font: inherit; font-weight: var(--font-weight-black); cursor: pointer;
   transition: transform var(--motion-base) var(--xr-lineage-spring);
 }
 .lin-card__go:hover { transform: translateY(-2px); }
 
-.lin-play button:focus-visible, .lin-cardwrap button:focus-visible, .lin-bar button:focus-visible { outline: 3px solid var(--xr-lineage-ink); outline-offset: 2px; }
+
+.lin-play button:focus-visible, .lin-cardwrap button:focus-visible, .lin-bar button:focus-visible { outline: 3px solid var(--xr-lineage-focus); outline-offset: 2px; }
 
 @keyframes lin-deal { from { opacity: 0; transform: translateY(14px) scale(0.96); } }
 @keyframes lin-rise { from { opacity: 0; transform: translateY(6px); } }
-@keyframes lin-snap { 0% { transform: scale(1); } 40% { transform: scale(1.06); } 100% { transform: scale(1); } }
-@keyframes lin-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-7px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(2px); } }
-@keyframes lin-glow { 50% { box-shadow: 0 0 0 5px var(--xr-lineage-pulse-soft), var(--xr-lineage-shadow); } }
-@keyframes lin-flow { to { stroke-dashoffset: -18; } }
-@keyframes lin-draw { to { stroke-dashoffset: 0; } }
-@keyframes lin-wrong-line { 0% { opacity: 1; transform: translate(0, 0); } 20% { transform: translate(0, -4px); } 40% { transform: translate(0, 4px); } 60% { transform: translate(0, -2px); opacity: 1; } 100% { opacity: 0; transform: translate(0, 10px); } }
-@keyframes lin-pop { 0% { opacity: 0; margin-top: 8px; scale: 0.6; } 18% { opacity: 1; scale: 1.15; } 30% { scale: 1; } 75% { opacity: 1; } 100% { opacity: 0; margin-top: -46px; } }
 @keyframes lin-pop-in { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }
-@keyframes lin-fade { from { opacity: 0.2; } }
 @keyframes lin-toast { 0% { opacity: 0; transform: translateY(6px); } 5% { opacity: 1; transform: none; } 85% { opacity: 1; } 100% { opacity: 0; } }
 
-/* Calm motion: no shake, no flowing lines, no bouncing; soft fades instead. */
-.lin-play.is-calm *, .lin-cardwrap.is-calm * { transition-duration: 1ms !important; }
-.lin-play.is-calm .lin-tile, .lin-cardwrap.is-calm .lin-card { animation: none; }
-.lin-play.is-calm .lin-tile.is-right, .lin-play.is-calm .lin-tile.is-wrong, .lin-play.is-calm .lin-node.is-snap, .lin-play.is-calm .lin-node.is-shake { animation: lin-fade var(--motion-slow) ease-out; }
-.lin-play.is-calm .lin-node.is-changed { animation: none; }
-.lin-play.is-calm .lin-line--flow, .lin-play.is-calm .lin-line--pulseflow { animation: none; display: none; }
-.lin-play.is-calm .lin-line--draw { animation: none; stroke-dasharray: none; }
-.lin-play.is-calm .lin-line--wrong { animation: lin-fade 0.7s ease-in reverse forwards; }
-.lin-play.is-calm .lin-pop { animation: lin-fade 1.1s ease-in reverse forwards; }
-.lin-play.is-calm .lin-node.is-on:hover, .lin-play.is-calm .lin-tile:hover:not(:disabled), .lin-play.is-calm .lin-node.is-sel { transform: none; }
+/* Calm motion: no bouncing. */
+.lin-play.is-calm *, .lin-cardwrap.is-calm * { transition-duration: 1ms !important; animation-duration: 1ms !important; }
 
-/* ---------- wide screens: phones held sideways and desktop ---------- */
-@media (orientation: landscape) {
-  .lin-board--odd, .lin-board--odd.lin-n3 { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
-  .lin-board--graph { flex-direction: row; align-items: stretch; gap: var(--xr-lineage-lines-gap); }
-  .lin-board--graph .lin-col { flex: 1 1 0; flex-direction: column; }
-  .lin-board--graph .lin-col > .lin-node { flex: 0 1 auto; }
-  .lin-board--graph .lin-col__label { display: block; }
-  .lin-board--graph .lin-col { padding-top: 1.5em; }
-  .lin-head { grid-template-columns: minmax(0, 1fr); }
-}
-/* A phone held sideways: little height. One row for the stages and the prompt; compact cards. */
+/* A phone held sideways: one slim row for the stages and the prompt; the feedback is a toast. */
 @media (orientation: landscape) and (max-height: 520px) {
-  .lin-play { gap: var(--space-1); --xr-lineage-gap: 0.3rem; }
-  .lin-head { grid-template-columns: minmax(0, 15rem) minmax(0, 1fr); align-items: center; gap: var(--space-2); }
+  .lin-head { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-2); }
+  .lin-play--side { right: calc(max(var(--space-3), env(safe-area-inset-right)) + var(--stage-close-width) + var(--space-3)); }
+  .lin-play--side .lin-head { min-height: var(--tap-min); }
+  .lin-play--side .lin-prompt { font-size: var(--xr-lineage-font-small); line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .lin-play--side .lin-hint { padding: 0 var(--space-2); }
   .lin-strip__name { display: none; }
-  .lin-strip__item.is-now .lin-strip__name { display: block; }
-  .lin-strip__item:not(.is-now) { flex: 0 0 auto; }
+  .lin-strip__item { flex: 0 0 auto; }
   .lin-row { min-height: 0; }
   .lin-prompt { font-size: 1em; }
-  /* No room for a line of its own: the feedback lies over the foot of the board for a few
-     seconds (taps go through it) and then fades. */
-  .lin-feedback { position: absolute; left: 0; right: 0; bottom: 0; height: auto; min-height: 2.4em; }
-  .lin-feedback__box { position: relative; min-height: 2.4em; }
-  .lin-feedback__box.is-new { animation: lin-toast 5s var(--ease-out) forwards; }
-  .lin-board--graph { --xr-lineage-lines-gap: 1.75rem; }
-  .lin-board--graph .lin-chip__name { display: none; }
-  .lin-board--graph .lin-chip { padding-inline: 0.4em; gap: 0.2em; }
-  .lin-board--graph .lin-node__chips { gap: 0.2rem; flex-wrap: nowrap; padding: 0 var(--space-2) var(--space-1); }
-  .lin-board--graph .lin-node__title .lin-icon { display: none; }
   .lin-speed { display: none; }
-  .lin-tile { min-height: 0; padding: var(--space-2); gap: var(--space-1); }
-  .lin-board--pairs .lin-node { flex-direction: row; align-items: center; }
-  .lin-board--pairs .lin-node__chips { flex: none; max-width: 46%; padding: var(--space-1) var(--space-2) var(--space-1) 0; }
-  .lin-board--pairs .lin-node--field .lin-node__main { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; column-gap: 0.7em; row-gap: 0; }
-  .lin-board--pairs .lin-chip { min-height: 2rem; }
-  .lin-board--pairs .lin-chip__name { display: none; }
-  /* "connected" is a check in the card's corner here (its word stays for screen readers) */
-  .lin-board--pairs .lin-node__tag { position: absolute; right: 0.45rem; top: 50%; transform: translateY(-50%); }
-  .lin-board--pairs .lin-node__tag .lin-icon { width: 1.5em; height: 1.5em; }
-  .lin-board--pairs .lin-node__tagtext { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .lin-board--pairs .lin-node.is-done .lin-node__main { padding-right: 2.2rem; }
-  .lin-chip::after { inset: -6px -2px; }
-  .lin-node__main { padding: var(--space-1) var(--space-2); gap: 0.1em; }
-  .lin-board--graph .lin-col__label { display: none; }
-.lin-board--graph .lin-col { padding-top: 0; }
-  .lin-col { gap: 0.3rem; }
+  .lin-foot .lin-feedback__box.is-new { animation: lin-toast 5s var(--ease-out) forwards; }
   .lin-cardwrap { place-items: center; padding: var(--space-3); }
   .lin-card { padding: var(--space-3); gap: var(--space-2); width: min(100%, 36rem); }
   .lin-card h2 { font-size: 1.25em; }
 }
-/* Long texts on a small phone (set by the layout when a board would not fit): tighter cards. */
-.lin-board--graph.is-tight .lin-node__main { padding-block: 0.15rem; gap: 0; line-height: 1.18; }
-.lin-board--graph.is-tight .lin-col { gap: 0.2rem; }
-/* A phone held upright has room in stage 1: larger tiles. */
-@media (orientation: portrait) and (min-height: 640px) {
-  .lin-play:not(.lin-play--desk)[data-kind="odd"] { --xr-lineage-world-band: 27vh; }
-  .lin-play:not(.lin-play--desk) .lin-tile { min-height: 7.5rem; justify-content: center; }
-  .lin-play:not(.lin-play--desk) .lin-n3 .lin-tile { min-height: 5.5rem; }
-  .lin-play:not(.lin-play--desk) .lin-tile__name { font-size: clamp(0.875rem, 10cqi, 1.3em); }
-}
-/* Narrow phones: the bar keeps to one line (numbers without their words). */
 @media (max-width: 480px) {
   .lin-bar { gap: var(--space-2); }
   .lin-bar__word { display: none; }
   .lin-strip__item { padding-inline: 0.4em; }
+  .lin-speed { width: 5.5em; }
 }
-/* A phone held upright: the graph runs from top (sources) to bottom (reports). Compact cards;
-   the assistant's tag shows its confidence, the dashed line shows where the proposal leads. */
-@media (orientation: portrait) {
-  .lin-board--graph { gap: 1rem; }
-  .lin-board--graph .lin-col { gap: 0.3rem; }
-  .lin-board--graph .lin-node__main { padding: 0.3rem 0.4rem; gap: 0.15em; }
-  .lin-board--graph .lin-node__title .lin-icon { display: none; }
-  .lin-board--graph .lin-node__chips { padding: 0 0.4rem 0.3rem; }
-  .lin-board--graph .lin-chip__name { display: none; }
-  .lin-board--graph .lin-chip { padding-inline: 0.4em; gap: 0.2em; }
-  .lin-board--graph .lin-node__chips { gap: 0.2rem; flex-wrap: nowrap; }
-  .lin-play[data-kind="graph"] { gap: 0.3rem; }
-  .lin-play[data-kind="graph"] .lin-prompt { font-size: 1em; }
-  .lin-play[data-kind="graph"] .lin-row { min-height: 0; }
-  .lin-play[data-kind="graph"] .lin-feedback { height: 2.6em; }
-  .lin-play[data-kind="graph"] .lin-speed { display: none; }
-  /* Long texts on a small phone: tighter still, before anything is cut off. */
-  .lin-board--pairs.is-tight .lin-col { gap: 0.3rem; padding-top: 1.35em; }
-  .lin-board--pairs.is-tight .lin-node__main { padding: 0.3rem 0.4rem; min-height: 0; }
-  .lin-board--pairs.is-tight .lin-node__chips { padding: 0 0.4rem 0.3rem; }
-  .lin-board--pairs.is-tight .lin-chip { min-height: 2rem; }
-  .lin-board--pairs.is-tight .lin-chip::after { inset: -6px -2px; }
-  .lin-board--graph.is-tight { gap: 0.8rem; }
-}
-
-/* Desktop: larger type, more air, and room below the board for the data landscape. */
-.lin-play--desk {
-  --xr-lineage-font: 1.0625rem;
-  --xr-lineage-font-small: 1rem;
-  --xr-lineage-gap: 0.75rem;
-  --xr-lineage-lines-gap: 5.5rem;
-  --xr-lineage-line-width: 4px;
-  top: calc(var(--space-3) + var(--tap-min) + var(--space-4));
-  left: var(--space-5);
-  right: var(--space-5);
-  --xr-lineage-world-band: 19vh;
-  gap: var(--space-3);
-}
-/* Stage 1 needs little room: the landscape gets a third of the window. */
-.lin-play--desk[data-kind="odd"] { --xr-lineage-world-band: 36vh; }
-.lin-play--desk .lin-tile { min-height: 12.5rem; padding: var(--space-4) var(--space-5); gap: var(--space-3); justify-content: center; }
-.lin-play--desk .lin-tile__name { font-size: clamp(1rem, 10cqi, 1.6em); }
-.lin-play--desk .lin-tile__meta { font-size: 1.05em; gap: 0.45em; }
-.lin-play--desk .lin-node__main { padding: var(--space-2) var(--space-3); }
-.lin-play--desk .lin-node__chips { padding: 0 var(--space-3) var(--space-2); }
-.lin-play--desk .lin-board--graph { --xr-lineage-lines-gap: 4rem; }
-.lin-play--desk .lin-board--pairs { max-width: 62rem; }
-.lin-play--desk .lin-board--pairs .lin-node { flex-direction: row; align-items: center; }
-.lin-play--desk .lin-board--pairs .lin-node__tag { position: absolute; right: var(--space-3); top: 50%; transform: translateY(-50%); }
-.lin-play--desk .lin-board--pairs .lin-node.is-done .lin-node__main { padding-right: 8.5em; }
-.lin-play--desk .lin-board--pairs .lin-node__chips { flex: none; max-width: 48%; padding: var(--space-2) var(--space-3) var(--space-2) 0; }
-.lin-play--desk .lin-feedback { height: 3.4em; }
-@media (max-height: 800px) {
-  .lin-play--desk { --xr-lineage-world-band: 13vh; gap: var(--space-2); --xr-lineage-gap: 0.5rem; }
-  .lin-play--desk[data-kind="odd"] { --xr-lineage-world-band: 35vh; }
-  .lin-play--desk .lin-tile { min-height: 11rem; }
-}
-/* A low desktop window (a small laptop): the landscape gives its room to the board. */
-@media (max-height: 680px) {
-  .lin-play--desk { --xr-lineage-world-band: var(--space-2); }
-  .lin-play--desk[data-kind="odd"] { --xr-lineage-world-band: 26vh; }
-  .lin-play--desk .lin-tile { min-height: 8.5rem; }
-  .lin-play--desk .lin-node__main { padding-block: var(--space-1); }
-}
-@media (min-height: 900px) {
-  .lin-play--desk { --xr-lineage-world-band: 26vh; }
-  .lin-play--desk[data-kind="odd"] { --xr-lineage-world-band: 40vh; }
-}
+/* Desktop: larger type. */
+.lin-play--desk, .lin-foot--desk { --xr-lineage-font: 1.0625rem; --xr-lineage-font-small: 1rem; }
+.lin-play--desk { top: calc(var(--space-3) + var(--tap-min) + var(--space-4)); left: var(--space-5); right: var(--space-5); }
+.lin-foot--desk { left: var(--space-5); right: var(--space-5); bottom: var(--space-4); }
 @media (min-width: 1600px) and (min-height: 900px) {
-  .lin-play--desk { --xr-lineage-font: 1.25rem; --xr-lineage-font-small: 1.0625rem; --xr-lineage-max: 84rem; --xr-lineage-lines-gap: 7rem; }
-  .lin-play--desk .lin-board--pairs { max-width: 74rem; }
-  .lin-play--desk .lin-tile { min-height: 13rem; }
+  .lin-play--desk, .lin-foot--desk { --xr-lineage-font: 1.25rem; --xr-lineage-font-small: 1.0625rem; --xr-lineage-max: 84rem; }
 }

@@ -113,7 +113,7 @@ addStrings({
     bricksTagU1: 'pflegeleicht',
     'bricksTagU-1': 'viel Pflege',
     bricksNeed_space: 'Stauraum',
-    bricksNeed_kids: 'Platz zum Spielen',
+    bricksNeed_kids: 'Spielplatz',
     bricksNeed_access: 'stufenlos',
     bricksNeed_light: 'viel Licht',
     bricksNeed_car: 'Stellplatz',

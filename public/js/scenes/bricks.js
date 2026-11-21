@@ -242,13 +242,12 @@ export class BricksScene extends BaseScene {
       this.firLights.visible = false;
       this.plotRoot.add(this.firLights);
     }
-    // The weather of the place: in the windy hillside village snow lies and falls.
-    const place = this.round.brief.place.id;
-    this.snowLevel = place === 'hill' ? 0.24 : 0;
+    // The weather of the place: in the windy hillside village it snows (the snow does not
+    // settle, so the roofs and walls keep showing what was chosen).
     this.snow = makeSnowfall({ density: 0.6 });
-    this.snow.density = place === 'hill' ? (this.calm ? 0.2 : 0.4) : 0;
+    this.snow.density = this.round.brief.place.id === 'hill' ? (this.calm ? 0.2 : 0.45) : 0;
     this.group.add(this.snow.points);
-    setSnowAmount(this.snowLevel);
+    setSnowAmount(0);
     this.buildNeighbors(M);
     // Headset: a soft shadow under each plot, so the dioramas sit on the table or the floor.
     if (this.engine.isXR) {
@@ -444,6 +443,9 @@ export class BricksScene extends BaseScene {
       this.extrasAdvice = this.ai.adviseExtras(this.choices, this.left());
       this.advice = this.extrasAdvice;
     } else this.advice = this.extrasAdvice;
+    // What can no longer change becomes one mesh per material (few draw calls): everything but the last choice and the extras.
+    this.house.freeze([DECISIONS[this.step - 1], 'extras']);
+    this.nb.house.freeze();
     this.makeCards();
     this.setGo('bricksConfirm');
     this.backBtn.set({ disabled: this.step === 0 || this.undone.has(this.step - 1) });
@@ -733,6 +735,8 @@ export class BricksScene extends BaseScene {
 
   openCheck() {
     this.mode = 'check';
+    this.house.freeze();
+    this.nb.house.freeze();
     const me = this.result;
     const them = this.round.neighbor.result;
     const diff = me.total - them.total;
@@ -967,7 +971,8 @@ export class BricksScene extends BaseScene {
       const rows = extras ? 2 : 1;
       const cardW = Math.min((W - (cols + 1) * m) / cols, extras ? 300 : 370, (((Hh - top) * (extras ? 0.2 : 0.33)) / ch) * cw);
       const cardH = (cardW / cw) * ch;
-      const cardsH = rows * cardH + (rows - 1) * m;
+      // When the house is finished, it gets the room of the cards too.
+      const cardsH = this.mode === 'finale' ? 0 : rows * cardH + (rows - 1) * m;
       const cardsY = Hh - m - cardsH;
       const x0 = (W - cols * cardW - (cols - 1) * m) / 2;
       out.cards = Array.from({ length: n }, (_, i) => ({ x: x0 + (i % cols) * (cardW + m), y: cardsY + Math.floor(i / cols) * (cardH + m), w: cardW, h: cardH }));
@@ -996,7 +1001,7 @@ export class BricksScene extends BaseScene {
       const briefH = ((W - 2 * m) / 0.9) * (slim ? 0.225 : 0.375);
       const askH = 48;
       const cardH = Math.min((cardW / cw) * ch, (Hh - top - briefH - askH - (slim ? 120 : 175) - (rows + 3) * m) / rows);
-      const cardsH = rows * cardH + (rows - 1) * (m - 2);
+      const cardsH = this.mode === 'finale' ? 0 : rows * cardH + (rows - 1) * (m - 2);
       const cardsY = Hh - m - cardsH;
       out.cards = Array.from({ length: n }, (_, i) => ({ x: m + (i % cols) * (cardW + m), y: cardsY + Math.floor(i / cols) * (cardH + m - 2), w: cardW, h: cardH }));
       out.cols = cols;

@@ -81,6 +81,18 @@ class Bits {
     this.mesh.setMatrixAt(i, _m.compose(_p.set(it.x, y, it.z), _q, _s.set(sx * f, sy * f * fy, sz * f)));
   }
 
+  /** Every piece as [geometry, matrix, tint] where it stands (for merging). */
+  pieces() {
+    return this.items.map((it, i) => {
+      this.place(i, it, 1);
+      const m = new THREE.Matrix4();
+      this.mesh.getMatrixAt(i, m);
+      const k = it.tint ?? 1;
+      const warm = it.warm ?? 0;
+      return [this.mesh.geometry, m, new THREE.Color(k * (1 + warm), k, k * (1 - warm))];
+    });
+  }
+
   /** dur: seconds one piece takes; with dt = Infinity everything is in place at once. */
   update(dt, dur = 0.22) {
     if (!this.active) return false;
@@ -99,16 +111,71 @@ class Bits {
   }
 }
 
-/** Merges non-indexed geometries that all have position, normal and color into one. */
-function mergeGeometries(geos) {
-  const out = new THREE.BufferGeometry();
+const flatCache = new WeakMap();
+/** A geometry as plain float arrays (non-indexed position, normal, color), cached per geometry. */
+function flat(geo) {
+  let f = flatCache.get(geo);
+  if (f) return f;
+  const g = geo.index ? geo.toNonIndexed() : geo.clone();
+  if (!g.attributes.normal) g.computeVertexNormals();
+  white(g);
+  f = {};
   for (const name of ['position', 'normal', 'color']) {
-    const arr = new Float32Array(geos.reduce((n, g) => n + g.attributes[name].count * 3, 0));
-    let at = 0;
-    for (const g of geos) { arr.set(g.attributes[name].array, at); at += g.attributes[name].count * 3; }
-    out.setAttribute(name, new THREE.BufferAttribute(arr, 3));
+    const src = g.attributes[name];
+    const arr = new Float32Array(src.count * 3);
+    for (let i = 0; i < src.count; i++) { arr[i * 3] = src.getX(i); arr[i * 3 + 1] = src.getY(i); arr[i * 3 + 2] = src.getZ(i); }
+    f[name] = arr;
   }
-  return out;
+  f.count = g.attributes.position.count;
+  g.dispose();
+  flatCache.set(geo, f);
+  return f;
+}
+const _n = new THREE.Matrix3();
+const _v = new THREE.Vector3();
+/** Writes a geometry, moved by `matrix` and tinted, into the arrays of `out` at vertex `at`. */
+function writeInto(out, at, geo, matrix, tint = null) {
+  const f = flat(geo);
+  _n.getNormalMatrix(matrix);
+  for (let i = 0; i < f.count; i++) {
+    const k = i * 3;
+    const o = (at + i) * 3;
+    _v.set(f.position[k], f.position[k + 1], f.position[k + 2]).applyMatrix4(matrix);
+    out.position[o] = _v.x; out.position[o + 1] = _v.y; out.position[o + 2] = _v.z;
+    _v.set(f.normal[k], f.normal[k + 1], f.normal[k + 2]).applyMatrix3(_n).normalize();
+    out.normal[o] = _v.x; out.normal[o + 1] = _v.y; out.normal[o + 2] = _v.z;
+    out.color[o] = f.color[k] * (tint ? tint.r : 1); out.color[o + 1] = f.color[k + 1] * (tint ? tint.g : 1); out.color[o + 2] = f.color[k + 2] * (tint ? tint.b : 1);
+  }
+  return at + f.count;
+}
+/** One geometry from a list of [geometry, matrix, tint]. */
+function fuse(list) {
+  const n = list.reduce((s, [geo]) => s + flat(geo).count, 0);
+  const out = { position: new Float32Array(n * 3), normal: new Float32Array(n * 3), color: new Float32Array(n * 3) };
+  let at = 0;
+  for (const [geo, matrix, tint] of list) at = writeInto(out, at, geo, matrix, tint);
+  const g = new THREE.BufferGeometry();
+  for (const name of ['position', 'normal', 'color']) g.setAttribute(name, new THREE.BufferAttribute(out[name], 3));
+  return g;
+}
+
+/** Fuses the meshes inside a group into one per material (the group then animates as before, with fewer draw calls). */
+function compact(obj) {
+  if (obj.isMesh) return;
+  obj.updateMatrixWorld(true);
+  const inv = obj.matrixWorld.clone().invert();
+  const by = new Map();
+  const dead = [];
+  obj.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh) return;
+    (by.get(o.material) ?? by.set(o.material, []).get(o.material)).push([o.geometry, new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld), null]);
+    dead.push(o);
+  });
+  if (dead.length <= by.size) return;
+  const made = [...by].map(([mat, list]) => { const m = new THREE.Mesh(fuse(list), mat); m.userData.ownGeo = true; return m; });
+  for (const o of dead) { if (o.userData.ownGeo) o.geometry.dispose(); }
+  obj.clear();
+  for (const m of made) obj.add(m);
 }
 
 /** A plain box mesh. */
@@ -157,7 +224,8 @@ export class House {
     this.glass.emissive = new THREE.Color(hex('xr-bricks-window-light'));
     this.glass.emissiveIntensity = 0;
     this.clear = new THREE.MeshStandardMaterial({ color: hex('xr-bricks-crane-glass'), roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.42, depthWrite: false });
-    this.parts = {}; // decision -> { groups, bits, singles, geos }
+    this.parts = {}; // decision (or 'x:' + extra) -> { home, site, bits, singles }
+    this.pool = { home: new Map(), site: new Map() }; // frozen parts: one mesh per material
     this.chosen = {};
     this.extras = new Set();
     this.smokeAt = null; // house-local point where chimney smoke rises (wood stove)
@@ -199,6 +267,7 @@ export class House {
     if (!obj) return null;
     (site ? this.cur.site : this.cur.home).add(obj);
     obj.traverse((m) => { if (!m.isMesh) return; white(m.geometry); if (m.material.name === 'Glass') m.material = this.glass; });
+    compact(obj);
     shadows(obj, this.cast);
     this.cur.singles.push({ obj, t: -delay, how, base: obj.scale.clone(), y: obj.position.y, lift, done: false });
     obj.visible = false;
@@ -264,8 +333,8 @@ export class House {
   }
 
   /**
-   * A part that stands still becomes one mesh per material (fewer draw calls): all its single
-   * meshes are merged in place. Things that move later (the door) are marked noBake.
+   * A part that stands still becomes one mesh per material (fewer draw calls): its single meshes
+   * and its instanced pieces are merged in place. Things that move later (the door) are noBake.
    */
   bake(part) {
     for (const g of [part.home, part.site]) {
@@ -273,38 +342,66 @@ export class House {
       const inv = g.matrixWorld.clone().invert();
       const by = new Map();
       const dead = [];
+      const add = (mat, entry) => (by.get(mat) ?? by.set(mat, []).get(mat)).push(entry);
       g.traverse((o) => {
-        if (!o.isMesh || o.isInstancedMesh || !o.visible) return;
+        if (!o.isMesh || !o.visible) return;
         for (let q = o; q && q !== g; q = q.parent) if (q.userData.noBake) return;
-        let geo = o.geometry.clone();
-        if (geo.index) { const flat = geo.toNonIndexed(); geo.dispose(); geo = flat; }
-        for (const name of Object.keys(geo.attributes)) if (!['position', 'normal', 'color'].includes(name)) geo.deleteAttribute(name);
-        if (!geo.attributes.normal) geo.computeVertexNormals();
-        white(geo);
-        // Plain float attributes (the model's may be packed).
-        for (const name of ['position', 'normal', 'color']) {
-          const src = geo.attributes[name];
-          if (src.itemSize === 3 && !src.normalized && src.array instanceof Float32Array && !src.isInterleavedBufferAttribute) continue;
-          const arr = new Float32Array(src.count * 3);
-          for (let i = 0; i < src.count; i++) { arr[i * 3] = src.getX(i); arr[i * 3 + 1] = src.getY(i); arr[i * 3 + 2] = src.getZ(i); }
-          geo.setAttribute(name, new THREE.BufferAttribute(arr, 3));
-        }
-        geo.applyMatrix4(_m.multiplyMatrices(inv, o.matrixWorld));
-        (by.get(o.material) ?? by.set(o.material, []).get(o.material)).push(geo);
+        if (o.isInstancedMesh) {
+          const bits = part.bits.find((b) => b.mesh === o);
+          if (!bits) return;
+          const rel = new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
+          for (const [geo, m, tint] of bits.pieces()) add(o.material, [geo, m.premultiply(rel), tint]);
+        } else add(o.material, [o.geometry, new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld), null]);
         dead.push(o);
       });
-      for (const o of dead) { if (o.userData.ownGeo) o.geometry.dispose(); o.removeFromParent(); }
-      for (const [mat, geos] of by) {
-        const merged = geos.length > 1 ? mergeGeometries(geos) : geos[0];
-        if (geos.length > 1) geos.forEach((x) => x.dispose());
-        if (!merged) continue;
-        const m = new THREE.Mesh(merged, mat);
+      const made = [...by].map(([mat, list]) => {
+        const m = new THREE.Mesh(fuse(list), mat);
         m.userData.ownGeo = true;
+        m.userData.baked = true;
         m.castShadow = this.cast;
         m.receiveShadow = true;
-        g.add(m);
+        return m;
+      });
+      for (const o of dead) { if (o.isInstancedMesh) o.dispose(); else if (o.userData.ownGeo) o.geometry.dispose(); o.removeFromParent(); }
+      for (const m of made) g.add(m);
+    }
+    part.bits = [];
+  }
+
+  /**
+   * Parts that can no longer change go into one mesh per material for the whole house (and one
+   * for the garden): `keep` names the parts that may still be taken away (the last choice, the
+   * extras before they are confirmed).
+   */
+  freeze(keep = []) {
+    const fresh = { home: new Map(), site: new Map() };
+    for (const [key, part] of Object.entries(this.parts)) {
+      if (part.frozen || !part.baked || keep.includes(key) || (key.startsWith('x:') && keep.includes('extras'))) continue;
+      part.frozen = true;
+      for (const where of ['home', 'site']) {
+        const root = this[where];
+        root.updateMatrixWorld(true);
+        const inv = root.matrixWorld.clone().invert();
+        for (const o of [...part[where].children]) {
+          if (!o.userData.baked) continue;
+          const list = fresh[where].get(o.material) ?? fresh[where].set(o.material, []).get(o.material);
+          list.push([o.geometry, new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld), null, o]);
+        }
       }
     }
+    for (const where of ['home', 'site']) {
+      for (const [mat, list] of fresh[where]) {
+        const old = this.pool[where].get(mat);
+        if (old) list.push([old.geometry, new THREE.Matrix4(), null, old]);
+        const m = new THREE.Mesh(fuse(list), mat);
+        m.castShadow = this.cast;
+        m.receiveShadow = true;
+        for (const [, , , o] of list) { flatCache.delete(o.geometry); o.geometry.dispose(); o.removeFromParent(); }
+        this[where].add(m);
+        this.pool[where].set(mat, m);
+      }
+    }
+    this.changed += 1;
   }
 
   /** The windows light up (k: 0..1 times the scene's glow boost). */
@@ -804,7 +901,7 @@ export class House {
       return 1.1;
     }
     if (id === 'gravel') {
-      this.b('Pebble', -0.07, y + 0.001, 0.268, 0.78, 0.004, 0.2, { site: true, how: 'grow', dur: 0.3 });
+      this.b('Pebble', -0.06, y + 0.001, 0.255, 0.76, 0.004, 0.18, { site: true, how: 'grow', dur: 0.3 });
       this.b('Pebble', -0.385, y + 0.001, -0.02, 0.15, 0.004, 0.38, { site: true, how: 'grow', dur: 0.3 });
       const g = new THREE.Group();
       const rock = new THREE.SphereGeometry(1, 9, 7);

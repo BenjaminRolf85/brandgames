@@ -14,14 +14,20 @@
 // wrong one brings a bonus, following a wrong one ends the streak. The result says how often it
 // was right and how many wrong proposals the player caught.
 // No lives and no game over; streaks multiply the points, a speed bonus only ever adds.
+// The playing field is a dark data room on every device (lineage-room.js): fields are 3D tokens
+// with labels, links are pipes with travelling light, the assistant has a drone. The three stages
+// have their zones from left to right (sources, catalog, warehouse and reports), in front of a
+// large data landscape that fills with flowing data as the round goes on; in the browser the
+// camera travels from zone to zone and frames exactly the labels of the current task.
 // Controls:
-//   Browser (desktop and phones): the boards are on the screen (lineage-screen.js). Click or tap
-//   a tile; click or tap left, then right to connect (or drag a line); arrow keys and Enter for
-//   everything; 1 to 4 pick a tile, H is the AI hint of stage 1, Escape drops a selection.
-//   Headset (AR and VR): the same boards as 3D panels at arm's length (lineage-xr.js); point and
-//   press, or press and hold on a card, move and release on its counterpart.
+//   Browser: click or tap a label; click or tap one, then the other to connect (or drag a cable);
+//   arrow keys move a focus ring, Enter selects and connects; 1 to 4 pick a token in stage 1,
+//   H is the AI hint, Escape drops a selection. Only the status strip, the prompt, the feedback
+//   line and the card that opens a stage are HTML (lineage-hud.js).
+//   Headset (AR and VR): the same field at arm's length; point and press, or press and hold on a
+//   label, move and release on its counterpart.
 // Play assistance (assist.js): relaxed = fewer tiles, pairs and links, the deciding metadata is
-// highlighted, no clock; calm motion = no shake, no flowing lines, few particles.
+// highlighted, no clock; calm motion = no shake, steady light instead of fast flows, no camera travel.
 // All game time runs through update(dt), so the pause (pause.js) really stops it.
 import * as THREE from 'three';
 import { BaseScene } from '../scene.js';
@@ -31,10 +37,10 @@ import { assist } from '../assist.js';
 import '../lineage-text.js';
 import { TYPES, OWNERS, drawRound } from '../lineage-content.js';
 import { colOf, litFrom } from '../lineage-model.js';
-import { screenView } from '../lineage-screen.js';
-import { xrView } from '../lineage-xr.js';
+import { screenHud } from '../lineage-hud.js';
+import { roomView } from '../lineage-room.js';
 import { makeSky, makeBackdrop, makeLandscape, makeKeyLight } from '../lineage-visuals.js';
-import { sceneLook, softSun, gfxTier } from '../gfx.js';
+import { sceneLook, bloom } from '../gfx.js';
 
 // The game's design tokens (css/game-lineage.css). Linked in index.html like the other games';
 // until it is, the game loads the file itself before anything reads a token.
@@ -72,6 +78,7 @@ export class LineageScene extends BaseScene {
     this.sel = null;
     this.board = null;
     this.tmp = new THREE.Vector3();
+    this.camTo = new THREE.Vector3();
     this.buildWorld();
     this.setControls({
       desktop: [[t('lineageKeyPick'), t('lineageDoPick')], [t('lineageKeyLink'), t('lineageDoLink')], [t('lineageKeyMove'), t('lineageDoMove')], [t('lineageKeyHint'), t('lineageDoHint')]],
@@ -88,10 +95,16 @@ export class LineageScene extends BaseScene {
       onMenu: () => this.menuOrPause(),
       onPointer: () => { this.kb = false; },
     };
-    this.view = this.screenUI
-      ? screenView({ ...cb, desk: !this.engine.touchUI, calm: this.calm, easy: this.easy })
-      : xrView(this, { ...cb, calm: this.calm, easy: this.easy, ar: this.ar });
+    // The room is the playing field everywhere; the browser adds its slim strip of HTML.
+    this.room = roomView(this, { ...cb, calm: this.calm, screen: this.screenUI, ar: this.ar });
+    this.hudEl = this.screenUI ? screenHud({ ...cb, desk: !this.engine.touchUI, calm: this.calm }) : null;
+    this.view = {};
+    for (const k of ['show', 'setHud', 'setPrompt', 'setFeedback', 'setSpeed', 'setHint', 'showOdd', 'markOdd', 'lockOdd', 'showBoard', 'refresh', 'shake', 'pop', 'showCard', 'aiReact', 'focusFirst', 'focusNode', 'moveFocus', 'tick', 'remove']) {
+      this.view[k] = (...a) => { this.hudEl?.[k]?.(...a); return this.room[k]?.(...a); };
+    }
     this.onSceneDispose(() => this.view.remove());
+    this.onPointerDown = () => { this.kb = false; if (this.wait && this.playing()) this.skip(); };
+    this.engine.canvas.addEventListener('pointerdown', this.onPointerDown);
     this.setupInput();
     this.onUpdate((dt) => this.update(dt));
     if (this.screenUI) this.mobileView((cam, dt) => this.screenCamera(cam, dt));
@@ -103,55 +116,67 @@ export class LineageScene extends BaseScene {
     }
   }
 
-  // ---------- the room around the boards ----------
+  // ---------- the data room ----------
 
   /**
-   * The data landscape on its tray (everywhere: in AR it is a small model on the table height in
-   * front of the player), and in the browser and VR a bright sky with far, drifting cards.
-   * AR keeps the real room: no sky, no floor, no fog.
+   * Browser and VR: a deep, dark space with a softly lit floor, data towers in the distance and,
+   * behind the three zones, a large data landscape (sources, machine, warehouse, reports) whose
+   * pipes fill as the round goes on. AR keeps the real room: only the landscape as a small model
+   * on a slim column, and the playing field with solid labels.
    */
   buildWorld() {
     const e = this.engine;
-    const tier = gfxTier();
-    // One shadow-casting light at most; in the headset only on the strongest tier.
-    const shadows = e.isXR ? tier === 'high' : tier !== 'low';
-    this.onSceneDispose(sceneLook(e, { tone: 'neutral', exposure: 1, env: 'studio', envIntensity: 0.55, shadows: shadows ? 'soft' : false }));
-    // Headset: the tray stands on a slim column that reaches the floor.
-    const landY = this.eye - 0.82;
+    this.onSceneDispose(sceneLook(e, { tone: 'neutral', exposure: 1, env: 'studio', envIntensity: 0.4, shadows: false }));
     const floorY = e.floorY - e.root.position.y;
-    this.land = makeLandscape({ calm: this.calm, shadows, pedestal: e.isXR ? Math.max(0.2, (landY - floorY) / 0.75 - 0.03) : 0 });
-    this.landTo = new THREE.Vector3(0, this.eye - 0.93, -1.3);
-    if (e.isXR) { this.land.position.set(0, landY, -0.7); this.land.scale.setScalar(0.75); } else this.land.position.copy(this.landTo);
+    if (this.ar) {
+      const y = this.eye - 0.82;
+      this.land = makeLandscape({ calm: this.calm, pedestal: Math.max(0.2, (y - floorY) / 0.75 - 0.03) });
+      this.land.position.set(0, y, -0.7);
+      this.land.scale.setScalar(0.75);
+    } else {
+      this.land = makeLandscape({ calm: this.calm });
+      this.land.scale.setScalar(4.2);
+      this.land.position.set(0, floorY + 0.14, -4.4);
+    }
     this.group.add(this.land);
     const key = makeKeyLight();
     key.position.add(this.land.position);
     key.target.position.copy(this.land.position);
-    key.userData.noFit = true;
-    if (shadows) { key.castShadow = true; softSun(key, { size: 0.9, near: 0.3, far: 3.2, radius: 3 }); }
     this.group.add(key, key.target);
     if (this.ar) return;
     this.sky = makeSky();
     this.prevBg = e.scene.background;
     e.scene.background = this.sky;
-    this.prevBackdrop = e.backdrop.visible;
-    e.backdrop.visible = false;
     this.prevFog = e.scene.fog?.color.getHex();
     e.scene.fog?.color.set(this.sky.userData.horizon);
     this.backdrop = makeBackdrop({ calm: this.calm, around: e.isXR, floorY });
     this.group.add(this.backdrop);
+    // Desktop: the packets of light and the tokens' bright parts glow (no post effects on phones or in the headset).
+    if (this.screenUI && !e.touchUI) this.onSceneDispose(bloom(e, { strength: 0.55, radius: 0.5, threshold: 0.9 }));
   }
 
   playing() {
     return this.mode !== 'intro' && this.mode !== 'over';
   }
 
-  /** Browser, during play: a fixed, calm view of the backdrop behind the boards on the screen. */
+  /**
+   * Browser, during play: the camera frames the labels of the current task, between the strip at
+   * the top and the feedback line; from stage to stage it travels on to the next zone.
+   */
   screenCamera(cam, dt) {
     if (!this.playing()) { this.camInit = false; return false; }
-    if (cam.fov !== 60) { cam.fov = 60; cam.updateProjectionMatrix(); }
-    const target = this.group.localToWorld(new THREE.Vector3(0, this.eye + 0.05, 0.6));
-    if (!this.camInit) { cam.position.copy(target); this.camInit = true; }
-    cam.position.lerp(target, Math.min(1, dt * 3));
+    if (cam.fov !== 42) { cam.fov = 42; cam.updateProjectionMatrix(); }
+    const box = this.room.frameBox();
+    const ins = this.hudEl.insets();
+    const H = window.innerHeight;
+    const tv = Math.tan(THREE.MathUtils.degToRad(21));
+    const fracH = Math.max(0.3, (H - ins.top - ins.bottom) / H);
+    const d = Math.max((box.y1 - box.y0) / 2 / fracH / tv, (box.x1 - box.x0) / 2 / (tv * cam.aspect)) * 1.01;
+    const cyN = (ins.bottom - ins.top) / H;
+    this.camTo.set((box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2 - cyN * d * tv, box.z + d);
+    this.group.localToWorld(this.camTo);
+    // Calm motion: no travel, the view changes at once.
+    if (!this.camInit || this.calm) { cam.position.copy(this.camTo); this.camInit = true; } else cam.position.lerp(this.camTo, Math.min(1, dt * 3.2));
     cam.rotation.set(0, 0, 0);
     return true;
   }
@@ -166,9 +191,11 @@ export class LineageScene extends BaseScene {
       this.kb = true;
       const onButton = document.activeElement?.tagName === 'BUTTON' && !document.activeElement.disabled;
       const go = k === 'Enter' || k === ' ';
+      if (go && e.defaultPrevented) return; // the engine pressed the label that has the focus
       if (k === 'Escape') {
-        // Escape drops a selection; without one it is the pause's key.
-        if (this.sel) { e.preventDefault(); this.select(null); }
+        // Escape drops a selection; without one it is the pause's key. (The engine has just taken
+        // the same Escape to drop the keyboard's focus ring: then the pause opens from here.)
+        if (this.sel) { e.preventDefault(); this.select(null); } else if (e.defaultPrevented) this.app.pause?.open();
         return;
       }
       const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[k];
@@ -179,7 +206,7 @@ export class LineageScene extends BaseScene {
         if (n >= 1 && n <= this.row.tiles.length) { e.preventDefault(); this.pickOdd(n - 1); } else if (k === 'h' || k === 'H') { e.preventDefault(); this.useHint(); }
       }
     };
-    window.addEventListener('keydown', this.onKey);
+    window.addEventListener('keydown', this.onKey, true);
   }
 
   // ---------- timing (game time: stands still while paused) ----------
@@ -201,33 +228,6 @@ export class LineageScene extends BaseScene {
   update(dt) {
     this.backdrop?.userData.tick(dt);
     this.land.userData.tick(dt);
-    if (this.screenUI) {
-      // The landscape stands below the boards during play; in the intro and on the result it
-      // stands below the lowest panel (desktop: the view fits it in; phones keep the panels large).
-      const play = this.playing();
-      if (play) {
-        // As large as the room below the board allows (the screen layout says how much that is).
-        const band = this.view.band();
-        const H = window.innerHeight;
-        const tv = Math.tan(THREE.MathUtils.degToRad(30));
-        const hf = (band.bottom - band.top) / H;
-        if (hf < 0.09) this.landTo.set(0, this.eye - 1.0, -1.6); // no room: a glimpse behind the cards
-        else {
-          const yc = 1 - (band.top + band.bottom) / H; // the band's middle (-1 is the lower edge)
-          const down = Math.atan(-yc * tv);
-          const tall = 0.2 + 0.56 * Math.sin(Math.max(0, down)); // how tall the landscape looks (m)
-          const d = Math.max(tall / (1.7 * hf * tv), 1.36 / (2 * tv * (window.innerWidth / H) * 0.9), 0.95);
-          this.landTo.set(0, this.eye + 0.05 + yc * tv * d - 0.05, 0.6 - d);
-        }
-      }
-      else {
-        let low = this.eye;
-        for (const o of this.layer.children) if (o.h) low = Math.min(low, o.position.y - o.h / 2);
-        this.landTo.set(0, low - 0.27, -this.dist);
-      }
-      this.land.userData.noFit = play || this.engine.touchUI;
-      this.land.position.lerp(this.landTo, Math.min(1, dt * (this.calm ? 30 : 4)));
-    }
     if (this.screenUI && !this.engine.touchUI) {
       // Desktop: the camera stands still during play; the intro and the result fit themselves.
       const on = this.playing();
@@ -269,9 +269,9 @@ export class LineageScene extends BaseScene {
     if (this.screenUI && this.app.echo?.setCompanion) {
       this.echoSpot = { target: new THREE.Vector3(), look: new THREE.Vector3() };
       this.app.echo.setCompanion(() => {
-        const l = this.land.position; // beside the landscape, wherever it stands
-        this.group.localToWorld(this.echoSpot.target.set(l.x + 0.84, l.y + 0.2, l.z + 0.05));
-        this.group.localToWorld(this.echoSpot.look.set(0, this.eye + 0.05, 0.6));
+        const fb = this.room.frameBox(); // at the lower right corner of the playing field
+        this.group.localToWorld(this.echoSpot.target.set(fb.x1 + 0.1, fb.y0 + 0.05, fb.z + 0.1));
+        this.group.localToWorld(this.echoSpot.look.set((fb.x0 + fb.x1) / 2, this.eye, fb.z + 2));
         return this.echoSpot;
       });
     }
@@ -374,16 +374,16 @@ export class LineageScene extends BaseScene {
     this.hinted = false;
     const val = (v) => (v && typeof v === 'object' ? L(v) : v);
     const tiles = row.tiles.map((tl) => {
-      if (tl.plain) return { title: L(tl.plain), mono: false, parts: [] };
+      if (tl.plain) return { title: L(tl.plain), mono: false, parts: [], tok: 'desc' };
       const parts = [];
       if (row.show.includes('ty')) parts.push({ k: 'ty', label: t('lineageTy'), glyph: TYPES[tl.ty].glyph, text: L(TYPES[tl.ty].name) });
       if (row.show.includes('ex')) parts.push({ k: 'ex', label: t('lineageEx'), text: val(tl.ex) });
       if (row.show.includes('ow')) parts.push({ k: 'ow', label: t('lineageOw'), text: L(OWNERS[tl.ow]) });
       // Relaxed mode: the metadata that decides is highlighted.
       parts.forEach((p) => { p.key = this.easy && p.k === row.key; });
-      return { title: val(tl.n), mono: true, parts };
+      return { title: val(tl.n), mono: true, parts, tok: tl.ty, owKey: row.show.includes('ow') ? tl.ow : null };
     });
-    this.view.showOdd({ tiles });
+    this.view.showOdd({ tiles, key: row.key });
     this.view.setPrompt(t(row.lvl === 3 ? 'lineageOddPromptMeta' : 'lineageOddPrompt'));
     this.view.setFeedback(null, '');
     this.view.setHint(this.hintLeft > 0 ? 'ready' : null);
@@ -443,7 +443,7 @@ export class LineageScene extends BaseScene {
         nodes: [
           ...d.asks.map((a) => ({ id: a.id, col: 0, kind: 'desc', title: L(a.d), mono: false })),
           ...d.fields.map((f) => ({ id: f.id, col: 1, kind: 'field', title: f.n, mono: true, is: L(f.is),
-            meta: { glyph: TYPES[f.ty].glyph, ty: L(TYPES[f.ty].name), ex: typeof f.ex === 'object' ? L(f.ex) : f.ex, ow: L(OWNERS[f.ow]) } })),
+            meta: { tyKey: f.ty, owKey: f.ow, glyph: TYPES[f.ty].glyph, ty: L(TYPES[f.ty].name), ex: typeof f.ex === 'object' ? L(f.ex) : f.ex, ow: L(OWNERS[f.ow]) } })),
         ],
         needs: d.asks.map((a) => ({ id: a.id, asker: a.id, ans: a.f, text: null, ai: a.ai, aiState: a.ai ? 'open' : 'none', done: false, tries: 0 })),
       };
@@ -496,7 +496,7 @@ export class LineageScene extends BaseScene {
       // Keyboard: the focus jumps to the other side, onto the assistant's proposal if there is one.
       if (this.kb) {
         const need = b.needs.find((n) => !n.done && n.asker === id);
-        const other = need ? (need.aiState === 'open' ? need.ai.id : b.nodes.find((n) => n.col === colOf(b, need.ans) && !b.taken.has(n.id))?.id) : b.needs.find((n) => !n.done && n.ans === id)?.asker ?? b.needs.find((n) => !n.done && colOf(b, n.ans) === colOf(b, id))?.asker;
+        const other = need ? (need.aiState === 'open' && !b.taken.has(need.ai.id) ? need.ai.id : b.nodes.find((n) => n.col === colOf(b, need.ans) && !b.taken.has(n.id))?.id) : b.needs.find((n) => !n.done && n.ans === id)?.asker ?? b.needs.find((n) => !n.done && colOf(b, n.ans) === colOf(b, id))?.asker;
         if (other) this.view.focusNode(other);
       }
       return;
@@ -542,6 +542,7 @@ export class LineageScene extends BaseScene {
     this.sel = null;
     this.award(base, { node: need.asker }, corrected ? PTS.corrected : 0);
     this.refresh();
+    if (proposal) this.view.aiReact(corrected ? 'corrected' : 'confirm');
     if (corrected) {
       this.view.setFeedback('good', `${t('lineageLinkCorrected', { name: this.node(proposal.id).title })} ${t('lineageBonusCorrected', { n: PTS.corrected })}`);
       sfx.powerup();
@@ -558,7 +559,7 @@ export class LineageScene extends BaseScene {
     const open = b.needs.filter((n) => !n.done && n.asker === askerId);
     const followed = open.find((n) => n.aiState === 'open' && n.ai.id === candId);
     open.forEach((n) => { n.tries += 1; });
-    if (followed) { followed.aiState = 'followed'; this.stats.followed += 1; }
+    if (followed) { followed.aiState = 'followed'; this.stats.followed += 1; this.view.aiReact('followed'); }
     this.mistakes += 1;
     this.sel = null;
     this.miss();
@@ -697,12 +698,12 @@ export class LineageScene extends BaseScene {
   dispose() {
     this.mode = 'over';
     if (this.echoSpot) this.app.echo?.setCompanion(null);
-    window.removeEventListener('keydown', this.onKey);
+    window.removeEventListener('keydown', this.onKey, true);
+    this.engine.canvas.removeEventListener('pointerdown', this.onPointerDown);
     const e = this.engine;
     e.fitEnabled = true;
     if (!this.ar) {
       if (e.scene.background === this.sky) e.scene.background = this.prevBg === this.sky ? e.previewBg : this.prevBg;
-      e.backdrop.visible = this.prevBackdrop;
       if (this.prevFog !== undefined) e.scene.fog?.color.setHex(this.prevFog);
       this.sky?.dispose();
     }

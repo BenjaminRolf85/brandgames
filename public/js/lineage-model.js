@@ -1,5 +1,5 @@
-// "Datenspur": the board model that the scene fills and both views draw (the screen layout for
-// desktop and phones, lineage-screen.js, and the 3D panels for the headset, lineage-xr.js).
+// "Datenspur": the board model that the scene fills and the room draws (lineage-room.js, the 3D
+// playing field on every device).
 //   board = { kind: 'pairs' | 'graph', cols: [label], nodes: [{ id, col, kind, title, mono, meta }],
 //             links: [{ a, b, state: 'fixed' | 'done' }]   a is the node in the lower column
 //             needs: [{ id, asker, ans, text, ai: { id, conf } | null, aiState, done, tries }]
