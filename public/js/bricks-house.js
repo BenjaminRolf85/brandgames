@@ -543,7 +543,19 @@ export class House {
     if (id === 'concrete') {
       for (const w of boxes) {
         this.b('ConcreteWall', w.x, w.y, w.z, w.len, w.h, D, { yaw: w.yaw, how: 'drop', delay: w.wall * 0.2, dur: 0.45 });
-        if (w.part === 'col') this.b('Dark', w.x, TOP * 0.52, w.z, w.len, 0.0025, D + 0.002, { yaw: w.yaw, how: 'drop', delay: w.wall * 0.2, dur: 0.45 });
+        if (w.part === 'col') {
+          this.b('Dark', w.x, TOP * 0.52, w.z, w.len, 0.0025, D + 0.002, { yaw: w.yaw, how: 'drop', delay: w.wall * 0.2, dur: 0.45 });
+          // the marks of the formwork: tie holes in a grid, a joint between the boards
+          const wall = WALLS[w.wall];
+          const nx = Math.sin(wall.face) * (D / 2 + 0.0005);
+          const nz = Math.cos(wall.face) * (D / 2 + 0.0005);
+          const n = Math.max(1, Math.round(w.len / 0.045));
+          for (let i = 0; i < n; i++) {
+            const u = w.u0 + ((i + 0.5) / n) * (w.u1 - w.u0);
+            const [x, z] = wall.at(u);
+            for (const y of [TOP * 0.2, TOP * 0.8]) this.b('Dark', x + nx, y, z + nz, 0.006, 0.006, 0.006, { yaw: w.yaw, how: 'drop', delay: w.wall * 0.2, dur: 0.45 });
+          }
+        }
       }
       posts('ConcreteWall', 'drop', 0.75);
       return 1.3;
@@ -645,6 +657,10 @@ export class House {
       for (let x = -OX - 0.02; x <= OX + 0.021; x += (2 * OX + 0.04) / 10) slab.add(box(mats.MetalRoof, 0.005, 0.008, len, x, 0.008, 0));
       slab.add(box(mats.Slim, 2 * OX + 0.074, 0.014, 0.006, 0, -0.002, len / 2));
       g.add(slab);
+      const gutter = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 2 * OX + 0.06, 10).rotateZ(Math.PI / 2), mats.Metal);
+      gutter.userData.ownGeo = true;
+      gutter.position.set(0, y0 - 0.012, OZ + 0.046);
+      g.add(gutter, box(mats.Metal, 0.007, 0.2, 0.007, OX + 0.022, y0 - 0.112, OZ + 0.04));
       for (const sx of [-1, 1]) { const w = prism([[-OZ, 0], [OZ, 0], [OZ, y0 - 0.004], [-OZ, y1 - 0.004]], D, wallMat); w.position.x = sx * XH; g.add(w); }
       g.add(box(wallMat, 2 * XH - D, y1 - 0.006, D, 0, (y1 - 0.006) / 2, -ZH));
       g.add(box(mats.Slim, 2 * XH - D - 0.06, 0.03, D + 0.004, 0, 0.045, -ZH));
@@ -1004,9 +1020,28 @@ export class House {
 
   // ---------- garden ----------
 
+  /** A bicycle leaning at the front wall (two wheels, a frame, a saddle). */
+  bicycle() {
+    const mats = this.M.mats;
+    const g = new THREE.Group();
+    const wheel = new THREE.TorusGeometry(0.02, 0.0028, 6, 16);
+    for (const dx of [-0.028, 0.028]) { const w = new THREE.Mesh(wheel, mats.Dark); w.position.set(dx, 0.022, 0); g.add(w); }
+    g.children[0].userData.ownGeo = true;
+    const bar = (x, y, len, rz) => { const b = box(mats.Car, len, 0.004, 0.004, x, y, 0); b.rotation.z = rz; g.add(b); };
+    bar(0, 0.034, 0.044, 0.5);
+    bar(-0.004, 0.047, 0.036, 0);
+    bar(-0.014, 0.034, 0.03, -1.0);
+    bar(0.024, 0.04, 0.036, 1.25);
+    g.add(box(mats.Dark, 0.014, 0.004, 0.008, -0.022, 0.052, 0), box(mats.Dark, 0.004, 0.004, 0.026, 0.032, 0.058, 0));
+    g.position.set(0.215, 0.002, HOUSE_Z + OZ + 0.014);
+    g.rotation.set(0.16, 0.12, 0);
+    return g;
+  }
+
   build_garden(id) {
     const mats = this.M.mats;
     this.showGarden(id);
+    if (id !== 'gravel') this.one(this.bicycle(), { site: true, delay: 0.7 });
     const y = 0.002;
     const flowers = (n, x0, x1, z0, z1, delay) => {
       for (let i = 0; i < n; i++) this.b(i % 2 ? 'FlowerA' : 'FlowerB', rnd(x0, x1), y + 0.009, rnd(z0, z1), 0.011, 0.011, 0.011, { site: true, delay: delay + Math.random() * 0.4, yaw: Math.random() });

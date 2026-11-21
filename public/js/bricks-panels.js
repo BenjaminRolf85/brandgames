@@ -1,8 +1,8 @@
-// "Stein auf Stein": 2D drawings on panels. The decision cards (a picture, the price, what the
-// price buys as arrows per criterion, plain tags, the AI adviser's forecast; locked when the
-// money does not allow them), the chips of the wish list, the brief with the budget bar (spent,
-// earmarked, reserved, free; savings and loan), the live meter, the neighbors' sign, the staged
-// coherence check with its second page about the money, and the builders' speech tag.
+// "Stein auf Stein": 2D drawings on panels, kept quiet: few words, icons, one thing at a time.
+// The decision cards (the picture of the real part, name, price, at most two chips, the
+// adviser as a thin bar and a badge), and the small panels at the edge: who builds with their
+// wishes as icon chips, the money as one bar with one number, the duel with the neighbors, the
+// button of the extras. The whole brief and the check's details open on demand.
 import { Panel, wrap, roundRect } from './ui3d.js';
 import { color, num, font } from './tokens.js';
 import { t, getLang } from './i18n.js';
@@ -187,116 +187,104 @@ export function drawOption(ctx, id, x, y, size, thumb = null) {
   ctx.restore();
 }
 
-// ---------- chips ----------
+// ---------- little icons (drawn, so nothing hangs on words or colors alone) ----------
 
-const CHIP = { style: 'xr-accent', good: 'xr-success', bad: 'xr-danger', wish: 'xr-warning', plain: 'xr-panel-muted', up: 'xr-success', down: 'xr-danger' };
-
-/** A little shape in front of a chip's text, so its kind does not hang on the color alone. */
-function chipMark(ctx, kind, style, x, y, s, strong = false) {
-  ctx.fillStyle = ctx.strokeStyle = color(CHIP[kind]);
-  ctx.lineWidth = s * 0.22;
-  ctx.beginPath();
-  if (kind === 'up' || kind === 'down') {
-    // What the money buys: an arrow up (a gain for this criterion) or down (a loss); two for a big one.
-    const d = kind === 'up' ? -1 : 1;
-    for (const off of strong ? [-0.28, 0.28] : [0]) {
-      ctx.moveTo(x + s * 0.05, y - d * s * 0.3 + off * s);
-      ctx.lineTo(x + s * 0.5, y + d * s * 0.3 + off * s);
-      ctx.lineTo(x + s * 0.95, y - d * s * 0.3 + off * s);
-    }
-    ctx.lineWidth = s * 0.26;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.stroke();
-  } else if (kind === 'good') { ctx.moveTo(x, y); ctx.lineTo(x + s, y); ctx.moveTo(x + s / 2, y - s / 2); ctx.lineTo(x + s / 2, y + s / 2); ctx.stroke(); }
-  else if (kind === 'bad') { ctx.moveTo(x, y); ctx.lineTo(x + s, y); ctx.stroke(); }
-  else if (kind === 'wish') { for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5; const r = i % 2 ? s * 0.26 : s * 0.6; ctx.lineTo(x + s / 2 + Math.cos(a) * r, y + Math.sin(a) * r); } ctx.fill(); }
-  else if (style === 'trad') { ctx.moveTo(x, y + s * 0.4); ctx.lineTo(x + s / 2, y - s * 0.5); ctx.lineTo(x + s, y + s * 0.4); ctx.fill(); }
-  else if (style === 'mod') ctx.fillRect(x + s * 0.1, y - s * 0.4, s * 0.8, s * 0.8);
-  else if (style === 'nat') { ctx.ellipse(x + s / 2, y, s * 0.5, s * 0.3, -0.6, 0, 7); ctx.fill(); }
-  else { ctx.arc(x + s / 2, y, s * 0.36, 0, 7); ctx.stroke(); }
-}
-
-/**
- * Lays chips out in rows inside (x, y, w); returns the height used (px). maxRows: rows that
- * fit; draw false only measures. Chips of kind 'up' and 'down' are filled (what the money buys).
- */
-function chips(ctx, list, x, y, w, px, maxRows = 9, draw = true) {
+/** Draws an icon centered at (x, y), about s px high, in the current fill and stroke color. */
+function glyph(ctx, key, x, y, s) {
+  const u = s / 2;
   ctx.save();
-  const h = px * 1.55;
-  const gap = px * 0.35;
-  const mark = px * 0.6;
-  ctx.font = font('bold', px);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  let cx = x;
-  let row = 0;
-  for (const chip of list) {
-    const tw = Math.min(ctx.measureText(chip.text).width, w - mark - px * 1.3);
-    const cw = tw + mark + px * 1.3;
-    if (cx > x && cx + cw > x + w) { cx = x; row += 1; }
-    if (row >= maxRows) break;
-    if (draw) {
-      const cy = y + row * (h + gap);
-      const gain = chip.kind === 'up' || chip.kind === 'down';
-      roundRect(ctx, cx, cy, cw, h, gain ? h * 0.28 : h / 2);
-      ctx.fillStyle = color(gain ? (chip.kind === 'up' ? 'xr-bricks-gain-bg' : 'xr-bricks-loss-bg') : 'xr-bricks-chip-bg');
-      ctx.fill();
-      ctx.lineWidth = Math.max(1, px * 0.09);
-      ctx.strokeStyle = color(CHIP[chip.kind] ?? CHIP.plain);
-      ctx.stroke();
-      chipMark(ctx, chip.kind, chip.style, cx + px * 0.45, cy + h / 2, mark, chip.strong);
-      ctx.fillStyle = color('xr-panel-text');
-      ctx.font = font('bold', px);
-      ctx.fillText(fitText(ctx, chip.text, tw + 1), cx + px * 0.75 + mark, cy + h / 2 + px * 0.04);
-    }
-    cx += cw + gap;
-  }
+  ctx.translate(x, y);
+  ctx.lineWidth = Math.max(1.2, s * 0.11);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  if (key === 'space') { ctx.rect(-u * 0.8, -u * 0.35, u * 1.6, u * 1.15); ctx.moveTo(-u, -u * 0.35); ctx.lineTo(u, -u * 0.35); ctx.moveTo(-u * 0.25, u * 0.05); ctx.lineTo(u * 0.25, u * 0.05); ctx.moveTo(-u * 0.8, -u * 0.35); ctx.lineTo(-u * 0.5, -u * 0.85); ctx.lineTo(u * 0.5, -u * 0.85); ctx.lineTo(u * 0.8, -u * 0.35); ctx.stroke(); }
+  else if (key === 'kids') { ctx.arc(0, 0, u * 0.85, 0, 7); ctx.moveTo(-u * 0.85, 0); ctx.quadraticCurveTo(0, -u * 0.6, u * 0.85, 0); ctx.moveTo(0, -u * 0.85); ctx.quadraticCurveTo(-u * 0.6, 0, 0, u * 0.85); ctx.stroke(); }
+  else if (key === 'access') { ctx.moveTo(-u, u * 0.7); ctx.lineTo(u, u * 0.7); ctx.lineTo(u, -u * 0.5); ctx.closePath(); ctx.stroke(); ctx.beginPath(); ctx.arc(-u * 0.35, -u * 0.45, u * 0.3, 0, 7); ctx.fill(); }
+  else if (key === 'light') { ctx.arc(0, 0, u * 0.42, 0, 7); ctx.fill(); ctx.beginPath(); for (let i = 0; i < 8; i++) { const a = (i * Math.PI) / 4; ctx.moveTo(Math.cos(a) * u * 0.65, Math.sin(a) * u * 0.65); ctx.lineTo(Math.cos(a) * u, Math.sin(a) * u); } ctx.stroke(); }
+  else if (key === 'car') { ctx.moveTo(-u, u * 0.3); ctx.lineTo(-u, -u * 0.05); ctx.lineTo(-u * 0.55, -u * 0.15); ctx.lineTo(-u * 0.3, -u * 0.65); ctx.lineTo(u * 0.4, -u * 0.65); ctx.lineTo(u * 0.7, -u * 0.15); ctx.lineTo(u, -u * 0.05); ctx.lineTo(u, u * 0.3); ctx.closePath(); ctx.stroke(); ctx.beginPath(); ctx.arc(-u * 0.5, u * 0.42, u * 0.24, 0, 7); ctx.arc(u * 0.5, u * 0.42, u * 0.24, 0, 7); ctx.fill(); }
+  else if (key === 'easy') { ctx.moveTo(-u * 0.75, u * 0.75); ctx.quadraticCurveTo(-u * 0.6, -u * 0.8, u * 0.8, -u * 0.8); ctx.quadraticCurveTo(u * 0.8, u * 0.6, -u * 0.75, u * 0.75); ctx.moveTo(-u * 0.75, u * 0.75); ctx.lineTo(u * 0.35, -u * 0.35); ctx.stroke(); }
+  else if (key === 'unity') { ctx.rect(-u * 0.9, -u * 0.9, u * 1.15, u * 1.15); ctx.rect(-u * 0.25, -u * 0.25, u * 1.15, u * 1.15); ctx.stroke(); }
+  else if (key === 'people' || key === 'who') { ctx.arc(0, -u * 0.42, u * 0.38, 0, 7); ctx.fill(); ctx.beginPath(); ctx.moveTo(-u * 0.8, u * 0.9); ctx.quadraticCurveTo(-u * 0.8, u * 0.1, 0, u * 0.1); ctx.quadraticCurveTo(u * 0.8, u * 0.1, u * 0.8, u * 0.9); ctx.closePath(); ctx.fill(); }
+  else if (key === 'place') { ctx.moveTo(0, u * 0.95); ctx.quadraticCurveTo(-u * 0.9, -u * 0.1, -u * 0.6, -u * 0.55); ctx.arc(0, -u * 0.4, u * 0.62, Math.PI * 0.95, Math.PI * 0.05); ctx.quadraticCurveTo(u * 0.9, -u * 0.1, 0, u * 0.95); ctx.stroke(); ctx.beginPath(); ctx.arc(0, -u * 0.4, u * 0.2, 0, 7); ctx.fill(); }
+  else if (key === 'future') { ctx.moveTo(0, u * 0.95); ctx.lineTo(0, -u * 0.1); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, -u * 0.05); ctx.quadraticCurveTo(u * 0.1, -u * 0.95, u * 0.95, -u * 0.85); ctx.quadraticCurveTo(u * 0.9, -u * 0.05, 0, -u * 0.05); ctx.moveTo(0, u * 0.35); ctx.quadraticCurveTo(-u * 0.15, -u * 0.35, -u * 0.9, -u * 0.3); ctx.quadraticCurveTo(-u * 0.8, u * 0.35, 0, u * 0.35); ctx.fill(); }
+  else if (key === 'value') { ctx.arc(0, 0, u * 0.9, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.arc(u * 0.08, 0, u * 0.42, Math.PI * 0.32, Math.PI * 1.68); ctx.moveTo(-u * 0.5, -u * 0.14); ctx.lineTo(u * 0.12, -u * 0.14); ctx.moveTo(-u * 0.5, u * 0.14); ctx.lineTo(u * 0.12, u * 0.14); ctx.stroke(); }
+  else if (key === 'ai') { ctx.rect(-u * 0.6, -u * 0.6, u * 1.2, u * 1.2); for (const d of [-0.3, 0.3]) { ctx.moveTo(u * d, -u * 0.6); ctx.lineTo(u * d, -u); ctx.moveTo(u * d, u * 0.6); ctx.lineTo(u * d, u); ctx.moveTo(-u * 0.6, u * d); ctx.lineTo(-u, u * d); ctx.moveTo(u * 0.6, u * d); ctx.lineTo(u, u * d); } ctx.stroke(); ctx.beginPath(); ctx.arc(0, 0, u * 0.22, 0, 7); ctx.fill(); }
+  else if (key === 'tick') { ctx.moveTo(-u * 0.7, 0); ctx.lineTo(-u * 0.2, u * 0.55); ctx.lineTo(u * 0.75, -u * 0.6); ctx.stroke(); }
+  else if (key === 'up' || key === 'down') { const d = key === 'up' ? -1 : 1; ctx.moveTo(-u * 0.7, -d * u * 0.25); ctx.lineTo(0, d * u * 0.45); ctx.lineTo(u * 0.7, -d * u * 0.25); ctx.lineWidth = s * 0.2; ctx.stroke(); }
+  else if (key === 'lock') { ctx.fillRect(-u * 0.7, -u * 0.1, u * 1.4, u); ctx.beginPath(); ctx.arc(0, -u * 0.1, u * 0.45, Math.PI, 0); ctx.stroke(); }
   ctx.restore();
-  return (Math.min(row, maxRows - 1) + 1) * (h + gap) - gap;
 }
 
-/** A tick box (an extra that is on the wish list). */
+/** A chip: an icon and one or two words in a pill. kind: 'up' | 'down' (what the money buys), 'wish', 'tag'. Returns its width. */
+function chip(ctx, c, x, y, px, draw = true) {
+  const h = px * 1.6;
+  ctx.font = font('bold', px);
+  const tw = c.text ? ctx.measureText(c.text).width : 0;
+  const w = px * 1.5 + tw + (c.text ? px * 0.55 : 0);
+  if (!draw) return w;
+  const token = c.kind === 'up' ? 'xr-success' : c.kind === 'down' ? 'xr-danger' : c.kind === 'wish' ? 'xr-warning' : 'xr-panel-muted';
+  roundRect(ctx, x, y, w, h, h / 2);
+  ctx.fillStyle = color(c.on ? 'xr-bricks-gain-bg' : c.kind === 'up' ? 'xr-bricks-gain-bg' : c.kind === 'down' ? 'xr-bricks-loss-bg' : 'xr-bricks-chip-bg');
+  ctx.fill();
+  ctx.lineWidth = Math.max(1, px * 0.09);
+  ctx.strokeStyle = color(c.on ? 'xr-success' : token);
+  ctx.stroke();
+  ctx.fillStyle = ctx.strokeStyle = color(c.on ? 'xr-success' : token);
+  glyph(ctx, c.on ? 'tick' : c.icon, x + px * 0.8, y + h / 2, px * 0.95);
+  if (c.text) {
+    ctx.fillStyle = color('xr-panel-text');
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = font('bold', px);
+    ctx.fillText(c.text, x + px * 1.45, y + h / 2 + px * 0.05);
+  }
+  return w;
+}
+
+/** Draws chips in one row as long as they fit; returns how many were drawn. */
+function chipRow(ctx, list, x, y, w, px) {
+  let cx = x;
+  let n = 0;
+  for (const c of list) {
+    const cw = chip(ctx, c, 0, 0, px, false);
+    if (cx + cw > x + w + 1) break;
+    chip(ctx, c, cx, y, px);
+    cx += cw + px * 0.4;
+    n += 1;
+  }
+  return n;
+}
+
+/** A tick box (an extra that is on the list). */
 function tickBox(ctx, x, y, b, on) {
   ctx.lineWidth = Math.max(1.5, b * 0.1);
   ctx.strokeStyle = color(on ? 'xr-success' : 'xr-panel-muted');
-  roundRect(ctx, x, y, b, b, b * 0.2);
+  roundRect(ctx, x, y, b, b, b * 0.22);
   if (on) { ctx.fillStyle = color('xr-success'); ctx.fill(); }
   ctx.stroke();
-  if (on) { ctx.strokeStyle = color('xr-on-primary'); ctx.lineWidth = b * 0.16; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(x + b * 0.2, y + b * 0.52); ctx.lineTo(x + b * 0.42, y + b * 0.74); ctx.lineTo(x + b * 0.8, y + b * 0.26); ctx.stroke(); }
+  if (on) { ctx.strokeStyle = color('xr-on-primary'); glyph(ctx, 'tick', x + b / 2, y + b / 2, b * 0.72); }
 }
 
-/** A padlock with the amount missing, in a pill. */
-function lockPill(ctx, cx, y, text, px) {
-  ctx.font = font('black', px);
-  const tw = ctx.measureText(text).width;
-  const lk = px * 1.1;
-  const bw = tw + lk * 2.4;
-  const bh = lk * 1.7;
-  const bx = cx - bw / 2;
-  roundRect(ctx, bx, y, bw, bh, bh / 2);
-  ctx.fillStyle = color('xr-bricks-lock-bg');
-  ctx.fill();
-  ctx.fillStyle = ctx.strokeStyle = color('xr-bricks-lock-text');
-  ctx.lineWidth = lk * 0.16;
-  ctx.fillRect(bx + lk * 0.55, y + bh * 0.48, lk * 0.8, lk * 0.56);
-  ctx.beginPath();
-  ctx.arc(bx + lk * 0.95, y + bh * 0.48, lk * 0.27, Math.PI, 0);
-  ctx.stroke();
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, bx + lk * 1.75, y + bh / 2 + lk * 0.05);
-  return bh;
+/** Text that always fits its width: smaller down to `min` of its size, never cut off. */
+function fitFont(ctx, text, weight, px, maxW, min = 0.72) {
+  ctx.font = font(weight, px);
+  const w = ctx.measureText(text).width;
+  if (w <= maxW) return px;
+  const next = Math.max(px * min, (px * maxW) / w);
+  ctx.font = font(weight, next);
+  return next;
 }
 
 // ---------- the decision card ----------
 
 /**
- * A card for one option. state: { id, index (1..), locked, missing (thousand euros), selected
- * (an extra: on the wish list), forecast: { value | gain, conf, level, top | tip } | null,
- * compact (an extra), basic, more, gains: [{ text, kind: 'up' | 'down', strong }] (what the
- * money buys, in the check's own criteria), wish (it fulfills a wish of the brief), warn, good,
- * words (the confidence in words too), thumb (a canvas with its picture), hover, focus }.
+ * A card for one option: the picture of the real part, its name, its price with the surcharge
+ * small beside it, at most two chips, and the adviser as a thin bar (how well it expects the
+ * house to fit with this card) with a badge on its pick. The exact forecast shows on hover,
+ * focus and in the relaxed mode. state: { id, index, locked, missing, selected (an extra: on
+ * the list), forecast, compact (an extra), basic, more, chips: [{ icon, text, kind }], words,
+ * thumb, hover, focus }.
  */
 export class OptionCard extends Panel {
   constructor(w, h, state, onClick) {
@@ -314,7 +302,8 @@ export class OptionCard extends Panel {
   relabel() {
     const s = this.state;
     const o = OPTION[s.id];
-    this.userData.label = [optName(s.id), euro(o.price), s.locked ? t('bricksLocked', { n: euro(s.missing) }) : '', s.selected ? t('bricksTaken') : '', ...(s.gains ?? []).map((g) => `${g.kind === 'up' ? '+' : '-'} ${g.text}`), ...tagsOf(o).map((c) => c.text)].filter(Boolean).join('. ');
+    const f = s.forecast;
+    this.userData.label = [optName(s.id), euro(o.price), s.locked ? t('bricksLocked', { n: euro(s.missing) }) : '', s.selected ? t('bricksEarmarked') : '', ...(s.chips ?? []).map((c) => `${c.kind === 'up' ? '+' : c.kind === 'down' ? '-' : ''} ${c.text}`), ...tagsOf(o).map((c) => c.text), f?.top || f?.tip ? t('bricksAiTip') : ''].filter(Boolean).join('. ');
   }
 
   paint() {
@@ -326,187 +315,216 @@ export class OptionCard extends Panel {
     const Hh = this.canvas.height;
     const sm = this.m(num('xr-text-sm'));
     const md = this.m(num('xr-text-md'));
-    const lg = this.m(num('xr-text-lg'));
-    const pad = this.m(0.022);
+    const pad = this.m(0.02);
     const active = (s.hover || s.focus) && !s.locked;
-    const edge = s.focus ? 'xr-focus' : s.selected ? 'xr-success' : s.forecast?.top || s.forecast?.tip ? 'xr-bricks-ai' : 'xr-panel-border';
+    const f = s.forecast;
+    const tip = f?.top || f?.tip;
+    const edge = s.focus ? 'xr-focus' : s.selected ? 'xr-success' : tip ? 'xr-bricks-ai' : 'xr-panel-border';
     this.surface({ fill: color(s.selected ? 'xr-bricks-card-on' : active ? 'xr-bricks-card-hover' : 'xr-bricks-card-bg'), stroke: color(edge), strokeWidth: num('xr-border-width') * (s.focus ? 3 : s.selected || active ? 2 : 1.2), stripe: false });
-    // picture with the key number
-    const pic = s.compact ? Math.min(Hh * 0.34, W * 0.2) : Math.min(Hh * 0.42, W * 0.24, this.m(0.17));
+    const slim = W / Hh > 5; // a row of the extras list on a narrow screen
+    const pic = Math.min(Hh - 2 * pad, slim ? Hh : W * 0.4);
     drawOption(ctx, s.id, pad, pad, pic, s.thumb);
-    const nb = sm * 1.2;
+    // the key number
+    const nb = sm * 1.15;
     ctx.fillStyle = color('xr-bricks-key-bg');
     roundRect(ctx, pad - nb * 0.2, pad - nb * 0.2, nb, nb, nb * 0.3);
     ctx.fill();
     ctx.fillStyle = color('xr-bricks-key-text');
-    ctx.font = font('black', sm * 0.9);
+    ctx.font = font('black', sm * 0.85);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(String(s.index), pad + nb * 0.3, pad + nb * 0.34);
-    // title and price
-    const x = pad + pic + pad * 0.8;
-    const tick = s.selected !== undefined ? sm * 1.5 : 0;
-    const w = W - x - pad - tick;
-    let y = pad;
+    const x = pad + pic + pad;
+    const right = W - pad;
     ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = color(s.locked ? 'xr-panel-muted' : 'xr-panel-text');
-    const name = s.compact ? optShort(s.id) : optName(s.id);
-    let tpx = s.compact ? sm : md;
-    ctx.font = font('black', tpx);
-    if (ctx.measureText(name).width > w) { tpx *= Math.max(0.82, w / ctx.measureText(name).width); ctx.font = font('black', tpx); }
-    ctx.fillText(fitText(ctx, name, w), x, y);
-    y += (s.compact ? sm : md) * 1.2;
-    const ppx = s.compact ? md * 0.95 : lg;
-    ctx.font = font('black', ppx);
-    ctx.fillStyle = color(s.locked ? 'xr-panel-muted' : 'xr-bricks-price');
+    const ink = color(s.locked ? 'xr-panel-muted' : 'xr-panel-text');
+    const name = optShort(s.id);
     const price = euro(o.price);
-    ctx.fillText(price, x, y);
-    const pw = ctx.measureText(price).width;
-    if (!s.compact && (s.basic || s.more)) {
-      ctx.font = font('bold', sm * 0.95);
-      ctx.fillStyle = color('xr-panel-muted');
-      const note = s.basic ? t('bricksBasic') : t('bricksUpcharge', { n: euro(s.more) });
-      if (pw + sm + ctx.measureText(note).width < w) ctx.fillText(note, x + pw + sm * 0.6, y + ppx * 0.3);
-    }
-    y += ppx * 1.15;
-    if (s.selected !== undefined) tickBox(ctx, W - pad - sm * 1.2, pad, sm * 1.2, s.selected);
-    // from the bottom: what the adviser says, then help in the relaxed mode
-    const full = W - 2 * pad;
-    const left = pad;
-    let bottom = Hh - pad;
-    const f = s.forecast;
-    if (f) {
-      const lineH = sm * 1.3;
-      bottom -= lineH;
-      ctx.textBaseline = 'middle';
-      const cy = bottom + lineH / 2;
-      let ax = left;
-      if (f.top || f.tip) {
-        ctx.font = font('black', sm * 0.9);
-        const label = t('bricksAiTip');
-        const bw = ctx.measureText(label).width + sm * 0.8;
-        roundRect(ctx, ax, cy - lineH * 0.46, bw, lineH * 0.92, lineH * 0.3);
+    const b = sm * 1.25;
+    if (slim) {
+      // one line: name, one chip, the price, the tick box
+      const cy = Hh / 2;
+      ctx.font = font('black', sm);
+      const pw = ctx.measureText(price).width;
+      const px0 = right - b - sm * 0.6 - pw;
+      const nameW = Math.min(ctx.measureText(name).width, px0 - x - sm);
+      ctx.fillStyle = ink;
+      fitFont(ctx, name, 'black', sm, nameW + 1);
+      ctx.fillText(name, x, cy + sm * 0.05);
+      const cx = x + nameW + sm * 0.6;
+      if (s.chips?.length) chipRow(ctx, s.chips.slice(0, 1), cx, cy - sm * 0.72, px0 - cx - sm * 0.4, sm * 0.9);
+      ctx.font = font('black', sm);
+      ctx.fillStyle = color(s.locked ? 'xr-panel-muted' : 'xr-bricks-price');
+      ctx.fillText(price, px0, cy + sm * 0.05);
+      tickBox(ctx, right - b, cy - b / 2, b, !!s.selected);
+    } else {
+      // the badge: top right; where the tick box sits there, or the card is narrow, bottom right
+      const tile = s.selected !== undefined || right - x < sm * 11;
+      const badge = tip ? this.badge(ctx, right, tile ? Hh - pad - sm * 1.4 - (s.selected !== undefined ? 0 : sm * 0.6) : pad, sm) : 0;
+      const box = s.selected !== undefined ? b + sm * 0.4 : 0;
+      let y = pad;
+      ctx.textBaseline = 'top';
+      // the name (never cut off: it shrinks a little, then takes the room of the badge)
+      const nameW = right - x - (tile ? box : badge);
+      ctx.fillStyle = ink;
+      const npx = fitFont(ctx, name, 'black', s.compact ? sm * 1.05 : md, nameW, 0.74);
+      ctx.fillText(name, x, y + ((s.compact ? sm * 1.05 : md) - npx) * 0.5);
+      y += (s.compact ? sm * 1.05 : md) * 1.22;
+      // the price, the surcharge small beside it
+      const ppx = s.compact ? md * 0.92 : md * 1.12;
+      ctx.font = font('black', ppx);
+      ctx.fillStyle = color(s.locked ? 'xr-panel-muted' : 'xr-bricks-price');
+      ctx.fillText(price, x, y);
+      const pw = ctx.measureText(price).width;
+      const barY = Hh - pad - sm * 0.36;
+      const detail = f && (active || s.words);
+      const detailText = !detail ? '' : f.value !== undefined ? `${t('bricksAi', { n: f.value })} · ${t(`bricksConf_${f.level}`)}` : `${t('bricksAiGain', { n: `${f.gain > 0 ? '+' : ''}${f.gain}` })} · ${t(`bricksConf_${f.level}`)}`;
+      // the exact forecast gets its own line where there is room, else it takes the place of the surcharge
+      const roomy = barY - (y + ppx * 1.2 + sm * 1.7) > sm * 1.25;
+      if (detail && !roomy) {
+        ctx.fillStyle = color('xr-bricks-ai');
+        fitFont(ctx, detailText, 'bold', sm * 0.94, right - x - pw - sm * 0.6, 0.75);
+        ctx.fillText(detailText, x + pw + sm * 0.6, y + ppx * 0.22);
+      } else if (!s.compact && (s.basic || s.more)) {
+        const note = s.basic ? t('bricksBasic') : t('bricksUpcharge', { n: euro(s.more) });
+        ctx.fillStyle = color('xr-panel-muted');
+        fitFont(ctx, note, 'bold', sm, right - x - pw - sm * 0.6, 0.8);
+        ctx.fillText(note, x + pw + sm * 0.6, y + ppx * 0.22);
+      }
+      y += ppx * 1.2;
+      if (s.selected !== undefined) tickBox(ctx, right - b, pad, b, s.selected);
+      // at most two chips (one on the small tiles)
+      const chipY = y + sm * 0.1;
+      if (s.chips?.length) chipRow(ctx, s.chips.slice(0, s.compact ? 1 : 2), x, chipY, right - x - (tile ? badge : 0), sm * 0.94);
+      // the adviser: a thin bar (its forecast), the exact numbers on hover, focus or in the relaxed mode
+      if (f && f.value !== undefined) {
+        const bw = right - x;
+        roundRect(ctx, x, barY, bw, sm * 0.3, sm * 0.15);
+        ctx.fillStyle = color('xr-bricks-bar-bg');
+        ctx.fill();
+        roundRect(ctx, x, barY, Math.max(sm * 0.3, (bw * clamp01((f.value - 40) / 55))), sm * 0.3, sm * 0.15);
         ctx.fillStyle = color('xr-bricks-ai');
         ctx.fill();
-        ctx.fillStyle = color('xr-bricks-ai-text');
-        ctx.fillText(label, ax + sm * 0.4, cy + sm * 0.04);
-        ax += bw + sm * 0.4;
       }
-      ctx.font = font('bold', sm * 0.95);
-      ctx.fillStyle = color('xr-bricks-ai');
-      const conf = Math.round(f.conf * 100);
-      const signed = (n) => `${n > 0 ? '+' : ''}${n}`;
-      const main = f.value !== undefined ? (f.top ? `${f.value} %` : t('bricksAi', { n: f.value })) : (f.tip ? signed(f.gain) : t('bricksAiGain', { n: signed(f.gain) }));
-      const options = [`${main} · ${t('bricksConf', { n: conf })}${s.words ? ` (${t(`bricksConf_${f.level}`)})` : ''}`, `${main} · ${t('bricksConf', { n: conf })}`, `${main} · ${t(`bricksConf_${f.level}`)}`, main];
-      const room = left + full - ax;
-      ctx.fillText(options.find((text) => ctx.measureText(text).width <= room) ?? main, ax, cy + sm * 0.04);
+      if (detail && roomy) {
+        ctx.fillStyle = color('xr-bricks-ai');
+        fitFont(ctx, detailText, 'bold', sm * 0.94, right - x - (tile ? badge : 0), 0.8);
+        ctx.fillText(detailText, x, barY - sm * 1.2);
+      }
     }
-    ctx.textBaseline = 'top';
-    const note = s.warn ?? s.good;
-    if (note && bottom - y > sm * 3.4) {
-      bottom -= sm * 1.25;
-      ctx.font = font('bold', sm * 0.95);
-      ctx.fillStyle = color(s.warn ? 'xr-danger' : 'xr-success');
-      ctx.fillText(fitText(ctx, `${s.warn ? '! ' : '+ '}${note}`, full), left, bottom);
-    }
-    // the middle: what the money buys (gains), the plain tags, the one-liner if there is room
-    const chipPx = sm * 0.9;
-    const rowH = chipPx * 1.9;
-    const top = Math.max(y, pad + pic) + sm * 0.3;
-    const list = [...(s.gains ?? []), ...(s.wish ? [{ text: t(`bricksNeed_${o.gives}`), kind: 'wish' }] : []), ...tagsOf(o).filter((c) => !(s.wish && c.kind === 'wish'))];
-    const need = chips(ctx, list, left, 0, full, chipPx, 9, false);
-    let cy = top;
-    if (!s.compact && bottom - top - need > sm * 1.5) {
-      ctx.font = font('regular', sm * 0.95);
-      ctx.fillStyle = color('xr-panel-muted');
-      ctx.fillText(fitText(ctx, t(`bricksOptD_${s.id}`), full), left, cy);
-      cy += sm * 1.45;
-    }
-    chips(ctx, list, left, cy, full, chipPx, Math.max(1, Math.floor((bottom - cy + chipPx * 0.35) / rowH)));
     // locked: dimmed, with a padlock and the amount missing
     if (s.locked) {
       ctx.fillStyle = color('xr-bricks-lock-veil');
       roundRect(ctx, 0, 0, W, Hh, this.m(num('xr-radius')));
       ctx.fill();
-      const px = s.compact ? sm : md;
-      lockPill(ctx, W / 2, Hh - px * 1.1 * 1.7 - pad * 0.6, t('bricksLocked', { n: euro(s.missing) }), px);
+      const text = t('bricksLocked', { n: euro(s.missing) });
+      const px = fitFont(ctx, text, 'black', sm, W - pic - pad * 5 - sm * 2);
+      const tw = ctx.measureText(text).width;
+      const bw = tw + px * 2.6;
+      const bh = px * 1.8;
+      const bx = Math.min(W - pad - bw, x);
+      const by = Hh - pad - bh;
+      roundRect(ctx, bx, by, bw, bh, bh / 2);
+      ctx.fillStyle = color('xr-bricks-lock-bg');
+      ctx.fill();
+      ctx.fillStyle = ctx.strokeStyle = color('xr-bricks-lock-text');
+      glyph(ctx, 'lock', bx + px * 1.0, by + bh / 2, px * 0.9);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, bx + px * 1.9, by + bh / 2 + px * 0.05);
     }
   }
-}
 
-/**
- * A small chip for the wish list: an extra with its price, a tick when it is earmarked, a
- * star when it fulfills a wish of the brief, a padlock when the money does not allow it.
- * state: { id, index, selected, locked, wish, thumb, hover, focus }.
- */
-export class WishChip extends Panel {
-  constructor(w, h, state, onClick) {
-    super(w, h, (ctx, p) => p.paint());
-    this.state = state;
+  /** The adviser's badge on the card it recommends; returns the width it takes. */
+  badge(ctx, right, y, sm) {
+    const label = t('bricksAiTip');
+    ctx.font = font('black', sm * 0.86);
+    const w = ctx.measureText(label).width + sm * 1.9;
+    const h = sm * 1.4;
+    roundRect(ctx, right - w, y, w, h, h * 0.3);
+    ctx.fillStyle = color('xr-bricks-ai');
+    ctx.fill();
+    ctx.fillStyle = ctx.strokeStyle = color('xr-bricks-ai-text');
+    glyph(ctx, 'ai', right - w + sm * 0.8, y + h / 2, sm * 0.85);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, right - w + sm * 1.5, y + h / 2 + sm * 0.04);
+    ctx.textBaseline = 'top';
+    return w + sm * 0.4;
+  }
+}
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
+// ---------- small panels at the edge: who builds, the money, the duel, the extras ----------
+
+class Press extends Panel {
+  /** A small panel that can be pressed; get(): its state, paint(ctx, panel, state, hot). */
+  constructor(w, h, get, paint, onClick, label) {
+    super(w, h, (ctx, p) => { if (p.ready) paint(ctx, p, get(), !!(p.state.hover || p.state.focus)); });
     this.ready = true;
     this.userData.interactive = true;
     this.userData.setHover = (v) => this.set({ hover: v });
     this.userData.setFocus = (v) => this.set({ focus: v });
-    this.userData.onClick = (pointer) => onClick(this, pointer);
-    this.relabel();
+    this.userData.onClick = () => onClick?.(this);
+    this.userData.label = label;
     this.redraw();
-  }
-
-  relabel() {
-    const s = this.state;
-    this.userData.label = [t('bricksWishList'), optName(s.id), euro(OPTION[s.id].price), s.selected ? t('bricksEarmarked') : '', s.locked ? t('bricksLocked', { n: euro(s.missing) }) : ''].filter(Boolean).join('. ');
-  }
-
-  paint() {
-    if (!this.ready) return;
-    const { ctx } = this;
-    const s = this.state;
-    const W = this.canvas.width;
-    const Hh = this.canvas.height;
-    const sm = this.m(num('xr-text-sm'));
-    const pad = this.m(0.012);
-    const active = (s.hover || s.focus) && !s.locked;
-    this.surface({ fill: color(s.selected ? 'xr-bricks-card-on' : active ? 'xr-bricks-card-hover' : 'xr-bricks-card-bg'), stroke: color(s.focus ? 'xr-focus' : s.selected ? 'xr-success' : s.wish ? 'xr-warning' : 'xr-panel-border'), strokeWidth: num('xr-border-width') * (s.focus ? 3 : s.selected || active || s.wish ? 1.6 : 1), stripe: false });
-    const pic = Hh - 2 * pad;
-    drawOption(ctx, s.id, pad, pad, pic, s.thumb);
-    const x = pad + pic + pad;
-    const b = sm * 0.95;
-    const w = W - x - pad - b - pad * 0.5;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.globalAlpha = s.locked ? 0.5 : 1;
-    let px = sm * 0.9;
-    const name = optShort(s.id);
-    ctx.font = font('black', px);
-    if (ctx.measureText(name).width > w) { px *= Math.max(0.8, w / ctx.measureText(name).width); ctx.font = font('black', px); }
-    ctx.fillStyle = color('xr-panel-text');
-    ctx.fillText(fitText(ctx, name, w), x, Hh * 0.33);
-    ctx.font = font('black', sm * 0.9);
-    ctx.fillStyle = color('xr-bricks-price');
-    ctx.fillText(euro(OPTION[s.id].price), x, Hh * 0.7);
-    ctx.globalAlpha = 1;
-    if (s.locked && !s.selected) {
-      // a small padlock instead of the tick box
-      ctx.fillStyle = ctx.strokeStyle = color('xr-panel-muted');
-      ctx.lineWidth = b * 0.14;
-      ctx.fillRect(W - pad - b, Hh * 0.5 - b * 0.1, b * 0.8, b * 0.55);
-      ctx.beginPath();
-      ctx.arc(W - pad - b * 0.6, Hh * 0.5 - b * 0.1, b * 0.26, Math.PI, 0);
-      ctx.stroke();
-    } else tickBox(ctx, W - pad - b, pad, b, s.selected);
-    if (s.wish) chipMark(ctx, 'wish', null, W - pad - b * 0.95, Hh - pad - b * 0.55, b * 0.9);
   }
 }
 
-// ---------- the budget bar ----------
+function plate(p, hot, token = 'xr-panel-border') {
+  p.surface({ fill: color(hot ? 'xr-bricks-card-hover' : 'xr-bricks-card-bg'), stroke: color(p.state.focus ? 'xr-focus' : token), strokeWidth: num('xr-border-width') * (p.state.focus ? 3 : hot ? 1.8 : 1), stripe: false });
+}
 
 /**
- * Where the money is: spent | earmarked for the wish list (dotted) | kept for the cheapest
- * version of the open parts (hatched) | free. A mark shows where the savings end and the loan
- * begins. Values in thousand euros.
+ * The wishes as chips with an icon and a word; a wish that is fulfilled shows a tick. They
+ * wrap into `rows` rows; the words only go when even that is too narrow.
  */
-function budgetBar(ctx, x, y, w, h, { budget, spent, earmarked = 0, reserve = 0, savings = 0 }, token = 'xr-bricks-you') {
+function wishChips(ctx, round, met, x, y, w, px, rows = 1) {
+  const list = round.brief.needs.map((n) => ({ icon: n, text: t(`bricksNeed_${n}`), kind: 'wish', on: met.includes(n) }));
+  const lay = (items) => {
+    const out = [];
+    let cx = x;
+    let row = 0;
+    for (const c of items) {
+      const cw = chip(ctx, c, 0, 0, px, false);
+      if (cx > x && cx + cw > x + w + 1) { cx = x; row += 1; }
+      out.push([c, cx, row]);
+      cx += cw + px * 0.4;
+    }
+    return out.some(([, , r]) => r >= rows) || out.some(([c, cx]) => cx + chip(ctx, c, 0, 0, px, false) > x + w + 1) ? null : out;
+  };
+  const placed = lay(list) ?? lay(list.map((c) => ({ ...c, text: '' }))) ?? [];
+  for (const [c, cx, row] of placed) chip(ctx, c, cx, y + row * px * 1.9, px);
+}
+
+/**
+ * Who builds and what they wish for, in one slim line (a press opens the whole brief).
+ * get(): { round, met: [wishes fulfilled], step }.
+ */
+export function briefChip(w, h, get, onClick) {
+  return new Press(w, h, get, (ctx, p, s, hot) => {
+    const sm = p.m(num('xr-text-sm'));
+    const pad = p.m(0.018);
+    const W = p.canvas.width;
+    const Hh = p.canvas.height;
+    plate(p, hot);
+    const who = t(`bricksWhoS_${s.round.brief.people}`);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = color('xr-accent');
+    const two = Hh > sm * 3.6; // two lines: who above, the wishes below
+    const cy = two ? pad + sm * 0.75 : Hh / 2;
+    glyph(ctx, 'who', pad + sm * 0.55, cy, sm * 1.05);
+    ctx.fillStyle = color('xr-panel-text');
+    const px = fitFont(ctx, who, 'black', sm, two ? W - 2 * pad - sm * 1.4 : W * 0.4, 0.8);
+    ctx.fillText(who, pad + sm * 1.35, cy + px * 0.05);
+    if (two) { const rows = Math.max(1, Math.floor((Hh - 2 * pad - sm * 1.7) / (sm * 0.94 * 1.9))); wishChips(ctx, s.round, s.met, pad, pad + sm * 1.75, W - 2 * pad, sm * 0.94, rows); }
+    else { const x = pad + sm * 1.7 + ctx.measureText(who).width; wishChips(ctx, s.round, s.met, x, Hh / 2 - sm * 0.75, W - pad - x, sm * 0.94); }
+  }, onClick, t('bricksBrief'));
+}
+
+/** Where the money is, as one bar: spent | earmarked (dotted) | reserved (hatched) | free. */
+function budgetBar(ctx, x, y, w, h, { budget, spent, earmarked = 0, reserve = 0 }, token = 'xr-bricks-you') {
   ctx.save();
   roundRect(ctx, x, y, w, h, h / 2);
   ctx.clip();
@@ -533,139 +551,77 @@ function budgetBar(ctx, x, y, w, h, { budget, spent, earmarked = 0, reserve = 0,
     ctx.fillRect(x + a + e + b, y, w - a - e - b, h);
   }
   ctx.restore();
-  if (savings > 0) {
-    const sx = x + (w * savings) / budget;
-    ctx.strokeStyle = color('xr-panel-text');
-    ctx.lineWidth = Math.max(1.5, h * 0.14);
-    ctx.beginPath(); ctx.moveTo(sx, y - h * 0.3); ctx.lineTo(sx, y + h * 1.3); ctx.stroke();
-  }
 }
-
-/** The legend swatch of a bar segment: plain, dotted or hatched (a pattern, not only a color). */
-function swatch(ctx, x, y, s, token, pattern) {
-  ctx.fillStyle = color(token);
-  ctx.fillRect(x, y, s, s);
-  ctx.strokeStyle = ctx.fillStyle = color('xr-bricks-bar-hatch');
-  ctx.lineWidth = 1.5;
-  if (pattern === 'hatch') { ctx.beginPath(); ctx.moveTo(x, y + s); ctx.lineTo(x + s, y); ctx.stroke(); }
-  if (pattern === 'dots') { ctx.beginPath(); ctx.arc(x + s / 2, y + s / 2, s * 0.2, 0, 7); ctx.fill(); }
-}
-
-// ---------- the brief ----------
 
 /**
- * The brief with the budget. get(): { round, spent, earmarked, reserve }. kind: 'full' (desktop,
- * headset), 'strip' (phone upright), 'mini' (phone sideways). Returns a Panel.
+ * The money: one bar and one big number (what is free). A press, hover or focus shows a tiny
+ * legend of the bar's parts instead of the number. get(): { budget, spent, earmarked, reserve, legend }.
  */
-export function briefPanel(w, h, get, kind = 'full') {
-  return new Panel(w, h, (ctx, p) => {
-    const { round, spent, earmarked, reserve } = get();
-    const b = round.brief;
+export function moneyBar(w, h, get, onClick) {
+  return new Press(w, h, get, (ctx, p, s, hot) => {
     const sm = p.m(num('xr-text-sm'));
     const md = p.m(num('xr-text-md'));
-    const pad = p.m(kind === 'full' ? 0.03 : 0.02);
+    const pad = p.m(0.018);
     const W = p.canvas.width;
     const Hh = p.canvas.height;
-    p.surface({ fill: color('xr-bricks-card-bg'), stripe: false });
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    let y = pad;
-    const free = b.budget - spent - earmarked - reserve;
-    const money = { budget: b.budget, spent, earmarked, reserve, savings: b.savings };
-    const costs = b.needs.map((n) => wishCost(round, n));
-    if (kind !== 'full') {
-      // who and where on one or two lines, the wishes as one line, the bar, what is free
-      ctx.font = font('black', sm);
-      ctx.fillStyle = color('xr-panel-text');
-      for (const ln of wrap(ctx, `${t(`bricksWho_${b.people}`)} · ${t(`bricksWhere_${b.place.id}`)}`, W - 2 * pad).slice(0, kind === 'mini' ? 2 : 1)) { ctx.fillText(ln, pad, y); y += sm * 1.2; }
-      ctx.font = font('bold', sm * 0.95);
-      ctx.fillStyle = color('xr-panel-muted');
-      for (const ln of wrap(ctx, [styleName(b.place.style), ...b.place.weather.map((k) => t(`bricksWeather_${k}`))].join(' · '), W - 2 * pad).slice(0, 1)) { ctx.fillText(ln, pad, y); y += sm * 1.2; }
-      ctx.fillStyle = color('xr-warning');
-      for (const ln of wrap(ctx, `${t('bricksLblWishes')}: ${b.needs.map((n) => t(`bricksNeed_${n}`)).join(', ')}`, W - 2 * pad).slice(0, 2)) { ctx.fillText(ln, pad, y); y += sm * 1.2; }
-      const bh = sm * 0.8;
-      y = Hh - pad - bh - sm * 1.55;
-      budgetBar(ctx, pad, y, W - 2 * pad, bh, money);
-      y += bh + sm * 0.4;
-      ctx.font = font('black', sm);
-      ctx.fillStyle = color('xr-bricks-price');
-      const freeText = t('bricksFree', { n: euro(free) });
-      ctx.fillText(freeText, pad, y);
-      const fw = ctx.measureText(freeText).width + sm * 0.6;
-      ctx.font = font('bold', sm * 0.95);
-      ctx.fillStyle = color('xr-panel-text');
-      const rest = [earmarked > 0 ? t('bricksEarmarkedSum', { n: euro(earmarked) }) : '', t('bricksSpent', { n: euro(spent) })].filter(Boolean);
-      const fits = rest.filter((text) => ctx.measureText(text).width <= W - 2 * pad - fw);
-      if (fits.length) ctx.fillText(fits[0], pad + fw, y);
+    plate(p, hot);
+    const free = s.budget - s.spent - s.earmarked - s.reserve;
+    const two = Hh > sm * 3.4;
+    ctx.textBaseline = 'middle';
+    const bh = sm * 0.62;
+    if (s.legend || hot) {
+      // the legend: a swatch with its pattern and one word each
+      const items = [['xr-bricks-you', null, t('bricksLegSpent')], ['xr-bricks-bar-wish', 'dots', t('bricksLegWish')], ['xr-bricks-bar-reserve', 'hatch', t('bricksLegReserve')], ['xr-bricks-bar-free', null, t('bricksLegFree')]];
+      const px = sm * 0.9;
+      ctx.font = font('bold', px);
+      const total = items.reduce((n, it) => n + px * 1.25 + ctx.measureText(it[2]).width + px * 0.7, 0);
+      const k = Math.min(1, (W - 2 * pad) / total);
+      ctx.font = font('bold', px * k);
+      let x = pad;
+      const cy = two ? pad + sm * 0.8 : Hh / 2;
+      for (const [token, pattern, word] of items) {
+        const q = px * k * 0.85;
+        ctx.fillStyle = color(token);
+        ctx.fillRect(x, cy - q / 2, q, q);
+        ctx.fillStyle = ctx.strokeStyle = color('xr-bricks-bar-hatch');
+        ctx.lineWidth = 1.5;
+        if (pattern === 'hatch') { ctx.beginPath(); ctx.moveTo(x, cy + q / 2); ctx.lineTo(x + q, cy - q / 2); ctx.stroke(); }
+        if (pattern === 'dots') { ctx.beginPath(); ctx.arc(x + q / 2, cy, q * 0.2, 0, 7); ctx.fill(); }
+        ctx.fillStyle = color('xr-panel-text');
+        ctx.textAlign = 'left';
+        ctx.fillText(word, x + q * 1.35, cy + px * 0.05);
+        x += px * k * 1.25 + ctx.measureText(word).width + px * k * 0.7;
+      }
+      if (two) budgetBar(ctx, pad, Hh - pad - bh, W - 2 * pad, bh, s);
       return;
     }
-    ctx.font = font('black', sm * 0.9);
-    ctx.fillStyle = color('xr-accent');
-    ctx.fillText(t('bricksBrief').toUpperCase(), pad, y);
-    y += sm * 1.4;
-    ctx.fillStyle = color('xr-panel-text');
-    ctx.font = font('black', md * 0.92);
-    for (const ln of wrap(ctx, t(`bricksWho_${b.people}`), W - 2 * pad)) { ctx.fillText(ln, pad, y); y += md * 1.1; }
+    const text = euro(free);
     ctx.font = font('bold', sm);
-    for (const ln of wrap(ctx, `${t(`bricksWhere_${b.place.id}`)}, ${t(`bricksAround_${b.place.id}`)}`, W - 2 * pad)) { ctx.fillText(ln, pad, y); y += sm * 1.25; }
-    y += sm * 0.25;
-    y += chips(ctx, [{ text: styleName(b.place.style), kind: 'style', style: b.place.style }, ...b.place.weather.map((k) => ({ text: t(`bricksWeather_${k}`), kind: 'plain' }))], pad, y, W - 2 * pad, sm * 0.9) + sm * 0.6;
-    // The wishes, each with the cheapest way to fulfill it (so the money can be planned).
-    ctx.font = font('bold', sm * 0.9);
-    ctx.fillStyle = color('xr-panel-muted');
-    ctx.fillText(t('bricksLblWishes'), pad, y);
-    y += sm * 1.25;
-    b.needs.forEach((n, i) => {
-      chipMark(ctx, 'wish', null, pad, y + sm * 0.55, sm * 0.7);
-      ctx.font = font('black', sm * 0.95);
-      ctx.fillStyle = color('xr-panel-text');
-      const name = t(`bricksNeed_${n}`);
-      ctx.fillText(name, pad + sm * 1.0, y);
-      const nw = ctx.measureText(name).width;
-      ctx.font = font('bold', sm * 0.9);
+    const lw = ctx.measureText(t('bricksLegFree')).width + sm * 0.4;
+    const npx = fitFont(ctx, text, 'black', md, two ? W - 2 * pad - lw : W * 0.5, 0.8);
+    const tw = ctx.measureText(text).width;
+    ctx.font = font('bold', sm);
+    if (two) {
+      ctx.textAlign = 'left';
       ctx.fillStyle = color('xr-panel-muted');
-      const how = costs[i] ? `${t(`bricksStep_${costs[i].step}`)} ${t('bricksFrom', { n: euro(costs[i].price) })}` : t('bricksNoWork');
-      const room = W - 2 * pad - sm * 1.5 - nw;
-      if (ctx.measureText(how).width <= room) ctx.fillText(how, pad + sm * 1.5 + nw, y + sm * 0.04);
-      else { y += sm * 1.15; ctx.fillText(fitText(ctx, how, W - 2 * pad - sm), pad + sm * 1.0, y); }
-      y += sm * 1.3;
-    });
-    // The money: where it comes from, where it is.
-    y += sm * 0.3;
-    ctx.font = font('black', sm);
-    ctx.fillStyle = color('xr-panel-text');
-    ctx.fillText(`${t('bricksLblBudget')} ${euro(b.budget)}`, pad, y);
-    y += sm * 1.25;
-    ctx.font = font('bold', sm * 0.9);
-    ctx.fillStyle = color('xr-panel-muted');
-    for (const ln of wrap(ctx, t('bricksMoneyFrom', { a: euro(b.savings), b: euro(b.loan) }), W - 2 * pad)) { ctx.fillText(ln, pad, y); y += sm * 1.15; }
-    y += sm * 0.35;
-    const bh = sm * 0.9;
-    budgetBar(ctx, pad, y, W - 2 * pad, bh, money);
-    y += bh + sm * 0.55;
-    const row = (token, pattern, label, amount, big) => {
-      const px = big ? md * 0.95 : sm * 0.95;
-      swatch(ctx, pad, y + px * 0.16, sm * 0.8, token, pattern);
-      ctx.fillStyle = color(big ? 'xr-bricks-price' : 'xr-panel-text');
-      ctx.font = font(big ? 'black' : 'bold', px);
+      ctx.fillText(t('bricksLegFree'), pad, pad + md * 0.55);
+      ctx.font = font('black', npx);
+      ctx.fillStyle = color('xr-bricks-price');
+      ctx.fillText(text, pad + lw, pad + md * 0.5);
+      budgetBar(ctx, pad, Hh - pad - bh, W - 2 * pad, bh, s);
+    } else {
+      // one line: the bar, then the number
+      const x = W - pad - tw - lw;
+      budgetBar(ctx, pad, Hh / 2 - bh / 2, x - pad - sm * 0.6, bh, s);
       ctx.textAlign = 'left';
-      ctx.fillText(label, pad + sm * 1.2, y);
-      ctx.textAlign = 'right';
-      ctx.fillText(euro(amount), W - pad, y);
-      ctx.textAlign = 'left';
-      y += px * 1.3;
-    };
-    row('xr-bricks-you', null, t('bricksLegSpent'), spent);
-    if (earmarked > 0) row('xr-bricks-bar-wish', 'dots', t('bricksLegWish'), earmarked);
-    if (reserve > 0) row('xr-bricks-bar-reserve', 'hatch', t('bricksLegReserve'), reserve);
-    row('xr-bricks-bar-free', null, t('bricksLegFree'), free, true);
-  });
+      ctx.fillStyle = color('xr-panel-muted');
+      ctx.fillText(t('bricksLegFree'), x, Hh / 2 + sm * 0.05);
+      ctx.font = font('black', npx);
+      ctx.fillStyle = color('xr-bricks-price');
+      ctx.fillText(text, x + lw, Hh / 2 + md * 0.04);
+    }
+  }, onClick, t('bricksLblBudget'));
 }
-
-/** Sizes (m) of the brief: full, the strip for upright phones, the mini for phones held sideways. */
-export const BRIEF = { full: [0.62, 0.92], strip: [0.9, 0.27], mini: [0.56, 0.3] };
-
-// ---------- the live meter ----------
 
 function scoreBar(ctx, x, y, w, h, share, token, hatch) {
   roundRect(ctx, x, y, w, h, h / 2);
@@ -687,90 +643,190 @@ function scoreBar(ctx, x, y, w, h, share, token, hatch) {
 }
 
 /**
- * The coherence so far, criterion by criterion, for you and for the neighbors. get(): { me,
- * them (results of judge() for the houses so far), last (one line about the latest change),
- * count (houses the adviser has seen) }. kind: 'full' or 'strip' (one row for phones).
+ * The duel: your coherence so far and the neighbors', as two numbers with a bar each, and the
+ * five criteria as icons with a little pair of bars. Their names show on hover or focus only.
+ * get(): { me, them (results of judge() for the houses so far) }.
  */
-export function meterPanel(w, h, get, kind = 'full') {
-  return new Panel(w, h, (ctx, p) => {
-    const s = get();
+export function duelPanel(w, h, get) {
+  return new Press(w, h, get, (ctx, p, s, hot) => {
     const sm = p.m(num('xr-text-sm'));
     const md = p.m(num('xr-text-md'));
-    const pad = p.m(kind === 'full' ? 0.03 : 0.02);
+    const pad = p.m(0.018);
     const W = p.canvas.width;
     const Hh = p.canvas.height;
-    p.surface({ fill: color('xr-bricks-card-bg'), stripe: false });
+    plate(p, hot);
     ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-    if (kind !== 'full') {
-      // totals at the left, five little pairs of bars beside them
-      ctx.font = font('black', sm);
-      ctx.fillStyle = color('xr-bricks-you');
-      const a = `${t('bricksYou')} ${s.me.total}`;
-      ctx.fillText(a, pad, Hh * 0.32);
-      ctx.fillStyle = color('xr-bricks-neighbor');
-      const c = `${t('bricksThem')} ${s.them.total}`;
-      ctx.fillText(c, pad, Hh * 0.7);
-      const x0 = pad + Math.max(ctx.measureText(a).width, ctx.measureText(c).width) + sm * 0.8;
-      const cw = (W - pad - x0) / 5;
+    if (W / Hh > 5) {
+      // one low row (phone upright): the two totals with their bars at the left, the five criteria at the right
+      const half = W * 0.5;
+      [[s.me, 'xr-bricks-you', false, t('bricksYou')], [s.them, 'xr-bricks-neighbor', true, t('bricksThem')]].forEach(([res, token, hatch, who], i) => {
+        const cy = Hh * (i ? 0.72 : 0.3);
+        ctx.textAlign = 'left';
+        ctx.font = font('black', sm);
+        ctx.fillStyle = color(token);
+        ctx.fillText(who, pad, cy + sm * 0.05);
+        ctx.textAlign = 'right';
+        ctx.fillText(String(res.total), half - pad, cy + sm * 0.05);
+        const x0 = pad + p.m(0.12);
+        scoreBar(ctx, x0, cy - sm * 0.2, half - pad - sm * 1.6 - x0, sm * 0.4, res.total / 100, token, hatch);
+      });
+      const cw = (W - half - pad) / 5;
       s.me.rows.forEach((r, i) => {
-        const x = x0 + i * cw;
-        ctx.font = font('bold', sm * 0.86);
-        ctx.fillStyle = color('xr-panel-muted');
-        ctx.fillText(fitText(ctx, t(`bricksCritShort_${r.key}`), cw - sm * 0.3), x, Hh * 0.24);
-        scoreBar(ctx, x, Hh * 0.47, cw - sm * 0.5, sm * 0.38, r.score / 100, 'xr-bricks-you', false);
-        scoreBar(ctx, x, Hh * 0.47 + sm * 0.55, cw - sm * 0.5, sm * 0.38, s.them.rows[i].score / 100, 'xr-bricks-neighbor', true);
+        const cx = half + cw * (i + 0.5);
+        ctx.fillStyle = ctx.strokeStyle = color('xr-panel-muted');
+        glyph(ctx, r.key, cx, Hh * 0.3, sm * 0.95);
+        scoreBar(ctx, cx - cw * 0.36, Hh * 0.58, cw * 0.72, sm * 0.22, r.score / 100, 'xr-bricks-you', false);
+        scoreBar(ctx, cx - cw * 0.36, Hh * 0.58 + sm * 0.32, cw * 0.72, sm * 0.22, s.them.rows[i].score / 100, 'xr-bricks-neighbor', true);
       });
       return;
     }
     let y = pad;
-    ctx.font = font('black', sm * 0.9);
-    ctx.fillStyle = color('xr-accent');
-    ctx.fillText(t('bricksMeter').toUpperCase(), pad, y + sm * 0.5);
-    y += sm * 1.5;
-    // the totals, large
-    ctx.font = font('black', md);
-    ctx.fillStyle = color('xr-bricks-you');
-    ctx.fillText(`${t('bricksYou')} ${s.me.total}`, pad, y + md * 0.5);
-    ctx.textAlign = 'right';
-    ctx.fillStyle = color('xr-bricks-neighbor');
-    ctx.fillText(`${t('bricksThem')} ${s.them.total}`, W - pad, y + md * 0.5);
-    ctx.textAlign = 'left';
-    y += md * 1.3;
-    const nameW = p.m(0.2);
-    const barW = W - 2 * pad - nameW - sm * 1.9;
-    const barH = sm * 0.42;
-    s.me.rows.forEach((r, i) => {
-      ctx.font = font('bold', sm * 0.92);
-      ctx.fillStyle = color('xr-panel-text');
-      ctx.fillText(t(`bricksCritShort_${r.key}`), pad, y + barH + sm * 0.08);
-      for (const [res, token, hatch, k] of [[s.me, 'xr-bricks-you', false, 0], [s.them, 'xr-bricks-neighbor', true, 1]]) {
-        const yy = y + k * (barH + sm * 0.16);
-        scoreBar(ctx, pad + nameW, yy, barW, barH, res.rows[i].score / 100, token, hatch);
-        ctx.font = font('bold', sm * 0.8);
-        ctx.fillStyle = color('xr-panel-text');
-        ctx.fillText(String(res.rows[i].score), pad + nameW + barW + sm * 0.35, yy + barH / 2 + sm * 0.03);
-      }
-      y += 2 * barH + sm * 0.62;
-    });
-    // the latest change in one line, and the permanent note about the adviser
-    ctx.textBaseline = 'top';
-    if (s.last) {
-      ctx.font = font('bold', sm * 0.92);
-      ctx.fillStyle = color(s.lastToken ?? 'xr-panel-text');
-      for (const ln of wrap(ctx, s.last, W - 2 * pad).slice(0, 2)) { ctx.fillText(ln, pad, y); y += sm * 1.15; }
+    for (const [res, token, hatch, who] of [[s.me, 'xr-bricks-you', false, t('bricksYou')], [s.them, 'xr-bricks-neighbor', true, t('bricksThem')]]) {
+      ctx.textAlign = 'left';
+      ctx.font = font('black', sm);
+      ctx.fillStyle = color(token);
+      ctx.fillText(who, pad, y + md * 0.5);
+      const nw = p.m(0.13);
+      ctx.textAlign = 'right';
+      ctx.font = font('black', md);
+      ctx.fillText(String(res.total), W - pad, y + md * 0.5);
+      scoreBar(ctx, pad + nw, y + md * 0.5 - sm * 0.26, W - 2 * pad - nw - md * 1.5, sm * 0.52, res.total / 100, token, hatch);
+      y += md * 1.12;
     }
-    ctx.font = font('bold', sm * 0.9);
-    ctx.fillStyle = color('xr-bricks-ai');
-    const note = wrap(ctx, t('bricksAiNote', { n: s.count }), W - 2 * pad);
-    let ny = Hh - pad - note.length * sm * 1.12;
-    for (const ln of note) { ctx.fillText(ln, pad, ny); ny += sm * 1.12; }
+    // the five criteria: an icon and two little bars each
+    const cw = (W - 2 * pad) / 5;
+    const iy = y + sm * 0.75;
+    const room = Hh - pad - iy;
+    s.me.rows.forEach((r, i) => {
+      const cx = pad + cw * (i + 0.5);
+      if (hot && room > sm * 2.4) {
+        ctx.fillStyle = color('xr-panel-text');
+        ctx.textAlign = 'center';
+        fitFont(ctx, t(`bricksCritShort_${r.key}`), 'bold', sm * 0.8, cw - 2, 0.7);
+        ctx.fillText(t(`bricksCritShort_${r.key}`), cx, iy);
+      } else {
+        ctx.fillStyle = ctx.strokeStyle = color('xr-panel-muted');
+        glyph(ctx, r.key, cx, iy, sm * 1.0);
+      }
+      const by = iy + sm * 0.85;
+      scoreBar(ctx, cx - cw * 0.38, by, cw * 0.76, sm * 0.26, r.score / 100, 'xr-bricks-you', false);
+      scoreBar(ctx, cx - cw * 0.38, by + sm * 0.36, cw * 0.76, sm * 0.26, s.them.rows[i].score / 100, 'xr-bricks-neighbor', true);
+    });
+  }, null, t('bricksMeter'));
+}
+
+/**
+ * The button of the extras: how many are earmarked and what they cost together, with their
+ * little pictures. get(): { ids, sum, open, thumb(id), star (a wish still needs an extra) }.
+ */
+export function extrasButton(w, h, get, onClick) {
+  return new Press(w, h, get, (ctx, p, s, hot) => {
+    const sm = p.m(num('xr-text-sm'));
+    const pad = p.m(0.018);
+    const W = p.canvas.width;
+    const Hh = p.canvas.height;
+    plate(p, hot, s.star ? 'xr-warning' : 'xr-accent');
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const text = s.open ? t('bricksWishClose') : s.ids.length ? t('bricksWishBtn', { n: s.ids.length, sum: euro(s.sum) }) : t('bricksWishBtn0');
+    let x = pad;
+    if (s.star && !s.open) { ctx.fillStyle = color('xr-warning'); chipStar(ctx, x + sm * 0.5, Hh / 2, sm * 0.95); x += sm * 1.2; }
+    const pics = s.open ? [] : s.ids.slice(0, 4);
+    const pw = pics.length * (Hh - 2 * pad + pad * 0.5);
+    ctx.fillStyle = color('xr-panel-text');
+    const px = fitFont(ctx, text, 'black', sm, W - pad - x - pw - (pics.length ? sm * 0.4 : 0), 0.8);
+    ctx.fillText(text, x, Hh / 2 + px * 0.05);
+    let ix = W - pad - pw + pad * 0.5;
+    for (const id of pics) { drawOption(ctx, id, ix, pad, Hh - 2 * pad, s.thumb(id)); ix += Hh - 2 * pad + pad * 0.5; }
+  }, onClick, t('bricksWishList'));
+}
+function chipStar(ctx, x, y, s) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5; const r = i % 2 ? s * 0.24 : s * 0.55; ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); }
+  ctx.fill();
+}
+
+/** Seven dots: the steps done, the step now, the steps to come. get(): { step }. */
+export function dotsPanel(w, h, get) {
+  return new Panel(w, h, (ctx, p) => {
+    const { step } = get();
+    const n = 7;
+    const r = p.canvas.height * 0.26;
+    const gap = (p.canvas.width - 2 * r) / (n - 1);
+    for (let i = 0; i < n; i++) {
+      ctx.beginPath();
+      ctx.arc(r + i * gap, p.canvas.height / 2, i === step ? r * 1.25 : r * 0.8, 0, 7);
+      if (i <= step) { ctx.fillStyle = color(i === step ? 'xr-accent' : 'xr-success'); ctx.fill(); }
+      else { ctx.strokeStyle = color('xr-panel-muted'); ctx.lineWidth = Math.max(1.5, r * 0.3); ctx.stroke(); }
+    }
   });
 }
-export const METER = { full: [0.62, 0.66], strip: [0.9, 0.125], mini: [0.56, 0.125] };
 
-// ---------- a strip of text (the question, a message, a coach line) ----------
+// ---------- the whole brief (the intro, and on demand) ----------
 
+/** get(): { round, spent, earmarked, reserve }. */
+export function briefPanel(w, h, get) {
+  return new Panel(w, h, (ctx, p) => {
+    const { round, spent, earmarked, reserve } = get();
+    const b = round.brief;
+    const sm = p.m(num('xr-text-sm'));
+    const md = p.m(num('xr-text-md'));
+    const pad = p.m(0.03);
+    const W = p.canvas.width;
+    p.surface({ fill: color('xr-bricks-card-bg'), stripe: false });
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    let y = pad;
+    ctx.font = font('black', sm * 0.9);
+    ctx.fillStyle = color('xr-accent');
+    ctx.fillText(t('bricksBrief').toUpperCase(), pad, y);
+    y += sm * 1.5;
+    ctx.fillStyle = color('xr-panel-text');
+    ctx.font = font('black', md);
+    for (const ln of wrap(ctx, t(`bricksWho_${b.people}`), W - 2 * pad)) { ctx.fillText(ln, pad, y); y += md * 1.12; }
+    ctx.font = font('bold', sm);
+    ctx.fillStyle = color('xr-panel-muted');
+    for (const ln of wrap(ctx, `${t(`bricksWhere_${b.place.id}`)}: ${[styleName(b.place.style), ...b.place.weather.map((k) => t(`bricksWeather_${k}`))].join(', ')}`, W - 2 * pad)) { ctx.fillText(ln, pad, y); y += sm * 1.25; }
+    y += sm * 0.6;
+    // the wishes, each with the cheapest way to fulfill it
+    for (const n of b.needs) {
+      const c = wishCost(round, n);
+      ctx.fillStyle = ctx.strokeStyle = color('xr-warning');
+      glyph(ctx, n, pad + sm * 0.5, y + sm * 0.55, sm);
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = color('xr-panel-text');
+      ctx.font = font('black', sm);
+      const name = t(`bricksNeed_${n}`);
+      ctx.fillText(name, pad + sm * 1.35, y);
+      if (c) {
+        const how = `${t(`bricksStep_${c.step}`)} ${t('bricksFrom', { n: euro(c.price) })}`;
+        ctx.textAlign = 'right';
+        ctx.fillStyle = color('xr-panel-muted');
+        fitFont(ctx, how, 'bold', sm, W - 2 * pad - sm * 1.9 - ctx.measureText(name).width, 0.8);
+        ctx.fillText(how, W - pad, y);
+        ctx.textAlign = 'left';
+      }
+      y += sm * 1.42;
+    }
+    y += sm * 0.5;
+    // the money and where it comes from
+    ctx.font = font('black', md);
+    ctx.fillStyle = color('xr-bricks-price');
+    ctx.fillText(euro(b.budget), pad, y);
+    y += md * 1.2;
+    ctx.fillStyle = color('xr-panel-muted');
+    fitFont(ctx, t('bricksMoneyFrom', { a: euro(b.savings), b: euro(b.loan) }), 'bold', sm, W - 2 * pad, 0.8);
+    ctx.fillText(t('bricksMoneyFrom', { a: euro(b.savings), b: euro(b.loan) }), pad, y);
+    y += sm * 1.5;
+    budgetBar(ctx, pad, y, W - 2 * pad, sm * 0.8, { budget: b.budget, spent, earmarked, reserve });
+  });
+}
+export const BRIEF = [0.66, 0.6];
+
+// ---------- a strip of text (a hint, a message, a name tag) ----------
+
+/** get(): { text, token, small, icon ('up' | 'down' | a criterion), lines }. */
 export function strip(w, h, get) {
   return new Panel(w, h, (ctx, p) => {
     const s = get();
@@ -778,9 +834,10 @@ export function strip(w, h, get) {
     const px = p.m(num(s.small ? 'xr-text-sm' : 'xr-text-md')) * (s.scale ?? 1);
     ctx.font = font('black', px);
     // wrapW (meters): the room the layout has for it (the panel itself may be wider than the screen).
-    const lines = wrap(ctx, s.text, Math.min(p.canvas.width, p.m(p.wrapW ?? p.w)) - px * 1.6).slice(0, s.lines ?? 2);
+    const iw = s.icon ? px * 1.3 : 0;
+    const lines = wrap(ctx, s.text, Math.min(p.canvas.width, p.m(p.wrapW ?? p.w)) - px * 1.6 - iw).slice(0, s.lines ?? 2);
     if (!lines.length) return;
-    const tw = Math.max(...lines.map((ln) => ctx.measureText(ln).width)) + px * 1.6;
+    const tw = Math.max(...lines.map((ln) => ctx.measureText(ln).width)) + px * 1.6 + iw;
     const th = Math.min(p.canvas.height, lines.length * px * 1.25 + px * 0.7);
     const x = (p.canvas.width - tw) / 2;
     const y = (p.canvas.height - th) / 2;
@@ -788,56 +845,25 @@ export function strip(w, h, get) {
     ctx.fillStyle = color('xr-bricks-strip-bg');
     ctx.fill();
     if (s.token) { ctx.lineWidth = Math.max(1.5, px * 0.1); ctx.strokeStyle = color(s.token); ctx.stroke(); }
-    ctx.fillStyle = color(s.token ?? 'xr-panel-text');
+    ctx.fillStyle = ctx.strokeStyle = color(s.token ?? 'xr-panel-text');
+    if (s.icon) glyph(ctx, s.icon, x + px * 1.2, y + th / 2, px * 1.0);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    lines.forEach((ln, i) => ctx.fillText(ln, p.canvas.width / 2, y + th / 2 + (i - (lines.length - 1) / 2) * px * 1.25 + px * 0.05));
+    lines.forEach((ln, i) => ctx.fillText(ln, p.canvas.width / 2 + iw / 2, y + th / 2 + (i - (lines.length - 1) / 2) * px * 1.25 + px * 0.05));
   });
 }
-
-// ---------- the neighbors' sign ----------
-
-/** get(): { kind (what builders they are), last (option id or null), spent, budget }. small: for phones. */
-export function neighborSign(w, h, get, small = false) {
-  return new Panel(w, h, (ctx, p) => {
-    const s = get();
-    const sm = p.m(num('xr-text-sm'));
-    const pad = p.m(0.02);
-    const W = p.canvas.width;
-    p.surface({ fill: color('xr-bricks-card-bg'), stroke: color('xr-bricks-neighbor'), stripe: false });
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.font = font('black', sm);
-    ctx.fillStyle = color('xr-bricks-neighbor');
-    ctx.fillText(t('bricksWho_winter'), pad, pad);
-    let y = pad + sm * 1.25;
-    ctx.font = font('bold', sm * 0.92);
-    ctx.fillStyle = color('xr-panel-muted');
-    for (const ln of wrap(ctx, t(`bricksNbKind_${s.kind}`), W - 2 * pad).slice(0, small ? 1 : 2)) { ctx.fillText(ln, pad, y); y += sm * 1.15; }
-    y += sm * 0.15;
-    budgetBar(ctx, pad, y, W - 2 * pad, sm * 0.5, { budget: s.budget, spent: s.spent }, 'xr-bricks-neighbor');
-    y += sm * 0.85;
-    ctx.fillStyle = color('xr-panel-text');
-    const lines = [s.last ? t('bricksNbBuilds', { a: optName(s.last) }) : t('bricksNbStart'), t('bricksNbMoney', { n: euro(s.budget - s.spent) })];
-    for (const text of lines) for (const ln of wrap(ctx, text, W - 2 * pad).slice(0, 1)) { ctx.fillText(ln, pad, y); y += sm * 1.15; }
-  });
-}
-export const SIGN = { full: [0.62, 0.3], small: [0.46, 0.24] };
 
 // ---------- the coherence check ----------
 
-export const CHECK_SIZE = { wide: [2.3, 0.58], tall: [0.95, 0.98], side: [1.08, 0.66], xr: [1.9, 0.6] };
+export const CHECK_SIZE = [0.92, 0.46];
 
 /**
- * The check, staged. get(): { me, them (results of judge()), shown (rows revealed, with a
- * fraction while a bar grows), verdict, page (0: the criteria, 1: what the money did), money:
- * [{ text, token }] }. kind: 'wide' (desktop), 'tall' (phone upright), 'side' (phone sideways,
- * beside the houses), 'xr' (headset). The narrow kinds show the reason of the row being
- * revealed in a box at the bottom (no cut-off text), the wide ones beside every row.
+ * The check, one thing at a time. get(): { me, them (results of judge()), stage (0..4: that
+ * criterion; 5: the summary; 6: the details), grow (0..1, the bars of the stage), verdict,
+ * lines: [{ text, token }] (at most three), details: [{ text, token }] }.
  */
-export function checkPanel(kind, get) {
-  const [w, h] = CHECK_SIZE[kind];
-  const narrow = kind === 'tall' || kind === 'side';
+export function checkPanel(get) {
+  const [w, h] = CHECK_SIZE;
   return new Panel(w, h, (ctx, p) => {
     const s = get();
     const sm = p.m(num('xr-text-sm'));
@@ -848,112 +874,72 @@ export function checkPanel(kind, get) {
     p.surface({ fill: color('xr-bricks-card-bg'), stripe: false });
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    ctx.font = font('black', sm * 0.95);
-    ctx.fillStyle = color('xr-accent');
-    ctx.fillText((s.page ? t('bricksMoneyTitle') : t('bricksCheck')).toUpperCase(), pad, pad + sm * 0.6);
-    let y = pad + sm * 1.6;
-    if (s.page) {
-      // What the money did: every line whole, wrapped.
-      ctx.textBaseline = 'top';
-      for (const item of s.money) {
-        ctx.font = font(item.big ? 'black' : 'bold', item.big ? sm * 1.08 : sm * 0.98);
-        ctx.fillStyle = color(item.token ?? 'xr-panel-text');
-        for (const ln of wrap(ctx, item.text, W - 2 * pad)) { if (y + sm * 1.2 > Hh - pad) return; ctx.fillText(ln, pad, y); y += sm * 1.24; }
-        y += sm * 0.45;
-      }
-      return;
-    }
-    // legend: you (plain bar), the neighbors (hatched bar)
-    ctx.textAlign = 'right';
-    let lx = W - pad;
-    for (const [label, token, hatch] of [[t(narrow ? 'bricksThem' : 'bricksWho_winter'), 'xr-bricks-neighbor', true], [t('bricksYou'), 'xr-bricks-you', false]]) {
-      ctx.font = font('bold', sm * 0.9);
-      ctx.fillStyle = color('xr-panel-text');
-      ctx.fillText(label, lx, pad + sm * 0.6);
-      lx -= ctx.measureText(label).width + sm * 0.4;
-      scoreBar(ctx, lx - sm * 1.4, pad + sm * 0.3, sm * 1.4, sm * 0.6, 1, token, hatch);
-      lx -= sm * 2.0;
-    }
-    ctx.textAlign = 'left';
-    const nameW = p.m(narrow ? 0.36 : kind === 'wide' ? 0.56 : 0.58);
-    const barW = narrow ? W - 2 * pad - nameW - sm * 1.9 : p.m(kind === 'wide' ? 0.5 : 0.5);
-    const barH = sm * (narrow ? 0.5 : 0.62);
-    const rowH = barH * 2 + sm * (narrow ? 0.85 : 0.95);
-    const bars = (row, k, x, yy) => {
-      for (const [res, token, hatch] of [[s.me, 'xr-bricks-you', false], [s.them, 'xr-bricks-neighbor', true]]) {
-        const v = row < 0 ? res.total : res.rows[row].score;
-        scoreBar(ctx, x, yy, barW, barH, (v / 100) * k, token, hatch);
-        ctx.font = font('black', sm * 0.92);
-        ctx.fillStyle = color('xr-panel-text');
-        ctx.fillText(String(Math.round(v * k)), x + barW + sm * 0.35, yy + barH / 2 + sm * 0.04);
-        yy += barH + sm * 0.22;
-      }
-    };
-    const now = Math.min(s.me.rows.length - 1, Math.floor(s.shown - 0.001));
-    s.me.rows.forEach((r, i) => {
-      const k = Math.max(0, Math.min(1, (s.shown - i) * 2.2));
-      if (s.shown > i) {
-        // the row being revealed stands out
-        if (i === now && s.shown < s.me.rows.length) { ctx.fillStyle = color('xr-bricks-row-now'); roundRect(ctx, pad * 0.4, y - sm * 0.15, W - pad * 0.8, rowH - sm * 0.1, sm * 0.4); ctx.fill(); }
-        ctx.font = font('black', sm * (narrow ? 0.95 : 1));
-        ctx.fillStyle = color('xr-panel-text');
-        const name = narrow ? t(`bricksCritShort_${r.key}`) : t(`bricksCrit_${r.key}`);
-        ctx.fillText(name, pad, y + rowH / 2 - sm * 0.25);
-        if (r.key === 'people') {
-          ctx.font = font('bold', sm * 0.8);
-          ctx.fillStyle = color('xr-warning');
-          ctx.fillText(t('bricksDouble'), pad, y + rowH / 2 + sm * 0.62);
-        }
-        bars(i, k, pad + nameW, y + sm * 0.2);
-        if (!narrow) {
-          const rx = pad + nameW + barW + sm * 2.4;
-          const rw = W - rx - pad;
-          ctx.font = font('regular', sm * 0.92);
-          ctx.fillStyle = color('xr-panel-text');
-          ctx.fillText(fitText(ctx, whyText(r.why), rw), rx, y + sm * 0.2 + barH / 2);
-          ctx.fillStyle = color('xr-bricks-neighbor');
-          ctx.fillText(fitText(ctx, whyText(s.them.rows[i].why), rw), rx, y + sm * 0.2 + barH * 1.5 + sm * 0.22);
-        }
-      }
-      y += rowH;
-    });
-    // the total
-    const done = s.shown >= s.me.rows.length;
-    const k = Math.max(0, Math.min(1, (s.shown - s.me.rows.length) * 1.6));
-    ctx.strokeStyle = color('xr-panel-border');
-    ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke();
-    y += sm * 0.35;
-    if (done) {
-      ctx.font = font('black', md * 0.85);
-      ctx.fillStyle = color('xr-panel-text');
-      ctx.fillText(t('bricksTotal'), pad, y + rowH / 2 - sm * 0.1);
-      bars(-1, k, pad + nameW, y + sm * 0.2);
-    }
-    const final = s.shown >= s.me.rows.length + 1;
-    const win = s.me.total > s.them.total;
-    if (!narrow) {
-      if (final) {
-        const rx = pad + nameW + barW + sm * 2.4;
-        ctx.font = font('black', md * 0.8);
-        ctx.fillStyle = color(win ? 'xr-success' : s.me.total === s.them.total ? 'xr-warning' : 'xr-bricks-neighbor');
-        for (const [j, ln] of wrap(ctx, s.verdict, W - rx - pad).slice(0, 2).entries()) ctx.fillText(ln, rx, y + sm * 0.7 + j * md * 0.95);
-      }
-      return;
-    }
-    // narrow: one box at the bottom with the reasons of the row being revealed, then the verdict
-    y += rowH + sm * 0.1;
-    ctx.textBaseline = 'top';
-    if (final) {
-      ctx.font = font('black', sm * 1.05);
-      ctx.fillStyle = color(win ? 'xr-success' : s.me.total === s.them.total ? 'xr-warning' : 'xr-bricks-neighbor');
-      for (const ln of wrap(ctx, s.verdict, W - 2 * pad).slice(0, 3)) { ctx.fillText(ln, pad, y); y += sm * 1.25; }
-    } else if (now >= 0 && !done) {
-      ctx.font = font('bold', sm * 0.95);
-      for (const [res, token, who] of [[s.me, 'xr-panel-text', t('bricksYou')], [s.them, 'xr-bricks-neighbor', t('bricksThem')]]) {
+    const duel = (y, valueOf, k, big) => {
+      for (const [res, token, hatch, who] of [[s.me, 'xr-bricks-you', false, t('bricksYou')], [s.them, 'xr-bricks-neighbor', true, t('bricksThem')]]) {
+        const v = valueOf(res);
+        const hh = big ? md : sm * 1.1;
+        ctx.textAlign = 'left';
+        ctx.font = font('black', sm);
         ctx.fillStyle = color(token);
-        for (const ln of wrap(ctx, `${who}: ${whyText(res.rows[now].why)}`, W - 2 * pad).slice(0, 2)) { ctx.fillText(ln, pad, y); y += sm * 1.18; }
+        ctx.fillText(who, pad, y + hh / 2);
+        ctx.textAlign = 'right';
+        ctx.font = font('black', big ? md * 1.1 : md * 0.9);
+        ctx.fillText(String(Math.round(v * k)), W - pad, y + hh / 2);
+        scoreBar(ctx, pad + p.m(0.15), y + hh / 2 - sm * 0.3, W - 2 * pad - p.m(0.15) - md * 1.7, sm * 0.6, (v / 100) * k, token, hatch);
+        y += hh + sm * 0.5;
       }
+      return y;
+    };
+    if (s.stage < s.me.rows.length) {
+      // one criterion: its icon and name, the two bars, one reason
+      const r = s.me.rows[s.stage];
+      ctx.fillStyle = ctx.strokeStyle = color('xr-accent');
+      glyph(ctx, r.key, pad + md * 0.55, pad + md * 0.6, md * 1.1);
+      ctx.fillStyle = color('xr-panel-text');
+      const name = t(`bricksCrit_${r.key}`);
+      fitFont(ctx, name, 'black', md, W - 2 * pad - md * 1.5 - sm * 2.2, 0.75);
+      ctx.fillText(name, pad + md * 1.4, pad + md * 0.62);
+      ctx.textAlign = 'right';
+      ctx.font = font('bold', sm);
+      ctx.fillStyle = color('xr-panel-muted');
+      ctx.fillText(`${s.stage + 1}/${s.me.rows.length}`, W - pad, pad + md * 0.62);
+      ctx.textAlign = 'left';
+      let y = pad + md * 1.5;
+      if (r.key === 'people') { ctx.font = font('bold', sm * 0.94); ctx.fillStyle = color('xr-warning'); ctx.fillText(t('bricksDouble'), pad + md * 1.4, y); y += sm * 1.0; }
+      y = duel(y + sm * 0.2, (res) => res.rows[s.stage].score, s.grow, false);
+      ctx.font = font('bold', sm);
+      ctx.fillStyle = color('xr-panel-text');
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+      for (const ln of wrap(ctx, whyText(r.why), W - 2 * pad).slice(0, 2)) { ctx.fillText(ln, pad, y); y += sm * 1.22; }
+      return;
+    }
+    if (s.stage === s.me.rows.length) {
+      // the summary: the two totals, the verdict, three short lines
+      let y = duel(pad, (res) => res.total, s.grow, true);
+      const win = s.me.total > s.them.total;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = color(win ? 'xr-success' : s.me.total === s.them.total ? 'xr-warning' : 'xr-bricks-neighbor');
+      ctx.font = font('black', sm * 1.1);
+      for (const ln of wrap(ctx, s.verdict, W - 2 * pad).slice(0, 2)) { ctx.fillText(ln, pad, y); y += sm * 1.35; }
+      y += sm * 0.3;
+      for (const item of s.lines) {
+        ctx.fillStyle = color(item.token ?? 'xr-panel-text');
+        const px2 = fitFont(ctx, item.text, 'bold', sm, W - 2 * pad, 0.78);
+        ctx.fillText(item.text, pad, y);
+        y += Math.max(px2, sm * 0.9) * 1.32;
+      }
+      return;
+    }
+    // the details: both shopping lists and budgets, the best plan
+    ctx.textBaseline = 'top';
+    let y = pad;
+    for (const item of s.details) {
+      ctx.font = font('bold', sm * 0.94);
+      ctx.fillStyle = color(item.token ?? 'xr-panel-text');
+      for (const ln of wrap(ctx, item.text, W - 2 * pad)) { if (y + sm > Hh - pad) return; ctx.fillText(ln, pad, y); y += sm * 1.16; }
+      y += sm * 0.35;
     }
   });
 }
@@ -982,4 +968,3 @@ export function drawTag(ctx, text, token, px) {
   ctx.fillText(text, w / 2, h / 2 + px * 0.05);
   return [w, h + px * 0.5];
 }
-export const tagFont = (px) => font('black', px);

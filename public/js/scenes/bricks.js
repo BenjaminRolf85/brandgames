@@ -35,13 +35,13 @@ import { CHRISTMAS, makeBulbs } from '../christmas.js';
 import { makeSnowfall, setSnowAmount } from '../snow.js';
 import { radialTexture } from '../robot-visuals.js';
 import '../bricks-text.js';
-import { DECISIONS, STEPS, OPTION, makeRound, judge, bestFrom, bestHouse, priceOf, reserve, clashes, needMet, gains } from '../bricks-data.js';
+import { DECISIONS, STEPS, OPTION, makeRound, judge, bestFrom, bestHouse, bestChange, priceOf, reserve, clashes, needMet, gains } from '../bricks-data.js';
 import { Adviser } from '../bricks-ai.js';
 import { TOP, OX, OZ, FOUND, HOUSE_Z } from '../bricks-plan.js';
 import { House, ROOF_SLINGS } from '../bricks-house.js';
 import { Thumbs } from '../bricks-thumbs.js';
 import { loadBricks, Crane, Puffs, bsfx, makeFamily } from '../bricks-visuals.js';
-import { OptionCard, WishChip, briefPanel, meterPanel, strip, neighborSign, checkPanel, drawTag, euro, optName, whyText, BRIEF, METER, SIGN, CHECK_SIZE } from '../bricks-panels.js';
+import { OptionCard, briefPanel, briefChip, moneyBar, duelPanel, extrasButton, dotsPanel, strip, checkPanel, drawTag, euro, optShort, tagsOf, BRIEF, CHECK_SIZE } from '../bricks-panels.js';
 
 // Points: the coherence total (0..100) times RATE, a bonus for beating the neighbors, a little
 // for every point of lead and for money left over (it reduces the loan). A perfect round stays
@@ -59,8 +59,7 @@ const CRANE_AT = new THREE.Vector3(-0.06, 0, -0.335);
 const FIR = new THREE.Vector3(-0.4, 0, 0.27);
 const FAMILY_AT = new THREE.Vector3(0.25, 0.002, 0.31);
 // Card sizes in meters per layout: [required part, extra].
-const CARD = { row: [[0.72, 0.44], [0.5, 0.31]], col: [[0.9, 0.3], [0.44, 0.27]], side: [[0.62, 0.235], [0.42, 0.19]], xr: [[0.6, 0.54], [0.52, 0.32]] };
-const CHIP = [0.36, 0.118]; // a chip of the wish list
+const CARD = { row: [[0.78, 0.275], [0.56, 0.2]], col: [[0.9, 0.235], [0.9, 0.105]], side: [[0.7, 0.24], [0.42, 0.19]], xr: [[0.62, 0.34], [0.56, 0.21]] };
 // Where a part is on the house (house-local), for the pointer in the check.
 const SPOT = {
   walls: [0.09, TOP * 0.62, OZ + 0.03], roof: [0, TOP + 0.2, 0.06], windows: [-0.144, 0.17, OZ + 0.03], door: [0, 0.2, OZ + 0.04], heating: [-OX - 0.03, 0.15, 0.115], garden: [-0.12, 0.09, 0.33],
@@ -99,16 +98,17 @@ export class BricksScene extends BaseScene {
     this.ai = new Adviser(this.round);
     this.step = 0;
     this.choices = []; // the required parts chosen so far (option ids)
-    this.extras = []; // the wish list: extras earmarked (and, in the last step, built)
+    this.extras = []; // the extras earmarked (and, in the last step, built)
     this.built = new Set(); // extras that stand on the plot
     this.records = []; // per required part: what the adviser picked, what the player picked
     this.undone = new Set(); // steps whose choice was changed once already
     this.nbStep = 0;
     this.nbIds = []; // what the neighbors have built so far
     this.cards = [];
-    this.chips = [];
-    this.drawer = false; // phones: the wish list is open instead of the step's cards
-    this.note = null; // a message in the strip over the house
+    this.drawer = false; // the extras are open instead of the step's cards
+    this.briefOpen = false; // the whole brief, on demand
+    this.legendOn = false; // the legend of the money bar, on demand
+    this.note = null; // the one short message near the house
     this.told = new Set();
     // The coach explains four things once, in the very first round (and always in the relaxed mode).
     let coached = false;
@@ -330,7 +330,8 @@ export class BricksScene extends BaseScene {
 
   thumbReady(id) {
     const pic = this.thumbs.get(id);
-    for (const c of [...this.cards, ...this.chips]) if (c.optId === id) { c.state.thumb = pic; c.redraw(); }
+    for (const c of this.cards) if (c.optId === id) { c.state.thumb = pic; c.redraw(); }
+    if (this.extras.includes(id)) this.extrasBtn?.redraw();
   }
 
   // ---------- the neighbors ----------
@@ -374,30 +375,34 @@ export class BricksScene extends BaseScene {
 
   // ---------- panels ----------
 
+  /**
+   * Few panels, and small ones: who builds (a press opens the whole brief), the money as one bar
+   * and one number, the duel with the neighbors, the button of the extras, and one strip for a
+   * short message. Everything else opens on demand.
+   */
   buildPanels() {
     const ui = (o) => { o.userData.noFit = true; this.ui.add(o); return o; };
-    const money = () => ({ round: this.round, spent: this.spent(), earmarked: this.earmarked(), reserve: reserve(this.round, this.step) });
-    this.briefs = { full: ui(briefPanel(...BRIEF.full, money, 'full')), strip: ui(briefPanel(...BRIEF.strip, money, 'strip')), mini: ui(briefPanel(...BRIEF.mini, money, 'mini')) };
-    const live = () => ({ me: this.live, them: this.nbLive, last: this.lastChange?.text, lastToken: this.lastChange?.token, count: this.ai.count });
-    this.meters = { full: ui(meterPanel(...METER.full, live, 'full')), strip: ui(meterPanel(...METER.strip, live, 'strip')), mini: ui(meterPanel(...METER.mini, live, 'strip')) };
-    const nbState = () => ({ kind: this.round.neighbor.kind, last: this.nb.last, spent: this.nb.spent, budget: this.round.nbBrief.budget });
-    this.signs = { full: ui(neighborSign(...SIGN.full, nbState)), small: ui(neighborSign(...SIGN.small, nbState, true)) };
-    this.ask = ui(strip(1.5, 0.17, () => this.askState()));
-    this.coach = ui(strip(1.5, 0.2, () => ({ text: this.coachText ?? '', small: true, token: 'xr-accent', lines: 3 })));
-    this.hint = ui(strip(1.5, 0.2, () => ({ text: this.mode === 'brief' ? (this.replay ? `${t('bricksSameBest', { n: this.replay.total })}. ${t('bricksBriefHint')}` : t('bricksBriefHint')) : '', small: true, scale: 0.95, lines: 3 })));
+    const money = () => ({ round: this.round, budget: this.round.brief.budget, spent: this.spent(), earmarked: this.earmarked(), reserve: reserve(this.round, this.step), legend: this.legendOn });
+    const who = () => ({ round: this.round, met: this.round.brief.needs.filter((n) => needMet(n, this.plan().map((id) => OPTION[id])) && this.plan().length > 0), step: this.step });
+    const live = () => ({ me: this.live, them: this.nbLive });
+    const openBrief = () => { this.briefOpen = !this.briefOpen; this.act(); sfx.click?.(); this.relayout(); };
+    const legend = () => { this.legendOn = !this.legendOn; sfx.click?.(); this.redrawSmall(); };
+    this.brief = ui(briefPanel(...BRIEF, money));
+    this.who = { tall: ui(briefChip(0.52, 0.27, who, openBrief)), low: ui(briefChip(0.52, 0.2, who, openBrief)), half: ui(briefChip(0.56, 0.13, who, openBrief)) };
+    this.money = { tall: ui(moneyBar(0.52, 0.16, money, legend)), half: ui(moneyBar(0.34, 0.13, money, legend)) };
+    this.duel = { tall: ui(duelPanel(0.52, 0.24, live)), wide: ui(duelPanel(0.9, 0.105, live)) };
+    this.extrasBtn = ui(extrasButton(0.52, 0.11, () => ({ ids: this.extras, sum: priceOf(this.extras), open: this.drawer, thumb: (id) => this.thumbs?.get(id) ?? null, star: this.wishNeedsExtra() }), () => this.toggleDrawer()));
+    this.dots = ui(dotsPanel(0.36, 0.03, () => ({ step: this.step })));
+    this.ask = ui(strip(1.5, 0.13, () => (this.note ? { text: this.note.text, token: this.note.token, icon: this.note.icon, small: true } : { text: '' })));
+    this.coach = ui(strip(1.5, 0.13, () => ({ text: this.coachText ?? '', small: true, token: 'xr-accent' })));
+    this.hint = ui(strip(1.5, 0.13, () => ({ text: this.mode === 'brief' ? (this.replay ? `${t('bricksSameBest', { n: this.replay.total })}. ${t('bricksBriefHint')}` : t('bricksBriefHint')) : '', small: true })));
     this.labelMe = ui(strip(0.6, 0.09, () => ({ text: t('bricksYourHouse'), small: true, token: 'xr-bricks-you' })));
     this.labelNb = ui(strip(0.6, 0.09, () => ({ text: t('bricksWho_winter'), small: true, token: 'xr-bricks-neighbor' })));
     const btn = (label, variant, onClick, w = 0.34) => ui(new Button(w, 0.1, { label, variant, labelSize: 'xr-text-sm', grow: false, onClick }));
-    this.backBtn = btn(t('bricksBack'), 'secondary', () => this.back(), 0.28);
+    this.backBtn = btn(t('bricksBack'), 'secondary', () => this.back(), 0.26);
     this.goBtn = btn(t('bricksBuild'), 'primary', () => this.primary(), 0.46);
-    this.wishBtn = btn(t('bricksWishBtn', { n: 0 }), 'sponsor', () => this.toggleDrawer(), 0.46);
-    this.sameBtn = btn(t('bricksSame'), 'secondary', () => { replaySame = true; skipIntro = true; this.app.startGame('bricks'); }, 0.6);
-    // The wish list as chips (desktop and headset): every extra with its price, from the first step on.
-    this.chips = this.round.extras.map((o, i) => {
-      const chip = new WishChip(...CHIP, this.chipState(o, i), () => this.toggleExtra(o));
-      chip.optId = o.id;
-      return ui(chip);
-    });
+    this.detailsBtn = btn(t('bricksDetails'), 'secondary', () => this.toggleDetails(), 0.3);
+    this.sameBtn = btn(t('bricksSame'), 'secondary', () => { replaySame = true; skipIntro = true; this.app.startGame('bricks'); }, 0.46);
     for (const o of this.ui.children) o.visible = false;
   }
 
@@ -412,15 +417,25 @@ export class BricksScene extends BaseScene {
   /** Money in the house: the required parts chosen and the extras that stand. */
   spent() { return priceOf(this.choices) + priceOf(this.extras.filter((id) => this.built.has(id))); }
 
-  /** Money set aside for the wish list. */
+  /** Money set aside for the extras that are earmarked. */
   earmarked() { return priceOf(this.extras.filter((id) => !this.built.has(id))); }
 
-  /** Money free to decide about: the budget minus the house, the wish list and the cheapest version of the open parts. */
+  /** Money free to decide about: the budget minus the house, the earmarked extras and the cheapest version of the open parts. */
   free() { return this.round.brief.budget - priceOf(this.choices) - priceOf(this.extras) - reserve(this.round, this.step); }
 
   plan() { return [...this.choices, ...this.extras]; }
 
-  /** The coherence so far, for the live meter: the player's plan and what the neighbors have built. */
+  /** A wish that only an extra can still fulfill (the button of the extras then shows a star). */
+  wishNeedsExtra() {
+    const opts = this.plan().map((id) => OPTION[id]);
+    return this.round.brief.needs.some((n) => n !== 'easy' && !needMet(n, opts) && !DECISIONS.slice(this.step).some((d) => this.round.catalogue[d].some((o) => o.gives === n)) && this.round.extras.some((x) => x.gives === n));
+  }
+
+  redrawSmall() {
+    for (const p of [...Object.values(this.who ?? {}), ...Object.values(this.money ?? {}), ...Object.values(this.duel ?? {}), this.extrasBtn, this.dots, this.brief]) p?.redraw();
+  }
+
+  /** The coherence so far, for the duel: the player's plan and what the neighbors have built. */
   refreshLive() {
     // Nothing built yet: all bars at zero.
     const none = (res) => ({ ...res, total: 0, rows: res.rows.map((r) => ({ ...r, score: 0 })) });
@@ -428,47 +443,50 @@ export class BricksScene extends BaseScene {
     const them = judge(this.nbIds, this.round, this.round.nbBrief);
     this.live = this.plan().length ? me : none(me);
     this.nbLive = this.nbIds.length ? them : none(them);
-    for (const m of Object.values(this.meters ?? {})) m.redraw();
-    for (const s of Object.values(this.signs ?? {})) s.redraw();
+    for (const d of Object.values(this.duel ?? {})) d.redraw();
   }
 
-  askState() {
-    const small = this.engine.touchUI || this.engine.isXR;
-    if (this.note) return { text: this.note.text, token: this.note.token, small: small || this.note.text.length > 34, lines: 3 };
-    if (this.mode !== 'choose') return { text: '' };
-    const key = this.drawer ? 'wish' : STEPS[this.step];
-    // Headset: the money in the question too (the brief stands off to the side there).
-    const money = this.engine.isXR ? ` ${t('bricksLeftMoney', { n: euro(this.free()) })}.` : '';
-    return { text: `${t(`bricksAsk_${key}`)}${money}`, small: small || key === 'wish' || key === 'extras' };
-  }
-
-  /** A message in the strip over the house for a few seconds. */
-  say(text, token = 'xr-panel-text', sec = 3.4) {
-    this.note = { text, token, until: this.time + sec };
-    this.ask.redraw();
-  }
-
-  /** One sentence of explanation, once (first round, or the relaxed mode). */
-  coachSay(key) {
-    if (!this.coachOn || this.told.has(key)) return;
-    this.told.add(key);
-    this.coachText = t(`bricksCoach_${key}`);
-    this.coachUntil = this.time + (this.calm ? 9 : 7);
+  /** Exactly one short message near the house, for about two seconds (a speech tag of the builders goes away for it). */
+  say(text, token = 'xr-panel-text', icon = null) {
+    this.clearTags();
+    this.coachText = null;
     this.coach.redraw();
+    this.note = { text, token, icon, until: this.time + (this.calm ? 3 : 2.3) };
+    this.ask.redraw();
     this.relayout();
+  }
+
+  /** Every action of the player: what was open on demand closes, the hint goes away. */
+  act() {
+    this.legendOn = false;
+    if (this.coachText) { this.coachText = null; this.coach.redraw(); }
+    this.coachWait = null;
+    this.relayout();
+  }
+
+  /** One short sentence beside the thing it explains, once (first round, or the relaxed mode); it waits while a message shows. */
+  coachSay(key) {
+    if (!this.coachOn || !key || this.told.has(key)) return;
+    this.told.add(key);
+    this.coachWait = key;
     if (key === 'meter') { try { localStorage.setItem(COACH_KEY, '1'); } catch { /* private mode */ } }
   }
 
-  /** A short speech tag over the builders. */
-  tag(text, token) {
+  clearTags() {
     for (const s of this.tags) { s.removeFromParent(); s.material.map.dispose(); s.material.dispose(); }
+    this.tags = [];
+  }
+
+  /** A short speech tag over the builders (instead of a message, never beside one). */
+  tag(text, token) {
+    this.clearTags();
+    this.note = null;
+    this.ask.redraw();
     const c = document.createElement('canvas');
     const px = 44;
-    let ctx = c.getContext('2d');
-    ctx.font = `900 ${px}px sans-serif`;
     c.width = 1024;
     c.height = 128;
-    ctx = c.getContext('2d');
+    const ctx = c.getContext('2d');
     const [w, h] = drawTag(ctx, text, token, px);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -478,17 +496,17 @@ export class BricksScene extends BaseScene {
     sp.renderOrder = 8;
     sp.userData.noFit = true;
     sp.userData.aspect = w / h;
-    sp.userData.until = this.time + 3.2;
-    sp.position.copy(FAMILY_AT).add(new THREE.Vector3(0, this.family.height * 1.25 + 0.07, 0));
+    sp.userData.until = this.time + (this.calm ? 3.2 : 2.6);
+    sp.position.copy(this.family.group.position).add(new THREE.Vector3(0, this.family.height * 1.25 + 0.07, 0));
     this.plotRoot.add(sp);
     this.tags = [sp];
     this.sizeTags();
   }
 
-  /** Speech tags keep a readable size on every screen (about 15 px of text; in the headset the smallest text size). */
+  /** Speech tags keep a readable size on every screen (about 16 px of text; in the headset the smallest text size). */
   sizeTags() {
     if (!this.tags.length) return;
-    const lineH = this.engine.isXR ? num('xr-text-sm') * 1.15 : 15 / (window.innerHeight / (2 * (this.camD ?? 1) * Math.tan(THREE.MathUtils.degToRad(30))));
+    const lineH = this.engine.isXR ? num('xr-text-sm') * 1.15 : 16 / (window.innerHeight / (2 * (this.camD ?? 1) * Math.tan(THREE.MathUtils.degToRad(30))));
     for (const sp of this.tags) { const h = lineH * (128 / 44) * 0.82; sp.scale.set(h * sp.userData.aspect, h, 1); }
   }
 
@@ -503,21 +521,16 @@ export class BricksScene extends BaseScene {
       if (/^[1-8]$/.test(k) && this.mode === 'choose') {
         const card = this.cards[Number(k) - 1];
         if (card) { e.preventDefault(); this.pick(card); }
-      } else if ((k === 'w' || k === 'W') && this.mode === 'choose' && this.step < DECISIONS.length) {
-        // The wish list: on the desktop the first chip gets the focus, on phones the list opens.
+      } else if ((k === 'e' || k === 'E') && this.mode === 'choose') {
         e.preventDefault();
-        if (this.chips[0]?.visible) this.engine.setFocus(this.chips.includes(focus) ? this.cards[0] : this.chips[0]);
-        else this.toggleDrawer();
+        this.toggleDrawer();
       } else if (k.startsWith('Arrow') && this.mode === 'choose' && this.cards.length) {
         e.preventDefault();
-        const list = this.chips.includes(focus) ? this.chips : this.cards;
-        const cols = list === this.chips ? list.length : this.cardCols ?? list.length;
-        const i = list.indexOf(focus);
-        if (list === this.chips && k === 'ArrowDown') { this.engine.setFocus(this.cards[0]); return; }
-        if (list === this.cards && k === 'ArrowUp' && i >= 0 && i < cols && this.chips[0]?.visible) { this.engine.setFocus(this.chips[0]); return; }
+        const cols = this.cardCols ?? this.cards.length;
+        const i = this.cards.indexOf(focus);
         const d = k === 'ArrowLeft' ? -1 : k === 'ArrowRight' ? 1 : k === 'ArrowUp' ? -cols : cols;
-        const next = i < 0 ? 0 : (cols === 1 && (k === 'ArrowLeft' || k === 'ArrowRight') ? i : clamp(i + d, 0, list.length - 1));
-        this.engine.setFocus(list[next]);
+        const next = i < 0 ? 0 : (cols === 1 && (k === 'ArrowLeft' || k === 'ArrowRight') ? i : clamp(i + d, 0, this.cards.length - 1));
+        this.engine.setFocus(this.cards[next]);
       } else if ((k === 'Enter' || k === ' ') && !focus) {
         if (this.goBtn.visible) { e.preventDefault(); this.primary(); }
       } else if (k === 'Backspace' && this.backBtn.visible && !this.backBtn.state.disabled) {
@@ -529,7 +542,7 @@ export class BricksScene extends BaseScene {
     this.onSceneDispose(() => window.removeEventListener('keydown', onKey));
   }
 
-  /** The big button: build (after the brief), confirm the wish list, go on in the check. */
+  /** The big button: build (after the brief), confirm the extras, go on in the check. */
   primary() {
     if (this.mode === 'brief') this.beginChoosing();
     else if (this.mode === 'choose' && this.step === DECISIONS.length) this.confirmExtras();
@@ -569,7 +582,7 @@ export class BricksScene extends BaseScene {
   hudText() {
     if (this.mode === 'over') return t('bricksName');
     if (this.mode === 'check') return t('bricksHudCheck');
-    return t('bricksHud', { n: Math.min(this.step + 1, STEPS.length), name: t(`bricksStep_${STEPS[this.step]}`), left: euro(this.free()) });
+    return t('bricksHud', { n: Math.min(this.step + 1, STEPS.length), name: t(`bricksStep_${STEPS[this.step]}`) });
   }
 
   /** Which layout the cards use: a row (desktop), a column (phone upright), beside (phone sideways), or the headset. */
@@ -580,17 +593,18 @@ export class BricksScene extends BaseScene {
     return this.engine.touchUI && window.innerHeight < 520 ? 'side' : 'row';
   }
 
-  /** Shows the cards of the current step with the adviser's forecasts. */
+  /** Shows the cards of the current step. */
   openStep() {
     this.mode = 'choose';
     const extras = this.step === DECISIONS.length;
     this.drawer = false;
+    this.briefOpen = false;
     // What can no longer change becomes one mesh per material (few draw calls): everything but the last choice and the extras.
     this.house.freeze([DECISIONS[this.step - 1], 'extras']);
     this.nb.house.freeze();
     if (extras) {
-      // The wish list becomes real: what is earmarked gets built, one after the other.
-      this.extras.filter((id) => !this.built.has(id)).forEach((id, i) => this.delay(0.15 + i * 0.4, () => { if (!this.disposed && this.extras.includes(id) && this.step === DECISIONS.length) this.buildExtra(id); }));
+      // The list becomes real: what is earmarked gets built, one after the other.
+      this.extras.filter((id) => !this.built.has(id)).forEach((id, i) => this.delay(0.15 + i * 0.4, () => { if (!this.disposed && this.extras.includes(id) && this.step === DECISIONS.length && this.mode === 'choose') this.buildExtra(id); }));
     } else {
       this.advice = this.ai.advise(this.choices, this.lockedNow());
     }
@@ -600,7 +614,7 @@ export class BricksScene extends BaseScene {
     this.refreshPanels();
     this.relayout();
     if (this.engine.focus && !this.engine.isXR) this.engine.setFocus(null);
-    this.coachSay(['budget', 'chips', 'ai'][this.step] ?? '');
+    this.coachSay(['budget', 'chips', 'ai'][this.step]);
   }
 
   /** The cards of the current step the money does not allow. */
@@ -609,46 +623,49 @@ export class BricksScene extends BaseScene {
     return this.round.catalogue[DECISIONS[this.step]].filter((o) => o.price > room).map((o) => o.id);
   }
 
-  /** What an option does for the criteria, as chips: an arrow up or down and the criterion's short name. */
-  gainChips(o) {
-    const g = gains(this.plan(), o, this.round);
+  /**
+   * At most two chips for a card: a wish of the family it fulfills, then what its price buys
+   * (an arrow up or down and the criterion), then its plainest tag.
+   */
+  chipsFor(o) {
     const out = [];
-    ['unity', 'people', 'place', 'future'].forEach((key, i) => {
-      if (Math.abs(g[i]) >= 5) out.push({ text: t(`bricksCritShort_${key}`), kind: g[i] > 0 ? 'up' : 'down', strong: Math.abs(g[i]) >= 24, v: g[i] });
-    });
-    return out.sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
+    const b = this.round.brief;
+    const mine = this.plan().filter((id) => id !== o.id).map((id) => OPTION[id]);
+    if (this.easy) {
+      // Relaxed mode: the card says what it clashes with.
+      const clash = mine.find((x) => clashes(x.id, o.id));
+      const styles = mine.map((x) => x.style).filter(Boolean);
+      const main = styles.sort((x, y) => styles.filter((z) => z === y).length - styles.filter((z) => z === x).length)[0];
+      if (clash) out.push({ icon: 'down', text: t('bricksWarnClash', { a: optShort(clash.id) }), kind: 'down' });
+      else if (o.style && main && o.style !== main) out.push({ icon: 'down', text: t('bricksWarnStyle'), kind: 'down' });
+    }
+    const wish = !!o.gives && b.needs.includes(o.gives) && !needMet(o.gives, mine);
+    if (wish) out.push({ icon: o.gives, text: t(`bricksNeed_${o.gives}`), kind: 'wish' });
+    const g = gains(this.plan(), o, this.round);
+    const keys = ['unity', 'people', 'place', 'future'];
+    keys.map((key, i) => ({ key, v: g[i] })).filter((x) => Math.abs(x.v) >= 5 && !(wish && x.key === 'people')).sort((a, c) => Math.abs(c.v) - Math.abs(a.v))
+      .forEach((x) => out.push({ icon: x.v > 0 ? 'up' : 'down', text: t(`bricksCritShort_${x.key}`), kind: x.v > 0 ? 'up' : 'down' }));
+    if (out.length < 2) {
+      const tag = tagsOf(o).find((c) => c.kind !== 'wish') ?? tagsOf(o)[0];
+      if (tag) out.push({ icon: tag.kind === 'style' ? 'unity' : tag.kind === 'wish' ? o.gives : 'future', text: tag.text, kind: 'tag' });
+    }
+    return out.slice(0, 2);
   }
 
-  /** What a card says about itself right now (locked, selected, forecast, gains, help). */
+  /** What a card says about itself right now. */
   cardState(o, i) {
     const extras = o.decision === 'extras';
     const selected = extras ? this.extras.includes(o.id) : undefined;
     const room = extras ? this.free() : this.free() + reserve(this.round, this.step) - reserve(this.round, this.step + 1);
     const locked = !selected && o.price > room;
     const f = (extras ? this.extrasAdvice : this.advice)?.find((a) => a.id === o.id) ?? null;
-    const s = { id: o.id, index: i + 1, locked, missing: locked ? o.price - room : 0, selected, forecast: f, compact: extras, words: this.easy, gains: this.gainChips(o), wish: !!o.gives && this.round.brief.needs.includes(o.gives), thumb: this.thumbs?.get(o.id) ?? null };
+    const s = { id: o.id, index: i + 1, locked, missing: locked ? o.price - room : 0, selected, forecast: f, compact: extras, words: this.easy, chips: this.chipsFor(o), thumb: this.thumbs?.get(o.id) ?? null };
     if (!extras) {
       const cheap = this.round.cheapest[o.decision];
       s.basic = cheap.id === o.id;
       s.more = s.basic ? 0 : o.price - cheap.price;
     }
-    if (this.easy) {
-      // Relaxed mode: the card says what it clashes with, or that it fulfills a wish.
-      const mine = this.plan().filter((id) => id !== o.id);
-      const clash = mine.find((id) => clashes(id, o.id));
-      const styles = mine.map((id) => OPTION[id].style).filter(Boolean);
-      const main = styles.sort((a, b) => styles.filter((x) => x === b).length - styles.filter((x) => x === a).length)[0];
-      if (clash) s.warn = t('bricksWarnClash', { a: optName(clash) });
-      else if (o.style && main && o.style !== main) s.warn = t('bricksWarnStyle');
-      else if (s.wish && !needMet(o.gives, mine.map((id) => OPTION[id]))) s.good = t('bricksGoodWish');
-    }
     return s;
-  }
-
-  chipState(o, i) {
-    const selected = this.extras.includes(o.id);
-    const locked = !selected && o.price > this.free();
-    return { id: o.id, index: i + 1, selected, locked, missing: locked ? o.price - this.free() : 0, wish: !!o.gives && this.round.brief.needs.includes(o.gives), thumb: this.thumbs?.get(o.id) ?? null };
   }
 
   makeCards() {
@@ -668,61 +685,60 @@ export class BricksScene extends BaseScene {
   }
 
   refreshCards() {
-    const redo = (c, state) => { c.state = { ...state, hover: c.state.hover, focus: c.state.focus }; c.relabel(); c.redraw(); };
-    this.cards.forEach((c, i) => redo(c, this.cardState(OPTION[c.optId], i)));
-    this.chips.forEach((c, i) => redo(c, this.chipState(OPTION[c.optId], i)));
+    this.cards.forEach((c, i) => { c.state = { ...this.cardState(OPTION[c.optId], i), hover: c.state.hover, focus: c.state.focus }; c.relabel(); c.redraw(); });
   }
 
   refreshPanels() {
-    for (const p of [...Object.values(this.briefs), this.ask]) p.redraw();
-    this.setLabel(this.wishBtn, this.drawer ? t('bricksWishClose', { name: t(`bricksStep_${STEPS[this.step]}`) }) : t('bricksWishBtn', { n: this.extras.length }));
+    this.redrawSmall();
     this.refreshCards();
     this.refreshHud?.();
   }
 
-  /** Phones: the wish list opens in place of the step's cards, and closes again. */
+  /** The extras open in place of the step's cards, and close again. */
   toggleDrawer() {
     if (this.mode !== 'choose' || this.step === DECISIONS.length) return;
+    this.act();
     this.drawer = !this.drawer;
+    this.briefOpen = false;
     sfx.click?.();
-    this.note = null;
     this.makeCards();
     this.refreshPanels();
     this.relayout();
+    if (this.engine.focus && !this.engine.isXR) this.engine.setFocus(null);
   }
 
   /** A card is pressed (a click, a tap, a number key, the trigger). */
   pick(card) {
     if (this.mode !== 'choose') return;
+    this.act();
+    this.briefOpen = false;
     const o = OPTION[card.optId];
     if (o.decision === 'extras') { this.toggleExtra(o); return; }
     if (card.state.locked) {
       sfx.bounce?.();
       const wish = this.earmarked();
-      this.say(wish > 0 ? t('bricksLockedWish', { n: euro(card.state.missing), w: euro(wish) }) : t('bricksNoMoney', { n: euro(card.state.missing) }), 'xr-danger');
+      this.say(wish > 0 ? t('bricksLockedWish', { n: euro(card.state.missing), w: euro(wish) }) : t('bricksNoMoney', { n: euro(card.state.missing) }), 'xr-danger', 'lock');
       return;
     }
     this.choose(o);
   }
 
-  /** One sentence right after a choice: what it means, and which criterion moved by how much. */
+  /** One short message right after a choice: the reason in a few words and the criterion it moved. */
   feedback(o, before, after) {
     const mine = this.plan().filter((id) => id !== o.id);
     const b = this.round.brief;
-    const a = optName(o.id);
     const delta = (key) => { const i = ['unity', 'people', 'place', 'future', 'value'].indexOf(key); const d = after.rows[i].score - before.rows[i].score; return d ? ` · ${t(`bricksCritShort_${key}`)} ${signed(d)}` : ''; };
     const clash = mine.find((id) => clashes(id, o.id));
-    if (clash) return [t('bricksFb_clash', { a: optName(clash), b: a }) + delta('unity'), 'xr-danger'];
-    for (const k of b.place.weather) if (o.w?.[k] < 0) return [t('bricksFb_weatherBad', { a, w: t(`bricksWeather_${k}`) }) + delta('place'), 'xr-danger'];
-    if (o.gives && b.needs.includes(o.gives) && !needMet(o.gives, mine.map((id) => OPTION[id]))) return [t('bricksFb_wish', { need: t(`bricksNeed_${o.gives}`) }) + delta('people'), 'xr-success'];
-    for (const k of b.place.weather) if (o.w?.[k] > 0) return [t('bricksFb_weatherGood', { a, w: t(`bricksWeather_${k}`) }) + delta('place'), 'xr-success'];
+    if (clash) return [t('bricksFb_clash', { a: optShort(clash), b: optShort(o.id) }) + delta('unity'), 'xr-danger', 'down'];
+    for (const k of b.place.weather) if (o.w?.[k] < 0) return [t('bricksFb_weatherBad', { w: t(`bricksWeather_${k}`) }) + delta('place'), 'xr-danger', 'down'];
+    for (const k of b.place.weather) if (o.w?.[k] > 0) return [t('bricksFb_weatherGood', { w: t(`bricksWeather_${k}`) }) + delta('place'), 'xr-success', 'up'];
     const styles = mine.map((id) => OPTION[id].style).filter(Boolean);
-    if (o.style && styles.length && styles.every((s) => s === o.style)) return [t('bricksFb_style', { a }) + delta('unity'), 'xr-success'];
+    if (o.style && styles.length && styles.every((s) => s === o.style)) return [t('bricksFb_style') + delta('unity'), 'xr-success', 'up'];
     const d = after.total - before.total;
-    return [`${t('bricksFb_plain', { a })}${d ? ` · ${t('bricksTotal')} ${signed(d)}` : ''}`, 'xr-panel-text'];
+    return [`${t('bricksFb_plain', { a: optShort(o.id) })}${d ? ` · ${signed(d)}` : ''}`, 'xr-panel-text', d > 0 ? 'up' : d < 0 ? 'down' : null];
   }
 
-  /** The builders react: joy when a wish comes true, doubt when its chance has passed. */
+  /** The builders react: joy when a wish comes true, doubt when its chance has passed. Returns whether they said something. */
   react(o, decided = null) {
     const b = this.round.brief;
     const opts = this.plan().map((id) => OPTION[id]);
@@ -730,13 +746,14 @@ export class BricksScene extends BaseScene {
     if (o.gives && b.needs.includes(o.gives) && !needMet(o.gives, others)) {
       this.family.cheer();
       this.tag(t(`bricksTagYes_${o.gives}`), 'xr-success');
-      return;
+      return true;
     }
-    if (b.needs.includes('easy') && o.u < 0) { this.family.doubt(); this.tag(t('bricksTagNo_easy'), 'xr-warning'); return; }
-    if (!decided) return;
-    // A wish this step could have fulfilled, still open, and nothing on the wish list for it.
+    if (b.needs.includes('easy') && o.u < 0) { this.family.doubt(); this.tag(t('bricksTagNo_easy'), 'xr-warning'); return true; }
+    if (!decided) return false;
+    // A wish this step could have fulfilled, still open, and no extra earmarked for it.
     const missed = b.needs.find((n) => n !== 'easy' && !needMet(n, opts) && this.round.catalogue[decided].some((x) => x.gives === n));
-    if (missed) { this.family.doubt(); this.tag(t(`bricksTagNo_${missed}`), 'xr-warning'); }
+    if (missed) { this.family.doubt(); this.tag(t(`bricksTagNo_${missed}`), 'xr-warning'); return true; }
+    return false;
   }
 
   /** A required part is chosen: it gets built, the neighbors build theirs, then the next step. */
@@ -752,25 +769,22 @@ export class BricksScene extends BaseScene {
     this.choices.push(o.id);
     this.step += 1;
     this.refreshLive();
-    const [text, token] = this.feedback(o, before, this.live);
-    this.lastChange = { text, token };
     this.mode = 'build';
     bsfx.pick();
-    this.say(text, token, 3.8);
     this.hideCards();
+    // Exactly one reaction: the builders' speech tag when a wish is at stake, else a short message.
+    if (!this.react(o, o.decision)) this.say(...this.feedback(o, before, this.live));
     let time;
     if (o.decision === 'roof') time = this.craneRoof(o.id);
     else {
       time = this.house.build(o.decision, o.id);
       this.buildFx(o.decision, time);
     }
-    this.react(o, o.decision);
     if (this.nbStep < this.step) this.delay(0.35, () => { if (!this.disposed) this.neighborBuilds(); });
     if (o.decision === 'garden') { this.parkCrane(); if (this.firLights) this.firLights.visible = this.house.firVisible; }
-    this.refreshLive();
     this.refreshPanels();
     this.relayout();
-    this.coachSay(this.step === 1 ? 'wish' : this.step === 3 ? 'meter' : '');
+    this.coachSay(this.step === 1 ? 'wish' : this.step === 3 ? 'meter' : null);
     this.delay(time + 0.25, () => { if (!this.disposed && this.mode === 'build') this.openStep(); });
   }
 
@@ -779,10 +793,10 @@ export class BricksScene extends BaseScene {
     this.built.add(id);
     const time = this.house.build('extras', id);
     this.buildFx('extras', time, id);
-    for (const p of Object.values(this.briefs)) p.redraw();
+    this.redrawSmall();
   }
 
-  /** An extra goes on the wish list or comes off it (as often as the player likes, until confirming). */
+  /** An extra is earmarked or struck off again (as often as the player likes, until confirming). */
   toggleExtra(o) {
     if (this.mode !== 'choose') return;
     const before = this.live;
@@ -791,25 +805,21 @@ export class BricksScene extends BaseScene {
       if (this.built.has(o.id)) { this.built.delete(o.id); this.house.remove('extras', o.id); }
       bsfx.undo();
       this.refreshLive();
-      this.say(t('bricksFb_unear', { a: optName(o.id), n: euro(o.price) }), 'xr-panel-muted');
+      this.say(t('bricksFb_unear', { a: optShort(o.id) }), 'xr-panel-muted');
     } else {
       if (o.price > this.free()) {
         sfx.bounce?.();
-        this.say(t('bricksNoMoney', { n: euro(o.price - this.free()) }), 'xr-danger');
+        this.say(t('bricksNoMoney', { n: euro(o.price - this.free()) }), 'xr-danger', 'lock');
         return;
       }
       this.extras.push(o.id);
       bsfx.pick();
       this.refreshLive();
-      if (this.step === DECISIONS.length) {
-        this.buildExtra(o.id);
-        const [text, token] = this.feedback(o, before, this.live);
-        this.say(text, token);
-      } else {
+      if (this.step === DECISIONS.length) this.buildExtra(o.id);
+      if (!this.react(o)) {
         const d = this.live.total - before.total;
-        this.say(`${t('bricksFb_ear', { a: optName(o.id), n: euro(o.price) })}${d ? ` · ${t('bricksTotal')} ${signed(d)}` : ''}`, 'xr-success');
+        this.say(`${t('bricksFb_ear', { a: optShort(o.id) })}${d ? ` · ${signed(d)}` : ''}`, d < 0 ? 'xr-danger' : 'xr-success', d < 0 ? 'down' : 'up');
       }
-      this.react(o);
     }
     if (this.step < DECISIONS.length) this.advice = this.ai.advise(this.choices, this.lockedNow());
     this.refreshPanels();
@@ -831,20 +841,20 @@ export class BricksScene extends BaseScene {
   /** "Back": the last required part goes away again and its money comes back (once per part). */
   back() {
     if (this.mode !== 'choose' || this.step === 0 || this.undone.has(this.step - 1)) return;
-    // What stood of the wish list comes down again (it stays earmarked).
+    this.act();
+    // What stood of the extras comes down again (they stay earmarked).
     for (const id of this.built) this.house.remove('extras', id);
     this.built.clear();
     this.step -= 1;
     const id = this.choices.pop();
     this.records.pop();
     this.undone.add(this.step);
-    this.extrasAdvice = null;
     this.house.remove(DECISIONS[this.step]);
     if (DECISIONS[this.step] === 'garden' && this.firLights) this.firLights.visible = false;
     if (DECISIONS[this.step] === 'roof') this.crane.setSlings(null);
     bsfx.undo();
     this.refreshLive();
-    this.say(t('bricksUndo', { a: optName(id) }), 'xr-panel-muted');
+    this.say(t('bricksUndo', { a: optShort(id) }), 'xr-panel-muted');
     this.openStep();
   }
 
@@ -877,13 +887,17 @@ export class BricksScene extends BaseScene {
   parkCrane() {
     const c = this.crane;
     if (!c.root.visible) return;
-    this.tween(1.0, (k) => c.root.scale.set(1, Math.max(0.02, 1 - k), 1), { ease, onDone: () => { c.root.visible = false; } });
+    const id = (this.parkId = (this.parkId ?? 0) + 1); // a new job for the crane cancels the parking
+    this.tween(1.0, (k) => { if (this.parkId === id) c.root.scale.set(1, Math.max(0.02, 1 - k), 1); }, { ease, onDone: () => { if (this.parkId === id) c.root.visible = false; } });
   }
 
   /** The crane lowers the roof onto the walls by itself. Returns the time it takes (s). */
   craneRoof(id) {
     const c = this.crane;
     const slow = this.calm ? 1.3 : 1;
+    this.parkId = (this.parkId ?? 0) + 1;
+    c.root.visible = true;
+    c.root.scale.set(1, 1, 1);
     this.house.build('roof', id, { held: true });
     const part = this.house.parts.roof.home;
     const tgtY = HOUSE.y + this.house.roofTop + 0.012; // where the hook ends, plot-local
@@ -907,6 +921,7 @@ export class BricksScene extends BaseScene {
       if (!this.calm) this.burst(this.plotRoot.localToWorld(at.clone()), 'xr-bricks-puff', 14);
       this.house.changed += 1;
       await this.craneMove(aim.yaw + 0.9, 0.2, 0.05, 0.5);
+      if (!this.disposed) this.parkCrane(); // its work is done
     })();
     return 1.4 * slow;
   }
@@ -924,9 +939,10 @@ export class BricksScene extends BaseScene {
 
   // ---------- the check ----------
 
-  /** The wish list is confirmed: the plan is final, the neighbors finish, the check begins. */
+  /** The extras are confirmed: the plan is final, the neighbors finish, the check begins. */
   confirmExtras() {
     if (this.mode !== 'choose') return;
+    this.act();
     bsfx.pick();
     this.hideCards();
     for (const id of this.extras) this.buildExtra(id);
@@ -944,32 +960,38 @@ export class BricksScene extends BaseScene {
       return bought ? bought.gain > 0 : sum4(judge([...all, id], this.round)) > sum4(me);
     });
     this.extraRecord = { tips, fitted: fitted.length };
-    // The second page: what the money did.
     const diff = me.total - them.total;
-    const names = (list) => list.map((b) => optName(b.id)).join(', ');
+    const names = (list) => list.map((b) => optShort(b.id ?? b)).join(', ');
     const paid = me.bought.filter((b) => b.gain > 0).sort((a, b) => b.gain - a.gain);
-    const not = me.bought.filter((b) => b.gain <= 0);
-    const best = bestHouse(this.round);
-    const other = best.filter((id) => !all.includes(id));
+    const not = me.bought.filter((b) => b.gain <= 0).sort((a, b) => b.price - a.price);
+    // One tip: the single change that would have added most, else what the best plan had instead.
+    const change = bestChange(all, this.round);
+    const other = bestHouse(this.round).filter((id) => !all.includes(id));
+    const tip = change ? t(`bricksTipShort_${change.key}`, { a: optShort(change.a), b: change.b ? optShort(change.b) : '' })
+      : this.round.best > me.total && other.length ? t('bricksTipShort_plan', { list: names(other.slice(0, 2)) }) : t('bricksTipShort_none');
     const budget = this.round.brief.budget;
-    const weakest = [...me.rows].sort((a, b) => a.score - b.score)[0];
-    this.moneyLines = [
-      { text: me.left > 0 ? t('bricksLoanLess', { n: euro(me.left) }) : t('bricksLoanAll', { n: euro(this.round.brief.loan) }), token: me.left > 0 ? 'xr-success' : 'xr-panel-text', big: true },
-      paid.length ? { text: `${t('bricksPaidMost', { a: optName(paid[0].id), n: Math.max(1, Math.round(paid[0].gain)) })}${paid.length > 1 ? `. ${t('bricksPaid', { list: names(paid.slice(1)) })}` : ''}`, token: 'xr-success' } : { text: t('bricksBoughtNone') },
-      not.length ? { text: t('bricksNotPaid', { list: names(not) }), token: 'xr-danger' } : null,
-      { text: t('bricksWeakest', { crit: t(`bricksCrit_${weakest.key}`), why: whyText(weakest.why) }) },
-      { text: this.round.best > me.total && other.length ? t('bricksBestPlan', { n: this.round.best, list: other.map(optName).join(', ') }) : t('bricksBestIs'), token: 'xr-warning', big: true },
-      { text: `${t('bricksMoneyLine', { who: t('bricksWho_winter'), spent: euro(them.price), budget: euro(budget) })} (${t(`bricksNbKind_${this.round.neighbor.kind}`)}). ${them.bought.length ? t('bricksBought', { list: names(them.bought) }) : t('bricksBoughtNone')}`, token: 'xr-bricks-neighbor' },
+    // The summary: at most three short lines.
+    const lines = [
+      paid.length ? { text: t('bricksBestBuy', { a: optShort(paid[0].id), n: Math.max(1, Math.round(paid[0].gain)) }), token: 'xr-success' } : { text: t('bricksBoughtNone') },
+      not.length ? { text: t('bricksWorstBuy', { a: optShort(not[0].id) }), token: 'xr-danger' } : { text: t('bricksNoWaste'), token: 'xr-success' },
+      { text: tip, token: 'xr-warning' },
+    ];
+    // The details, on demand: both shopping lists and budgets, the best plan, the loan.
+    const details = [
+      { text: t('bricksDetMe', { spent: euro(me.price), budget: euro(budget), list: me.bought.length ? names(me.bought) : t('bricksBoughtNone') }), token: 'xr-bricks-you' },
+      { text: t('bricksDetNb', { kind: t(`bricksNbKind_${this.round.neighbor.kind}`), spent: euro(them.price), list: them.bought.length ? names(them.bought) : t('bricksBoughtNone') }), token: 'xr-bricks-neighbor' },
+      { text: t('bricksDetBest', { n: this.round.best, list: names(bestHouse(this.round)) }) },
+      me.left > 0 ? { text: t('bricksDetLoan', { n: euro(me.left) }), token: 'xr-success' } : null,
     ].filter(Boolean);
-    this.paidText = [paid.length ? t('bricksPaid', { list: names(paid) }) : t('bricksBoughtNone'), not.length ? t('bricksNotPaid', { list: names(not) }) : ''].filter(Boolean).join('. ');
-    this.planText = this.moneyLines.find((m) => m.token === 'xr-warning').text;
+    this.loanText = me.left > 0 ? t('bricksLoanLess', { n: euro(me.left) }) : t('bricksLoanAll', { n: euro(this.round.brief.loan) });
+    this.buyText = lines.map((l) => l.text).join('. ');
     const verdict = diff > 0 ? t('bricksWin', { n: points(diff) }) : diff < 0 ? t('bricksLose', { n: points(-diff) }) : t('bricksTie');
     this.mode = 'check';
     this.note = null;
-    this.coachText = null;
-    this.checkKind = this.engine.isXR ? 'xr' : this.kind() === 'col' ? 'tall' : this.kind() === 'side' ? 'side' : 'wide';
-    this.check = { me, them, shown: 0, rows: me.rows.length, verdict, page: 0, money: this.moneyLines, wait: this.calm ? 2.2 : 1.6, heard: -1, final: false };
-    this.checkPanel = checkPanel(this.checkKind, () => this.check);
+    this.clearTags();
+    this.ask.redraw();
+    this.check = { me, them, stage: 0, grow: 0, t: 0, verdict, lines, details, wait: this.calm ? 2.2 : 1.6, final: false };
+    this.checkPanel = checkPanel(() => this.check);
     this.checkPanel.userData.noFit = true;
     this.ui.add(this.checkPanel);
     this.setLabel(this.goBtn, t('bricksSkip'));
@@ -978,51 +1000,62 @@ export class BricksScene extends BaseScene {
     this.relayout();
   }
 
-  /** The button in the check: show everything at once, then the second page, then the result. */
+  /** The button in the check: skip to the summary, then on to the result. */
   checkOn() {
     const c = this.check;
-    if (!c.final) { c.wait = 0; c.shown = c.rows + 1; return; }
-    if (c.page === 0) {
-      c.page = 1;
-      this.checkPanel.redraw();
-      this.setLabel(this.goBtn, t('bricksToResult'));
-      sfx.click?.();
-      return;
-    }
+    if (c.stage < c.me.rows.length) { c.wait = 0; this.showSummary(); return; }
     this.finish();
+  }
+
+  toggleDetails() {
+    const c = this.check;
+    if (!c?.final) return;
+    c.stage = c.stage === c.me.rows.length ? c.me.rows.length + 1 : c.me.rows.length;
+    sfx.click?.();
+    this.checkPanel.redraw();
+  }
+
+  showSummary() {
+    const c = this.check;
+    c.stage = c.me.rows.length;
+    c.grow = 0;
+    c.t = 0;
+    this.markMe.visible = false;
+    this.markNb.visible = false;
   }
 
   /** Puts the pointer over the part a reason is about (or hides it). */
   point(mark, house, why) {
     const id = why?.a;
-    if (!id || !SPOT[id] && !SPOT[OPTION[id]?.decision]) { mark.visible = false; return; }
-    const spot = SPOT[id] ?? SPOT[OPTION[id].decision];
+    const spot = id ? SPOT[id] ?? SPOT[OPTION[id].decision] : null;
+    if (!spot) { mark.visible = false; return; }
     const y = OPTION[id].decision === 'roof' || id === 'solar' ? (house.roofTop ?? TOP) + 0.07 : spot[1] + 0.05;
     mark.visible = true;
     mark.position.set(spot[0], y + (this.calm ? 0 : Math.abs(Math.sin(this.time * 4)) * 0.012), spot[2]);
   }
 
-  /** The check is staged: one criterion after the other, the total, the verdict, then the lights go on. */
+  /** The check is staged: one criterion at a time, then the summary; then the lights go on. */
   updateCheck(dt) {
     const c = this.check;
     if (!c || this.mode !== 'check') return;
-    if (c.wait > 0) { c.wait -= dt; if (c.wait <= 0) { this.house.freeze(); this.nb.house.freeze(); } return; }
-    const before = c.shown;
-    if (c.shown < c.rows) c.shown = Math.min(c.rows, c.shown + dt / (this.calm ? 2.8 : 2.2));
-    else if (c.shown < c.rows + 1) c.shown = Math.min(c.rows + 1, c.shown + dt / 1.3);
-    const row = Math.min(c.rows - 1, Math.floor(c.shown - 0.0001));
-    if (c.shown < c.rows) {
-      if (row > c.heard) { c.heard = row; bsfx.row(); }
-      this.point(this.markMe, this.house, c.me.rows[row].why);
-      this.point(this.markNb, this.nb.house, c.them.rows[row].why);
-    } else { this.markMe.visible = false; this.markNb.visible = false; }
-    if (c.shown !== before || !c.drawn) { c.drawn = true; this.checkPanel.redraw(); }
-    if (c.shown >= c.rows + 1 && !c.final) {
+    if (c.wait > 0) { c.wait -= dt; if (c.wait <= 0) { this.house.freeze(); this.nb.house.freeze(); bsfx.row(); } return; }
+    const rows = c.me.rows.length;
+    const grow = c.grow;
+    c.t += dt;
+    c.grow = Math.min(1, c.t / (this.calm ? 0.9 : 0.6));
+    if (c.stage < rows) {
+      this.point(this.markMe, this.house, c.me.rows[c.stage].why);
+      this.point(this.markNb, this.nb.house, c.them.rows[c.stage].why);
+      if (c.t > (this.calm ? 3.2 : 2.5)) {
+        if (c.stage + 1 < rows) { c.stage += 1; c.grow = 0; c.t = 0; bsfx.row(); } else this.showSummary();
+      }
+    } else if (c.grow >= 1 && !c.final) {
       c.final = true;
-      this.checkPanel.redraw();
       this.setLabel(this.goBtn, t('bricksNext'));
       this.celebrate();
+      this.relayout();
     }
+    if (c.grow !== grow || !c.drawn || c.drawnStage !== c.stage) { c.drawn = true; c.drawnStage = c.stage; this.checkPanel.redraw(); }
   }
 
   /** After the verdict: lights on, the door opens, the family moves in, the neighbors applaud. */
@@ -1034,12 +1067,11 @@ export class BricksScene extends BaseScene {
     this.delay(0.5, () => { if (!this.disposed) { bsfx.door(); this.tween(1.0, (k) => this.house.openDoor(k), { ease }); } });
     this.smoking = !!this.house.smokeAt;
     this.family.cheer();
-    this.tag(t('bricksTagHome'), 'xr-success');
     // The builders walk up to their door.
     const g = this.family.group;
     const from = g.position.clone();
     const to = new THREE.Vector3(0.07, 0.002, HOUSE_Z + OZ + 0.1);
-    this.tween(this.calm ? 2.4 : 1.6, (k) => g.position.lerpVectors(from, to, k), { ease });
+    this.tween(this.calm ? 2.4 : 1.6, (k) => g.position.lerpVectors(from, to, k), { ease, onDone: () => { if (!this.disposed && this.mode === 'check') this.tag(t('bricksTagHome'), 'xr-success'); } });
     if (win) { this.nb.family.clap(); sfx.powerup?.(); } else { this.nb.family.cheer(); sfx.correct?.(); }
     this.burst(this.plotRoot.localToWorld(HOUSE.clone().add(new THREE.Vector3(0, TOP + 0.2, 0))), win ? 'xr-success' : 'xr-warning', win ? 34 : 16);
   }
@@ -1051,7 +1083,7 @@ export class BricksScene extends BaseScene {
     this.exitPlayView();
     if (this.engine.isXR) for (const { o, pos } of this.hudHome ?? []) { o.position.copy(pos); o.quaternion.identity(); }
     this.ui.visible = false;
-    for (const s of this.tags) s.visible = false;
+    this.clearTags();
     if (!this.engine.isXR && !this.engine.touchUI) for (const o of this.hudObjs ?? []) o.visible = false;
     this.refreshHud?.();
     if (this.engine.isXR) {
@@ -1084,7 +1116,7 @@ export class BricksScene extends BaseScene {
     const learned = [
       { q: t('bricksLearn1Q'), a: t('bricksLearn1A', { a: aiBest, b: followed }) + (x.tips.length ? t('bricksLearn1X', { n: x.tips.length, m: x.fitted }) : '') + moment },
       { q: t('bricksLearn2Q'), a: t('bricksLearn2A') },
-      { q: t('bricksLearn3Q'), a: `${this.paidText ? `${this.paidText}. ` : ''}${this.planText}` },
+      { q: t('bricksLearn3Q'), a: `${this.buyText}. ${this.loanText}` },
     ];
     this.results({
       gameKey: 'bricks',
@@ -1102,9 +1134,16 @@ export class BricksScene extends BaseScene {
   update(dt) {
     this.time += dt;
     if (!this.M) return;
-    if (this.note && this.time > this.note.until) { this.note = null; this.ask.redraw(); }
-    if (this.coachText && this.time > this.coachUntil) { this.coachText = null; this.coach.redraw(); this.relayout(); }
-    if (this.tags.length && this.time > this.tags[0].userData.until) { for (const s of this.tags) { s.removeFromParent(); s.material.map.dispose(); s.material.dispose(); } this.tags = []; }
+    if (this.note && this.time > this.note.until) { this.note = null; this.ask.redraw(); this.relayout(); }
+    if (this.tags.length && this.time > this.tags[0].userData.until) this.clearTags();
+    // A hint waits until no message shows, and only appears while the player decides.
+    if (this.coachWait && !this.note && !this.tags.length && this.mode === 'choose') {
+      this.coachAt = this.coachWait;
+      this.coachText = t(`bricksCoach_${this.coachWait}`);
+      this.coachWait = null;
+      this.coach.redraw();
+      this.relayout();
+    }
     this.thumbs?.step();
     this.house.update(dt);
     this.nb.house.update(dt);
@@ -1175,12 +1214,12 @@ export class BricksScene extends BaseScene {
   }
 
   /**
-   * The screen layout (CSS px) for the current mode: where the plot is seen, and where every
-   * panel goes. Desktop: the brief at the left, the house in the middle with the neighbors'
-   * plot in the corner, their sign and the live meter at the right, the wish list and the cards
-   * below. Phone upright: the brief as a strip, the house with the meter over it, the buttons,
-   * the cards in a column. Phone sideways: brief, meter and buttons at the left, the house in
-   * the middle, the cards at the right. Text on phones is never smaller than about 14 px.
+   * The screen layout (CSS px) for the current mode: where the plot is seen, and where the few
+   * panels go. Desktop: who builds, the money and the extras at the left edge, the duel and
+   * the neighbors' plot at the right, the house large between them, the three cards below.
+   * Phone upright: who and the money in one row, the duel in the next, the house, the buttons,
+   * the cards in a column. Phone sideways: the small panels at the left, the house in the
+   * middle, the cards at the right. Text is at least 16 px on the desktop and 14 px on phones.
    */
   layout() {
     const W = window.innerWidth;
@@ -1194,150 +1233,154 @@ export class BricksScene extends BaseScene {
     if (!touch) {
       // The app's close button sits at the top right of the page: the row stays left of it.
       const free = W - 2 * m - 150;
-      const rowW = clamp(free, 300, 660);
+      const rowW = clamp(free, 300, 600);
       const ppm = rowW / 1.27;
       hud = { ppm, x0: m + Math.max(0, (free - rowW) / 2), y: m };
       top = m + 0.15 * ppm + 6;
     }
-    const out = { W, Hh, kind, hud, show: {}, chips: null };
+    const out = { W, Hh, kind, hud, show: {} };
     const s = out.show;
     const extras = this.step === DECISIONS.length;
     const grid = extras || this.drawer;
     const n = this.cards.length;
     const [cw, ch] = CARD[kind][grid ? 1 : 0];
+    const [bw, bh] = BRIEF;
     if (this.mode === 'brief') {
-      const [bw, bh] = BRIEF.full;
-      const pw = Math.min(W - 2 * m, 440, ((Hh - top - (this.offerSame ? 236 : 176)) / bh) * bw);
+      const pw = Math.min(W - 2 * m, 460, ((Hh - top - (this.offerSame ? 200 : 140)) / bh) * bw);
       const ph = (pw / bw) * bh;
-      const y0 = top + Math.max(m, (Hh - top - ph - (this.offerSame ? 216 : 156)) / 2);
-      s.briefFull = { x: (W - pw) / 2, y: y0, w: pw, h: ph };
-      s.hint = { x: (W - Math.min(W - 2 * m, 600)) / 2, y: y0 + ph + 4, w: Math.min(W - 2 * m, 600), h: 84, wrap: kind === 'row' ? 440 : 400 };
-      s.go = { x: W / 2 - 115, y: y0 + ph + 92, w: 230, h: 52 };
-      if (this.offerSame) s.same = { x: W / 2 - 150, y: y0 + ph + 152, w: 300, h: 50 };
+      const y0 = top + Math.max(m, (Hh - top - ph - (this.offerSame ? 190 : 130)) / 2);
+      s.brief = { x: (W - pw) / 2, y: y0, w: pw, h: ph };
+      s.hint = { x: (W - Math.min(W - 2 * m, 560)) / 2, y: y0 + ph + 2, w: Math.min(W - 2 * m, 560), h: 62, wrap: kind === 'row' ? 470 : 410 };
+      s.go = { x: W / 2 - 115, y: y0 + ph + 68, w: 230, h: 52 };
+      if (this.offerSame) s.same = { x: W / 2 - 115, y: y0 + ph + 126, w: 230, h: 48 };
       out.plot = { x: 0, y: top, w: W, h: Hh - top };
       return out;
     }
     if (this.mode === 'check' || this.mode === 'over') {
-      const [pw, ph] = CHECK_SIZE[this.checkKind];
-      const btnH = 52;
+      const [pw, ph] = CHECK_SIZE;
+      const btnH = 50;
+      const final = !!this.check?.final;
       if (kind === 'side') {
-        // Beside each other: the houses at the left, the check at the right, the button under it.
-        const availH = Hh - top - m;
-        const ppm = Math.min((W * 0.62 - 2 * m) / pw, (availH - btnH - m) / ph);
+        const ppm = Math.min(410, (Hh - top - btnH - 2 * m) / ph);
         const w = pw * ppm;
         s.check = { x: W - m - w, y: top, w, h: ph * ppm };
-        s.go = { x: W - m - w + (w - 230) / 2, y: Hh - m - btnH + 4, w: 230, h: btnH - 4 };
-        out.plot = { x: 0, y: top + 30, w: W - w - 2 * m, h: availH - 30 };
-        s.labelMe = { x: 4, y: top, w: out.plot.w * 0.5, h: 28, wrap: 400 };
-        s.labelNb = { x: out.plot.w * 0.5, y: top, w: out.plot.w * 0.5, h: 28, wrap: 400 };
+        s.go = { x: W - m - 190, y: Hh - m - btnH + 4, w: 190, h: btnH - 4 };
+        if (final) s.details = { x: W - m - w, y: Hh - m - btnH + 4, w: 130, h: btnH - 4 };
+        out.plot = { x: 0, y: top + 30, w: W - w - 2 * m, h: Hh - top - 30 - m };
       } else {
-        const availH = Hh - top - btnH - 3 * m;
-        const housesMin = kind === 'col' ? 150 : Math.max(200, availH * 0.36);
-        const ppm = Math.min((W - 2 * m) / pw, (availH - housesMin) / ph, kind === 'row' ? 520 : 440);
-        const h = ph * ppm;
+        const ppm = kind === 'row' ? clamp(W / 2.3, 460, 560) : (W - 2 * m) / pw;
         const w = pw * ppm;
-        const housesH = availH - h;
-        out.plot = { x: 0, y: top + 26, w: W, h: housesH - 26 };
-        s.check = { x: (W - w) / 2, y: top + housesH + m, w, h };
-        s.go = { x: W / 2 - 115, y: Hh - btnH - m + 4, w: 230, h: btnH - 4 };
-        const lw = Math.min(190, W * 0.4);
-        s.labelMe = { x: W * 0.27 - lw / 2, y: top, w: lw, h: 28, wrap: kind === 'row' ? 420 : 400 };
-        s.labelNb = { x: W * 0.73 - lw / 2, y: top, w: lw, h: 28, wrap: kind === 'row' ? 420 : 400 };
+        const h = ph * ppm;
+        const y = Hh - m - btnH - m - h;
+        s.check = { x: (W - w) / 2, y, w, h };
+        s.go = { x: W / 2 + (final ? 4 : -100), y: Hh - btnH - m + 4, w: 200, h: btnH - 4 };
+        if (final) s.details = { x: W / 2 - 154, y: Hh - btnH - m + 4, w: 150, h: btnH - 4 };
+        out.plot = { x: 0, y: top + 30, w: W, h: y - top - 34 };
       }
+      const lw = Math.min(180, out.plot.w * 0.44);
+      s.labelMe = { x: out.plot.x + out.plot.w * 0.25 - lw / 2, y: top, w: lw, h: 28, wrap: kind === 'row' ? 460 : 400 };
+      s.labelNb = { x: out.plot.x + out.plot.w * 0.75 - lw / 2, y: top, w: lw, h: 28, wrap: kind === 'row' ? 460 : 400 };
       out.both = true;
       return out;
     }
     const cardsOn = this.mode === 'choose';
-    const coachOn = !!this.coachText;
+    const msg = { h: 40, wrap: kind === 'row' ? 460 : 400 }; // the one message, and a hint
     if (kind === 'row') {
       const cols = grid ? 4 : 3;
       const rows = grid ? 2 : 1;
-      const cardW = Math.min((W - (cols + 1) * m) / cols, grid ? 300 : 380, (((Hh - top) * (grid ? 0.2 : 0.29)) / ch) * cw);
+      const cardW = Math.min((W - (cols + 1) * m) / cols, grid ? 330 : 440);
       const cardH = (cardW / cw) * ch;
       const cardsH = rows * cardH + (rows - 1) * m;
       const cardsY = Hh - m - cardsH;
       const x0 = (W - cols * cardW - (cols - 1) * m) / 2;
       out.cards = Array.from({ length: n }, (_, i) => ({ x: x0 + (i % cols) * (cardW + m), y: cardsY + Math.floor(i / cols) * (cardH + m), w: cardW, h: cardH }));
       out.cols = cols;
-      // the wish list: a row of chips above the cards (not in the last step, where the cards are the list)
-      let stripY = cardsY;
-      if (!extras) {
-        const gap = 5;
-        const chipW = Math.min((W - 2 * m - 7 * gap) / 8, 168);
-        const chipH = (chipW / CHIP[0]) * CHIP[1];
-        stripY = cardsY - chipH - 7;
-        const cx0 = (W - 8 * chipW - 7 * gap) / 2;
-        out.chips = this.chips.map((_, i) => ({ x: cx0 + i * (chipW + gap), y: stripY, w: chipW, h: chipH }));
-      }
-      const colH = stripY - top - m;
-      const [bw, bh] = BRIEF.full;
-      const leftW = Math.min(clamp(W * 0.25, 220, 350), (colH / bh) * bw);
-      s.briefFull = { x: m, y: top + m / 2, w: leftW, h: (leftW / bw) * bh };
-      const [mw, mh] = METER.full;
-      const [sw, sh] = SIGN.full;
-      const rightW = Math.min(clamp(W * 0.25, 220, 350), (colH / (mh + sh + 0.02)) * mw);
-      s.signFull = { x: W - m - rightW, y: top + m / 2, w: rightW, h: (rightW / sw) * sh };
-      s.meterFull = { x: W - m - rightW, y: top + m + (rightW / sw) * sh, w: rightW, h: (rightW / mw) * mh };
-      const px = leftW + 2 * m;
-      const pw = W - leftW - rightW - 4 * m;
-      out.plot = { x: px, y: top, w: pw, h: stripY - top - 8 };
-      out.pip = { x: px + pw * 0.72, y: top + 2, w: pw * 0.28, h: Math.min(pw * 0.2, colH * 0.3) };
-      if (coachOn) s.coach = { x: px, y: top, w: pw * 0.7, h: 64, wrap: 420 };
-      s.ask = { x: px + 124, y: stripY - 50, w: pw - 248 - (extras ? 120 : 0), h: 46, wrap: 440 };
-      s.back = { x: px, y: stripY - 48, w: 118, h: 42 };
-      if (extras) s.go = { x: px + pw - 236, y: stripY - 48, w: 236, h: 42 };
+      const sideW = clamp(W * 0.22, 240, 330);
+      const k = sideW / 0.52;
+      let y = top + 4;
+      s.whoTall = { x: m, y, w: sideW, h: 0.27 * k };
+      y += 0.27 * k + 6;
+      s.moneyTall = { x: m, y, w: sideW, h: 0.16 * k };
+      const moneyY = y;
+      y += 0.16 * k + 6;
+      const extrasY = y;
+      if (extras) s.go = { x: m, y, w: sideW, h: 0.11 * k };
+      else s.extras = { x: m, y, w: sideW, h: 0.11 * k };
+      y += 0.11 * k + 6;
+      s.back = { x: m, y, w: 120, h: 44 };
+      s.duelTall = { x: W - m - sideW, y: top + 4, w: sideW, h: 0.24 * k };
+      out.pip = { x: W - m - sideW, y: top + 0.24 * k + 12, w: sideW, h: Math.min(sideW * 0.62, cardsY - top - 0.24 * k - 60) };
+      s.nbTag = { x: W - m - sideW, y: out.pip.y + out.pip.h, w: sideW, h: 30, wrap: 460 };
+      const px = sideW + 2 * m;
+      const pw = W - 2 * sideW - 4 * m;
+      out.plot = { x: px, y: top + 16, w: pw, h: cardsY - top - 16 - msg.h - 6 };
+      s.dots = { x: px + pw / 2 - 80, y: top + 2, w: 160, h: 13 };
+      s.ask = { x: px, y: cardsY - msg.h - 4, w: pw, ...msg };
+      const at = { budget: { x: px, y: moneyY, w: 330 }, wish: { x: px, y: extrasY, w: 330 }, meter: { x: W - sideW - 2 * m - 330, y: top + 20, w: 330 } }[this.coachAt] ?? { x: px, y: cardsY - msg.h - 4, w: pw };
+      if (this.coachText) s.coach = { ...at, ...msg, h: 60 };
+      if (this.briefOpen) s.brief = { x: px + pw / 2 - 210, y: top + 20, w: 420, h: (420 / bw) * bh };
     } else if (kind === 'col') {
-      const cols = grid ? 2 : 1;
-      const rows = grid ? 4 : 3;
-      const cardW = (W - (cols + 1) * m) / cols;
-      const briefH = ((W - 2 * m) / BRIEF.strip[0]) * BRIEF.strip[1];
+      const cols = 1;
+      const rows = grid ? 8 : 3;
+      const cardW = W - 2 * m;
+      const k = cardW / 0.9;
+      const rowH = 0.13 * k;
+      const duelH = 0.105 * k;
       const btnH = 48;
-      const cardH = Math.min((cardW / cw) * ch, (Hh - top - briefH - btnH - (grid ? 120 : 200) - (rows + 3) * 6) / rows);
-      const cardsH = rows * cardH + (rows - 1) * 6;
+      const cardH = Math.min((cardW / cw) * ch, (Hh - top - rowH - duelH - btnH - (grid ? 84 : 190) - (rows + 4) * 5) / rows);
+      const cardsH = rows * cardH + (rows - 1) * 5;
       const cardsY = Hh - m - cardsH;
-      out.cards = Array.from({ length: n }, (_, i) => ({ x: m + (i % cols) * (cardW + m), y: cardsY + Math.floor(i / cols) * (cardH + 6), w: cardW, h: cardH }));
+      out.cards = Array.from({ length: n }, (_, i) => ({ x: m, y: cardsY + i * (cardH + 5), w: cardW, h: cardH }));
       out.cols = cols;
-      s.briefStrip = { x: m, y: top + 2, w: W - 2 * m, h: briefH };
+      const whoW = (cardW * 0.56) / 0.9 - 3;
+      s.whoHalf = { x: m, y: top + 2, w: whoW, h: rowH };
+      s.moneyHalf = { x: m + whoW + 6, y: top + 2, w: cardW - whoW - 6, h: rowH };
+      const y0 = top + rowH + 7;
+      s.duelWide = { x: m, y: y0, w: cardW, h: duelH };
       const btnY = cardsY - btnH - 4;
-      const y0 = top + briefH + 6;
-      const meterH = ((W - 2 * m) / METER.strip[0]) * METER.strip[1];
-      // the meter lies over the top of the house's part of the screen (there is only sky)
-      s.meterStrip = { x: m, y: y0, w: W - 2 * m, h: meterH };
-      out.plot = { x: 0, y: y0 + meterH * 0.7, w: W, h: btnY - y0 - meterH * 0.7 - 34 };
-      out.pip = { x: W * 0.68, y: y0 + meterH + 2, w: W * 0.32 - 4, h: Math.min(84, (btnY - y0 - meterH) * 0.42) };
-      if (coachOn) s.coach = { x: m, y: y0 + meterH + 2, w: W * 0.68 - m, h: 70, wrap: 400 };
-      s.ask = { x: m, y: btnY - 36, w: W - 2 * m, h: 34, wrap: 400 };
+      const py = y0 + duelH + 4;
+      s.dots = { x: W / 2 - 70, y: py, w: 140, h: 12 };
+      out.plot = { x: 0, y: py + 14, w: W, h: btnY - py - 14 - msg.h };
+      out.pip = { x: W * 0.7, y: py + 14, w: W * 0.3 - 4, h: Math.min(70, out.plot.h * 0.4) };
+      s.ask = { x: m, y: btnY - msg.h, w: cardW, ...msg };
+      if (this.coachText) s.coach = { x: m, y: this.coachAt === 'budget' || this.coachAt === 'meter' ? py + 16 : btnY - 62, w: cardW, ...msg, h: 60 };
       s.back = { x: m, y: btnY, w: 104, h: btnH - 4 };
-      if (extras) s.go = { x: m + 112, y: btnY, w: W - 2 * m - 112, h: btnH - 4 };
-      else s.wish = { x: m + 112, y: btnY, w: W - 2 * m - 112, h: btnH - 4 };
+      if (extras) s.go = { x: m + 112, y: btnY, w: cardW - 112, h: btnH - 4 };
+      else s.extras = { x: m + 112, y: btnY, w: cardW - 112, h: btnH - 4 };
+      if (this.briefOpen) s.brief = { x: m, y: py + 4, w: cardW, h: Math.min((cardW / bw) * bh, btnY - py - 8) };
     } else {
-      // A phone held sideways: the cards at the right, the brief, the meter and the buttons at the left.
+      // A phone held sideways: the cards at the right, the small panels at the left, the house between them.
       const cols = grid ? 2 : 1;
       const rows = grid ? 4 : 3;
       const availH = Hh - top - m;
-      const cardH = (availH - (rows - 1) * 5) / rows;
+      const cardH = Math.min((availH - (rows - 1) * 5) / rows, ch * 420);
       const cardW = (cardH / ch) * cw;
       const colW = cols * cardW + (cols - 1) * 5;
       const x0 = W - m - colW;
       out.cards = Array.from({ length: n }, (_, i) => ({ x: x0 + (i % cols) * (cardW + 5), y: top + Math.floor(i / cols) * (cardH + 5), w: cardW, h: cardH }));
       out.cols = cols;
-      const leftW = 232;
-      const briefH = (leftW / BRIEF.mini[0]) * BRIEF.mini[1];
-      const meterH = (leftW / METER.mini[0]) * METER.mini[1];
-      s.briefMini = { x: m, y: top, w: leftW, h: briefH };
-      s.meterMini = { x: m, y: top + briefH + 5, w: leftW, h: meterH };
-      const btnY = Hh - m - 46;
-      s.back = { x: m, y: btnY, w: 84, h: 46 };
-      if (extras) s.go = { x: m + 90, y: btnY, w: leftW - 90, h: 46 };
-      else s.wish = { x: m + 90, y: btnY, w: leftW - 90, h: 46 };
-      const px = leftW + 2 * m;
+      const sideW = 214;
+      const k = sideW / 0.52;
+      let y = top;
+      s.whoLow = { x: m, y, w: sideW, h: 0.2 * k };
+      y += 0.2 * k + 4;
+      s.moneyTall = { x: m, y, w: sideW, h: 0.16 * k };
+      y += 0.16 * k + 4;
+      s.duelTall = { x: m, y, w: sideW, h: 0.24 * k };
+      y += 0.24 * k + 4;
+      if (extras) s.go = { x: m, y, w: sideW, h: Math.max(44, 0.11 * k) };
+      else s.extras = { x: m, y, w: sideW, h: Math.max(44, 0.11 * k) };
+      const px = sideW + 2 * m;
       const pw = x0 - px - m;
-      out.pip = { x: m, y: top + briefH + meterH + 10, w: leftW * 0.6, h: btnY - (top + briefH + meterH + 14) };
-      if (coachOn) s.coach = { x: px, y: top, w: pw, h: 84, wrap: 400 };
-      s.ask = { x: px, y: Hh - m - 56, w: pw, h: 56, wrap: 400 };
-      out.plot = { x: px, y: top + (coachOn ? 60 : 0), w: pw, h: availH - 50 - (coachOn ? 60 : 0) };
+      s.dots = { x: px + pw / 2 - 60, y: top, w: 120, h: 11 };
+      out.plot = { x: px, y: top + 12, w: pw, h: availH - 12 - 48 };
+      out.pip = { x: px + pw * 0.6, y: top + 12, w: pw * 0.4, h: 56 };
+      s.back = { x: px, y: Hh - m - 44, w: 84, h: 44 };
+      s.ask = { x: px + 88, y: Hh - m - 46, w: pw - 88, ...msg, h: 46 };
+      if (this.coachText) s.coach = { x: px, y: top + 14, w: pw, ...msg, h: 66 };
+      if (this.briefOpen) s.brief = { x: px, y: top + 4, w: Math.max(pw, 300), h: availH - 8 };
     }
-    if (!cardsOn) { out.cards = []; out.chips = null; delete s.go; delete s.back; delete s.wish; }
+    if (!cardsOn) { out.cards = []; delete s.go; delete s.back; delete s.extras; delete s.coach; delete s.brief; }
     return out;
   }
 
@@ -1357,7 +1400,7 @@ export class BricksScene extends BaseScene {
     const R = new THREE.Quaternion().setFromEuler(new THREE.Euler(both ? -0.42 : -0.4, both ? -0.12 : -0.24, 0, 'YXZ'));
     const Ri = R.clone().invert();
     // The house with its garden; more room for a room at the left, the carport at the right, and the crane while it works.
-    const has = (list) => list.some((id) => this.extras.includes(id) || this.built.has(id));
+    const has = (list) => list.some((id) => this.extras.includes(id));
     const tall = this.crane?.root.visible && (this.step <= 1 || !!this.roofHang);
     const box = both
       ? (wide ? [[-0.5, 1.82], [0, 0.42], [-0.36, 0.38]] : [[-0.5, 1.25], [0, 0.42], [-1.3, 0.38]])
@@ -1396,27 +1439,28 @@ export class BricksScene extends BaseScene {
     // Panels: only those the layout names are shown.
     const s = lay.show;
     const set = (obj, r) => { if (r) this.fit(obj, r, r.max); else obj.visible = false; };
-    set(this.briefs.full, s.briefFull);
-    set(this.briefs.strip, s.briefStrip);
-    set(this.briefs.mini, s.briefMini);
-    set(this.meters.full, s.meterFull);
-    set(this.meters.strip, s.meterStrip);
-    set(this.meters.mini, s.meterMini);
-    set(this.signs.full, s.signFull);
-    set(this.signs.small, s.signSmall);
-    set(this.ask, s.ask);
-    set(this.coach, s.coach);
+    set(this.brief, s.brief);
+    set(this.who.tall, s.whoTall);
+    set(this.who.low, s.whoLow);
+    set(this.who.half, s.whoHalf);
+    set(this.money.tall, s.moneyTall);
+    set(this.money.half, s.moneyHalf);
+    set(this.duel.tall, s.duelTall);
+    set(this.duel.wide, s.duelWide);
+    set(this.extrasBtn, s.extras);
+    set(this.dots, s.dots);
+    set(this.ask, this.note ? s.ask : null);
+    set(this.coach, this.coachText ? s.coach : null);
     set(this.hint, s.hint);
     set(this.labelMe, s.labelMe);
     set(this.labelNb, s.labelNb);
     set(this.backBtn, s.back);
     set(this.goBtn, s.go);
-    set(this.wishBtn, s.wish);
+    set(this.detailsBtn, s.details);
     set(this.sameBtn, s.same);
     if (this.checkPanel) set(this.checkPanel, s.check);
     this.cardCols = lay.cols;
     this.cards.forEach((c, i) => { const r = lay.cards?.[i]; if (r) this.fit(c, r); else c.visible = false; });
-    this.chips.forEach((c, i) => { const r = lay.chips?.[i]; if (r) this.fit(c, r); else c.visible = false; });
     // The neighbors: a little picture of their plot in a corner; in the check they stand next to the player's.
     const nb = this.nb;
     if (both) {
@@ -1424,12 +1468,13 @@ export class BricksScene extends BaseScene {
       nb.root.position.copy(this.plotRoot.position).add(wide ? new THREE.Vector3(1.2, 0, 0) : new THREE.Vector3(0.66, 0, -0.96));
       nb.root.quaternion.identity();
       nb.root.scale.setScalar(1);
-    } else if (lay.pip && lay.pip.h > 40) {
+    } else if (lay.pip && lay.pip.h > 36 && !this.briefOpen) {
       const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.5, 0.25, 0, 'YXZ'));
       const ppm = Math.min(lay.pip.w / 1.45, lay.pip.h / 0.8);
       nb.root.visible = true;
       this.pin(nb.root, lay.pip.x + lay.pip.w / 2, lay.pip.y + lay.pip.h / 2 + ppm * 0.2, ppm, 0.6, tilt);
     } else nb.root.visible = false;
+    set(this.labelNb, both ? s.labelNb : nb.root.visible ? s.nbTag : null);
   }
 
   exitPlayView() {
@@ -1446,13 +1491,14 @@ export class BricksScene extends BaseScene {
 
   /**
    * The plot stands at table height within reach, the neighbors' plot smaller to the left
-   * behind it. The cards hang on an arc at eye height about a meter away (pointing and pressing
-   * reaches them), the brief to the left, the live meter and the wish list to the right,
-   * nothing behind the player. Panels are a little larger than their drawing size, so no text
-   * is below the smallest size.
+   * behind it with a name tag. Three cards hang on an arc at eye height about a meter away
+   * (pointing and pressing reaches them). Who builds, the money and the button of the extras
+   * are small panels at the left, the duel at the right; the whole brief and the extras open
+   * on demand. Nothing is behind the player. Panels are a little larger than their drawing
+   * size, so no text is below the smallest size.
    */
   placeXR() {
-    const key = `${this.mode}|${this.step}|${this.cards.length}|${this.drawer}|${this.checkPanel ? 1 : 0}|${this.coachText ? 1 : 0}`;
+    const key = `${this.mode}|${this.step}|${this.cards.length}|${this.drawer}|${this.checkPanel ? this.check.final : 0}|${this.coachText ? this.coachAt : 0}|${this.note ? 1 : 0}|${this.briefOpen}`;
     if (key === this.layoutKey) return;
     this.layoutKey = key;
     const S = 1.12;
@@ -1463,40 +1509,42 @@ export class BricksScene extends BaseScene {
     // The status bar and the menu button hang up at the left, clear of the cards.
     for (const o of this.hudObjs ?? []) placeOnArc(o, o.w > 0.5 ? -1.5 : -0.92, eye + 0.86, 1.05);
     if (this.mode === 'brief') {
-      arc(this.briefs.full, 0, eye + 0.32, 1.0);
-      arc(this.hint, 0, eye - 0.18, 0.98);
-      arc(this.goBtn, 0, eye - 0.33, 0.95, 1.3);
-      if (this.offerSame) arc(this.sameBtn, 0.62, eye - 0.33, 0.95, 1.2);
+      arc(this.brief, 0, eye + 0.3, 1.0);
+      arc(this.hint, 0, eye - 0.12, 0.98);
+      arc(this.goBtn, 0, eye - 0.27, 0.95, 1.3);
+      if (this.offerSame) arc(this.sameBtn, 0.62, eye - 0.27, 0.95, 1.2);
     } else if (this.mode === 'check') {
-      arc(this.checkPanel, 0, eye + 0.36, 1.2, S);
-      arc(this.labelMe, -0.45, eye - 0.16, 1.0);
-      arc(this.labelNb, 0.62, eye - 0.16, 1.0);
-      arc(this.goBtn, 0, eye - 0.16, 1.1, 1.3);
+      arc(this.checkPanel, 0, eye + 0.3, 1.05);
+      arc(this.labelMe, -0.5, eye - 0.1, 1.0);
+      arc(this.labelNb, 0.66, eye - 0.1, 1.0);
+      arc(this.goBtn, this.check.final ? 0.2 : 0, eye - 0.1, 1.0, 1.3);
+      if (this.check.final) arc(this.detailsBtn, -0.24, eye - 0.1, 1.0, 1.3);
     } else {
       const extras = this.step === DECISIONS.length;
-      arc(this.briefs.full, -1.2, eye + 0.14, 1.0);
-      arc(this.meters.full, 1.2, eye + 0.44, 1.0);
-      arc(this.ask, 0, eye + (extras && this.mode === 'choose' ? 0.92 : 0.6), 1.05);
-      if (this.coachText) arc(this.coach, 0, eye + (extras ? 1.06 : 0.76), 1.05);
+      const grid = extras || this.drawer;
+      arc(this.who.tall, -1.12, eye + 0.36, 1.0);
+      arc(this.money.tall, -1.12, eye + 0.13, 1.0);
+      if (!extras) arc(this.extrasBtn, -1.12, eye - 0.05, 1.0);
+      arc(this.duel.tall, 1.12, eye + 0.32, 1.0);
+      arc(this.dots, 0, eye + (grid ? 0.82 : 0.44), 1.05, 1.4);
+      if (this.note) arc(this.ask, 0, eye + (grid ? 0.92 : 0.56), 1.05);
+      if (this.coachText && this.mode === 'choose') arc(this.coach, this.coachAt === 'meter' ? 0.62 : this.coachAt === 'budget' || this.coachAt === 'wish' ? -0.6 : 0, eye + (grid ? 0.92 : 0.56), 1.05);
+      if (this.briefOpen) arc(this.brief, -0.62, eye + 0.2, 0.92);
       if (this.mode === 'choose') {
-        if (extras) {
-          // Three columns: eight extras and the button to confirm in the ninth place.
-          this.cards.forEach((c, i) => arc(c, ((i % 3) - 1) * 0.6, eye + 0.55 - Math.floor(i / 3) * 0.37));
-          arc(this.goBtn, 0.6, eye + 0.55 - 2 * 0.37, 1.05, 1.3);
-        } else {
-          this.cards.forEach((c, i) => arc(c, (i - 1) * 0.68, eye + 0.16));
-          // The wish list: two columns of chips under the meter, at the right.
-          this.chips.forEach((c, i) => arc(c, 1.2 + ((i % 2) - 0.5) * 0.42, eye - 0.03 - Math.floor(i / 2) * 0.15, 1.0));
-        }
+        if (grid) {
+          // Three columns: eight extras; in the last step the button to confirm takes the ninth place.
+          this.cards.forEach((c, i) => arc(c, ((i % 3) - 1) * 0.66, eye + 0.6 - Math.floor(i / 3) * 0.27));
+          if (extras) arc(this.goBtn, 0.66, eye + 0.6 - 2 * 0.27, 1.05, 1.3);
+        } else this.cards.forEach((c, i) => arc(c, (i - 1) * 0.74, eye + 0.14));
         this.cardCols = 3;
-        arc(this.backBtn, -0.68, eye - 0.2, 1.0, 1.3);
+        arc(this.backBtn, -1.12, eye - 0.21, 1.0, 1.3);
       }
     }
     if (this.mode !== 'check') {
       nb.root.position.set(-0.98, eye - 0.66, -1.12);
       nb.root.rotation.set(0, 0.55, 0);
       nb.root.scale.setScalar(0.55);
-      if (this.mode !== 'brief') { const sg = this.signs.small; sg.visible = true; sg.scale.setScalar(S); sg.position.set(-1.06, eye - 0.42, -1.02); sg.rotation.set(0, 0.75, 0); }
+      if (this.mode !== 'brief') { const tg = this.labelNb; tg.visible = true; tg.scale.setScalar(S); tg.position.set(-0.98, eye - 0.36, -1.12); tg.rotation.set(0, 0.7, 0); }
     }
   }
 
@@ -1519,7 +1567,7 @@ export class BricksScene extends BaseScene {
     this.exitPlayView();
     setSnowAmount(0.6);
     this.thumbs?.dispose?.();
-    for (const s of this.tags) { s.material.map.dispose(); s.material.dispose(); }
+    this.clearTags();
     for (const c of this.cards) c.dispose();
     for (const o of this.ui?.children ?? []) o.dispose?.();
     super.dispose();
