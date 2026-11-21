@@ -388,6 +388,8 @@ export class BaseScene {
 
   /** Particle burst at a world position, colored by a token. */
   burst(worldPos, tokenName = 'xr-success', count = 22) {
+    // Calm motion: a few particles instead of a shower.
+    if (assist.reducedMotion) count = Math.min(8, Math.ceil(count / 4));
     const holder = new THREE.Group();
     holder.userData.noFit = true;
     this.group.add(holder);

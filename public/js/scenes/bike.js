@@ -111,6 +111,20 @@ function iconTile(w, h, draw) {
   return p;
 }
 
+/**
+ * A holder for a shared Button that the scene sizes itself (pixels on the screen): the button
+ * sets its own scale whenever it redraws (hover, focus, a new label), so the holder carries the
+ * size and the place, and the hover scale works on top of it.
+ */
+function holder(btn) {
+  const g = new THREE.Group();
+  g.userData.w = btn.w;
+  g.userData.h = btn.h;
+  g.userData.noFit = true;
+  g.add(btn);
+  return g;
+}
+
 /** The ground height under the bike (a ramp's slope, else 0). */
 function ramp0(c, s, u) {
   const r = c.rampAt(s, u);
@@ -509,16 +523,17 @@ export class BikeScene extends BaseScene {
     this.livePanel.userData.noFit = true;
     ui.add(this.livePanel);
     const pitLabel = this.engine.isXR || this.engine.touchUI ? t('bikePitBtn') : `${t('bikePitBtn')} (${t('bikePitKey')})`;
-    this.pitBtn = new Button(0.5, 0.12, { label: pitLabel, variant: 'sponsor', labelSize: 'xr-text-lg', onClick: () => this.requestPit() });
+    // (wide enough for the longer "change tire" label)
+    this.pitBtn = new Button(0.66, 0.13, { label: pitLabel, variant: 'sponsor', labelSize: 'xr-text-lg', onClick: () => this.requestPit() });
     this.pitBtn.userData.label = t('bikePitBtn');
     this.pitBtn.visible = false;
     this.pitBtn.userData.noFit = true;
-    ui.add(this.pitBtn);
+    ui.add((this.pitHold = holder(this.pitBtn)));
     // The pump button (browser and headset; phones get a thumb button).
     this.pumpBtn = new Button(0.42, 0.13, { label: t('bikePump'), variant: 'primary', labelSize: 'xr-text-lg', onClick: () => this.pumpOnce() });
     this.pumpBtn.visible = false;
     this.pumpBtn.userData.noFit = true;
-    ui.add(this.pumpBtn);
+    ui.add((this.pumpHold = holder(this.pumpBtn)));
     ui.visible = false;
   }
 
@@ -1197,7 +1212,12 @@ export class BikeScene extends BaseScene {
       const before = new Set(this.group.children);
       this.refreshHud = this.hud(() => this.hudText());
       this.hudObjs = this.group.children.filter((o) => !before.has(o));
-      if (!this.engine.isXR && !this.engine.touchUI) this.hudObjs.forEach((o) => this.ui.add(o));
+      // Desktop: the status bar and the menu button are placed on the screen by layoutUI.
+      if (!this.engine.isXR && !this.engine.touchUI) {
+        const [info, menu] = this.hudObjs;
+        if (info) this.ui.add(info);
+        if (menu) { menu.position.set(0, 0, 0); this.ui.add((this.menuHold = holder(menu))); }
+      }
     }
     this.buildTouch();
     this.app.echo?.suppress(true);
@@ -1374,7 +1394,7 @@ export class BikeScene extends BaseScene {
     this.chip.redraw();
     this.livePanel.redraw();
     this.pop(this.livePanel);
-    this.pop(this.pitBtn);
+    this.pop(this.pitHold);
     // Hazards that come with it, puddles that dry up.
     for (const h of this.course.hazards) {
       if (h.weather === w.i) h.hidden = false;
@@ -1656,7 +1676,7 @@ export class BikeScene extends BaseScene {
     sfx.crash();
     const how = this.engine.isXR ? 'bikePumpXR' : this.engine.touchUI ? 'bikePumpTouch' : 'bikePumpScreen';
     this.toast(t('bikeFlat'), t(how), 'xr-danger', 99);
-    this.pop(this.pumpBtn);
+    this.pop(this.pumpHold);
   }
 
   pumpOnce() {
@@ -2716,10 +2736,10 @@ export class BikeScene extends BaseScene {
     this.tireCard.visible = show.tirePreview && !touch;
     // Top bar (desktop: the 3D status bar and the menu button).
     if (!touch && this.hudObjs) {
-      const [info, menu] = this.hudObjs;
+      const [info] = this.hudObjs;
       // The menu button sits next to the status bar (the top right corner belongs to the page's own close button).
       const bar = info ? place(info, 0.012, 0.015, 0, 0, desk * 0.8) : { w: 0 };
-      if (menu) place(menu, 0.012 + (bar.w + 8) / W, 0.015, 0, 0, desk * 0.8);
+      if (this.menuHold) place(this.menuHold, 0.012 + (bar.w + 8) / W, 0.015, 0, 0, desk * 0.8);
       freeTop = (0.015 * H + 0.15 * desk * 0.8 + 8) / H;
     }
     if (!touch) {
@@ -2731,8 +2751,8 @@ export class BikeScene extends BaseScene {
       if (show.console) { place(this.console, 0.988, 0.56, 1, 0.5, desk * 0.86); this.layoutTiles(); }
       if (show.gauge) place(this.gauge, 0.012, 0.985, 0, 1, desk * 0.9);
       if (this.toastPanel) place(this.toastPanel, 0.5, freeTop + 0.07, 0.5, 0, desk * 0.85);
-      if (show.pumpBtn) place(this.pumpBtn, 0.5, 0.72, 0.5, 0.5, desk);
-      if (show.pitBtn) place(this.pitBtn, 0.5, 0.8, 0.5, 0.5, desk);
+      if (show.pumpBtn) place(this.pumpHold, 0.5, 0.72, 0.5, 0.5, desk);
+      if (show.pitBtn) place(this.pitHold, 0.5, 0.8, 0.5, 0.5, desk * 0.85);
       this.freeShift = 0;
       return;
     }
@@ -2764,7 +2784,7 @@ export class BikeScene extends BaseScene {
         const ls = place(this.livePanel, 0.5, freeTop + gap, 0.5, 0, Math.min(phone * 0.95, (W - 12) / 0.66));
         freeTop += gap + ls.h / H;
       }
-      if (show.pitBtn) place(this.pitBtn, 0.5, freeBot - 0.06, 0.5, 1, phone * 1.1);
+      if (show.pitBtn) place(this.pitHold, 0.5, freeBot - 0.06, 0.5, 1, Math.min(phone, (W - 24) / 0.66));
       if (this.toastPanel) place(this.toastPanel, 0.5, Math.max(freeTop + gap, top + 0.11), 0.5, 0, Math.min(ppm, phone * 1.1));
     } else {
       const avail = H - ins.top - 12;
@@ -2786,7 +2806,7 @@ export class BikeScene extends BaseScene {
       if (show.gauge && m !== 'choose' && m !== 'scan' && m !== 'pit') place(this.gauge, 0.992, top, 1, 0, small);
       else this.gauge.visible = false;
       if (show.livePanel && m !== 'pit') place(this.livePanel, 0.008, leftY, 0, 0, Math.min(phone * 0.85, (H - leftY * H - 90) / 0.42, (W * 0.34) / 0.66));
-      if (show.pitBtn) place(this.pitBtn, 0.5, 0.97, 0.5, 1, Math.min(phone, (W * 0.3) / 0.5));
+      if (show.pitBtn) place(this.pitHold, 0.5, 0.97, 0.5, 1, Math.min(phone, (W * 0.34) / 0.66));
       if (this.toastPanel) place(this.toastPanel, 0.5, top + 0.02, 0.5, 0, Math.min(phone, (W * 0.44) / 0.64));
     }
     // The bike in the middle of the free band between the panels.

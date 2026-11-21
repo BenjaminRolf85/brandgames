@@ -297,7 +297,7 @@ body.is-playing { overflow: hidden; }
   position: absolute;
   top: max(var(--space-3), env(safe-area-inset-top));
   left: max(var(--space-3), env(safe-area-inset-left));
-  right: calc(max(var(--space-3), env(safe-area-inset-right)) + 7.5rem);
+  right: calc(max(var(--space-3), env(safe-area-inset-right)) + var(--stage-close-width) + var(--space-2));
   z-index: 1;
   display: flex;
   align-items: center;
