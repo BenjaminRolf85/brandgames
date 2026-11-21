@@ -1168,7 +1168,7 @@ export class BricksScene extends BaseScene {
     } else {
       arc(this.brief, -1.18, eye + 0.12, 1.0);
       arc(this.aiNote, 1.15, eye + 0.25, 1.0);
-      arc(this.ask, 0, eye + (this.step === DECISIONS.length && this.mode === 'choose' ? 0.8 : 0.56), 1.05);
+      arc(this.ask, 0, eye + (this.step === DECISIONS.length && this.mode === 'choose' ? 0.9 : 0.56), 1.05);
       if (this.mode === 'choose') {
         const extras = this.step === DECISIONS.length;
         if (extras) {
@@ -1180,7 +1180,7 @@ export class BricksScene extends BaseScene {
           this.cards.forEach((c, i) => arc(c, (i - 1) * 0.68, eye + 0.16));
           this.cardCols = 3;
         }
-        arc(this.backBtn, -1.18, eye - 0.36, 1.0, 1.3);
+        arc(this.backBtn, 1.15, eye - 0.04, 1.0, 1.3); // under the adviser's note
       }
     }
     if (this.mode !== 'check') {

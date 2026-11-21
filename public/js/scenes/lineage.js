@@ -135,8 +135,8 @@ export class LineageScene extends BaseScene {
       this.land.scale.setScalar(0.75);
     } else {
       this.land = makeLandscape({ calm: this.calm });
-      this.land.scale.setScalar(4.2);
-      this.land.position.set(0, floorY + 0.14, -4.4);
+      this.land.scale.setScalar(e.isXR ? 4.2 : 5);
+      this.land.position.set(0, floorY + 0.14, e.isXR ? -4.4 : -7); // the browser keeps it far back, in the haze
     }
     this.group.add(this.land);
     const key = makeKeyLight();
@@ -149,6 +149,8 @@ export class LineageScene extends BaseScene {
     e.scene.background = this.sky;
     this.prevFog = e.scene.fog?.color.getHex();
     e.scene.fog?.color.set(this.sky.userData.horizon);
+    // Browser: depth haze, so the landscape behind the field is a calm backdrop and the play objects stand out.
+    if (e.scene.fog && !e.isXR) { this.prevFogRange = [e.scene.fog.near, e.scene.fog.far]; e.scene.fog.near = 3; e.scene.fog.far = 12.5; }
     this.backdrop = makeBackdrop({ calm: this.calm, around: e.isXR, floorY });
     this.group.add(this.backdrop);
     // Desktop: the packets of light and the tokens' bright parts glow (no post effects on phones or in the headset).
@@ -265,16 +267,8 @@ export class LineageScene extends BaseScene {
 
   start() {
     this.clearLayer();
-    // Browser: Echo hovers beside the landscape (the boards cover the rest of the screen).
-    if (this.screenUI && this.app.echo?.setCompanion) {
-      this.echoSpot = { target: new THREE.Vector3(), look: new THREE.Vector3() };
-      this.app.echo.setCompanion(() => {
-        const fb = this.room.frameBox(); // at the lower right corner of the playing field
-        this.group.localToWorld(this.echoSpot.target.set(fb.x1 + 0.1, fb.y0 + 0.05, fb.z + 0.1));
-        this.group.localToWorld(this.echoSpot.look.set((fb.x0 + fb.x1) / 2, this.eye, fb.z + 2));
-        return this.echoSpot;
-      });
-    }
+    // Browser: the field fills the screen, so Echo waits outside until the result (the drone is the helper here).
+    if (this.screenUI) { this.echoParked = true; this.app.echo?.suppress?.(true); }
     this.startMusic(0, 'lineage');
     let seen = new Set();
     try { seen = new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || '[]')); } catch { /* private mode */ }
@@ -351,6 +345,8 @@ export class LineageScene extends BaseScene {
     this.board = null;
     this.refreshHud();
     // Stages 2 and 3 open with a short card: what to do, and what the assistant does.
+    if (this.calm && step.stage !== this.lastStage) this.hudEl?.fade();
+    this.lastStage = step.stage;
     if (step.first && !step.shown) {
       step.shown = true;
       this.stepIndex -= 1;
@@ -657,7 +653,7 @@ export class LineageScene extends BaseScene {
     if (this.mode === 'over') return;
     this.mode = 'over';
     this.view.show(false);
-    if (this.echoSpot) this.app.echo?.setCompanion(null);
+    if (this.echoParked) { this.echoParked = false; this.app.echo?.suppress?.(false); }
     this.land.userData.setProgress(3);
     this.land.userData.cheer();
     const st = this.stats;
@@ -697,7 +693,7 @@ export class LineageScene extends BaseScene {
 
   dispose() {
     this.mode = 'over';
-    if (this.echoSpot) this.app.echo?.setCompanion(null);
+    if (this.echoParked) { this.echoParked = false; this.app.echo?.suppress?.(false); }
     window.removeEventListener('keydown', this.onKey, true);
     this.engine.canvas.removeEventListener('pointerdown', this.onPointerDown);
     const e = this.engine;
@@ -705,6 +701,7 @@ export class LineageScene extends BaseScene {
     if (!this.ar) {
       if (e.scene.background === this.sky) e.scene.background = this.prevBg === this.sky ? e.previewBg : this.prevBg;
       if (this.prevFog !== undefined) e.scene.fog?.color.setHex(this.prevFog);
+      if (this.prevFogRange && e.scene.fog) [e.scene.fog.near, e.scene.fog.far] = this.prevFogRange;
       this.sky?.dispose();
     }
     if (!e.isXR) e.camera.rotation.set(0, 0, 0);

@@ -67,14 +67,18 @@ export function screenHud({ onHint, onNext, onMenu, desk = false, calm = false }
   foot.append(feedback);
 
   const cardWrap = el('div', `lin-cardwrap${calm ? ' is-calm' : ''}`);
-  for (const e of [bar, root, foot, cardWrap]) e.hidden = true;
-  stage()?.append(bar, root, foot, cardWrap);
+  // a soft vignette over the room (the play objects in the middle stand out), and the fade that covers a cut
+  const shade = el('div', 'lin-shade');
+  const fader = el('div', 'lin-fader');
+  for (const e of [bar, root, foot, cardWrap, shade]) e.hidden = true;
+  stage()?.append(shade, fader, bar, root, foot, cardWrap);
 
   return {
     show(on) {
       bar.hidden = !on;
       root.hidden = !on;
       foot.hidden = !on;
+      shade.hidden = !on;
       if (!on) cardWrap.hidden = true;
     },
 
@@ -159,6 +163,9 @@ export function screenHud({ onHint, onNext, onMenu, desk = false, calm = false }
       return { top: root.getBoundingClientRect().bottom + 6, bottom: landPhone ? 8 : H - foot.getBoundingClientRect().top + 6 };
     },
 
-    remove() { bar.remove(); root.remove(); foot.remove(); cardWrap.remove(); },
+    /** Calm motion: the view changes at once, covered by a short fade. */
+    fade() { fader.classList.remove('is-on'); void fader.offsetWidth; fader.classList.add('is-on'); },
+
+    remove() { bar.remove(); root.remove(); foot.remove(); cardWrap.remove(); shade.remove(); fader.remove(); },
   };
 }

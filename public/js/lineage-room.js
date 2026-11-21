@@ -130,17 +130,32 @@ const box = (w, h, d, x = 0, y = 0, z = 0) => new THREE.BoxGeometry(w, h, d).tra
 const disc = (r, h, x = 0, y = 0, z = 0, seg = 20) => new THREE.CylinderGeometry(r, r, h, seg).translate(x, y, z);
 const lines3 = (w, z) => [0.22, 0, -0.22].map((y) => box(w, 0.07, 0.05, 0, y, z));
 // [main parts, light parts] per kind (about one unit large)
+const torusZ = (r, tube, z = 0, arc = Math.PI * 2, turn = 0) => new THREE.TorusGeometry(r, tube, 6, 20, arc).rotateZ(turn).translate(0, 0, z);
+const ringY = (x, y) => new THREE.TorusGeometry(0.08, 0.025, 6, 12).rotateY(Math.PI / 2).translate(x, y, 0);
+const ball = (r, x, y, z) => new THREE.SphereGeometry(r, 10, 8).translate(x, y, z);
+const tooth = (k) => box(0.17, 0.17, 0.2, 0.52, 0, 0).rotateZ((k * Math.PI) / 4);
+// [main parts, light parts] per kind (about one unit large)
 const SHAPES = {
-  date: () => [[box(1, 0.9, 0.3)], [box(1.04, 0.24, 0.34, 0, 0.36), box(0.5, 0.07, 0.05, 0, -0.1, 0.16), box(0.5, 0.07, 0.05, 0, -0.28, 0.16)]],
-  amt: () => [[disc(0.5, 0.2, 0, 0, 0, 28).rotateX(Math.PI / 2)], [disc(0.3, 0.26, 0, 0, 0, 20).rotateX(Math.PI / 2)]],
-  num: () => [[box(0.74, 0.74, 0.74).rotateY(Math.PI / 4).rotateX(0.5)], [box(0.3, 0.3, 0.3, 0, 0, 0.42)]],
-  text: () => [[box(1.1, 0.8, 0.14)], lines3(0.8, 0.07)],
-  bool: () => [[disc(0.27, 1, 0, 0, 0, 16).rotateZ(Math.PI / 2), new THREE.SphereGeometry(0.27, 14, 10).translate(-0.5, 0, 0), new THREE.SphereGeometry(0.27, 14, 10).translate(0.5, 0, 0)], [new THREE.SphereGeometry(0.34, 16, 12).translate(0.36, 0, 0.12)]],
-  desc: () => [[box(0.82, 1.05, 0.08)], [...lines3(0.56, 0.04), box(0.3, 0.07, 0.05, -0.13, 0.4, 0.04)]],
+  // a calendar block: a ring binding, a header band and a day number
+  date: () => [[box(1, 0.9, 0.3)], [box(1.04, 0.24, 0.34, 0, 0.36), ringY(-0.25, 0.5), ringY(0.25, 0.5), box(0.09, 0.36, 0.05, -0.16, -0.14, 0.16), box(0.09, 0.36, 0.05, 0.14, -0.14, 0.16), box(0.2, 0.09, 0.05, 0.08, 0.0, 0.16)]],
+  // a coin: a rim and an embossed euro sign
+  amt: () => [[disc(0.46, 0.14, 0, 0, 0, 28).rotateX(Math.PI / 2), torusZ(0.47, 0.07)], [torusZ(0.2, 0.045, 0.08, 4.1, 1.1), box(0.3, 0.05, 0.05, -0.08, 0.06, 0.08), box(0.3, 0.05, 0.05, -0.08, -0.06, 0.08)]],
+  // a number cube with pips
+  num: () => [[box(0.78, 0.78, 0.78)], [ball(0.075, -0.2, 0.2, 0.39), ball(0.075, 0, 0, 0.39), ball(0.075, 0.2, -0.2, 0.39), ball(0.075, 0, 0.39, 0), ball(0.075, 0.39, 0.15, 0.1), ball(0.075, 0.39, -0.15, -0.1)]],
+  // a slab with engraved lines of text
+  text: () => [[box(1.1, 0.8, 0.14)], [...lines3(0.8, 0.07), box(0.4, 0.07, 0.05, -0.2, 0.3, 0.07)]],
+  // a switch with its lever
+  bool: () => [[disc(0.27, 1, 0, 0, 0, 16).rotateZ(Math.PI / 2), ball(0.27, -0.5, 0, 0), ball(0.27, 0.5, 0, 0)], [ball(0.33, 0.36, 0, 0.12), disc(0.06, 0.3, 0.36, 0, 0.3, 8).rotateX(Math.PI / 2)]],
+  // a glossary page: a sheet on a little stand
+  desc: () => [[box(0.82, 0.96, 0.06, 0, 0.16, 0), disc(0.035, 0.36, 0, -0.5, -0.03, 8)], [...lines3(0.56, 0.035).map((g) => g.translate(0, 0.12, 0)), box(0.3, 0.07, 0.05, -0.13, 0.5, 0.035), disc(0.26, 0.05, 0, -0.7, 0)]],
+  // a table: a stack of discs
   src: () => [[disc(0.5, 0.24, 0, -0.32), disc(0.5, 0.24, 0, 0), disc(0.5, 0.24, 0, 0.32)], [disc(0.52, 0.04, 0, -0.16), disc(0.52, 0.04, 0, 0.16)]],
-  tr: () => [[new THREE.TorusGeometry(0.4, 0.14, 8, 12)], [box(0.26, 0.26, 0.26)]],
-  wh: () => [[box(1, 0.6, 0.7, 0, -0.2), new THREE.CylinderGeometry(0.5, 0.5, 0.72, 3, 1).rotateX(Math.PI / 2).rotateZ(Math.PI).scale(1.3, 0.6, 1).translate(0, 0.25, 0)], [box(0.26, 0.36, 0.05, 0, -0.32, 0.36)]],
-  rep: () => [[box(1.15, 0.82, 0.08), box(0.12, 0.2, 0.08, 0, -0.5, 0), box(0.5, 0.06, 0.2, 0, -0.62, 0)], []],
+  // the transformation: a gear with teeth and a hub
+  tr: () => [[torusZ(0.36, 0.13), ...[0, 1, 2, 3, 4, 5, 6, 7].map(tooth)], [disc(0.15, 0.3, 0, 0, 0, 12).rotateX(Math.PI / 2)]],
+  // the warehouse: a hall with a gate
+  wh: () => [[box(1, 0.6, 0.7, 0, -0.2), new THREE.CylinderGeometry(0.5, 0.5, 0.72, 3, 1).rotateX(Math.PI / 2).rotateZ(Math.PI).scale(1.3, 0.6, 1).translate(0, 0.25, 0)], [box(0.26, 0.36, 0.05, 0, -0.32, 0.36), box(0.12, 0.12, 0.05, -0.32, -0.08, 0.36), box(0.12, 0.12, 0.05, 0.32, -0.08, 0.36)]],
+  // a report: a dashboard on a stand (its bars are a part of their own, they grow)
+  rep: () => [[box(1.15, 0.82, 0.08), box(0.12, 0.2, 0.08, 0, -0.5, 0), box(0.5, 0.06, 0.2, 0, -0.62, 0)], [box(1.0, 0.03, 0.05, 0, -0.33, 0.04)]],
 };
 const TOK_COLOR = { date: 'tok-date', amt: 'tok-amt', num: 'tok-num', text: 'tok-text', bool: 'tok-bool', desc: 'tok-desc', src: 'source', tr: 'machine', wh: 'house', rep: 'screen' };
 
@@ -193,12 +208,21 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
   dots.count = 0;
   pulses.count = 0;
   holder.add(dots, pulses);
+  const SOCKETS = 64;
+  const sockets = new THREE.InstancedMesh(dotGeo, basic('ink'), SOCKETS);
+  sockets.frustumCulled = false;
+  sockets.count = 0;
+  holder.add(sockets);
+  const seenDone = new Set();
+  let linesBuilt = false;
+  let needId = null; // the unit whose tag says what it needs
+  let nameSize = T2; // names on the tags (a little smaller on a phone held sideways)
   const rubber = new THREE.Mesh(new THREE.CylinderGeometry(TUBE, TUBE, 1, 8).translate(0, 0.5, 0), mats.drag);
   rubber.visible = false;
   holder.add(rubber);
   // the assistant's drone: a small body with a ring and an eye
   const drone = new THREE.Group();
-  drone.add(new THREE.Mesh(new THREE.SphereGeometry(0.026, 14, 10), mats.ai), new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.005, 6, 20).rotateX(1.2), mats.ai), new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 6).translate(0, 0.004, 0.024), mats.light));
+  drone.add(new THREE.Mesh(mergeGeometries([new THREE.SphereGeometry(0.026, 14, 10), new THREE.TorusGeometry(0.04, 0.005, 6, 20).rotateX(1.2)]), mats.ai), new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 6).translate(0, 0.004, 0.024), mats.light));
   drone.visible = false;
   holder.add(drone);
   const droneTo = new THREE.Vector3();
@@ -309,38 +333,79 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     }
   }
 
-  /** A label: a rounded plate of dark glass. look() returns { fill, stroke, dash, wide, blocks, band, badge, opacity }. */
-  function makeCard(w, h, look, band = 0) {
+  /**
+   * One field: the room for its token on a lit pedestal (a band on the left, zone.bx, or on top,
+   * zone.by) and a compact tag of dark glass for its name and metadata. The whole unit is one
+   * pressable panel. look() returns { fill, stroke, dash, wide, blocks, band, glow, owner, badge, opacity }.
+   */
+  function makeCard(w, h, look, zone = {}) {
+    const bx = zone.bx ?? 0;
+    const by = zone.by ?? 0;
     const card = new Panel((w + M * 2) * K, (h + M * 2) * K, (ctx, p) => {
       const mm = (x) => p.m(x * K);
       const L = look();
+      const u = p.userData;
+      const px = M + bx; // the tag
+      const py = M + by;
+      const pw = w - bx;
+      const ph = h - by;
+      if (bx || by) { // the pedestal: a lit ellipse in the owner's (or the kind's) color, with the owner's initial
+        const cx = mm(bx ? M + bx / 2 : M + w / 2);
+        const cy = mm(bx ? M + h / 2 + Math.min(bx, h) * 0.4 : M + by * 0.92);
+        const rx = mm(Math.min(bx || w, bx ? h * 1.1 : by * 1.2) * 0.44);
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(1, 0.3);
+        ctx.beginPath();
+        ctx.arc(0, 0, rx, 0, Math.PI * 2);
+        ctx.globalAlpha = u.hover || u.focus || L.lit ? 0.6 : 0.3;
+        ctx.fillStyle = L.glow;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = mm(0.01);
+        ctx.strokeStyle = u.focus ? C('focus') : L.glow;
+        ctx.stroke();
+        ctx.restore();
+        if (L.owner) {
+          const r = mm(0.021);
+          ctx.beginPath();
+          ctx.arc(cx + rx * 0.82, cy, r, 0, Math.PI * 2);
+          ctx.fillStyle = L.glow;
+          ctx.fill();
+          ctx.fillStyle = C('on-good');
+          ctx.font = font('black', r * 1.25);
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(L.owner[0].toUpperCase(), cx + rx * 0.82, cy + 1);
+        }
+      }
       ctx.save();
       ctx.shadowColor = C('card-shadow');
-      ctx.shadowBlur = mm(0.012);
-      ctx.shadowOffsetY = mm(0.004);
-      roundRect(ctx, mm(M), mm(M), mm(w), mm(h), mm(0.02));
+      ctx.shadowBlur = mm(0.01);
+      ctx.shadowOffsetY = mm(0.003);
+      roundRect(ctx, mm(px), mm(py), mm(pw), mm(ph), mm(0.018));
       ctx.fillStyle = L.fill;
       ctx.fill();
       ctx.restore();
-      if (L.band) { // the owner's band along the left edge (the owner's name is in the metadata line)
+      if (L.band) { // the owner's band along the tag's left edge (the owner's name is in the metadata line)
         ctx.save();
-        roundRect(ctx, mm(M), mm(M), mm(w), mm(h), mm(0.02));
+        roundRect(ctx, mm(px), mm(py), mm(pw), mm(ph), mm(0.018));
         ctx.clip();
         ctx.fillStyle = L.band;
-        ctx.fillRect(mm(M), mm(M), mm(0.012), mm(h));
+        ctx.fillRect(mm(px), mm(py), mm(0.01), mm(ph));
         ctx.restore();
       }
       ctx.lineWidth = mm(L.wide ? 0.007 : 0.004);
       ctx.strokeStyle = L.stroke;
       if (L.dash) ctx.setLineDash([mm(0.016), mm(0.012)]);
-      roundRect(ctx, mm(M), mm(M), mm(w), mm(h), mm(0.02));
+      roundRect(ctx, mm(px), mm(py), mm(pw), mm(ph), mm(0.018));
       ctx.stroke();
       ctx.setLineDash([]);
-      drawBlocks(ctx, mm, L.blocks, M + PAD + band, M + PAD, w - PAD * 2 - band);
-      if (L.badge) { // a mark in the corner (the source that changes): more than a color
+      drawBlocks(ctx, mm, L.blocks, px + PAD, py + PAD, pw - PAD * 2);
+      if (L.badge) { // a mark in the tag's corner (connected; the source that changes): more than a color
         const r = mm(0.022);
         const cx = mm(M + w) - r * 1.1;
-        const cy = mm(M) + r * 1.1;
+        const cy = mm(py) + r * 1.1;
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.fillStyle = L.badgeFill ?? C('pulse-line');
@@ -352,7 +417,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     });
     sharp(card);
     card.scale.setScalar(1 / K);
-    Object.assign(card.userData, { w, h, lift: 0, hover: false, focus: false, interactive: true });
+    Object.assign(card.userData, { w, h, bx, by, lift: 0, hover: false, focus: false, interactive: true });
     card.userData.setHover = (v) => { if (card.userData.hover !== v) { card.userData.hover = v; card.redraw(); } };
     card.userData.setFocus = (v) => { if (card.userData.focus !== v) { card.userData.focus = v; card.redraw(); } };
     return card;
@@ -403,6 +468,10 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     drag = null;
     rubber.visible = false;
     drone.visible = false;
+    sockets.count = 0;
+    seenDone.clear();
+    linesBuilt = false;
+    needId = null;
     if (engine.focus && !engine.focus.parent) engine.setFocus(null);
   }
 
@@ -412,6 +481,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     g.add(m);
     if (kind === 'rep') { const b = new THREE.Mesh(barsGeo, mats.bars); b.position.set(0, -0.3, 0.05); b.scale.y = 0.15; g.add(b); g.userData.bars = b; }
     g.scale.setScalar(size);
+    g.userData.size = size;
     g.userData.kind = kind;
     g.userData.ph = Math.random() * 6;
     return g;
@@ -444,7 +514,8 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
 
   /** A phone shows two layers of the graph at a time: from the report back to the sources. */
   function focusCols() {
-    if (model?.kind !== 'graph' || !small()) return null;
+    if (model?.kind !== 'graph' || !screen) return null;
+    if (!small() && !model.impact?.active && model.needs.every((n) => n.done)) return null; // desktop: the finished trail in full
     const open = model.needs.filter((n) => !n.done).map((n) => model.nodes.find((x) => x.id === n.asker).col);
     const c = model.impact?.active || !open.length ? 3 : Math.max(...open);
     return [c - 1, c];
@@ -452,7 +523,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
   function applyFocus() {
     const f = focusCols();
     for (const c of cards) {
-      const on = !f || f.includes(c.node.col);
+      const on = !f || f.includes(c.node.col); // the other layers step aside until the trail is complete
       c.mesh.visible = on;
       c.token.visible = on;
     }
@@ -474,8 +545,8 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       ls.forEach((l, i) => {
         const f = (i + 1) / (ls.length + 1);
         const pt = vertical
-          ? new THREE.Vector3(c.x - c.w / 2 + c.w * f, c.y + (s === 'out' ? -c.h / 2 : c.h / 2), 0.018)
-          : new THREE.Vector3(c.x + (s === 'out' ? c.w / 2 : -c.w / 2), c.y + c.h / 2 - c.h * f, 0.018);
+          ? new THREE.Vector3(c.x - c.w / 2 + c.w * (0.25 + f * 0.5), c.y + (s === 'out' ? -c.h / 2 : c.h / 2 - 0.02), 0.03)
+          : new THREE.Vector3(c.x + (s === 'out' ? c.w / 2 : -c.w / 2 + 0.012), c.y + c.h / 2 - c.h * f, 0.03);
         if (s === 'out') l.p = pt; else l.q = pt;
       });
     }
@@ -500,6 +571,20 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
         if (l.kind !== 'fixed' || flowAll) flows.push(l.curve);
       }
     }
+    // every pipe plugs into a socket at both ends; a new link sparks once
+    let ns = 0;
+    for (const l of list) {
+      if (l.kind === 'ai') continue;
+      for (const pt of [l.p, l.q]) if (ns < SOCKETS) sockets.setMatrixAt(ns++, m4.compose(pt, qI, v2.setScalar(TUBE * 2.3)));
+      const key2 = `${l.a}>${l.b}`;
+      if (l.kind === 'done' && !seenDone.has(key2)) {
+        seenDone.add(key2);
+        if (linesBuilt) scene.burst(holder.localToWorld(v1.copy(l.q)), 'xr-lineage-flow', 10);
+      }
+    }
+    sockets.count = ns;
+    sockets.instanceMatrix.needsUpdate = true;
+    linesBuilt = true;
     dots.count = nd;
     dots.instanceMatrix.needsUpdate = true;
     for (const kind of ['fixed', 'done', 'pulse']) {
@@ -562,6 +647,24 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     if (pills.length) droneTo.copy(pills[0].position).add(v1.set(0, 0.075, 0.03));
   }
 
+  /**
+   * What a unit of the graph needs is written on one tag at a time: the unit that is selected or
+   * pointed at, else the open gap nearest the report (so the graph is machines and pipes, not text).
+   */
+  function showNeed() {
+    let c = null;
+    if (model?.kind === 'graph' && !model.impact?.active) {
+      const askers = cards.filter((x) => x.v.need.length && x.mesh.visible);
+      c = askers.find((x) => x.id === sel) ?? askers.find((x) => x.mesh.userData.hover || x.mesh.userData.focus) ?? askers.sort((p, q) => q.node.col - p.node.col)[0] ?? null;
+    }
+    const id = c?.id ?? null;
+    if (id === needId) return;
+    const old = cards.find((x) => x.id === needId);
+    needId = id;
+    old?.mesh.redraw();
+    c?.mesh.redraw();
+  }
+
   // ---- looks ----
   const tileLook = (c) => () => {
     const { tl, st } = c;
@@ -569,11 +672,12 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     const u = c.mesh?.userData ?? {};
     const off = kind === 'dim' || kind === 'rest'; // out of the game: darker and muted, but still solid and readable
     const blocks = [{ text: tl.title, size: tl.mono ? 0.044 : 0.04, mono: tl.mono, weight: 'bold', gap: 0.016, color: off ? C('muted') : C('ink') }];
+    const tokCol = C(TOK_COLOR[tl.tok] ?? 'accent');
     for (const p of tl.parts) blocks.push({ text: p.glyph ? p.text : `${p.label}  ${p.text}`, size: T1 + 0.003, gap: 0.011, color: C('muted'), glyph: p.glyph ?? null, hot: p.key || (st.showKey && p.k === st.keyK) });
     if (kind === 'right' || kind === 'answer') blocks.push({ text: t('lineageOdd'), size: T1, weight: 'bold', color: C('good'), icon: 'good' });
     if (kind === 'wrong') blocks.push({ text: t('lineageWrong'), size: T1, weight: 'bold', color: C('bad'), icon: 'bad' });
     return {
-      blocks, band: tl.owKey ? C(`own-${tl.owKey}`) : null,
+      blocks, band: tl.owKey ? C(`own-${tl.owKey}`) : null, glow: tl.owKey ? C(`own-${tl.owKey}`) : tokCol, owner: tl.owKey ? tl.parts.find((p) => p.k === 'ow')?.text : null, lit: kind === 'right' || kind === 'answer',
       fill: kind === 'right' ? C('good-soft') : kind === 'wrong' ? C('bad-soft') : off ? C('card-soft') : C('card'),
       stroke: ring(u, kind === 'right' || kind === 'answer' ? C('good-line') : kind === 'wrong' ? C('bad') : C('card-border')),
       dash: kind === 'answer', wide: !!kind || u.hover || u.focus,
@@ -582,10 +686,10 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
   };
 
   const nodeBlocks = (n, v, forSize = false) => {
-    const blocks = [{ text: n.title, size: T1, mono: n.mono, weight: 'bold', gap: 0.008 }];
+    const blocks = [{ text: n.title, size: n.kind === 'desc' ? T1 + 0.002 : nameSize, mono: n.mono, weight: 'bold', gap: 0.008 }];
     if (n.meta) blocks.push({ text: `${n.meta.ty} · ${n.meta.ex} · ${n.meta.ow}`, size: T1, color: C('muted'), glyph: n.meta.glyph });
     else if (n.text) blocks.push({ text: n.text, size: T1, color: C('muted') });
-    if (v.need.length) blocks.push({ text: t('lineageNeeds', { need: v.need.join(' + ') }), size: T1, weight: 'bold', color: C('accent') });
+    if (v.need.length && n.kind !== 'desc' && (forSize || n.id === needId)) blocks.push({ text: t('lineageNeeds', { need: v.need.join(' + ') }), size: T1, weight: 'bold', color: C('accent') });
     if (v.mark === 'hit') blocks.push({ text: t('lineageAffected'), size: T1, weight: 'bold', color: C('pulse'), icon: 'good' });
     else if (v.mark === 'miss') blocks.push({ text: t('lineageNotAffected'), size: T1, weight: 'bold', color: C('bad'), icon: 'bad' });
     else if (v.missed) blocks.push({ text: t('lineageAiMissed'), size: T1, weight: 'bold', color: C('bad'), icon: 'bad' });
@@ -601,11 +705,13 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     const pick = !!model?.impact?.active && v.selectable; // a report that can be picked
     return {
       blocks: nodeBlocks(c.node, v), band: c.node.meta?.owKey ? C(`own-${c.node.meta.owKey}`) : null,
+      glow: v.changed ? C('pulse-line') : c.node.meta?.owKey ? C(`own-${c.node.meta.owKey}`) : C(TOK_COLOR[c.node.kind] ?? 'accent'), owner: c.node.meta?.ow ?? null, lit: v.selected || v.done || v.changed,
       fill: v.selected ? C('accent-soft') : v.changed || v.mark === 'hit' ? C('pulse-soft') : v.done ? C('good-soft') : v.selectable ? C('card') : C('card-soft'),
       stroke: ring(u, v.selected ? C('accent') : v.changed || v.mark === 'hit' || pick ? C('pulse-line') : v.mark === 'miss' ? C('bad') : v.done ? C('good-line') : v.need.length ? C('accent') : C('card-border')),
       dash: (v.need.length > 0 || pick) && !v.selected && !u.focus,
       wide: v.selected || v.changed || !!v.mark || pick || u.hover || u.focus,
-      badge: v.changed ? 'change' : v.done && (c.node.kind === 'desc' || c.node.kind === 'field') ? 'good' : null, badgeFill: v.changed ? C('pulse-line') : C('good-line'),
+      badge: v.changed ? 'change' : v.done && (c.node.kind === 'desc' || c.node.kind === 'field') ? 'good' : null,
+      badgeFill: v.changed ? C('pulse-line') : v.need.length ? C('accent') : C('good-line'),
       opacity: 1,
     };
   };
@@ -632,7 +738,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     }, { ease: (k) => k, onDone: () => { mesh.removeFromParent(); mesh.geometry.dispose(); mat.dispose(); ca.mesh.position.x = x0; } });
   }
 
-  const interactives = () => [...cards.map((c) => c.mesh), ...pills].filter((o) => o.userData.interactive && o.parent && content.visible);
+  const interactives = () => [...cards.map((c) => c.mesh), ...pills].filter((o) => o.userData.interactive && o.parent && o.visible);
   const rectOf = (o) => { const u = o.userData; const p = o.position; return { x0: p.x - u.w / 2, x1: p.x + u.w / 2, y0: p.y - u.h / 2, y1: p.y + u.h / 2, x: p.x, y: p.y }; };
 
   const api = {
@@ -654,14 +760,14 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       const p = holder.position;
       const m = 0.014;
       let b = bounds;
-      if (model?.kind === 'graph' && small()) {
+      const f = focusCols();
+      if (f) {
         // from the report back to the sources: the layer that still needs a link, and the one before it
-        const f = focusCols();
         b = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
         for (const k of cards) {
           if (!f.includes(k.node.col)) continue;
-          b.x0 = Math.min(b.x0, k.x - k.w / 2 - 0.012); b.x1 = Math.max(b.x1, k.x + k.w / 2);
-          b.y0 = Math.min(b.y0, k.y - k.h / 2); b.y1 = Math.max(b.y1, k.y + k.h / 2 + (tall() ? 0.075 : 0.01));
+          b.x0 = Math.min(b.x0, k.x - k.w / 2); b.x1 = Math.max(b.x1, k.x + k.w / 2);
+          b.y0 = Math.min(b.y0, k.y - k.h / 2); b.y1 = Math.max(b.y1, k.y + k.h / 2);
         }
       }
       return { x0: p.x + b.x0 - m, x1: p.x + b.x1 + m, y0: p.y + b.y0 - m, y1: p.y + b.y1 + m, z: p.z + 0.02 };
@@ -675,47 +781,47 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       toZone();
       const up2 = tall();
       const cols = up2 ? (tiles.length === 4 ? 2 : 1) : tiles.length;
-      const tw = up2 ? (cols === 2 ? 0.41 : 0.84) : 0.42;
-      const gap = 0.04;
-      const side = up2 && cols === 1; // the token stands beside its label
-      const band = side ? 0.13 : 0;
+      const side = up2 && cols === 1; // a single column: the token stands beside its tag
+      const tw = up2 ? (cols === 2 ? 0.41 : 0.84) : 0.4;
+      const zone = side ? { bx: 0.2 } : { by: up2 ? 0.21 : 0.22 };
+      const gap = up2 ? 0.035 : 0.045;
       const items = tiles.map((tl, i) => ({ tl, i, st: { kind: null, keyK: key, showKey: false } }));
-      const th = Math.max(0.15, ...items.map((it) => measure(tileLook({ ...it, st: { kind: 'right' } })().blocks, tw, band)));
-      const rowH = th + (side ? 0.03 : 0.15);
+      const th = Math.max(side ? 0.2 : 0, ...items.map((it) => measure(tileLook({ ...it, st: { kind: 'right' } })().blocks, tw, zone.bx ?? 0))) + (zone.by ?? 0);
       const rows = Math.ceil(tiles.length / cols);
       items.forEach((c) => {
         const col = c.i % cols;
         const row = Math.floor(c.i / cols);
         const x = (col - (cols - 1) / 2) * (tw + gap);
-        const y = ((rows - 1) / 2 - row) * rowH - (side ? 0 : 0.06);
-        const mesh = makeCard(tw, th, tileLook(c), band);
+        const y = ((rows - 1) / 2 - row) * (th + gap);
+        const mesh = makeCard(tw, th, tileLook(c), zone);
         c.mesh = mesh;
         Object.assign(c, place(mesh, x, y, c));
         cards[cards.length - 1] = c;
         mesh.userData.label = `${c.tl.title}. ${c.tl.parts.map((p) => `${p.label} ${p.text}`).join('. ')}`;
         mesh.userData.onClick = () => onPickOdd?.(c.i);
-        // its token: on top of the label like on a pedestal (or beside it in a single column)
-        const tok = token(c.tl.tok, side ? 0.085 : 0.1);
-        tok.position.set(side ? x - tw / 2 + 0.075 : x, side ? y : y + th / 2 + 0.065, 0.06);
+        // its token stands on the pedestal: large enough to tell a coin from a calendar at a glance
+        const tok = token(c.tl.tok, (side ? zone.bx : zone.by) * 0.7);
+        tok.position.set(side ? x - tw / 2 + zone.bx / 2 : x, side ? y + 0.012 : y + th / 2 - zone.by / 2 + 0.014, 0.075);
         content.add(tok);
         c.token = tok;
         c.home = new THREE.Vector3(x, y, 0.012);
         c.tokHome = tok.position.clone();
-        if (!side) bounds.y1 = Math.max(bounds.y1, y + th / 2 + 0.125);
         arrive(mesh, tok, c.i * 0.07);
       });
-      // the scanner: a bar of light above the row and a beam that sweeps over the tokens
+      // the scanner: a bar of light above the row and a beam that passes over the tokens
       const W = bounds.x1 - bounds.x0;
       const bar = new THREE.Mesh(new THREE.BoxGeometry(W, 0.008, 0.02), mats.drag);
       bar.position.set(0, bounds.y1 + 0.02, 0.06);
-      const beam = new THREE.Mesh(new THREE.PlaneGeometry(tw * 0.9, bounds.y1 - bounds.y0 + 0.02), mats.scan);
-      beam.position.set(0, (bounds.y0 + bounds.y1) / 2 + 0.01, 0.09);
+      const oneRow = rows === 1 && !side;
+      const bh = oneRow ? zone.by + 0.03 : bounds.y1 - bounds.y0 + 0.02;
+      const beam = new THREE.Mesh(new THREE.PlaneGeometry(side ? zone.bx : tw * 0.62, bh), mats.scan);
+      beam.position.set(0, oneRow ? bounds.y1 - zone.by / 2 + 0.01 : (bounds.y0 + bounds.y1) / 2 + 0.01, 0.13);
       holder.add(bar, beam);
       extras.push(bar, beam);
       bounds.y1 += 0.05; // room for the token that is lifted out
-      scanner = { beam, x0: bounds.x0 + tw * 0.45, x1: bounds.x1 - tw * 0.45, to: null };
-      bounds.x0 -= 0.05;
-      bounds.x1 += 0.05;
+      scanner = side ? { beam, x0: -tw / 2 + zone.bx / 2, x1: -tw / 2 + zone.bx / 2, to: null, side: true } : { beam, x0: bounds.x0 + tw * 0.5, x1: bounds.x1 - tw * 0.5, to: null };
+      bounds.x0 -= up2 ? 0.01 : 0.045;
+      bounds.x1 += up2 ? 0.01 : 0.045;
       frame();
     },
 
@@ -725,7 +831,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       c.st.kind = kind;
       if (kind === 'dim') c.mesh.userData.interactive = false;
       if (kind === 'wrong' || kind === 'answer') cards.forEach((x) => { x.st.showKey = true; x.mesh.redraw(); }); // the scanner shows what decides
-      if (kind === 'right' || kind === 'answer') { if (scanner) scanner.to = c.x; }
+      if (kind === 'right' || kind === 'answer') { if (scanner && !scanner.side) scanner.to = c.x; }
       c.mesh.redraw();
       if (kind !== 'right') return;
       // The odd one is lifted out; the others snap together and are linked.
@@ -772,17 +878,18 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       toZone();
       const graph = b.kind === 'graph';
       const up2 = tall();
+      const flat = small() && !up2; // a phone held sideways
       vertical = graph && up2;
       const n = b.cols.length;
-      const TOK = 0.075;
       const layers = b.cols.map((label, ci) => b.nodes.filter((nd) => nd.col === ci));
-      const mk = (nd, w, band) => ({ node: nd, w, band, h: Math.max(0.11, measure(nodeBlocks(nd, nodeView(b, nd, null), true), w, band) + 0.004) });
-      // A phone held sideways has little height: the token sits inside its label (a band on the left)
-      // and the labels stand close; everywhere else the token stands on the label's corner.
-      const flat = small() && !up2;
-      const BAND = flat ? 0.085 : 0;
-      const GAP = flat ? 0.014 : 0.062;
-      let placed = [];
+      // The unit: the token on its pedestal beside the tag; on an upright phone the graph's machines stand on top of their tags.
+      const zone = vertical ? { by: 0.2 } : { bx: flat ? (graph ? 0.15 : 0.11) : up2 ? 0.11 : graph ? (screen ? 0.2 : 0.14) : 0.17 };
+      nameSize = flat ? T1 + 0.001 : T2;
+      const bx = zone.bx ?? 0;
+      const by = zone.by ?? 0;
+      const mk = (nd, w) => ({ node: nd, w, h: Math.max(bx ? Math.max(0.11, bx * 0.92) : 0, measure(nodeBlocks(nd, nodeView(b, nd, null), true), w, bx) + 0.004) + by });
+      const GAP = flat ? 0.008 : 0.02;
+      const placed = [];
       if (vertical) {
         // an upright phone: four layers from the sources (top) to the reports (bottom)
         const W = 0.86;
@@ -790,17 +897,16 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
         let y = 0;
         layers.forEach((list) => {
           const w = (W - gapX * (list.length - 1)) / list.length;
-          const its = list.map((nd) => mk(nd, w, 0));
+          const its = list.map((nd) => mk(nd, w));
           const h = Math.max(...its.map((it) => it.h));
           its.forEach((it, i) => placed.push({ ...it, h, x: -W / 2 + w / 2 + i * (w + gapX), y: y - h / 2 }));
-          y -= h + 0.14;
+          y -= h + 0.12;
         });
       } else {
-        const wideCols = graph && small(); // a phone held sideways: wide columns, two of them in view
-        const lineGap = graph ? (wideCols ? 0.22 : 0.19) : up2 ? 0.09 : 0.26;
-        const cw = graph ? (wideCols ? 0.5 : 0.335) : up2 ? 0.385 : flat ? 0.78 : 0.6;
+        const lineGap = graph ? (screen ? 0.2 : 0.14) : up2 ? 0.09 : 0.26;
+        const cw = graph ? (screen ? 0.54 : 0.44) : up2 ? 0.395 : flat ? 0.8 : 0.72;
         const colsL = layers.map((list, ci) => {
-          const its = list.map((nd) => mk(nd, cw, BAND));
+          const its = list.map((nd) => mk(nd, cw));
           return { its, x: (ci - (n - 1) / 2) * (cw + lineGap), total: its.reduce((s, it) => s + it.h, 0) + (its.length - 1) * GAP };
         });
         const H = Math.max(...colsL.map((c) => c.total));
@@ -811,21 +917,18 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       }
       placed.forEach((it) => {
         const c = { node: it.node, v: nodeView(b, it.node, null), mesh: null };
-        const mesh = makeCard(it.w, it.h, nodeLook(c), it.band);
+        const mesh = makeCard(it.w, it.h, nodeLook(c), zone);
         c.mesh = mesh;
         Object.assign(c, place(mesh, it.x, it.y, { id: it.node.id, node: it.node, v: c.v }));
         cards[cards.length - 1] = c;
         Object.assign(mesh.userData, { nodeId: it.node.id, label: it.node.title });
-        // its token sits on the label's upper left corner
         const kind = it.node.kind === 'field' ? it.node.meta.tyKey : it.node.kind;
-        const tok = token(kind, flat ? 0.06 : TOK);
-        if (flat) tok.position.set(it.x - it.w / 2 + 0.056, it.y, 0.05);
-        else tok.position.set(it.x - it.w / 2 + 0.03, it.y + it.h / 2 + 0.034, 0.05);
+        const tok = token(kind, (by ? by : Math.min(bx, it.h)) * 0.72);
+        if (by) tok.position.set(it.x, it.y + it.h / 2 - by / 2 + 0.012, 0.07);
+        else tok.position.set(it.x - it.w / 2 + bx / 2, it.y + 0.01, 0.07);
         content.add(tok);
         c.token = tok;
-        bounds.x0 = Math.min(bounds.x0, it.x - it.w / 2 - 0.012);
-        if (!flat) bounds.y1 = Math.max(bounds.y1, it.y + it.h / 2 + 0.075);
-        // Press and release on the same label selects it; released on another label it links them.
+        // Press and release on the same unit selects it; released on another unit it links them.
         mesh.userData.onGrab = (p) => { drag = { id: it.node.id, p, card: c }; };
         mesh.userData.onRelease = (p, over) => {
           drag = null;
@@ -835,18 +938,21 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
         };
         mesh.userData.onClick = () => onNode?.(it.node.id); // the keyboard's Enter
       });
-      if (!graph) { // the table rack that holds the field tokens: two posts and a shelf under each field
+      if (!graph) { // the table rack: posts, a shelf under each field and a slot that holds its token
         const fields = cards.filter((c) => c.node.kind === 'field');
-        const rack = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mats.rack, fields.length + 2);
+        const rack = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mats.rack, fields.length * 2 + 2);
         const fx = fields[0].x;
         const fw = fields[0].w;
         const top = Math.max(...fields.map((c) => c.y + c.h / 2));
         const bot = Math.min(...fields.map((c) => c.y - c.h / 2));
-        [-1, 1].forEach((s, i) => rack.setMatrixAt(i, m4.makeScale(0.006, top - bot + 0.03, 0.006).setPosition(fx + s * (fw / 2 + 0.012), (top + bot) / 2, -0.004)));
-        fields.forEach((c, i) => rack.setMatrixAt(i + 2, m4.makeScale(fw + 0.03, 0.005, 0.03).setPosition(fx, c.y - c.h / 2 - 0.012, 0)));
+        [-1, 1].forEach((s, i) => rack.setMatrixAt(i, m4.makeScale(0.007, top - bot + 0.03, 0.007).setPosition(fx - fw / 2 + (s < 0 ? -0.008 : bx + 0.004), (top + bot) / 2, 0.004)));
+        fields.forEach((c, i) => {
+          rack.setMatrixAt(2 + i * 2, m4.makeScale(bx + 0.012, 0.006, 0.05).setPosition(fx - fw / 2 + bx / 2 - 0.002, c.y - c.h / 2 + 0.004, 0.02));
+          rack.setMatrixAt(3 + i * 2, m4.makeScale(bx + 0.012, 0.004, 0.004).setPosition(fx - fw / 2 + bx / 2 - 0.002, c.y + c.h / 2 - 0.004, 0.004));
+        });
         holder.add(rack);
         extras.push(rack);
-        bounds.x1 += 0.02;
+        bounds.x0 -= 0.012;
       }
       if (!screen) bounds.y1 += 0.01;
       droneTo.set(bounds.x1 - 0.04, bounds.y1 + 0.02, 0.06);
@@ -868,6 +974,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       }
       applyFocus();
       buildLines();
+      showNeed();
     },
 
     shake,
@@ -962,14 +1069,17 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
         }
         // tokens turn a little, the gear keeps turning, a fed report's bars grow
         const tk = c.token;
+        if (tk && u.lift > 0.002 && tk.scale.x > 0.01) tk.scale.setScalar(tk.userData.size * (1 + 0.16 * u.lift));
         if (tk && !calm) {
           if (tk.userData.kind === 'tr') tk.rotation.z += dt * 1.2;
           else tk.rotation.y = Math.sin(time * 0.9 + tk.userData.ph) * 0.45;
         }
         if (tk?.userData.bars && c.fed != null) tk.userData.bars.scale.y += (c.fed - tk.userData.bars.scale.y) * Math.min(1, dt * (calm ? 30 : 3));
       }
+      const hov = cards.find((x) => x.mesh.userData.hover || x.mesh.userData.focus)?.id ?? '';
+      if (hov !== api.hov) { api.hov = hov; showNeed(); }
       if (scanner) { // the beam sweeps over the row; after the answer it rests on the odd token
-        const x = scanner.to ?? (calm ? 0 : (scanner.x0 + scanner.x1) / 2 + Math.sin(time * 1.3) * (scanner.x1 - scanner.x0) / 2);
+        const x = scanner.to ?? (scanner.x0 + scanner.x1) / 2 + (calm ? 0 : Math.sin(time * 1.3) * (scanner.x1 - scanner.x0) / 2);
         scanner.beam.position.x += (x - scanner.beam.position.x) * Math.min(1, dt * (calm ? 30 : 6));
       }
       if (pulses.count && flows.length) { // packets of light travel along the links

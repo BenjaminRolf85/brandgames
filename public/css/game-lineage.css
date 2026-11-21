@@ -73,6 +73,9 @@
   --xr-lineage-line:         #5a6aa8;   /* links that were there from the start */
   --xr-lineage-focus:        #ffffff;   /* keyboard focus ring */
   --xr-lineage-on-good:      #06231a;   /* text on a filled good tag (points) */
+  --xr-lineage-vignette:     rgb(3 5 18 / 0.72);
+  --xr-lineage-hud:          #121a3d;   /* the status strip: solid, bright text */
+  --xr-lineage-hud-ink:      #ffffff;
   --xr-lineage-shadow:       0 6px 18px rgb(0 0 0 / 0.45);
   --xr-lineage-spring:       cubic-bezier(0.34, 1.56, 0.64, 1);
 
@@ -90,20 +93,28 @@
   --xr-lineage-zone:         2.6;       /* distance between the zones of the three stages */
 }
 
+/* A soft vignette over the room, and the short fade that covers a camera cut in calm motion. */
+.lin-shade { position: absolute; inset: 0; z-index: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 55%, transparent 55%, var(--xr-lineage-vignette) 100%); }
+.lin-shade[hidden] { display: none; }
+.lin-fader { position: absolute; inset: 0; z-index: 0; pointer-events: none; background: var(--xr-lineage-sky-top); opacity: 0; }
+.lin-fader.is-on { animation: lin-cut 0.5s ease-out; }
+@keyframes lin-cut { 0% { opacity: 0.95; } 100% { opacity: 0; } }
+
 /* ---------- status bar ---------- */
 .lin-bar {
-  border-color: var(--xr-lineage-card-border);
-  background: var(--xr-lineage-card);
-  color: var(--xr-lineage-ink);
+  border: 2px solid var(--xr-lineage-accent);
+  background: var(--xr-lineage-hud);
+  color: var(--xr-lineage-hud-ink);
   box-shadow: var(--xr-lineage-shadow);
   font-size: var(--xr-lineage-font);
+  opacity: 1;
 }
-.lin-bar .mhud__menu { border-color: var(--xr-lineage-card-border); background: var(--xr-lineage-tag); color: var(--xr-lineage-ink); font-size: var(--xr-lineage-font-small); }
+.lin-bar .mhud__menu { border: 1px solid var(--xr-lineage-accent); background: var(--xr-lineage-accent); color: var(--xr-lineage-on-good); font-size: var(--xr-lineage-font-small); font-weight: var(--font-weight-black); }
 .lin-bar__score { font-weight: var(--font-weight-black); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .lin-bar__streak {
   display: inline-flex; align-items: center; gap: 0.3em; white-space: nowrap;
   padding: 0.15em 0.6em; border-radius: var(--radius-pill);
-  background: var(--xr-lineage-tag); color: var(--xr-lineage-muted);
+  background: var(--xr-lineage-tag); color: var(--xr-lineage-hud-ink);
   font-size: var(--xr-lineage-font-small); font-weight: var(--font-weight-bold);
   transition: background var(--motion-base), color var(--motion-base);
 }
@@ -125,7 +136,8 @@
   user-select: none;
 }
 /* a shade behind the strip, so the prompt reads over whatever the room shows there */
-.lin-play::before { content: ""; position: absolute; inset: -5rem -2rem -0.5rem; z-index: -1; background: linear-gradient(to bottom, var(--xr-lineage-sky-top) 78%, transparent); opacity: 0.86; }
+.lin-play::before { content: ""; position: absolute; inset: -0.4rem -2rem -0.5rem; z-index: -1; background: linear-gradient(to bottom, var(--xr-lineage-sky-top) 70%, transparent); opacity: 0.8; }
+.lin-bar { z-index: 2; }
 .lin-play { top: calc(max(var(--space-3), env(safe-area-inset-top)) + var(--tap-min) + var(--space-2)); }
 .lin-foot { bottom: max(var(--space-2), env(safe-area-inset-bottom)); }
 .lin-play button { pointer-events: auto; }

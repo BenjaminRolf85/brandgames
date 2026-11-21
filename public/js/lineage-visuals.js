@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { color, hex } from './tokens.js';
 import { contactShadow } from './gfx.js';
+import { mergeGeometries } from '../vendor/addons/utils/BufferGeometryUtils.js';
 
 const clamp = THREE.MathUtils.clamp;
 
@@ -106,7 +107,7 @@ export function makeBackdrop({ calm = false, around = false, floorY = 0 } = {}) 
   const towerAngles = around ? [-2.6, -1.75, -0.95, -0.35, 0.4, 1.05, 1.9, 2.75] : [-1.15, -0.62, -0.2, 0.3, 0.72, 1.2];
   const towerCols = ['xr-lineage-source', 'xr-lineage-machine', 'xr-lineage-house', 'xr-lineage-bar'].map((k2) => new THREE.Color(hex(k2)).lerp(new THREE.Color(hex('xr-lineage-sky-mid')), 0.35));
   const discGeo = new THREE.CylinderGeometry(0.62, 0.62, 0.26, 20);
-  const towers = new THREE.InstancedMesh(discGeo, new THREE.MeshLambertMaterial({ fog: false, emissive: hex('xr-lineage-tok-glow') }), towerAngles.length * 6);
+  const towers = new THREE.InstancedMesh(discGeo, new THREE.MeshLambertMaterial({ fog: !around, emissive: hex('xr-lineage-tok-glow') }), towerAngles.length * 6);
   const tops = [];
   let ti = 0;
   towerAngles.forEach((a, t) => {
@@ -128,8 +129,8 @@ export function makeBackdrop({ calm = false, around = false, floorY = 0 } = {}) 
     mid.y += 1.1 + (t % 2) * 0.5;
     arcs.push(new THREE.QuadraticBezierCurve3(tops[t], mid, tops[t + 1]));
   }
-  const arcMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(hex('xr-lineage-flow')).lerp(new THREE.Color(hex('xr-lineage-sky-mid')), 0.6), fog: false });
-  arcs.forEach((c) => group.add(new THREE.Mesh(new THREE.TubeGeometry(c, 20, 0.022, 6, false), arcMat)));
+  const arcMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(hex('xr-lineage-flow')).lerp(new THREE.Color(hex('xr-lineage-sky-mid')), 0.6), fog: !around });
+  if (arcs.length) group.add(new THREE.Mesh(mergeGeometries(arcs.map((c) => new THREE.TubeGeometry(c, 20, 0.022, 6, false))), arcMat)); // one mesh for all arcs
   const lightGeo = new THREE.SphereGeometry(0.06, 8, 6);
   const lights = new THREE.InstancedMesh(lightGeo, new THREE.MeshBasicMaterial({ color: hex('xr-lineage-far-card'), fog: false, toneMapped: false }), arcs.length * 2);
   lights.frustumCulled = false;
