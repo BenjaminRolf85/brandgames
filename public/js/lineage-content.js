@@ -467,7 +467,7 @@ function fresh(list, seen, rnd) {
 }
 
 /** One odd-one-out row for play: shuffled tiles (relaxed: three of them), the index of the odd one. */
-function oddRow(row, easy, rnd) {
+export function oddRow(row, easy = false, rnd = Math.random) {
   let tiles = row.tiles.map((tl, i) => ({ ...tl, odd: i === row.odd, i }));
   if (easy) { const drop = tiles.filter((tl) => !tl.odd).pop(); tiles = tiles.filter((tl) => tl !== drop); }
   tiles = shuffle(tiles, rnd);

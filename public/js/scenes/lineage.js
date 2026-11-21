@@ -33,7 +33,8 @@ import { TYPES, OWNERS, drawRound } from '../lineage-content.js';
 import { colOf, litFrom } from '../lineage-model.js';
 import { screenView } from '../lineage-screen.js';
 import { xrView } from '../lineage-xr.js';
-import { makeSky, makeBackdrop } from '../lineage-visuals.js';
+import { makeSky, makeBackdrop, makeLandscape, makeKeyLight } from '../lineage-visuals.js';
+import { sceneLook, softSun, gfxTier } from '../gfx.js';
 
 // The game's design tokens (css/game-lineage.css). Linked in index.html like the other games';
 // until it is, the game loads the file itself before anything reads a token.
@@ -70,6 +71,7 @@ export class LineageScene extends BaseScene {
     this.kb = false; // the last input was the keyboard: the focus follows the game
     this.sel = null;
     this.board = null;
+    this.tmp = new THREE.Vector3();
     this.buildWorld();
     this.setControls({
       desktop: [[t('lineageKeyPick'), t('lineageDoPick')], [t('lineageKeyLink'), t('lineageDoLink')], [t('lineageKeyMove'), t('lineageDoMove')], [t('lineageKeyHint'), t('lineageDoHint')]],
@@ -103,10 +105,28 @@ export class LineageScene extends BaseScene {
 
   // ---------- the room around the boards ----------
 
-  /** Browser and VR: a bright sky and floating catalog cards with flowing links. AR: the real room. */
+  /**
+   * The data landscape on its tray (everywhere: in AR it is a small model on the table height in
+   * front of the player), and in the browser and VR a bright sky with far, drifting cards.
+   * AR keeps the real room: no sky, no floor, no fog.
+   */
   buildWorld() {
-    if (this.ar) return;
     const e = this.engine;
+    const tier = gfxTier();
+    // One shadow-casting light at most; in the headset only on the strongest tier.
+    const shadows = e.isXR ? tier === 'high' : tier !== 'low';
+    this.onSceneDispose(sceneLook(e, { tone: 'neutral', exposure: 1, env: 'studio', envIntensity: 0.55, shadows: shadows ? 'soft' : false }));
+    this.land = makeLandscape({ calm: this.calm, shadows });
+    this.landTo = new THREE.Vector3(0, this.eye - 0.93, -1.3);
+    if (e.isXR) { this.land.position.set(0, this.eye - 0.82, -0.7); this.land.scale.setScalar(0.75); } else this.land.position.copy(this.landTo);
+    this.group.add(this.land);
+    const key = makeKeyLight();
+    key.position.add(this.land.position);
+    key.target.position.copy(this.land.position);
+    key.userData.noFit = true;
+    if (shadows) { key.castShadow = true; softSun(key, { size: 0.9, near: 0.3, far: 3.2, radius: 3 }); }
+    this.group.add(key, key.target);
+    if (this.ar) return;
     this.sky = makeSky();
     this.prevBg = e.scene.background;
     e.scene.background = this.sky;
@@ -114,7 +134,7 @@ export class LineageScene extends BaseScene {
     e.backdrop.visible = false;
     this.prevFog = e.scene.fog?.color.getHex();
     e.scene.fog?.color.set(this.sky.userData.horizon);
-    this.backdrop = makeBackdrop({ calm: this.calm, around: e.isXR });
+    this.backdrop = makeBackdrop({ calm: this.calm, around: e.isXR, floorY: e.floorY - e.root.position.y });
     this.group.add(this.backdrop);
   }
 
@@ -177,6 +197,20 @@ export class LineageScene extends BaseScene {
 
   update(dt) {
     this.backdrop?.userData.tick(dt);
+    this.land.userData.tick(dt);
+    if (this.screenUI) {
+      // The landscape stands below the boards during play; in the intro and on the result it
+      // stands below the lowest panel (desktop: the view fits it in; phones keep the panels large).
+      const play = this.playing();
+      if (play) this.landTo.set(0, this.eye - 1.0, -1.6);
+      else {
+        let low = this.eye;
+        for (const o of this.layer.children) if (o.h) low = Math.min(low, o.position.y - o.h / 2);
+        this.landTo.set(0, low - 0.27, -this.dist);
+      }
+      this.land.userData.noFit = play || this.engine.touchUI;
+      this.land.position.lerp(this.landTo, Math.min(1, dt * (this.calm ? 30 : 4)));
+    }
     if (this.screenUI && !this.engine.touchUI) {
       // Desktop: the camera stands still during play; the intro and the result fit themselves.
       const on = this.playing();
@@ -214,7 +248,15 @@ export class LineageScene extends BaseScene {
 
   start() {
     this.clearLayer();
-    this.app.echo?.suppress?.(false);
+    // Browser: Echo hovers beside the landscape (the boards cover the rest of the screen).
+    if (this.screenUI && this.app.echo?.setCompanion) {
+      this.echoSpot = { target: new THREE.Vector3(), look: new THREE.Vector3() };
+      this.app.echo.setCompanion(() => {
+        this.group.localToWorld(this.echoSpot.target.set(0.98, this.eye - 0.86, -1.5));
+        this.group.localToWorld(this.echoSpot.look.set(0, this.eye + 0.05, 0.6));
+        return this.echoSpot;
+      });
+    }
     this.startMusic(0, 'lineage');
     let seen = new Set();
     try { seen = new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || '[]')); } catch { /* private mode */ }
@@ -252,6 +294,8 @@ export class LineageScene extends BaseScene {
       score: this.score, streak: this.streak, mult: this.mult(), multText: `×${this.num(this.mult())}`,
       stage: step.stage, done: inStage.indexOf(step), total: inStage.length,
     });
+    // The world shows the progress: the landscape fills with flowing data.
+    this.land.userData.setProgress(step.stage + inStage.indexOf(step) / inStage.length);
   }
 
   /** Points for a right answer: times the streak's factor; the streak grows. */
@@ -262,7 +306,12 @@ export class LineageScene extends BaseScene {
     this.bestStreak = Math.max(this.bestStreak, this.streak);
     this.view.pop(`+${pts}`, target, 'good');
     // Echo cheers for a streak (where the host is there).
-    if (this.streak === 5 || this.streak === 10) { this.app.echo?.celebrate?.(); sfx.powerup(); }
+    if (this.streak === 5 || this.streak === 10) {
+      this.app.echo?.celebrate?.();
+      this.land.userData.cheer();
+      this.burst(this.land.getWorldPosition(this.tmp).setY(this.tmp.y + 0.16 * this.land.scale.y), 'xr-lineage-flow', 20);
+      sfx.powerup();
+    }
     this.refreshHud();
     return pts;
   }
@@ -584,6 +633,9 @@ export class LineageScene extends BaseScene {
     if (this.mode === 'over') return;
     this.mode = 'over';
     this.view.show(false);
+    if (this.echoSpot) this.app.echo?.setCompanion(null);
+    this.land.userData.setProgress(3);
+    this.land.userData.cheer();
     const st = this.stats;
     const score = Math.min(MAX_SCORE, Math.round(this.score));
     // A rating in three steps with the points missing to the next one (as the result counts them).
@@ -621,6 +673,7 @@ export class LineageScene extends BaseScene {
 
   dispose() {
     this.mode = 'over';
+    if (this.echoSpot) this.app.echo?.setCompanion(null);
     window.removeEventListener('keydown', this.onKey);
     const e = this.engine;
     e.fitEnabled = true;

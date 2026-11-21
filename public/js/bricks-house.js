@@ -7,9 +7,15 @@
 // House-local meters as in bricks-plan.js; "site" parts (garden, carport) are plot-local.
 import * as THREE from 'three';
 import { hex } from './tokens.js';
-import { L, H, D, GAP, COURSES, TOP, XH, ZH, OX, OZ, RIDGE, EAVE, FOUND, HOUSE_Z, WALLS, CORNERS, brickPieces, wallBoxes, openings } from './bricks-plan.js';
+import { plainPlot } from './bricks-visuals.js';
+import { L, H, D, GAP, TOP, XH, ZH, OX, OZ, RIDGE, EAVE, FOUND, HOUSE_Z, WALLS, CORNERS, brickPieces, wallBoxes, openings } from './bricks-plan.js';
 
-const UNIT = new THREE.BoxGeometry(1, 1, 1);
+/** The model's materials use vertex colors (baked shading): plain geometry gets white ones. */
+function white(geo) {
+  if (!geo.attributes.color) geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 3).fill(1), 3));
+  return geo;
+}
+const UNIT = white(new THREE.BoxGeometry(1, 1, 1));
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -93,6 +99,18 @@ class Bits {
   }
 }
 
+/** Merges non-indexed geometries that all have position, normal and color into one. */
+function mergeGeometries(geos) {
+  const out = new THREE.BufferGeometry();
+  for (const name of ['position', 'normal', 'color']) {
+    const arr = new Float32Array(geos.reduce((n, g) => n + g.attributes[name].count * 3, 0));
+    let at = 0;
+    for (const g of geos) { arr.set(g.attributes[name].array, at); at += g.attributes[name].count * 3; }
+    out.setAttribute(name, new THREE.BufferAttribute(arr, 3));
+  }
+  return out;
+}
+
 /** A plain box mesh. */
 function box(mat, sx, sy, sz, x = 0, y = 0, z = 0) {
   const m = new THREE.Mesh(UNIT, mat);
@@ -129,7 +147,7 @@ export class House {
     this.home = new THREE.Group();
     this.home.position.set(0, FOUND, HOUSE_Z);
     plotRoot.add(this.site, this.home);
-    this.plot = M.make('Plot');
+    this.plot = M.make('Plot') ?? plainPlot(M.mats);
     this.plotMeshes = new Map();
     if (this.plot) {
       this.plot.traverse((o) => { if (o.isMesh) { o.receiveShadow = true; o.castShadow = false; this.plotMeshes.set(o.material.name, o); } });
@@ -180,7 +198,7 @@ export class House {
   one(obj, { delay = 0, how = 'pop', site = false, lift = 0.3 } = {}) {
     if (!obj) return null;
     (site ? this.cur.site : this.cur.home).add(obj);
-    obj.traverse((m) => { if (m.isMesh && m.material.name === 'Glass') m.material = this.glass; });
+    obj.traverse((m) => { if (!m.isMesh) return; white(m.geometry); if (m.material.name === 'Glass') m.material = this.glass; });
     shadows(obj, this.cast);
     this.cur.singles.push({ obj, t: -delay, how, base: obj.scale.clone(), y: obj.position.y, lift, done: false });
     obj.visible = false;
@@ -225,11 +243,12 @@ export class House {
   update(dt) {
     let busy = false;
     for (const part of Object.values(this.parts)) {
-      for (const bits of part.bits) if (bits.update(this.calm && Number.isFinite(dt) ? dt * 0.8 : dt)) busy = true;
+      let moving = false;
+      for (const bits of part.bits) if (bits.update(this.calm && Number.isFinite(dt) ? dt * 0.8 : dt)) moving = true;
       for (const s of part.singles) {
         if (s.done) continue;
         s.t += dt;
-        busy = true;
+        moving = true;
         if (s.t < 0) continue;
         s.obj.visible = true;
         const k = clamp01(s.t / (s.how === 'drop' ? 0.5 : 0.3));
@@ -237,9 +256,55 @@ export class House {
         else s.obj.scale.copy(s.base).multiplyScalar(Math.max(0.001, this.calm ? ease(k) : 0.5 + 0.5 * back(k)));
         if (k >= 1) { s.done = true; s.obj.position.y = s.y; s.obj.scale.copy(s.base); }
       }
+      if (moving) busy = true;
+      else if (!part.baked) { part.baked = true; this.bake(part); busy = true; }
     }
     if (busy) this.changed += 1;
     return busy;
+  }
+
+  /**
+   * A part that stands still becomes one mesh per material (fewer draw calls): all its single
+   * meshes are merged in place. Things that move later (the door) are marked noBake.
+   */
+  bake(part) {
+    for (const g of [part.home, part.site]) {
+      g.updateMatrixWorld(true);
+      const inv = g.matrixWorld.clone().invert();
+      const by = new Map();
+      const dead = [];
+      g.traverse((o) => {
+        if (!o.isMesh || o.isInstancedMesh || !o.visible) return;
+        for (let q = o; q && q !== g; q = q.parent) if (q.userData.noBake) return;
+        let geo = o.geometry.clone();
+        if (geo.index) { const flat = geo.toNonIndexed(); geo.dispose(); geo = flat; }
+        for (const name of Object.keys(geo.attributes)) if (!['position', 'normal', 'color'].includes(name)) geo.deleteAttribute(name);
+        if (!geo.attributes.normal) geo.computeVertexNormals();
+        white(geo);
+        // Plain float attributes (the model's may be packed).
+        for (const name of ['position', 'normal', 'color']) {
+          const src = geo.attributes[name];
+          if (src.itemSize === 3 && !src.normalized && src.array instanceof Float32Array && !src.isInterleavedBufferAttribute) continue;
+          const arr = new Float32Array(src.count * 3);
+          for (let i = 0; i < src.count; i++) { arr[i * 3] = src.getX(i); arr[i * 3 + 1] = src.getY(i); arr[i * 3 + 2] = src.getZ(i); }
+          geo.setAttribute(name, new THREE.BufferAttribute(arr, 3));
+        }
+        geo.applyMatrix4(_m.multiplyMatrices(inv, o.matrixWorld));
+        (by.get(o.material) ?? by.set(o.material, []).get(o.material)).push(geo);
+        dead.push(o);
+      });
+      for (const o of dead) { if (o.userData.ownGeo) o.geometry.dispose(); o.removeFromParent(); }
+      for (const [mat, geos] of by) {
+        const merged = geos.length > 1 ? mergeGeometries(geos) : geos[0];
+        if (geos.length > 1) geos.forEach((x) => x.dispose());
+        if (!merged) continue;
+        const m = new THREE.Mesh(merged, mat);
+        m.userData.ownGeo = true;
+        m.castShadow = this.cast;
+        m.receiveShadow = true;
+        g.add(m);
+      }
+    }
   }
 
   /** The windows light up (k: 0..1 times the scene's glow boost). */
@@ -328,10 +393,15 @@ export class House {
       cap.scale.set(1, 0.55, 1.5);
       cap.position.y = RT - 0.002;
       g.add(cap);
-      const slope = Math.atan2(RT - EY, EZ);
+      // Layers of reed: darker bands across both slopes, lying on the surface.
+      const z0 = EZ + 0.006;
+      const y0 = EY + 0.014;
+      const z1 = 0.04;
+      const y1 = RT - 0.004;
+      const slope = Math.atan2(y1 - y0, z0 - z1);
       for (const side of [-1, 1]) {
-        for (const f of [0.35, 0.68]) {
-          const strip = box(mats.ThatchDark, 2 * RX + 0.014, 0.005, 0.012, 0, EY + 0.016 + (RT - EY) * (1 - f), side * EZ * f);
+        for (const f of [0.02, 0.3, 0.56, 0.8]) {
+          const strip = box(mats.ThatchDark, 2 * RX + 0.012, 0.006, f < 0.1 ? 0.03 : 0.014, 0, y0 + (y1 - y0) * f + 0.002, side * (z0 + (z1 - z0) * f));
           strip.rotation.x = side * slope;
           g.add(strip);
         }
@@ -434,10 +504,12 @@ export class House {
         pivot.add(door);
       }
     }
+    pivot.userData.noBake = true;
     this.one(pivot, { delay: 0.15 });
     this.doorPivot = pivot;
     this.doorGlow = new THREE.Mesh(new THREE.PlaneGeometry(0.066, 0.14), new THREE.MeshBasicMaterial({ color: hex('xr-bricks-interior'), transparent: true, opacity: 0, depthWrite: false, toneMapped: false }));
     this.doorGlow.userData.ownGeo = true;
+    this.doorGlow.userData.noBake = true;
     this.doorGlow.position.set(0, 2.5 * H, ZH - 0.01);
     this.cur.home.add(this.doorGlow);
     const extra = new THREE.Group();
@@ -732,8 +804,8 @@ export class House {
       return 1.1;
     }
     if (id === 'gravel') {
-      this.b('Pebble', -0.07, y + 0.001, 0.275, 0.84, 0.004, 0.23, { site: true, how: 'grow', dur: 0.3 });
-      this.b('Pebble', -0.4, y + 0.001, -0.05, 0.18, 0.004, 0.42, { site: true, how: 'grow', dur: 0.3 });
+      this.b('Pebble', -0.07, y + 0.001, 0.268, 0.78, 0.004, 0.2, { site: true, how: 'grow', dur: 0.3 });
+      this.b('Pebble', -0.385, y + 0.001, -0.02, 0.15, 0.004, 0.38, { site: true, how: 'grow', dur: 0.3 });
       const g = new THREE.Group();
       const rock = new THREE.SphereGeometry(1, 9, 7);
       [[-0.36, 0.26, 0.034], [-0.3, 0.3, 0.02], [0.2, 0.29, 0.03], [-0.4, 0.02, 0.026], [0.26, 0.24, 0.018]].forEach(([x, z, r]) => {
@@ -781,4 +853,3 @@ export class House {
 
 /** Where the crane's slings hold a roof (house-local, relative to the roof's origin on the wall tops). */
 export const ROOF_SLINGS = [new THREE.Vector3(-0.2, 0, 0), new THREE.Vector3(0.2, 0, 0)];
-export { COURSES };

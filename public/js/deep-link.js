@@ -14,6 +14,7 @@ export const SLUGS = {
   andocklabor: 'dock',
   kampagnenflipper: 'pinball',
   gipfelgespraech: 'summit',
+  datenspur: 'lineage',
 };
 const KEY_TO_SLUG = Object.fromEntries(Object.entries(SLUGS).map(([slug, key]) => [key, slug]));
 const NAME_MAX = 40;

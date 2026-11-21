@@ -29,12 +29,12 @@ import { CHRISTMAS, makeBulbs } from '../christmas.js';
 import { makeSnowfall, setSnowAmount } from '../snow.js';
 import { radialTexture } from '../robot-visuals.js';
 import '../bricks-text.js';
-import { DECISIONS, STEPS, OPTION, makeRound, judge, bestFrom, bestChange, priceOf, reserve, clashes, needMet } from '../bricks-data.js';
+import { DECISIONS, STEPS, OPTION, makeRound, judge, bestFrom, bestChange, bestHouse, priceOf, reserve, clashes, needMet } from '../bricks-data.js';
 import { Adviser } from '../bricks-ai.js';
 import { TOP, FOUND, HOUSE_Z } from '../bricks-plan.js';
 import { House, ROOF_SLINGS } from '../bricks-house.js';
 import { loadBricks, Crane, Puffs, bsfx, makeFamily } from '../bricks-visuals.js';
-import { OptionCard, briefPanel, aiPanel, strip, neighborSign, checkPanel, euro, optName, BRIEF_H, SIGN_H, CHECK_SIZE } from '../bricks-panels.js';
+import { OptionCard, briefPanel, aiPanel, strip, neighborSign, checkPanel, euro, optName, BRIEF_H, SIGN_H, SIGN_W, SIGN_SMALL, CHECK_SIZE } from '../bricks-panels.js';
 
 // Points: the coherence total (0..100) times RATE, a bonus for beating the neighbors and a
 // little for every point of lead. A perfect round stays below the 5000 the leaderboard allows.
@@ -49,8 +49,10 @@ const HOUSE = new THREE.Vector3(0, FOUND, HOUSE_Z);
 const CRANE_AT = new THREE.Vector3(-0.06, 0, -0.335);
 const FIR = new THREE.Vector3(-0.4, 0, 0.27);
 // Card sizes in meters per layout: [required part, extra].
-const CARD = { row: [[0.72, 0.44], [0.5, 0.27]], col: [[0.9, 0.275], [0.5, 0.26]], side: [[0.9, 0.3], [0.5, 0.24]], xr: [[0.6, 0.5], [0.52, 0.28]] };
+const CARD = { row: [[0.72, 0.4], [0.5, 0.3]], col: [[0.9, 0.275], [0.5, 0.27]], side: [[0.9, 0.3], [0.5, 0.25]], xr: [[0.6, 0.5], [0.52, 0.3]] };
 const clamp = THREE.MathUtils.clamp;
+/** "1 Punkt", "8 Punkte". */
+const points = (n) => t(n === 1 ? 'bricksPoint' : 'bricksPoints', { n });
 const ease = (k) => k * k * (3 - 2 * k);
 
 // "Again" on the result starts the next round at once (no intro a second time), with another brief.
@@ -66,7 +68,8 @@ export class BricksScene extends BaseScene {
     this.calm = assist.reducedMotion; // gentle animations, few particles, no camera moves
     this.easy = assist.easy; // the cards point out clashes, the confidence comes in words too
     this.ar = this.engine.isXR && this.engine.xrMode === 'immersive-ar';
-    this.round = makeRound(lastBrief);
+    // Relaxed mode: a little more money, so one more wish fits in.
+    this.round = makeRound(lastBrief, assist.pick(0, 12));
     lastBrief = { people: this.round.brief.people, place: this.round.brief.place.id };
     this.ai = new Adviser(this.round);
     this.step = 0;
@@ -239,14 +242,23 @@ export class BricksScene extends BaseScene {
       this.firLights.visible = false;
       this.plotRoot.add(this.firLights);
     }
-    // The weather of the place: snow falls in the windy hillside village, a little by the lake.
+    // The weather of the place: in the windy hillside village snow lies and falls.
     const place = this.round.brief.place.id;
-    this.snowLevel = place === 'hill' ? 0.5 : place === 'lake' ? 0.12 : 0;
+    this.snowLevel = place === 'hill' ? 0.24 : 0;
     this.snow = makeSnowfall({ density: 0.6 });
     this.snow.density = place === 'hill' ? (this.calm ? 0.2 : 0.4) : 0;
     this.group.add(this.snow.points);
     setSnowAmount(this.snowLevel);
     this.buildNeighbors(M);
+    // Headset: a soft shadow under each plot, so the dioramas sit on the table or the floor.
+    if (this.engine.isXR) {
+      for (const root of [this.plotRoot, this.nb.root]) {
+        const blob = contactShadow(0.62, 0.42);
+        blob.position.set(root === this.plotRoot ? 0.06 : -0.06, -0.074, 0);
+        blob.scale.set(1.25, 0.9, 1);
+        root.add(blob);
+      }
+    }
     this.buildPanels();
   }
 
@@ -283,10 +295,10 @@ export class BricksScene extends BaseScene {
       this.nbStep += 1;
       if (Math.random() < 0.5) nb.family.wave();
     } else if (this.nbStep === DECISIONS.length) {
-      plan.slice(DECISIONS.length).forEach((id, i) => this.delay(0.3 + i * 0.35, () => { if (!this.disposed) { nb.house.build('extras', id); nb.spent += OPTION[id].price; nb.last = id; this.sign.redraw(); } }));
+      plan.slice(DECISIONS.length).forEach((id, i) => this.delay(0.3 + i * 0.35, () => { if (!this.disposed) { nb.house.build('extras', id); nb.spent += OPTION[id].price; nb.last = id; this.redrawSign(); } }));
       this.nbStep += 1;
     }
-    this.sign.redraw();
+    this.redrawSign();
   }
 
   // ---------- panels ----------
@@ -295,13 +307,16 @@ export class BricksScene extends BaseScene {
     const ui = (o) => { o.userData.noFit = true; this.ui.add(o); return o; };
     const money = () => ({ round: this.round, spent: this.spent(), reserve: this.step < DECISIONS.length ? reserve(this.round, this.step) : 0 });
     this.brief = ui(briefPanel(0.62, BRIEF_H, money));
-    this.briefSmall = { col: ui(briefPanel(0.9, 0.215, money, true)), side: ui(briefPanel(0.66, 0.3, money, true)) };
-    this.aiNote = ui(aiPanel(0.62, 0.3, () => this.aiState()));
+    this.briefSmall = { col: ui(briefPanel(0.9, 0.375, money, true)), side: ui(briefPanel(0.7, 0.42, money, true)) };
+    this.aiNote = ui(aiPanel(0.62, 0.34, () => this.aiState()));
     this.ask = ui(strip(1.5, 0.13, () => this.askState()));
-    this.sign = ui(neighborSign(0.5, SIGN_H, () => ({ last: this.nb.last, spent: this.nb.spent, budget: this.round.nbBrief.budget, needs: this.round.nbBrief.needs })));
+    this.sign = ui(neighborSign(SIGN_W, SIGN_H, () => ({ last: this.nb.last, spent: this.nb.spent, budget: this.round.nbBrief.budget, needs: this.round.nbBrief.needs })));
+    this.signSmall = ui(neighborSign(...SIGN_SMALL, () => ({ last: this.nb.last, spent: this.nb.spent, budget: this.round.nbBrief.budget, needs: this.round.nbBrief.needs }), true));
     const btn = (label, variant, onClick, w = 0.34) => ui(new Button(w, 0.1, { label, variant, labelSize: 'xr-text-sm', grow: false, onClick }));
     this.backBtn = btn(t('bricksBack'), 'secondary', () => this.back(), 0.28);
     this.goBtn = btn(t('bricksBuild'), 'primary', () => this.primary(), 0.44);
+    this.labelMe = ui(strip(0.6, 0.09, () => ({ text: t('bricksYourHouse'), small: true, token: 'xr-bricks-you' })));
+    this.labelNb = ui(strip(0.6, 0.09, () => ({ text: t('bricksWho_winter'), small: true, token: 'xr-bricks-neighbor' })));
     this.hint = ui(strip(1.5, 0.2, () => ({ text: this.mode === 'brief' ? `${t('bricksBriefHint')} ${t('bricksAiAboutShort', { n: this.ai.count })}` : '', small: true, scale: 0.95 })));
     for (const o of this.ui.children) o.visible = false;
   }
@@ -312,6 +327,8 @@ export class BricksScene extends BaseScene {
     this.goBtn.userData.label = t(key);
     this.goBtn.redraw();
   }
+
+  redrawSign() { this.sign.redraw(); this.signSmall.redraw(); }
 
   spent() { return priceOf(this.choices) + priceOf(this.extras); }
 
@@ -486,7 +503,7 @@ export class BricksScene extends BaseScene {
   }
 
   refreshPanels() {
-    for (const p of [this.brief, this.briefSmall.col, this.briefSmall.side, this.aiNote, this.ask, this.sign]) p.redraw();
+    for (const p of [this.brief, this.briefSmall.col, this.briefSmall.side, this.aiNote, this.ask, this.sign, this.signSmall]) p.redraw();
     this.refreshHud?.();
   }
 
@@ -723,17 +740,24 @@ export class BricksScene extends BaseScene {
     const paid = me.bought.filter((b) => b.gain > 0);
     const not = me.bought.filter((b) => b.gain <= 0);
     const tip = bestChange([...this.choices, ...this.extras], this.round);
-    this.tipText = tip ? t(`bricksTip_${tip.key}`, { a: optName(tip.a), b: tip.b ? optName(tip.b) : '', n: tip.gain }) : t('bricksTipNone');
+    if (tip) this.tipText = t(`bricksTip_${tip.key}`, { a: optName(tip.a), b: tip.b ? optName(tip.b) : '', n: points(tip.gain) });
+    else if (this.round.best > me.total) {
+      // No single change helps: what the most coherent house for this money would have had instead.
+      const mine = [...this.choices, ...this.extras];
+      const other = bestHouse(this.round).filter((id) => !mine.includes(id)).slice(0, 3);
+      this.tipText = t('bricksTip_plan', { list: other.map(optName).join(', '), n: points(this.round.best - me.total) });
+    } else this.tipText = t('bricksTipNone');
     this.moneyText = [paid.length ? t('bricksPaid', { list: names(paid) }) : '', not.length ? t('bricksNotPaid', { list: names(not) }) : '', !me.bought.length ? t('bricksBoughtNone') : ''].filter(Boolean).join('. ');
     const b = this.round.brief.budget;
     const lines = [
       `${t('bricksMoneyLine', { who: t('bricksYou'), spent: euro(me.price), budget: euro(b) })}. ${this.moneyText}`,
-      `${t('bricksMoneyLine', { who: t('bricksWho_winter'), spent: euro(them.price), budget: euro(b) })}. ${them.bought.length ? t('bricksBought', { list: names(them.bought) }) : t('bricksBoughtNone')}`,
       this.tipText,
+      `${t('bricksMoneyLine', { who: t('bricksWho_winter'), spent: euro(them.price), budget: euro(b) })}. ${them.bought.length ? t('bricksBought', { list: names(them.bought) }) : t('bricksBoughtNone')}`,
     ];
-    const verdict = diff > 0 ? t('bricksWin', { n: diff }) : diff < 0 ? t('bricksLose', { n: -diff }) : t('bricksTie');
-    this.check = { me, them, shown: 0, rows: me.rows.length + 1, lines, verdict, heard: 0 };
-    this.checkKind = this.engine.isXR ? 'mid' : this.kind() === 'col' ? 'tall' : this.kind() === 'side' ? 'mid' : 'wide';
+    const verdict = diff > 0 ? t('bricksWin', { n: points(diff) }) : diff < 0 ? t('bricksLose', { n: points(-diff) }) : t('bricksTie');
+    this.checkKind = this.engine.isXR ? 'xr' : this.kind() === 'col' ? 'tall' : this.kind() === 'side' ? 'mid' : 'wide';
+    // A phone held sideways has room for the player's money and the tip only (what the neighbors bought stands on their plot).
+    this.check = { me, them, shown: 0, rows: me.rows.length + 1, lines: this.checkKind === 'mid' ? lines.slice(0, 2) : lines, verdict, heard: 0 };
     this.checkPanel = checkPanel(this.checkKind, () => this.check);
     this.checkPanel.userData.noFit = true;
     this.ui.add(this.checkPanel);
@@ -767,6 +791,7 @@ export class BricksScene extends BaseScene {
     this.mode = 'over';
     this.app.echo?.suppress(false);
     this.exitPlayView();
+    if (this.engine.isXR) for (const { o, pos } of this.hudHome ?? []) { o.position.copy(pos); o.quaternion.identity(); }
     this.ui.visible = false;
     if (!this.engine.isXR && !this.engine.touchUI) for (const o of this.hudObjs ?? []) o.visible = false;
     this.refreshHud?.();
@@ -864,7 +889,13 @@ export class BricksScene extends BaseScene {
 
   /** Pins a panel into a rectangle (px), as large as fits, centered. Returns its px per meter. */
   fit(obj, r, maxPpm = Infinity, dist = 0.5) {
-    const ppm = Math.min(r.w / obj.w, r.h / obj.h, maxPpm);
+    let ppm = Math.min(r.w / obj.w, r.h / obj.h, maxPpm);
+    if (r.wrap) {
+      // A strip of text: a fixed text size, wrapped to the room it has.
+      ppm = r.wrap;
+      const wrapW = r.w / ppm;
+      if (Math.abs((obj.wrapW ?? 0) - wrapW) > 0.01) { obj.wrapW = wrapW; obj.redraw(); }
+    }
     obj.visible = true;
     this.pin(obj, r.x + r.w / 2, r.y + r.h / 2, ppm, dist);
     return ppm;
@@ -903,7 +934,8 @@ export class BricksScene extends BaseScene {
       const ph = (pw / 0.62) * BRIEF_H;
       const y0 = top + Math.max(m, (Hh - top - ph - 150) / 2);
       out.show.brief = { x: (W - pw) / 2, y: y0, w: pw, h: ph };
-      out.show.hint = { x: m, y: y0 + ph + 4, w: W - 2 * m, h: 84, max: kind === 'row' ? 470 : 400 };
+      out.show.hint = { x: m, y: y0 + ph + 4, w: Math.min(W - 2 * m, 620), h: 84, wrap: kind === 'row' ? 460 : 400 };
+      out.show.hint.x = (W - out.show.hint.w) / 2;
       out.show.go = { x: W / 2 - 110, y: y0 + ph + 92, w: 220, h: 50 };
       out.plot = { x: 0, y: top, w: W, h: Hh - top };
       out.dim = true;
@@ -913,7 +945,7 @@ export class BricksScene extends BaseScene {
       const [pw, ph] = CHECK_SIZE[this.checkKind];
       const btnH = 50;
       const availH = Hh - top - btnH - 3 * m;
-      const housesMin = kind === 'side' ? 0 : kind === 'col' ? 110 : 150;
+      const housesMin = kind === 'side' ? 0 : kind === 'col' ? 120 : 190;
       const ppm = Math.min((W - 2 * m) / pw, (availH - housesMin) / ph, kind === 'row' ? 560 : 460);
       const h = ph * ppm;
       const w = pw * ppm;
@@ -921,6 +953,11 @@ export class BricksScene extends BaseScene {
       out.plot = housesH > 80 ? { x: 0, y: top, w: W, h: housesH } : null;
       out.both = true;
       out.show.check = { x: (W - w) / 2, y: top + (out.plot ? housesH : m) + m, w, h };
+      if (out.plot) {
+        const lw = Math.min(170, W * 0.3);
+        out.show.labelMe = { x: W * 0.27 - lw / 2, y: top + 2, w: lw, h: 30, wrap: kind === 'row' ? 420 : 340 };
+        out.show.labelNb = { x: W * 0.73 - lw / 2, y: top + 2, w: lw, h: 30, wrap: kind === 'row' ? 420 : 340 };
+      }
       out.show.go = { x: W / 2 - 110, y: Hh - btnH - m, w: 220, h: btnH - 4 };
       return out;
     }
@@ -938,25 +975,26 @@ export class BricksScene extends BaseScene {
       const askH = 46;
       const askY = cardsY - askH - 2;
       const colH = askY - top - m;
-      const leftW = Math.min(clamp(W * 0.25, 220, 340), (colH / (BRIEF_H + 0.3 + 0.02)) * 0.62);
+      const leftW = Math.min(clamp(W * 0.27, 220, 360), (colH / BRIEF_H) * 0.62);
       const k = leftW / 0.62;
       out.show.brief = { x: m, y: top + m / 2, w: leftW, h: BRIEF_H * k };
-      out.show.ai = { x: m, y: top + m / 2 + BRIEF_H * k + m / 2, w: leftW, h: 0.3 * k };
-      const rightW = clamp(W * 0.2, 170, 300);
-      const signH = (rightW / 0.5) * SIGN_H;
+      const rightW = clamp(W * 0.22, 190, 330);
+      const signH = (rightW / SIGN_W) * SIGN_H;
+      const aiH = (rightW / 0.62) * 0.34;
       out.show.sign = { x: W - m - rightW, y: top + m / 2, w: rightW, h: signH };
-      out.pip = { x: W - m - rightW, y: top + m + signH, w: rightW, h: Math.min(rightW * 0.8, colH - signH - m) };
+      out.pip = { x: W - m - rightW, y: top + m + signH, w: rightW, h: colH - signH - aiH - m };
+      out.show.ai = { x: W - m - rightW, y: askY - aiH - m / 2, w: rightW, h: aiH };
       out.plot = { x: leftW + 2 * m, y: top, w: W - leftW - rightW - 4 * m, h: askY - top };
       out.show.back = { x: m, y: askY + 2, w: 120, h: askH - 6 };
-      out.show.ask = { x: 140, y: askY, w: W - 280 - (extras ? 110 : 0), h: askH, max: 520 };
+      out.show.ask = { x: 140, y: askY, w: W - 280 - (extras ? 250 : 0), h: askH, wrap: 480 };
       if (extras) out.show.go = { x: W - m - 240, y: askY + 2, w: 240, h: askH - 6 };
     } else if (kind === 'col') {
       const cols = extras ? 2 : 1;
       const rows = extras ? 4 : 3;
       const cardW = (W - (cols + 1) * m) / cols;
-      const briefH = ((W - 2 * m) / 0.9) * 0.215;
+      const briefH = ((W - 2 * m) / 0.9) * 0.375;
       const askH = 48;
-      const cardH = Math.min((cardW / cw) * ch, (Hh - top - briefH - askH - 150 - (rows + 3) * m) / rows);
+      const cardH = Math.min((cardW / cw) * ch, (Hh - top - briefH - askH - 175 - (rows + 3) * m) / rows);
       const cardsH = rows * cardH + (rows - 1) * (m - 2);
       const cardsY = Hh - m - cardsH;
       out.cards = Array.from({ length: n }, (_, i) => ({ x: m + (i % cols) * (cardW + m), y: cardsY + Math.floor(i / cols) * (cardH + m - 2), w: cardW, h: cardH }));
@@ -964,14 +1002,14 @@ export class BricksScene extends BaseScene {
       out.show.briefCol = { x: m, y: top + 2, w: W - 2 * m, h: briefH };
       const askY = cardsY - askH - 2;
       const y0 = top + briefH + m;
-      const rightW = Math.min(150, W * 0.36);
-      const signH = (rightW / 0.5) * SIGN_H;
-      out.plot = { x: 0, y: y0, w: W - rightW - m, h: askY - y0 };
-      out.show.sign = { x: W - m - rightW, y: y0, w: rightW, h: signH };
-      out.pip = { x: W - m - rightW, y: y0 + signH, w: rightW, h: askY - y0 - signH };
-      out.show.back = { x: m, y: askY, w: 96, h: askH - 4 };
-      out.show.ask = { x: m + 100, y: askY, w: W - 2 * m - 100 - (extras ? 150 : 0), h: askH, max: 380 };
-      if (extras) out.show.go = { x: W - m - 146, y: askY, w: 146, h: askH - 4 };
+      const signW = 150;
+      const signH = (signW / SIGN_SMALL[0]) * SIGN_SMALL[1];
+      out.plot = { x: 0, y: y0, w: W - signW * 0.8, h: askY - y0 - 30 };
+      out.show.signSmall = { x: W - m - signW, y: y0, w: signW, h: signH };
+      out.pip = { x: W - m - signW, y: y0 + signH, w: signW, h: askY - y0 - signH - 30 };
+      out.show.ask = { x: m, y: askY - 34, w: W - 2 * m, h: 34, wrap: 400 };
+      out.show.back = { x: m, y: askY, w: 110, h: askH - 4 };
+      if (extras) out.show.go = { x: W - m - 190, y: askY, w: 190, h: askH - 4 };
     } else {
       // A phone held sideways: the cards at the right, the brief and the neighbors at the left.
       const cols = extras ? 2 : 1;
@@ -984,17 +1022,18 @@ export class BricksScene extends BaseScene {
       out.cards = Array.from({ length: n }, (_, i) => ({ x: x0 + (i % cols) * (cardW + 5), y: top + Math.floor(i / cols) * (cardH + 5), w: cardW, h: cardH }));
       out.cols = cols;
       if (extras) out.show.go = { x: x0, y: Hh - m - 46, w: colW, h: 46 };
-      const leftW = Math.min(230, (W - colW) * 0.48);
-      const briefH = (leftW / 0.66) * 0.3;
+      const leftW = Math.min(240, (W - colW) * 0.5);
+      const briefH = (leftW / 0.7) * 0.42;
       out.show.briefSide = { x: m, y: top, w: leftW, h: briefH };
-      const signH = (leftW / 0.5) * SIGN_H * 0.8;
-      out.show.sign = { x: m, y: top + briefH + 4, w: leftW * 0.8, h: signH };
-      out.pip = { x: m, y: top + briefH + signH, w: leftW * 0.75, h: availH - briefH - signH - 50 };
+      const signW = Math.min(150, leftW * 0.62);
+      const signH = (signW / SIGN_SMALL[0]) * SIGN_SMALL[1];
+      out.show.signSmall = { x: m, y: top + briefH + 4, w: signW, h: signH };
+      out.pip = { x: m + signW * 0.3, y: top + briefH + 4 + signH * 0.5, w: leftW - signW * 0.3, h: availH - briefH - signH * 0.5 - 4 };
       out.show.back = { x: m, y: Hh - m - 46, w: 100, h: 46 };
       const px = leftW + 2 * m;
       const pw = x0 - px - m;
-      out.show.ask = { x: px, y: top, w: pw, h: 50, max: 330 };
-      out.plot = { x: px, y: top + 44, w: pw, h: availH - 44 };
+      out.show.ask = { x: px, y: Hh - m - 44, w: pw, h: 44, wrap: 350 };
+      out.plot = { x: px, y: top, w: pw, h: availH - 44 };
     }
     if (!cardsOn) { out.cards = []; delete out.show.go; delete out.show.back; }
     return out;
@@ -1007,9 +1046,10 @@ export class BricksScene extends BaseScene {
     if (!['brief', 'choose', 'build', 'finale', 'check'].includes(this.mode)) return;
     e.fitEnabled = false;
     this.viewOn = true;
+    if (this.mode === 'choose' && this.cardKind !== this.kind()) this.makeCards(); // the window was resized or the phone turned
     const lay = this.layout();
     const both = !!lay.both;
-    const R = new THREE.Quaternion().setFromEuler(new THREE.Euler(both ? -0.5 : -0.56, both ? 0 : 0.14, 0, 'YXZ'));
+    const R = new THREE.Quaternion().setFromEuler(new THREE.Euler(both ? -0.44 : -0.47, both ? 0 : 0.06, 0, 'YXZ'));
     const Ri = R.clone().invert();
     // The house with room for an extension at the left, the carport at the right, and the crane while it works.
     const tall = this.crane?.root.visible && (this.step <= 1 || !!this.roofHang);
@@ -1054,7 +1094,10 @@ export class BricksScene extends BaseScene {
     set(this.aiNote, s.ai);
     set(this.ask, s.ask);
     set(this.hint, s.hint);
+    set(this.labelMe, s.labelMe);
+    set(this.labelNb, s.labelNb);
     set(this.sign, s.sign);
+    set(this.signSmall, s.signSmall);
     set(this.backBtn, s.back);
     set(this.goBtn, s.go);
     if (this.checkPanel) set(this.checkPanel, s.check);
@@ -1069,9 +1112,9 @@ export class BricksScene extends BaseScene {
       nb.root.scale.setScalar(1);
     } else if (lay.pip && lay.pip.h > 44) {
       const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.52, -0.2, 0, 'YXZ'));
-      const ppm = Math.min(lay.pip.w / 1.2, lay.pip.h / 0.72);
+      const ppm = Math.min(lay.pip.w / 1.45, lay.pip.h / 0.8);
       nb.root.visible = true;
-      this.pin(nb.root, lay.pip.x + lay.pip.w / 2, lay.pip.y + lay.pip.h * 0.62, ppm, 0.6, tilt);
+      this.pin(nb.root, lay.pip.x + lay.pip.w / 2, lay.pip.y + lay.pip.h / 2 + ppm * 0.2, ppm, 0.6, tilt);
     } else nb.root.visible = false;
     this.world.visible = !!lay.plot;
   }
@@ -1103,26 +1146,30 @@ export class BricksScene extends BaseScene {
     const arc = (o, angle, y, dist = 1.05, scale = S) => { o.visible = true; o.scale.setScalar(scale); placeOnArc(o, angle, y, dist); };
     for (const o of this.ui.children) o.visible = false;
     const nb = this.nb;
+    // The status bar and the menu button hang up at the left, clear of the cards.
+    for (const o of this.hudObjs ?? []) placeOnArc(o, o.w > 0.5 ? -1.5 : -0.92, eye + 0.82, 1.05);
     if (this.mode === 'brief') {
       arc(this.brief, 0, eye + 0.3, 1.0);
       arc(this.hint, 0, eye - 0.12, 0.98);
       arc(this.goBtn, 0, eye - 0.27, 0.95, 1.3);
     } else if (this.mode === 'check') {
-      arc(this.checkPanel, 0, eye + 0.33, 1.2, 1.05);
+      arc(this.checkPanel, 0, eye + 0.36, 1.2, 1.12);
+      arc(this.labelMe, -0.45, eye - 0.16, 1.0);
+      arc(this.labelNb, 0.62, eye - 0.16, 1.0);
       arc(this.goBtn, 0, eye - 0.16, 1.1, 1.3);
     } else {
       arc(this.brief, -1.18, eye + 0.12, 1.0);
       arc(this.aiNote, 1.15, eye + 0.25, 1.0);
-      arc(this.ask, 0, eye + (this.step === DECISIONS.length && this.mode === 'choose' ? 0.78 : 0.52), 1.05);
+      arc(this.ask, 0, eye + (this.step === DECISIONS.length && this.mode === 'choose' ? 0.8 : 0.56), 1.05);
       if (this.mode === 'choose') {
         const extras = this.step === DECISIONS.length;
         if (extras) {
           // Three columns: eight extras and the button to confirm in the ninth place.
-          this.cards.forEach((c, i) => arc(c, ((i % 3) - 1) * 0.6, eye + 0.5 - Math.floor(i / 3) * 0.335));
-          arc(this.goBtn, 0.6, eye + 0.5 - 2 * 0.335, 1.05, 1.3);
+          this.cards.forEach((c, i) => arc(c, ((i % 3) - 1) * 0.6, eye + 0.55 - Math.floor(i / 3) * 0.335));
+          arc(this.goBtn, 0.6, eye + 0.55 - 2 * 0.335, 1.05, 1.3);
           this.cardCols = 3;
         } else {
-          this.cards.forEach((c, i) => arc(c, (i - 1) * 0.68, eye + 0.1));
+          this.cards.forEach((c, i) => arc(c, (i - 1) * 0.68, eye + 0.16));
           this.cardCols = 3;
         }
         arc(this.backBtn, -1.18, eye - 0.36, 1.0, 1.3);

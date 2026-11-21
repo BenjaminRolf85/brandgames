@@ -77,6 +77,8 @@ const DETAIL = {
   Grass: [14, 120, 0.34], GrassDark: [14, 120, 0.3], Soil: [30, 160, 0.25], SoilDark: [30, 160, 0.25],
   Gravel: [40, 260, 0.3], Stone: [25, 200, 0.18], Sand: [20, 180, 0.15], BrickClay: [60, 300, 0.16],
   Roof: [20, 220, 0.12], Concrete: [18, 240, 0.14], Wood: [12, 300, 0.14], Quoin: [60, 300, 0.12],
+  Plaster: [22, 260, 0.1], ConcreteWall: [16, 240, 0.12], Plank: [10, 320, 0.16], Beam: [14, 300, 0.14], Thatch: [30, 420, 0.3], ThatchDark: [30, 420, 0.25],
+  Sedum: [40, 300, 0.3], Hedge: [45, 320, 0.3], Pebble: [70, 520, 0.3], MetalRoof: [8, 160, 0.06],
 };
 
 /**
@@ -124,6 +126,7 @@ export function bricksMaterials() {
   for (const [name, [token, roughness, metalness]] of Object.entries(OWN)) {
     const opts = { name, color: hex(token), roughness, metalness };
     out[name] = COAT[name] && tier === 'high' ? new THREE.MeshPhysicalMaterial({ ...opts, clearcoat: COAT[name], clearcoatRoughness: 0.25 }) : new THREE.MeshStandardMaterial(opts);
+    if (DETAIL[name] && tier !== 'low') addDetail(out[name], DETAIL[name]);
     if (SNOWY.includes(name)) winterize(out[name]);
   }
   // Glass reflects the sky a little (studio environment) until the lights go on.
@@ -156,15 +159,15 @@ function meshGeo(gltf, name) {
 }
 
 /**
- * Loads the model. Resolves to { mats, geo: { brick, half, gold }, make(name) } or, if the model
+ * Loads the model. Resolves to { mats, geo: { brick, half, quoin }, make(name) } or, if the model
  * is missing, to simple boxes (make() then returns null and the scene builds a plain plot).
  */
 export async function loadBricks() {
   const mats = bricksMaterials();
   try {
     const gltf = await loadGLTF(BRICKS_URL);
-    const geo = { brick: meshGeo(gltf, 'Brick'), half: meshGeo(gltf, 'BrickHalf'), gold: meshGeo(gltf, 'BrickGold'), quoin: meshGeo(gltf, 'Quoin') ?? meshGeo(gltf, 'BrickHalf') };
-    if (!geo.brick || !geo.half || !geo.gold) throw new Error('bricks.glb incomplete');
+    const geo = { brick: meshGeo(gltf, 'Brick'), half: meshGeo(gltf, 'BrickHalf'), quoin: meshGeo(gltf, 'Quoin') ?? meshGeo(gltf, 'BrickHalf') };
+    if (!geo.brick || !geo.half) throw new Error('bricks.glb incomplete');
     return { mats, geo, make: (name) => part(gltf, name, mats) };
   } catch (e) {
     console.warn('Bricks model not loaded, using boxes', e);
@@ -173,7 +176,6 @@ export async function loadBricks() {
       geo: {
         brick: new THREE.BoxGeometry(L - GAP, H - GAP, D - GAP),
         half: new THREE.BoxGeometry(L / 2 - GAP, H - GAP, D - GAP),
-        gold: new THREE.BoxGeometry(L - GAP, H - GAP, D - GAP),
         quoin: new THREE.BoxGeometry(D - GAP, H - GAP, D - GAP),
       },
       make: () => null,

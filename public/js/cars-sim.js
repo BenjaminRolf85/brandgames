@@ -116,7 +116,7 @@ export class CarsGame {
     this.history = []; // one result per finished week
     this.loans = 0;
     this.over = false;
-    this.stats = { sold: 0, missed: 0, dear: 0, adSpend: 0, adWaste: 0, standCost: 0, bought: 0, favoured: 0, haggles: 0, haggleWins: 0, maxShare: 0 };
+    this.stats = { sold: 0, missed: 0, dear: 0, adSpend: 0, adWaste: 0, standCost: 0, bought: 0, favoured: 0, haggles: 0, haggleWins: 0 };
     // What this town likes (the forecast has to learn it), the weeks' signals, the surprises.
     this.bias = {};
     for (const s of SEGMENTS) this.bias[s] = clamp(Math.exp(this.gauss() * TUNE.biasSd), 0.5, 1.9);
@@ -285,11 +285,12 @@ export class CarsGame {
   buy(id) {
     const offer = this.offers.find((o) => o.id === id);
     if (!offer || this.blocked(offer)) return null;
+    const favoured = this.favours(offer.seg);
     offer.state = 'bought';
     this.cash -= offer.ask;
     const car = this.addCar({ seg: offer.seg, cond: offer.cond, list: offer.list, paid: offer.ask });
     this.stats.bought += 1;
-    if (this.favours(offer.seg)) this.stats.favoured += 1;
+    if (favoured) this.stats.favoured += 1;
     return car;
   }
 
@@ -337,17 +338,18 @@ export class CarsGame {
   offerValue(offer) {
     const row = this.forecast.rows[offer.seg];
     const buyers = row.mean * (TUNE.walk + TUNE.ads[2].reach) * 0.72;
-    const sell = clamp(buyers / (this.count(offer.seg) + 1), 0, 1);
+    // The chance to sell it this week: never certain, however many buyers are expected.
+    const sell = 1 - Math.exp(-buyers / (this.count(offer.seg) + 1));
     const car = { list: offer.list, paid: offer.ask };
     const margin = offer.list - offer.ask;
-    const wait = this.lastWeek ? offer.ask * (1 - this.markdown) : this.standCost(car) * 1.5;
+    const wait = this.lastWeek ? offer.ask * (1 - this.markdown) : this.standCost(car) * 1.2;
     return sell * margin - (1 - sell) * wait;
   }
 
   /** The offer the forecast likes best (null if none is worth it): the relaxed mode's hint. */
   bestOffer() {
     let best = null;
-    let bestV = 250;
+    let bestV = 200;
     for (const o of this.offers) {
       if (this.blocked(o)) continue;
       const v = this.offerValue(o);
@@ -529,6 +531,7 @@ export class CarsGame {
     const visitors = r.visitors.length;
     if (r.week === WEEKS) return { key: 'end' };
     const last = r.week === WEEKS - 1;
+    if (r.carsLeft === 0 && r.missed >= 2 && r.sold.length && !last) return { key: 'soldOut', vars: { n: r.missed, segs: Object.keys(r.missedBy) } };
     if (r.adCost >= TUNE.ads[2].cost && r.adEmpty >= Math.max(2, r.sold.length)) return { key: 'adWaste', vars: { n: r.adEmpty } };
     if (r.missed >= 3 && r.missed >= r.sold.length) {
       const seg = Object.entries(r.missedBy).sort((a, b) => b[1] - a[1])[0][0];

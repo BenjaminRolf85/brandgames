@@ -7,7 +7,7 @@ import { VISIBLE_MODES } from './config.js';
 // 'overall' is the overall ranking across all games (computed on the server, nothing to submit).
 export const OVERALL = 'overall';
 export const GAME_MODES = ['quiz', 'factmyth', 'parkour', 'parkour3', 'parkour2', 'pong', 'dataflight', 'arch', 'fight', 'sort', 'timeline',
-  'bike', 'roast', 'bricks', 'green', 'dock', 'pinball', 'summit'].filter((m) => VISIBLE_MODES.includes(m));
+  'bike', 'roast', 'bricks', 'green', 'dock', 'pinball', 'summit', 'lineage'].filter((m) => VISIBLE_MODES.includes(m));
 export const LEADERBOARD_MODES = [OVERALL, ...GAME_MODES];
 export const NAME_RE = /^[\p{L}\p{N} ._-]{2,14}$/u;
 

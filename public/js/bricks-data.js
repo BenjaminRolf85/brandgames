@@ -10,7 +10,6 @@
 
 export const DECISIONS = ['walls', 'roof', 'windows', 'door', 'heating', 'garden'];
 export const STEPS = [...DECISIONS, 'extras'];
-export const CRITERIA = ['unity', 'people', 'place', 'future', 'value'];
 export const STYLES = ['trad', 'mod', 'nat'];
 
 // style: 'trad' | 'mod' | 'nat' | null (goes with everything); price in 1000 euros; e: energy
@@ -100,7 +99,7 @@ export const PLACES = [
 // The neighbor family next door (same place, same budget, their own wishes).
 const NEIGHBORS = [['kids', 'car'], ['kids', 'light'], ['space', 'car'], ['light', 'car']];
 // What kind of builders the neighbors are this round.
-export const NEIGHBOR_KINDS = ['careful', 'slip', 'slip', 'muddle'];
+const NEIGHBOR_KINDS = ['careful', 'slip', 'slip', 'muddle'];
 
 const clamp = (v, a = 0, b = 100) => Math.max(a, Math.min(b, v));
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -398,15 +397,12 @@ export function bestFrom(ids, round) {
   return best;
 }
 
-/** The best sets of extras for the six required parts: the best total and one set that reaches it. */
-export function bestExtras(ids, round) {
-  const { total, X, pow } = round.table;
-  let r = 0;
-  ids.slice(0, DECISIONS.length).forEach((id, i) => { r += round.catalogue[DECISIONS[i]].findIndex((o) => o.id === id) * pow[i]; });
-  let best = -1;
-  let mask = 0;
-  for (let m = 0; m < X; m++) if (total[r * X + m] > best) { best = total[r * X + m]; mask = m; }
-  return { total: best, ids: round.extras.filter((x) => mask & x.bit).map((x) => x.id) };
+/** The most coherent house this budget can pay for (option ids). */
+export function bestHouse(round) {
+  const { total, X } = round.table;
+  let at = 0;
+  for (let i = 1; i < total.length; i++) if (total[i] > total[at]) at = i;
+  return idsOf(round, Math.floor(at / X), at % X);
 }
 
 /** Three options per required part: one for every wish that needs one, the rest by chance; sorted by price. */
@@ -455,8 +451,8 @@ function neighborHouse(kind, round, brief) {
   return { ids, slipped };
 }
 
-/** A new round: the brief, the catalogue, every possible house with its total, the neighbors. */
-export function makeRound(avoid = null) {
+/** A new round: the brief, the catalogue, every possible house with its total, the neighbors. bonus: more money (thousand euros, the relaxed mode). */
+export function makeRound(avoid = null, bonus = 0) {
   let people = pick(PEOPLE);
   let place = pick(PLACES);
   // A second round always has other builders (and mostly another place).
@@ -469,7 +465,7 @@ export function makeRound(avoid = null) {
   const cheapest = {};
   for (const d of DECISIONS) cheapest[d] = catalogue[d][0];
   const basic = DECISIONS.reduce((s, d) => s + cheapest[d].price, 0);
-  const budget = Math.ceil((basic + people.spare) / 5) * 5;
+  const budget = Math.ceil((basic + people.spare + bonus) / 5) * 5;
   const brief = { people: people.id, needs: people.needs, budget, place };
   const nbBrief = { people: 'winter', needs: nbNeeds, budget, place };
   const round = { brief, nbBrief, catalogue, cheapest, extras: EXTRAS, basic };
@@ -479,6 +475,18 @@ export function makeRound(avoid = null) {
   const nb = neighborHouse(kind, round, nbBrief);
   round.neighbor = { kind, ids: nb.ids, slipped: nb.slipped, result: judge(nb.ids, round, nbBrief) };
   return round;
+}
+
+/**
+ * The cheapest way to fulfill a wish in this round: { step (the decision or 'extras'), id,
+ * price (the extra money: an upgrade's surcharge, or an extra's price) }, or null ('easy' is a
+ * rule about all parts, and a wish nothing in the catalogue fulfills).
+ */
+export function wishCost(round, need) {
+  let best = null;
+  for (const d of DECISIONS) for (const o of round.catalogue[d]) if (o.gives === need) { const price = o.price - round.cheapest[d].price; if (!best || price < best.price) best = { step: d, id: o.id, price }; }
+  for (const x of round.extras) if (x.gives === need && (!best || x.price < best.price)) best = { step: 'extras', id: x.id, price: x.price };
+  return best;
 }
 
 /** The least the required parts after step `from` will cost (the reserve that stays untouched). */
