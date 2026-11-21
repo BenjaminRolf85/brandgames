@@ -225,6 +225,9 @@
   --xr-warning:         var(--p-amber-500);
   --xr-accent:          var(--p-cyan-400);
   --xr-pointer:         var(--p-violet-300);
+  --xr-focus:           var(--p-white);   /* keyboard focus ring on 3D buttons */
+  --pause-scrim:        rgb(7 10 20 / 0.72);   /* behind the pause dialog (pause.js) */
+  --pause-card-width:   26rem;
   --xr-node:            var(--p-violet-400);
   --xr-bg-preview:      var(--p-ink-950);
   --xr-floor-grid:      var(--p-ink-700);
@@ -891,6 +894,7 @@
   --xr-bg-muted:        var(--p-sun-gray-200);
   --xr-bg-highlight:    var(--p-sun-yellow);
   --xr-pointer:         var(--p-sun-red);
+  --xr-focus:           var(--p-sun-ink);
   --xr-node:            var(--p-sun-red);
   --xr-bg-preview:      var(--p-sun-ink);
   --xr-floor-grid:      var(--p-sun-ink-700);

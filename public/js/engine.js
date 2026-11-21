@@ -87,7 +87,12 @@ export class Engine {
     this.running = false;
     this.onXREnd = null;
 
+    this.paused = false; // browser: the game's time stands still (pause.js); the view still renders
+    this.focus = null; // the 3D button that has the keyboard focus (browser only)
+    this._targets = [];
+
     this._setupMouse();
+    this._setupKeys();
     this._setupControllers();
     window.addEventListener('resize', () => this._fit());
     this._fit();
@@ -408,6 +413,7 @@ export class Engine {
       if (this.mode === 'xr') return;
       setNdc(e);
       p.active = true;
+      if (this.focus && (Math.abs(e.movementX) + Math.abs(e.movementY) > 1)) this.setFocus(null);
     });
     c.addEventListener('pointerdown', (e) => {
       if (this.mode === 'xr') return;
@@ -426,6 +432,69 @@ export class Engine {
     c.addEventListener('pointerleave', (e) => {
       if (e.pointerType === 'mouse') p.queue.push('leave');
     });
+  }
+
+  // ---------- keyboard access to the 3D buttons (browser) ----------
+  // Tab and Shift+Tab move a focus through the visible buttons (top to bottom, left to right),
+  // Enter or Space presses the focused one, Escape lets go. The games keep the arrow keys, WASD
+  // and (without a focus) Space for themselves. A screen reader hears the focused label.
+
+  _setupKeys() {
+    this.live = document.createElement('div');
+    this.live.className = 'sr-only';
+    this.live.setAttribute('aria-live', 'polite');
+    document.body.append(this.live);
+    window.addEventListener('keydown', (e) => {
+      if (!this.running || this.mode === 'xr' || this.paused) return;
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
+      if (e.key === 'Tab') {
+        const list = this._focusable();
+        if (!list.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const i = list.indexOf(this.focus);
+        const next = i < 0 ? (e.shiftKey ? list.length - 1 : 0) : (i + (e.shiftKey ? -1 : 1) + list.length) % list.length;
+        this.setFocus(list[next]);
+      } else if (this.focus && (e.key === 'Enter' || e.key === ' ')) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!e.repeat) this.focus.userData.onClick?.(this.pointers.find((p) => p.kind === 'mouse'));
+      } else if (this.focus && e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        this.setFocus(null);
+      }
+    }, true);
+  }
+
+  /** The visible buttons in reading order (rows from the top, each row from the left). */
+  _focusable() {
+    const v = new THREE.Vector3();
+    const list = this._targets
+      .filter((o) => o.userData.onClick && o.userData.focusable !== false && !o.state?.disabled)
+      .map((o) => {
+        o.getWorldPosition(v).project(this.camera);
+        return { o, x: v.x, y: v.y, z: v.z };
+      })
+      .filter((it) => it.z < 1 && Math.abs(it.x) < 1.2 && Math.abs(it.y) < 1.2);
+    list.sort((a, b) => (Math.abs(a.y - b.y) > 0.06 ? b.y - a.y : a.x - b.x));
+    return list.map((it) => it.o);
+  }
+
+  setFocus(obj) {
+    if (this.focus === obj) return;
+    this.focus?.userData.setFocus?.(false);
+    this.focus = obj;
+    obj?.userData.setFocus?.(true);
+    if (obj && this.live) this.live.textContent = String(obj.userData.label ?? '');
+  }
+
+  /** Browser: stops (or continues) the game's time; rendering and the page stay alive. */
+  setPaused(v) {
+    this.paused = !!v;
+    if (this.paused) this.setFocus(null);
   }
 
   _setupControllers() {
@@ -557,6 +626,10 @@ export class Engine {
         }
       }
     }
+    if (this.focus && this.mode !== 'xr') {
+      if (targets.includes(this.focus)) hovered.add(this.focus);
+      else this.setFocus(null); // the focused button is gone or hidden
+    }
     for (const obj of targets) {
       const h = hovered.has(obj);
       if (obj.userData._hover !== h) {
@@ -662,7 +735,14 @@ export class Engine {
     const targets = [];
     this.root.traverseVisible((o) => { if (o.userData.interactive) targets.push(o); });
     this.root.updateMatrixWorld(true);
+    this._targets = targets;
     this._updatePointers(targets);
+
+    // Paused (pause.js, browser only): the game's time stands still, the picture stays.
+    if (this.paused) {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
 
     for (let i = this.tweens.length - 1; i >= 0; i--) {
       const tw = this.tweens[i];

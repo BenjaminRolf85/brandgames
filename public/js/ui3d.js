@@ -248,6 +248,9 @@ export class Button extends Panel {
     this.opts = { variant: 'secondary', labelSize: 'xr-text-md', ...opts };
     this.userData.interactive = true;
     this.userData.setHover = (v) => this.set({ hover: v });
+    // Keyboard focus (engine.js): a clear ring in the focus color; a screen reader gets the label.
+    this.userData.setFocus = (v) => this.set({ focus: v });
+    this.userData.label = [this.opts.label, this.opts.body, this.opts.footer].filter(Boolean).join('. ');
     this.userData.onClick = (pointer) => {
       if (this.state.disabled) return;
       sfx.click();
@@ -260,7 +263,7 @@ export class Button extends Panel {
   paint() {
     if (!this.opts) return;
     const { variant, align } = this.opts;
-    const { hover, disabled, status } = this.state;
+    const { hover, disabled, status, focus } = this.state;
     const v = VARIANTS[variant];
     const active = hover && !disabled;
     let fill = color(active ? v.hover : v.bg);
@@ -269,7 +272,8 @@ export class Button extends Panel {
     if (status === 'correct') { fill = color('xr-success'); stroke = fill; text = color('xr-on-primary'); }
     if (status === 'wrong') { fill = color('xr-danger'); stroke = fill; text = color('xr-on-primary'); }
     if (status === 'selected') { stroke = color('xr-accent'); }
-    this.surface({ fill, stroke, strokeWidth: num('xr-border-width') * (status === 'selected' || hover ? 2 : 1), stripe: false });
+    if (focus && !disabled) stroke = color('xr-focus');
+    this.surface({ fill, stroke, strokeWidth: num('xr-border-width') * (focus && !disabled ? 3 : status === 'selected' || hover ? 2 : 1), stripe: false });
     // On filled (primary) buttons secondary text uses the button's text color for contrast.
     const onFill = status || variant === 'primary';
     const muted = onFill ? text : color('xr-panel-muted');

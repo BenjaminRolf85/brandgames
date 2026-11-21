@@ -210,6 +210,66 @@ body {
   z-index: 1;
 }
 body.is-playing { overflow: hidden; }
+
+/* ---------- Screen readers only (e.g. the label of the focused 3D button, engine.js) ---------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Pause dialog over a game (pause.js; browser on desktop and phones) ---------- */
+.pause {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  padding: max(var(--space-4), env(safe-area-inset-top)) max(var(--space-4), env(safe-area-inset-right)) max(var(--space-4), env(safe-area-inset-bottom)) max(var(--space-4), env(safe-area-inset-left));
+  background: var(--pause-scrim);
+  overflow: auto;
+}
+.pause__card {
+  width: min(100%, var(--pause-card-width));
+  padding: var(--space-5);
+  border: 1px solid var(--xr-panel-border);
+  border-radius: var(--radius-lg);
+  background: var(--xr-panel-bg);
+  color: var(--xr-panel-text);
+  box-shadow: var(--shadow-md);
+}
+.pause__title { margin: 0 0 var(--space-4); font-size: var(--text-2xl); font-weight: var(--font-weight-black); text-align: center; }
+.pause__sub {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-black);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--xr-accent);
+}
+.pause__controls {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-5);
+  font-size: var(--text-md);
+}
+.pause__controls dt { font-weight: var(--font-weight-bold); }
+.pause__controls dd { margin: 0; color: var(--xr-panel-muted); }
+.pause__actions { display: flex; flex-direction: column; gap: var(--space-3); }
+.pause__actions .btn { width: 100%; }
+.pause__actions .btn:focus-visible { outline-color: var(--xr-focus); }
+@media (orientation: landscape) and (max-height: 480px) {
+  .pause__card { padding: var(--space-4); }
+  .pause__title { margin-bottom: var(--space-2); font-size: var(--text-xl); }
+  .pause__actions { flex-direction: row; }
+}
 .stage__hint {
   display: none;
   position: absolute;
@@ -682,3 +742,5 @@ body.is-playing { overflow: hidden; }
 }
 
 .card--feature { border-color: var(--color-primary); box-shadow: inset 0 4px 0 var(--color-primary), var(--shadow-sm); }
+.pause__actions .btn--secondary { background: var(--xr-button-bg); color: var(--xr-button-text); border-color: var(--xr-panel-border); }
+.pause__actions .btn--secondary:hover { background: var(--xr-button-hover); }

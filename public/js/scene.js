@@ -15,6 +15,7 @@ import { music } from './music.js';
 import { MUSIC } from './config.js';
 import { screenHud, touchButtons, dragPad } from './touch-ui.js';
 import { gameUrl } from './deep-link.js';
+import { assist, EASY_SCORE } from './assist.js';
 
 export class BaseScene {
   constructor(app) {
@@ -30,6 +31,47 @@ export class BaseScene {
     this._cleanups = [];
     this._sceneCleanups = []; // run only when the scene closes (not between steps)
     this.disposed = false;
+    this.pausable = false; // games: set by the app (pause.js: Escape, P, the menu button)
+    this._controls = null;
+  }
+
+  // ---------- controls per device, pause, play assistance ----------
+
+  /**
+   * The game's controls, per device, already translated:
+   *   this.setControls({
+   *     desktop: [['A / D oder Pfeiltasten', 'lenken'], ['Leertaste', 'springen']],
+   *     touch:   [['Wischen', 'lenken'], ['Knopf Sprung', 'springen']],
+   *     xr:      [['Hand bewegen', 'lenken'], ['Trigger', 'springen']],
+   *   });
+   * The intro shows the list for the device in use (controlsBlocks), and so does the pause dialog.
+   */
+  setControls(spec) {
+    this._controls = spec;
+  }
+
+  /** [[keys, action], ...] for the device in use: headset, phone or desktop. */
+  controlsFor() {
+    const c = this._controls;
+    if (!c) return [];
+    if (this.engine.isXR) return c.xr ?? [];
+    if (this.engine.touchUI) return c.touch ?? c.desktop ?? [];
+    return c.desktop ?? [];
+  }
+
+  /** Text blocks for a panel (textPanel): a small heading and one line per control. */
+  controlsBlocks() {
+    const list = this.controlsFor();
+    if (!list.length) return [];
+    return [
+      { text: t('controlsTitle').toUpperCase(), size: 'xr-text-sm', weight: 'black', color: color('xr-accent'), gap: 0.012 },
+      ...list.map(([keys, action], i) => ({ text: `${keys}:  ${action}`, size: 'xr-text-sm', weight: 'bold', gap: i === list.length - 1 ? 0.03 : 0.008 })),
+    ];
+  }
+
+  /** The game's menu button: in the browser it pauses (continue, restart, menu); in the headset it leaves. */
+  menuOrPause() {
+    if (!this.app.pause?.open()) this.app.showMenu();
   }
 
   onUpdate(fn) {
@@ -150,7 +192,7 @@ export class BaseScene {
       { grow: false, layout: { align: 'left', pad: 0.03 } }), this.group);
     const y = this.eye + 0.66 - info.h / 2;
     info.position.set(-0.15, y, -this.dist);
-    const menu = this.add(new Button(0.26, info.h, { label: t('menu'), labelSize: 'xr-text-sm', grow: false, onClick: () => this.app.showMenu() }), this.group);
+    const menu = this.add(new Button(0.26, info.h, { label: t('menu'), labelSize: 'xr-text-sm', grow: false, onClick: () => this.menuOrPause() }), this.group);
     menu.position.set(0.5, y, -this.dist);
     info.userData.hud = true; // speech bubbles keep clear of it on narrow screens
     menu.userData.hud = true;
@@ -158,7 +200,7 @@ export class BaseScene {
     if (this.engine.touchUI) {
       info.visible = false;
       menu.visible = false;
-      const bar = screenHud({ onMenu: () => this.app.showMenu() });
+      const bar = screenHud({ onMenu: () => this.menuOrPause() });
       this.onSceneDispose(() => bar.remove());
       bar.set(getText());
       return () => bar.set(getText());
@@ -171,6 +213,7 @@ export class BaseScene {
     const panel = this.add(textPanel(1.1, 0.4, [
       { text: title, size: 'xr-text-title', weight: 'black', gap: 0.04 },
       { text, size: 'xr-text-md', color: color('xr-panel-muted'), gap: 0.04 },
+      ...this.controlsBlocks(),
       { text: L(SPONSOR.presentedBy), size: 'xr-text-sm', weight: 'bold', color: color('xr-warning') },
     ]));
     panel.position.set(0, this.eye + 0.44 - panel.h / 2, -this.dist);
@@ -188,7 +231,12 @@ export class BaseScene {
    * learned: [{ q, a }] already localized (question and correct answer of missed items).
    */
   results(data) {
-    const { gameKey, score } = data;
+    const { gameKey } = data;
+    // Relaxed mode (assist.js): the result counts a share of its points, said on the result.
+    data.rawScore = data.score;
+    data.easy = assist.easy && data.score > 0;
+    if (data.easy) data.score = Math.round(data.score * assist.scoreFactor);
+    const { score } = data;
     const best = getBest(gameKey);
     data.isNew = score > best;
     data.best = Math.max(best, score);
@@ -209,7 +257,8 @@ export class BaseScene {
     const scorePanel = this.add(textPanel(0.58, 0.42, [
       { text: t('results'), size: 'xr-text-md', weight: 'bold', color: color('xr-panel-muted'), gap: 0.02 },
       { text: String(score), size: 0.12, weight: 'black', gap: 0.005 },
-      { text: t('score'), size: 'xr-text-md', weight: 'bold', gap: 0.03 },
+      { text: t('score'), size: 'xr-text-md', weight: 'bold', gap: this.resultData.easy ? 0.008 : 0.03 },
+      ...(this.resultData.easy ? [{ text: t('easyNote', { percent: Math.round(EASY_SCORE * 100), raw: this.resultData.rawScore }), size: 'xr-text-sm', color: color('xr-panel-muted'), gap: 0.03 }] : []),
       { text: this.resultData.line ?? t('correctOf', { n: correct, total }), size: 'xr-text-md', gap: 0.02 },
       { text: isNew ? t('newBest') : `${t('best')}: ${best}`, size: 'xr-text-md', weight: 'bold', color: color(isNew ? 'xr-warning' : 'xr-accent'), gap: 0.03 },
       // The quizzes' knowledge house (only an object with a rating; other games may use the name).

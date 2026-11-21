@@ -1,3 +1,4 @@
+import { Pause } from './pause.js';
 import { Engine } from './engine.js';
 import { MenuScene } from './scenes/menu.js';
 import { LeaderboardScene } from './scenes/leaderboard.js';
@@ -71,6 +72,7 @@ class App {
     this.visitActive = !EVENT;
     if (EVENT) this.kiosk = new EventKiosk(this);
     this.current = null;
+    this.pause = new Pause(this);
   }
 
   show(factory) {
@@ -138,6 +140,8 @@ class App {
     this.currentGame = key;
     track('start', key, EVENT);
     this.show(factory);
+    // Games can be paused in the browser (pause.js); the lobby and the leaderboard cannot.
+    if (this.current) this.current.pausable = true;
   }
 
   async enterXR(mode) {
@@ -194,6 +198,7 @@ class App {
   }
 
   closeStage() {
+    this.pause.close(false);
     this.nav = (this.nav ?? 0) + 1;
     this.current?.dispose();
     this.current = null;
@@ -378,7 +383,12 @@ async function boot() {
   setupClientGames(app);
   document.querySelectorAll('[data-lab-open]').forEach((el) => el.addEventListener('click', () => app.openPreview(Number(el.dataset.labOpen))));
   document.getElementById('btn-close').addEventListener('click', () => app.closeStage());
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !app.stage.hidden) app.closeStage(); });
+  // Escape leaves the 3D view from the lobby; inside a game it pauses instead (pause.js).
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || app.stage.hidden || e.defaultPrevented) return;
+    if (app.pause.isOpen || app.pause.available) return;
+    app.closeStage();
+  });
   document.querySelectorAll('[data-mode]').forEach((el) => { el.hidden = !VISIBLE_MODES.includes(el.dataset.mode); });
   // Game icons (same drawings as in the 3D menu).
   document.querySelectorAll('article[data-mode]').forEach((el) => {
