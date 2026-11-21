@@ -291,24 +291,34 @@ export class BaseScene {
 
     const canSubmit = GAME_MODES.includes(gameKey) && score > 0 && !submitted;
     const next = this.resultData.next; // e.g. the next level of Echo Parkour
+    // Phones: finger-sized buttons. Held sideways there is little height, so the buttons stand
+    // in a column beside the panels and the camera can come closer.
+    const touch = this.engine.touchUI;
+    const wide = touch && window.innerWidth > window.innerHeight * 1.2;
+    const bh = touch ? 0.16 : 0.12;
+    const bw = (w) => (wide ? 0.44 : w);
     const buttons = [
-      ...(next ? [new Button(0.42, 0.12, { label: next.label, variant: 'success', onClick: next.onClick })] : []),
-      new Button(0.36, 0.12, { label: t('again'), variant: next ? 'secondary' : 'primary', onClick: onAgain }),
-      ...(canSubmit ? [new Button(0.46, 0.12, { label: t('submitScore'), variant: 'sponsor', onClick: () => this.submitFlow() })] : []),
-      new Button(0.3, 0.12, { label: t('menu'), onClick: () => this.app.showMenu() }),
+      ...(next ? [new Button(bw(0.42), bh, { label: next.label, variant: 'success', onClick: next.onClick })] : []),
+      new Button(bw(0.36), bh, { label: t('again'), variant: next ? 'secondary' : 'primary', onClick: onAgain }),
+      ...(canSubmit ? [new Button(bw(0.46), bh, { label: t('submitScore'), variant: 'sponsor', onClick: () => this.submitFlow() })] : []),
+      new Button(bw(0.3), bh, { label: t('menu'), onClick: () => this.app.showMenu() }),
     ];
-    const by = sponsor.position.y - sponsor.h / 2 - 0.04;
-    const btnH = Math.max(...buttons.map((b) => b.h));
-    layoutRow(buttons, by - btnH / 2, -dist);
+    let by = sponsor.position.y - sponsor.h / 2 - 0.04;
+    let btnH = Math.max(...buttons.map((b) => b.h));
+    if (wide) {
+      let y = top;
+      buttons.forEach((b) => { b.position.set(0.64 + 0.04 + 0.22, y - b.h / 2, -dist); y -= b.h + 0.02; });
+      by = y + 0.03; btnH = 0; // a further button (share, event QR) continues the column
+    } else layoutRow(buttons, by - btnH / 2, -dist);
     // Event mode: the result (licence code and QR) to take home on the phone.
     if (EVENT) {
-      const qr = new Button(0.5, 0.11, { label: t('eventScan'), variant: 'sponsor', labelSize: 'xr-text-sm', onClick: () => this.showTakeaway() });
-      qr.position.set(0, by - btnH - 0.03 - qr.h / 2, -dist);
+      const qr = new Button(wide ? 0.44 : 0.5, touch ? 0.14 : 0.11, { label: t('eventScan'), variant: 'sponsor', labelSize: 'xr-text-sm', onClick: () => this.showTakeaway() });
+      qr.position.set(wide ? 0.9 : 0, by - btnH - 0.03 - qr.h / 2, -dist);
       buttons.push(qr);
     } else if (!this.engine.isXR && score > 0 && (navigator.share || navigator.clipboard)) {
       // Browser and phones: share the result as a link that opens this game with the score to beat.
-      const share = new Button(0.42, 0.1, { label: t('shareResult'), labelSize: 'xr-text-sm', onClick: () => this.shareResult(share) });
-      share.position.set(0, by - btnH - 0.03 - share.h / 2, -dist);
+      const share = new Button(wide ? 0.44 : 0.42, touch ? 0.14 : 0.1, { label: t('shareResult'), labelSize: 'xr-text-sm', onClick: () => this.shareResult(share) });
+      share.position.set(wide ? 0.9 : 0, by - btnH - 0.03 - share.h / 2, -dist);
       buttons.push(share);
     }
     [scorePanel, recapPanel, sponsor, ...buttons].forEach((o, i) => this.popIn(this.add(o), i * 0.06));

@@ -532,6 +532,8 @@ export class PinballScene extends BaseScene {
       onClick: () => this.ready.then(() => { if (!this.disposed && this.machine) this.start(); }),
     }));
     go.position.set(0, panel.position.y - panel.h / 2 - 0.04 - go.h / 2, -1.15);
+    // The machine's head stands nearer than the panel in the browser view: draw the intro on top.
+    if (!this.engine.isXR) for (const o of [panel, go]) { o.renderOrder = 20; o.material.depthTest = false; }
     this.introPanel = panel;
     this.introGo = go;
     this.popIn(panel);

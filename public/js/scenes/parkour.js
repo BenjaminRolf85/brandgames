@@ -565,6 +565,8 @@ export class ParkourScene extends BaseScene {
     layoutRow([go], y1, -1.0);
     layoutRow(others, y1 - 0.065 - 0.03 - others[0].h / 2, -1.0, 0.03);
     [go, ...others].forEach((b, i) => { this.add(b); this.popIn(b, 0.1 + i * 0.05); });
+    // Browser: the stage's backdrop and snow stand nearer than the intro; draw the intro on top.
+    if (!this.engine.isXR) for (const o of [p, go, ...others]) { o.renderOrder = 20; o.material.depthTest = false; }
   }
 
   /** The start button, or the flap key on the intro. */
