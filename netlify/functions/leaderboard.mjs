@@ -11,9 +11,9 @@ import { getStore } from '@netlify/blobs';
 // Highest score a full, perfect round can reach per mode (anything above is rejected).
 export const MAX_SCORE = { quiz: 1200, factmyth: 1400, sort: 2400, timeline: 1600, pong: 6000, arch: 7000, fight: 9000, parkour: 4500, parkour2: 4500, parkour3: 4500, dataflight: 8000,
   // Games for our clients (Christmas 2026): a perfect round stays at or below 5000.
-  bike: 5000, roast: 5000, bricks: 5000, green: 5000, dock: 5000, pinball: 5000, summit: 5000 };
+  bike: 5000, roast: 5000, bricks: 5000, green: 5000, dock: 5000, pinball: 5000, summit: 5000, lineage: 5000, cars: 5000 };
 // Games that count for the overall ranking (the ones the app offers).
-export const OVERALL_MODES = ['quiz', 'parkour', 'parkour3', 'parkour2', 'pong', 'dataflight', 'fight', 'bike', 'roast', 'bricks', 'green', 'dock', 'pinball', 'summit'];
+export const OVERALL_MODES = ['quiz', 'parkour', 'parkour3', 'parkour2', 'pong', 'dataflight', 'fight', 'bike', 'roast', 'bricks', 'green', 'dock', 'pinball', 'summit', 'lineage', 'cars'];
 export const GAME_POINTS = 1000;
 const NAME_RE = /^[\p{L}\p{N} ._-]{2,14}$/u;
 const TOP = 10;

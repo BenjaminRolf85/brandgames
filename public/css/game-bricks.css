@@ -1,19 +1,32 @@
 /* Design tokens of the game 'bricks' (colors and sizes of its 3D world and UI). Read by tokens.js like tokens.css. */
 :root {
-  /* bricks */
+  /* bricks and stone */
   --xr-bricks-clay:           #c2643f;   /* clay bricks (each one varies a little) */
-  --xr-bricks-gold:           #f0b43c;   /* golden interest bricks */
+  --xr-bricks-gold:           #f0b43c;   /* the door knob */
   --xr-bricks-gold-glow:      #ffd970;
-  --xr-bricks-concrete:       #8f8a82;   /* foundation, sills, lintels, chimney cap */
-  --xr-bricks-quoin:          #d9b88a;   /* sandstone corner pieces */
-  --xr-bricks-solar:          #1d2f5c;   /* solar cells (roof option) */
-  /* the plan: ghost outline, free places, the place a brick would snap to */
-  --xr-bricks-ghost:          #5fe1ff;
-  --xr-bricks-ghost-dim:      #10394a;
-  --xr-bricks-ghost-hot:      #b8f6ff;
-  --xr-bricks-ghost-line:     #6fd8ff;
-  --xr-bricks-ghost-warn:     #ffb347;   /* a place where the piece would wobble (statics) */
-  --xr-bricks-reject:         var(--xr-danger);
+  --xr-bricks-concrete:       #8f8a82;   /* foundation, sills, lintels */
+  --xr-bricks-quoin:          #d9b88a;   /* sandstone corner pieces, mortar */
+  --xr-bricks-solar:          #1d2f5c;   /* solar cells */
+  /* wall types built in code */
+  --xr-bricks-plaster:        #f1e8d6;   /* timber frame: the plastered fields */
+  --xr-bricks-beam:           #5a3d28;   /* timber frame: the beams */
+  --xr-bricks-concrete-wall:  #b9b7b1;   /* exposed concrete */
+  --xr-bricks-plank:          #c8975c;   /* wood cladding, wooden windows and doors */
+  /* roofs built in code */
+  --xr-bricks-thatch:         #c9a660;
+  --xr-bricks-thatch-dark:    #94713a;
+  --xr-bricks-metal-roof:     #9fb0bd;
+  --xr-bricks-sedum:          #7fae5a;   /* the green roof, reeds, grasses */
+  /* more parts */
+  --xr-bricks-shutter:        #2f6e69;   /* window shutters, the rainwater tank */
+  --xr-bricks-slim:           #2a2f3a;   /* slim dark frames, metal fence, carport posts */
+  --xr-bricks-unit:           #e9ecef;   /* heat pump, sensors */
+  --xr-bricks-gas:            #e6c13a;   /* gas meter and pipe */
+  --xr-bricks-car:            #d94c3f;
+  --xr-bricks-hedge:          #3f8a48;
+  --xr-bricks-flower-1:       #ff8fb0;
+  --xr-bricks-flower-2:       #ffd24a;
+  --xr-bricks-pebble:         #b9b2a6;   /* the gravel garden */
   /* garden */
   --xr-bricks-grass:          #5a954b;
   --xr-bricks-grass-dark:     #417a3d;
@@ -38,21 +51,16 @@
   --xr-bricks-glass:          #2a3b56;
   --xr-bricks-window-light:   #ffbf5e;   /* windows when the lights go on */
   --xr-bricks-door:           #2f6e69;
-  --xr-bricks-lamp:           #ffc96b;   /* lamps and the machine light */
+  --xr-bricks-lamp:           #ffc96b;   /* lamps */
   --xr-bricks-interior:       #ff9f45;   /* warm glow behind the open door */
   --xr-bricks-metal:          #8e97a4;
   --xr-bricks-dark:           #2b2f38;
   /* building site */
   --xr-bricks-crane:          #f2b632;
   --xr-bricks-crane-dark:     #3a3f4b;
-  --xr-bricks-crane-glass:    #9fd3ea;
+  --xr-bricks-crane-glass:    #9fd3ea;   /* also clear glass (conservatory, pond) */
   --xr-bricks-cable:          #1d2026;
-  --xr-bricks-belt:           #25282e;
-  --xr-bricks-machine:        #6c5cf0;   /* the savings machine */
-  --xr-bricks-machine-trim:   #ece8ff;
-  --xr-bricks-bag:            #d8b98a;   /* shopping bag (spending) */
-  --xr-bricks-bag-handle:     #7a5233;
-  --xr-bricks-puff:           #efe6d8;   /* mortar dust when a brick sits */
+  --xr-bricks-puff:           #efe6d8;   /* dust when a part lands */
   --xr-bricks-smoke:          #dfe3ea;   /* chimney smoke */
   --xr-bricks-key-light:      #ffe2bd;   /* warm evening sun */
   --xr-bricks-rim-light:      #8fa8ff;   /* cool rim from behind */
@@ -61,27 +69,8 @@
   --xr-bricks-sky-mid:        #3a2f6e;
   --xr-bricks-sky-low:        #141029;
   --xr-bricks-star:           #fff4d6;
-  /* the AI forecast chart */
-  --xr-bricks-chart-saved:    var(--xr-accent);
-  --xr-bricks-chart-forecast: #c8b8ff;
-  --xr-bricks-chart-band:     rgb(155 133 255 / 0.3);
-  --xr-bricks-chart-band-edge: rgb(185 166 255 / 0.65);
-  --xr-bricks-chart-target:   var(--xr-warning);
-  --xr-bricks-chart-grid:     rgb(255 255 255 / 0.12);
-  --xr-bricks-chart-axis:     rgb(255 255 255 / 0.35);
-  --xr-bricks-chart-spend:    var(--xr-danger);
-  --xr-bricks-chart-gold:     #ffd970;
-  --xr-bricks-chart-now:      rgb(255 255 255 / 0.5);
-  --xr-bricks-chart-snow:     rgb(170 210 255 / 0.12);   /* months after the first snow */
-  --xr-bricks-snow-icon:      #bfe3ff;
-  /* life events */
-  --xr-bricks-card-bg:        #0d1222;   /* the decision card (opaque) */
-  --xr-bricks-event:          #ff9fc3;
-  --xr-bricks-opt-1:          #ffd27a;
-  --xr-bricks-opt-2:          #8fe0ff;
-  /* the neighbors (their bricks, their line in the chart, the family) */
+  /* the neighbors (their bar in the check, their sign, the family) */
   --xr-bricks-neighbor:       #ffa25c;
-  --xr-bricks-neighbor-clay:  #d9a45a;
   --xr-bricks-family-1:       #3f7bd6;
   --xr-bricks-family-2:       #d94f6b;
   --xr-bricks-family-3:       #53b36b;
@@ -90,22 +79,26 @@
   --xr-bricks-family-hat-2:   #2f8f5a;
   --xr-bricks-family-skin-1:  #f1c6a0;
   --xr-bricks-family-skin-2:  #c98d64;
-  /* score popups over the plot (points, the run, a finished row) */
-  --xr-bricks-pop:            #ffffff;
-  --xr-bricks-pop-bonus:      #ffd970;
-  --xr-bricks-pop-run:        #8fe0ff;
-  --xr-bricks-pop-muted:      #c5cbe0;
-  --xr-bricks-pop-bad:        #ff9a8f;
-  --xr-bricks-pop-edge:       #0b1030;   /* outline, so they read on grass and on snow */
-  /* the crane's load: the ring at its place, the plumb disc under the hook */
-  --xr-bricks-drop-ring:      #5fe1ff;
-  --xr-bricks-drop-hot:       #fff2a8;
-  --xr-bricks-drop-disc:      #ffffff;
-  /* sizes (meters) */
-  --xr-bricks-chart-w:        0.7;
-  --xr-bricks-chart-h:        0.72;
-  --xr-bricks-chart-h-narrow: 0.58;
-  --xr-bricks-sign-w:         0.5;
-  --xr-bricks-snap:           0.075;     /* a held brick snaps to a free place this close (headset) */
-  --xr-bricks-grab:           0.085;     /* a hand this close to a brick grabs it directly */
+  /* the decision cards (opaque, so they read over a bright room in AR) */
+  --xr-bricks-card-bg:        #0d1222;
+  --xr-bricks-card-hover:     #1a2240;
+  --xr-bricks-card-on:        #10301f;   /* an extra that is taken */
+  --xr-bricks-pic-bg:         #1c2440;   /* behind an option's picture */
+  --xr-bricks-key-bg:         #ffffff;   /* the number of a card (its key) */
+  --xr-bricks-key-text:       #0d1222;
+  --xr-bricks-price:          #ffd970;
+  --xr-bricks-chip-bg:        rgb(255 255 255 / 0.06);
+  --xr-bricks-strip-bg:       rgb(13 18 34 / 0.94);
+  --xr-bricks-lock-veil:      rgb(8 10 20 / 0.55);
+  --xr-bricks-lock-bg:        #2a2f3a;
+  --xr-bricks-lock-text:      #ffffff;
+  /* the AI adviser */
+  --xr-bricks-ai:             #c8b8ff;
+  --xr-bricks-ai-text:        #1a1440;
+  /* money and score bars */
+  --xr-bricks-you:            var(--xr-accent);
+  --xr-bricks-bar-bg:         rgb(255 255 255 / 0.12);
+  --xr-bricks-bar-reserve:    #6b7390;   /* money kept for the cheapest remaining parts (hatched) */
+  --xr-bricks-bar-hatch:      rgb(13 18 34 / 0.55);
+  --xr-bricks-bar-free:       var(--xr-success);
 }

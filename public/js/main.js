@@ -49,6 +49,8 @@ const SCENES = {
   dock: () => import('./scenes/dock.js').then((m) => (app) => new m.DockScene(app)),
   pinball: () => import('./scenes/pinball.js').then((m) => (app) => new m.PinballScene(app)),
   summit: () => import('./scenes/summit.js').then((m) => (app) => new m.SummitScene(app)),
+  lineage: () => import('./scenes/lineage.js').then((m) => (app) => new m.LineageScene(app)),
+  cars: () => import('./scenes/cars.js').then((m) => (app) => new m.CarsScene(app)),
 };
 
 /** Fetches the visible games one after another in idle time, so they open without waiting. */

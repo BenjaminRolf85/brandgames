@@ -69,6 +69,8 @@ export const ICONS = {
   dock: `${circ(7, 8, 2.2)}${circ(17, 8, 2.2)}${circ(12, 17, 2.6)}M8.2 9.9l2.6 4.8M15.8 9.9l-2.6 4.8M9.2 8h5.6`,
   pinball: `${circ(15, 7, 2.5)}M3.5 19.5l7.5-3M20.5 19.5l-7.5-3M6 4v7M19 12v3`,
   summit: 'M2 20l7-11 4 6 3-4 6 9zM16 11V4l4 1.5-4 1.5',
+  lineage: 'M3 5h6v4H3zM15 3h6v4h-6zM15 15h6v4h-6zM9 7h2c2.5 0 1.5-2 4-2M9 7h2c2.5 0 1.5 10 4 10',
+  cars: `M5.4 16.6H3.2v-3.4l2.3-.7 2-3.3h6.4l2.9 3.3 4 1v3.1h-2.2M9.4 16.6h5.2M8.2 12.6h7.6${circ(7.4, 16.6, 2)}${circ(16.6, 16.6, 2)}M17 2.2h4.3v4.3l-2.5 2.5-4.3-4.3z${circ(19.3, 4.2, 0.35)}`,
 };
 
 /** Inline SVG markup for the landing page (inherits currentColor). */

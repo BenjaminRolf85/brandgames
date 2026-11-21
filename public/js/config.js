@@ -5,7 +5,7 @@
 // (3, office). Levels 2 and 3 open from inside Echo Parkour; they have no menu tile of their own.
 // Since November 2026 the bank data landscape ('arch') and Fact or Myth ('factmyth') are hidden.
 // Games for our clients (Christmas 2026), each with its own row in the menu ('For our clients').
-export const CLIENT_GAMES = ['bike', 'roast', 'bricks', 'green', 'dock', 'pinball', 'summit'];
+export const CLIENT_GAMES = ['bike', 'roast', 'bricks', 'green', 'dock', 'pinball', 'summit', 'lineage', 'cars'];
 export const VISIBLE_MODES = ['quiz', 'parkour', 'parkour3', 'parkour2', 'pong', 'dataflight', 'fight', ...CLIENT_GAMES];
 
 // Echomotion's background music (assets/music). All games share one playlist that plays in a
@@ -36,6 +36,8 @@ export const XMAS_SONGS = {
   dock: 'xmas-danke',
   pinball: 'xmas-danke',
   summit: 'xmas-danke',
+  lineage: 'xmas-danke',
+  cars: 'xmas-danke',
 };
 export const XMAS_MORE = 'xmas-en';
 export const MUSIC = {
@@ -59,6 +61,8 @@ export const MUSIC = {
   dock: true,
   pinball: true,
   summit: true,
+  lineage: true,
+  cars: true,
 };
 
 // Seasonal decoration: 'christmas' puts a Santa hat on Echo and a Christmas tree with fairy lights

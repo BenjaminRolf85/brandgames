@@ -1,0 +1,432 @@
+/* Design tokens of the game 'cars' ("Autohof": colors and sizes of its 3D lot and its panels). Read by tokens.js like tokens.css. */
+:root {
+  /* ----- the five kinds of cars: one color each (paint, icons, chart rows); always with an icon and a name ----- */
+  --xr-cars-seg-small:        #f2b534;
+  --xr-cars-seg-estate:       #4a8fe0;
+  --xr-cars-seg-suv:          #46a36a;
+  --xr-cars-seg-cabrio:       #e8574f;
+  --xr-cars-seg-electric:     #35c9c0;
+  /* the same on white (thought bubbles, price signs) */
+  --xr-cars-seg-ink-small:    #b97d06;
+  --xr-cars-seg-ink-estate:   #2f6fc0;
+  --xr-cars-seg-ink-suv:      #2f8050;
+  --xr-cars-seg-ink-cabrio:   #cf3f38;
+  --xr-cars-seg-ink-electric: #138f88;
+
+  /* ----- cars ----- */
+  --xr-cars-car-glass:        #1a2436;
+  --xr-cars-car-trim:         #23262e;
+  --xr-cars-car-tire:         #17181c;
+  --xr-cars-car-rim:          #c9d0dc;
+  --xr-cars-car-head:         #fff4cf;
+  --xr-cars-car-tail:         #ff3b3b;
+  --xr-cars-car-seat:         #c79a6b;
+  --xr-cars-car-electric:     #8ff7ee;
+  --xr-cars-car-box:          #e9edf3;
+  --xr-cars-dust:             #b3a892;
+  --xr-cars-truck-cab:        #e9edf3;
+  --xr-cars-truck-cab-2:      #f0c24a;
+  --xr-cars-truck-bed:        #5b6475;
+
+  /* ----- the lot ----- */
+  --xr-cars-base:             #2a2f3d;
+  --xr-cars-grass:            #6f9f58;
+  --xr-cars-asphalt:          #5f6675;
+  --xr-cars-street:           #434956;
+  --xr-cars-pavement:         #b5b1a7;
+  --xr-cars-kerb:             #a39f96;
+  --xr-cars-line:             #dedbd0;
+  --xr-cars-hedge:            #4f8a4c;
+  --xr-cars-tree:             #5f9f52;
+  --xr-cars-tree-2:           #86b85a;
+  --xr-cars-trunk:            #7a563a;
+  --xr-cars-pole:             #8d95a6;
+  --xr-cars-lamp:             #fff3c4;
+  --xr-cars-floor:            #d9dce2;
+  --xr-cars-wall:             #dcd8ce;
+  --xr-cars-wall-2:           #3b4459;
+  --xr-cars-roof:             #d3d8e0;
+  --xr-cars-fascia:           #d9483f;
+  --xr-cars-glass:            #bfe6ff;
+  --xr-cars-interior:         #ffe9b0;
+  --xr-cars-sign:             #fff7df;
+  --xr-cars-sign-ink:         #2a2f3d;
+  --xr-cars-flag-1:           #e8574f;
+  --xr-cars-flag-2:           #f2b534;
+  --xr-cars-flag-3:           #f4f1e6;
+  --xr-cars-bunting-1:        #e8574f;
+  --xr-cars-bunting-2:        #f2b534;
+  --xr-cars-bunting-3:        #35c9c0;
+  --xr-cars-bunting-4:        #f4f1e6;
+  --xr-cars-cone:             #ff7a2f;
+  --xr-cars-barrier:          #f4f1e6;
+
+  /* ----- people ----- */
+  --xr-cars-skin-1:           #f2c7a8;
+  --xr-cars-skin-2:           #c98f6b;
+  --xr-cars-skin-3:           #8f5f43;
+  --xr-cars-skin-mask:        var(--p-white);   /* multiplies with the skin tone */
+  --xr-cars-hair-mask:        #52423a;          /* hair: a dark shade of the skin tone */
+  --xr-cars-cloth-1:          #e8574f;
+  --xr-cars-cloth-2:          #4a8fe0;
+  --xr-cars-cloth-3:          #f2b534;
+  --xr-cars-cloth-4:          #7c5cff;
+  --xr-cars-cloth-5:          #35b39a;
+  --xr-cars-cloth-6:          #e9edf3;
+
+  /* ----- signs, thought bubbles and tags on the lot ----- */
+  --xr-cars-sign-bg:          #fffdf6;
+  --xr-cars-sign-edge:        #2a2f3d;
+  --xr-cars-sign-text:        #171b26;
+  --xr-cars-sign-muted:       #4d5568;
+  --xr-cars-sign-tag:         #ffc65c;
+  --xr-cars-sign-tag-text:    #3d2a00;
+  --xr-cars-bubble:           #ffffff;
+  --xr-cars-bubble-edge:      #2a2f3d;
+  --xr-cars-gain:             #1f9e68;
+  --xr-cars-gain-edge:        #d6ffe9;
+  --xr-cars-gain-text:        #ffffff;
+  --xr-cars-miss:             #e0475f;
+  --xr-cars-tag-bg:           #ffffff;
+  --xr-cars-tag-text:         #7a1f2f;
+
+  /* ----- light and sky (browser and VR; AR keeps the real room) ----- */
+  --xr-cars-key-calm:         #fff1d6;
+  --xr-cars-key-spring:       #fff6c9;
+  --xr-cars-key-snow:         #dfeaff;
+  --xr-cars-key-rain:         #c3cbd9;
+  --xr-cars-key-warm:         #ffd9a3;
+  --xr-cars-fill:             #b8d2ff;
+  --xr-cars-bounce:           #6b6f63;
+  --xr-cars-sky-top:          #14315e;
+  --xr-cars-sky-mid:          #3f7fc0;
+  --xr-cars-sky-bottom:       #bfe0f2;
+  --xr-cars-snow:             #ffffff;
+  --xr-cars-rain:             #9fc3e6;
+
+  /* ----- sizes (meters) ----- */
+  --xr-cars-tilt:             0.74;   /* browser: the lot tilts towards the camera */
+  --xr-cars-table-drop:       0.62;   /* headset: the lot's ground below eye height */
+  --xr-cars-table-z:          -0.82;  /* headset: the lot's center in front of the player */
+  --xr-cars-table-scale:      0.8;    /* headset: about 1.05 m wide */
+
+  /* ----- the panels on the screen (js/cars-screen.js) ----- */
+  --xr-cars-font:             var(--text-sm);                               /* phones: 14 px */
+  --xr-cars-font-desk:        clamp(1rem, 0.62rem + 0.5vw, 1.2rem);
+  --xr-cars-side:             clamp(26rem, 46vw, 36rem);                    /* desktop: the column of panels */
+  --xr-cars-side-land:        56%;                                          /* phone sideways */
+  --xr-cars-scrim:            rgb(10 14 28 / 0.9);
+  --xr-cars-card:             rgb(255 255 255 / 0.06);
+  --xr-cars-card-on:          rgb(124 92 255 / 0.32);
+  --xr-cars-line-soft:        rgb(255 255 255 / 0.16);
+  --xr-cars-track:            rgb(255 255 255 / 0.14);
+  --xr-cars-tick:             rgb(0 0 0 / 0.4);
+  --xr-cars-key-bg:           rgb(0 0 0 / 0.25);
+  --xr-cars-key-edge:         rgb(255 255 255 / 0.5);
+  --xr-cars-good:             var(--p-mint-400);
+  --xr-cars-bad:              var(--p-coral-300);
+  --xr-cars-warn:             var(--p-amber-400);
+  --xr-cars-tipc:             var(--p-amber-400);
+  --xr-cars-ico:              1.9em;
+}
+
+/* ---------- browser: status, forecast and decisions around the 3D lot ---------- */
+.cars-ui {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  gap: var(--space-2);
+  padding: max(var(--space-2), env(safe-area-inset-top)) max(var(--space-2), env(safe-area-inset-right)) max(var(--space-2), env(safe-area-inset-bottom)) max(var(--space-2), env(safe-area-inset-left));
+  box-sizing: border-box;
+  pointer-events: none;
+  color: var(--xr-panel-text);
+  font-size: var(--xr-cars-font);
+  line-height: 1.25;
+}
+.cars-ui[hidden], .cars-ui [hidden] { display: none; }
+.cars-ui > * { min-width: 0; min-height: 0; margin: 0; }
+.cars-ui.is-calm, .cars-ui.is-calm * { transition: none !important; animation: none !important; }
+.cars-ui p, .cars-ui h2, .cars-ui ul, .cars-ui ol, .cars-ui dl, .cars-ui dd { margin: 0; padding: 0; }
+.cars-ui ul, .cars-ui ol { list-style: none; }
+.cars-ui button { font: inherit; color: inherit; cursor: pointer; }
+.cars-ui button:disabled { cursor: default; }
+.cars-ui button:focus-visible { outline: 3px solid var(--xr-focus); outline-offset: 2px; }
+
+.cars-ui--desk {
+  grid-template: "bar lot" auto "panel lot" minmax(0, 1fr) "panel fc" auto / var(--xr-cars-side) minmax(0, 1fr);
+  font-size: var(--xr-cars-font-desk);
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+.cars-ui--port { grid-template: "bar" auto "lot" minmax(7.5rem, 1fr) "fc" auto "panel" auto / minmax(0, 1fr); }
+.cars-ui--land { grid-template: "bar lot" auto "panel lot" minmax(0, 1fr) "panel fc" auto / var(--xr-cars-side-land) minmax(0, 1fr); gap: var(--space-1) var(--space-2); padding-top: max(var(--space-1), env(safe-area-inset-top)); padding-bottom: max(var(--space-1), env(safe-area-inset-bottom)); }
+
+.cars-bar, .cars-fc, .cars-panel {
+  pointer-events: auto;
+  border: 1px solid var(--xr-panel-border);
+  border-radius: var(--radius-md);
+  background: var(--xr-cars-scrim);
+}
+
+/* ----- status bar ----- */
+.cars-bar { grid-area: bar; display: flex; align-items: center; gap: var(--space-2); min-height: var(--tap-min); padding: var(--space-1) var(--space-3) var(--space-1) var(--space-1); }
+.cars-ui--port .cars-bar { margin-right: calc(var(--stage-close-width) + var(--space-2)); }
+.cars-ui--land .cars-bar { padding-top: 2px; padding-bottom: 2px; }
+.cars-bar__menu { flex: none; min-height: var(--tap-min); min-width: var(--tap-min); padding: 0 var(--space-3); border: 1px solid var(--xr-panel-border); border-radius: var(--radius-sm); background: var(--xr-button-bg); font-weight: var(--font-weight-bold); }
+.cars-bar__menu:hover { background: var(--xr-button-hover); }
+.cars-bar__text { min-width: 0; font-weight: var(--font-weight-bold); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* ----- the lot's part of the screen: news and a car's numbers ----- */
+.cars-lot { grid-area: lot; position: relative; pointer-events: none; }
+.cars-news {
+  position: absolute;
+  left: 50%;
+  top: var(--space-2);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(100%, 34em);
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--xr-cars-warn);
+  border-radius: var(--radius-md);
+  background: var(--xr-cars-scrim);
+  font-weight: var(--font-weight-bold);
+  text-align: center;
+  animation: cars-pop var(--motion-slow) var(--ease-out);
+}
+.cars-ui--desk .cars-news { top: var(--space-7); font-size: 1.1em; }
+.cars-news--reward { border-color: var(--xr-cars-good); }
+.cars-news__label { display: block; color: var(--xr-cars-warn); font-size: 1em; letter-spacing: 0.06em; text-transform: uppercase; }
+@keyframes cars-pop { from { opacity: 0; transform: translateX(-50%) scale(0.9); } }
+.cars-info {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  max-width: min(100%, 22em);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--xr-panel-border);
+  border-left: 0.4em solid var(--cars-seg, var(--xr-accent));
+  border-radius: var(--radius-md);
+  background: var(--xr-cars-scrim);
+  pointer-events: auto;
+}
+.cars-ui--desk .cars-info { left: auto; right: 0; }
+.cars-info__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); font-weight: var(--font-weight-bold); margin-bottom: var(--space-1); }
+.cars-info__close { margin-top: var(--space-2); min-height: var(--tap-min); }
+
+/* ----- shared bits: icons, marks, kinds of cars, condition ----- */
+.cars-seg--small { --cars-seg: var(--xr-cars-seg-small); }
+.cars-seg--estate { --cars-seg: var(--xr-cars-seg-estate); }
+.cars-seg--suv { --cars-seg: var(--xr-cars-seg-suv); }
+.cars-seg--cabrio { --cars-seg: var(--xr-cars-seg-cabrio); }
+.cars-seg--electric { --cars-seg: var(--xr-cars-seg-electric); }
+.cars-ico { flex: none; width: var(--xr-cars-ico); height: calc(var(--xr-cars-ico) * 0.55); overflow: visible; }
+.cars-ico__fill { fill: var(--cars-seg, currentColor); }
+.cars-ico__cut { fill: var(--p-ink-950); }
+.cars-mark { flex: none; width: 1.25em; height: 1.25em; vertical-align: -0.25em; }
+.cars-mark--sm { width: 1.05em; height: 1.05em; vertical-align: -0.18em; }
+.cars-seg { display: inline-flex; align-items: center; gap: 0.4em; min-width: 0; font-weight: var(--font-weight-bold); }
+.cars-seg__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cars-cond { display: inline-flex; align-items: center; gap: 0.35em; white-space: nowrap; }
+.cars-cond__pips { display: inline-flex; gap: 0.16em; }
+.cars-cond__pips span { width: 0.5em; height: 0.5em; border: 2px solid var(--xr-panel-muted); border-radius: 50%; box-sizing: border-box; }
+.cars-cond__pips span.is-on { border-color: var(--xr-panel-text); background: var(--xr-panel-text); }
+.cars-kbd { display: inline-grid; place-items: center; min-width: 1.4em; height: 1.4em; padding: 0 0.2em; box-sizing: border-box; border: 1px solid var(--xr-cars-line-soft); border-radius: 0.35em; background: var(--xr-cars-key-bg); font: inherit; font-weight: var(--font-weight-bold); }
+.cars-ui--port .cars-kbd, .cars-ui--land .cars-kbd, .cars-ui--port .cars-foot__key, .cars-ui--land .cars-foot__key { display: none; }
+.cars-tip { display: inline-flex; align-items: center; gap: 0.25em; color: var(--xr-cars-tipc); font-weight: var(--font-weight-bold); white-space: nowrap; }
+
+/* ----- the AI forecast ----- */
+.cars-fc { grid-area: fc; display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); }
+.cars-fc__head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 var(--space-3); }
+.cars-fc__title { display: flex; align-items: center; gap: 0.45em; font-size: 1em; font-weight: var(--font-weight-black); }
+.cars-fc__ai { display: inline-grid; place-items: center; min-width: 1.7em; height: 1.5em; padding: 0 0.25em; border-radius: 0.4em; background: var(--xr-primary); color: var(--xr-on-primary); font-size: 1em; }
+.cars-fc__note { color: var(--xr-panel-muted); }
+.cars-ui--desk .cars-fc { justify-self: center; width: min(100%, 52em); box-sizing: border-box; }
+.cars-fc__rows { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-1); }
+.cars-fc__row { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; align-content: start; gap: 0.15em; padding: 0.25em 0.15em 0.3em; border-radius: var(--radius-sm); border-top: 0.22em solid var(--cars-seg); background: var(--xr-cars-card); text-align: center; }
+.cars-fc__row .cars-seg { flex-direction: column; gap: 0.1em; max-width: 100%; }
+.cars-fc__track { position: relative; width: 88%; height: 0.55em; border-radius: var(--radius-pill); background: var(--xr-cars-track); }
+.cars-fc__band { position: absolute; top: 0; bottom: 0; min-width: 0.4em; border-radius: var(--radius-pill); background: var(--cars-seg); transition: left var(--motion-slow) var(--ease-out), width var(--motion-slow) var(--ease-out); }
+.cars-fc__tick { position: absolute; top: 20%; bottom: 20%; width: 1px; background: var(--xr-cars-tick); }
+.cars-fc__actual { position: absolute; top: 50%; width: 1em; height: 1em; margin: -0.5em 0 0 -0.5em; box-sizing: border-box; border: 0.2em solid var(--p-ink-950); border-radius: 50%; background: var(--p-white); }
+.cars-fc__num { font-weight: var(--font-weight-black); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cars-ui--desk .cars-fc__num { font-size: 1.1em; }
+.cars-fc__end { display: inline-flex; align-items: center; gap: 0.3em; white-space: nowrap; color: var(--xr-panel-muted); }
+.cars-fc__end.is-up { color: var(--xr-cars-good); }
+.cars-fc__end.is-down { color: var(--xr-cars-bad); }
+.cars-fc__row.is-hit .cars-fc__end { color: var(--xr-cars-good); }
+.cars-fc__row.is-miss .cars-fc__end { color: var(--xr-cars-bad); }
+.cars-fc__why strong { color: var(--xr-accent); }
+.cars-fc__foot { color: var(--xr-panel-muted); }
+.cars-ui--port .cars-fc, .cars-ui--land .cars-fc { padding: var(--space-1) var(--space-2) var(--space-2); }
+.cars-ui--port .cars-fc__word, .cars-ui--land .cars-fc__word { display: none; }
+.cars-ui--land .cars-fc__foot, .cars-ui--port .cars-fc__foot, .cars-ui--land .cars-fc__note, .cars-ui--port .cars-fc__note { display: none; }
+.cars-ui--port .cars-fc__row, .cars-ui--land .cars-fc__row { grid-template-columns: auto auto; justify-content: center; column-gap: 0.25em; padding-top: 0.15em; }
+.cars-ui--port .cars-fc__row > .cars-seg, .cars-ui--land .cars-fc__row > .cars-seg, .cars-ui--port .cars-fc__track, .cars-ui--land .cars-fc__track { grid-column: 1 / -1; justify-self: center; }
+.cars-ui--port .cars-fc__track, .cars-ui--land .cars-fc__track { order: 5; }
+.cars-ui--port .cars-fc__why, .cars-ui--land .cars-fc__why { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* ----- the decision panel ----- */
+.cars-panel { grid-area: panel; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) var(--space-3) var(--space-3); min-height: 0; }
+.cars-ui--port .cars-panel, .cars-ui--land .cars-panel { padding: var(--space-2); gap: var(--space-1); }
+.cars-ui--port .cars-panel { max-height: 58vh; }
+.cars-panel__body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--space-2); overflow: auto; overscroll-behavior: contain; }
+.cars-ui--land .cars-panel__body, .cars-ui--port .cars-panel__body { gap: var(--space-1); }
+.cars-panel__title { font-size: 1.15em; font-weight: var(--font-weight-black); }
+
+.cars-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-1); }
+.cars-steps__btn { box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 0.4em; width: 100%; min-height: 2.4em; padding: 0.2em 0.4em; border: 1px solid var(--xr-cars-line-soft); border-radius: var(--radius-sm); background: transparent; color: var(--xr-panel-muted); font-weight: var(--font-weight-bold); }
+.cars-ui--port .cars-steps__btn { min-height: 2.3em; }
+.cars-ui--land .cars-steps__btn { min-height: 1.75em; padding: 0 0.4em; }
+.cars-ui--land .cars-steps__num { width: 1.3em; height: 1.3em; }
+.cars-ui--port .cars-head--sm, .cars-ui--land .cars-head--sm, .cars-ui--port .cars-targets__label, .cars-ui--land .cars-targets__label { display: none; }
+.cars-steps__num { display: inline-grid; place-items: center; width: 1.5em; height: 1.5em; border: 2px solid currentColor; border-radius: 50%; box-sizing: border-box; font-size: 1em; }
+.cars-steps__item.is-now .cars-steps__btn { border-color: var(--xr-primary); background: var(--xr-primary); color: var(--xr-on-primary); }
+.cars-steps__item.is-done .cars-steps__btn { color: var(--xr-panel-text); }
+
+.cars-note { display: flex; align-items: flex-start; gap: 0.5em; padding: 0.4em 0.6em; border-radius: var(--radius-sm); background: var(--xr-cars-card); }
+.cars-note .cars-mark { margin-top: 0.1em; color: var(--xr-cars-tipc); }
+.cars-note--coach, .cars-note--tip { border-left: 0.3em solid var(--xr-cars-tipc); }
+.cars-note--warn { border-left: 0.3em solid var(--xr-cars-warn); }
+.cars-note--warn .cars-mark { color: var(--xr-cars-warn); }
+.cars-note--good { border-left: 0.3em solid var(--xr-cars-good); }
+.cars-note--good .cars-mark { color: var(--xr-cars-good); }
+.cars-head { color: var(--xr-panel-muted); font-weight: var(--font-weight-bold); }
+.cars-fine { color: var(--xr-panel-muted); }
+
+.cars-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.4em; min-height: var(--tap-min); min-width: var(--tap-min); padding: 0.3em 0.8em; box-sizing: border-box; border: 1px solid var(--xr-panel-border); border-radius: var(--radius-sm); background: var(--xr-button-bg); font-weight: var(--font-weight-bold); transition: background var(--motion-fast), transform var(--motion-fast); }
+.cars-btn:hover:not(:disabled) { background: var(--xr-button-hover); }
+.cars-btn:active:not(:disabled) { transform: scale(0.97); }
+.cars-btn:disabled { opacity: 0.45; }
+.cars-btn--primary { border-color: var(--xr-primary-hover); background: var(--xr-primary); color: var(--xr-on-primary); }
+.cars-btn--primary:hover:not(:disabled) { background: var(--xr-primary-hover); }
+.cars-btn--buy { border-color: var(--xr-success); background: var(--xr-success-soft); }
+.cars-btn--buy:hover:not(:disabled) { background: var(--xr-success); color: var(--p-ink-950); }
+.cars-btn--ghost { background: transparent; }
+
+/* offers */
+.cars-offers { display: grid; gap: var(--space-1); }
+.cars-offer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-1) var(--space-2); padding: 0.3em 0.35em 0.3em 0.55em; border: 1px solid var(--xr-cars-line-soft); border-left: 0.35em solid var(--cars-seg); border-radius: var(--radius-sm); background: var(--xr-cars-card); }
+.cars-offer.is-tip { border-color: var(--xr-cars-tipc); border-left-color: var(--cars-seg); }
+.cars-offer.is-gone { opacity: 0.55; }
+.cars-offer.is-bought { border-color: var(--xr-cars-good); border-left-color: var(--cars-seg); }
+.cars-offer__main { min-width: 0; display: grid; gap: 0.1em; }
+.cars-offer__line { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5em; min-width: 0; }
+.cars-ui--desk .cars-offer__buy { padding: 0.3em 0.6em; }
+.cars-ui--desk .cars-offer__haggle { padding: 0.15em 0.5em; }
+.cars-ui--desk .cars-offer { padding-top: 0.2em; padding-bottom: 0.2em; }
+.cars-ui--port .cars-cond__pips, .cars-ui--land .cars-cond__pips { display: none; }
+.cars-offer__ask { font-size: 1.1em; font-weight: var(--font-weight-black); font-variant-numeric: tabular-nums; }
+.cars-offer__was { color: var(--xr-panel-muted); }
+.cars-offer__brings { color: var(--xr-panel-muted); white-space: nowrap; }
+.cars-offer__margin { color: var(--xr-cars-good); font-weight: var(--font-weight-bold); white-space: nowrap; }
+.cars-ui--port .cars-offer__margin, .cars-ui--land .cars-offer__margin { display: none; }
+.cars-offer__blocked { color: var(--xr-cars-warn); font-weight: var(--font-weight-bold); }
+.cars-offer__acts { display: flex; align-items: stretch; gap: var(--space-1); }
+.cars-offer__haggle { flex-direction: column; gap: 0; padding: 0.15em 0.45em; line-height: 1.1; }
+.cars-ui--port .cars-offer__buy, .cars-ui--land .cars-offer__buy { padding: 0.3em 0.55em; }
+.cars-ui--land .cars-offer { padding-top: 0; padding-bottom: 0; border-top: 0; border-bottom: 0; border-right: 0; }
+.cars-ui--land .cars-panel { padding: 6px; }
+.cars-ui--land .cars-match__head { display: none; }
+.cars-ui--land .cars-match__cell { grid-template-columns: auto auto auto; justify-content: center; align-items: center; gap: 0.3em; padding: 0.2em 0.1em; }
+.cars-ui--land .cars-match__cell .cars-ico { width: 1.5em; height: 0.83em; }
+.cars-ui--land .cars-pill__name { display: none; }
+.cars-ui--land .cars-pill { padding: 0 0.6em; }
+.cars-ui--port .cars-offer, .cars-ui--land .cars-offer { grid-template-columns: minmax(0, 1fr) auto auto; gap: 3px; padding-right: 0.25em; padding-left: 0.4em; }
+.cars-ui--port .cars-offer .cars-seg, .cars-ui--land .cars-offer .cars-seg { flex: none; }
+.cars-ui--port .cars-offer .cars-cond, .cars-ui--land .cars-offer .cars-cond { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cars-offer > .cars-speed { flex-direction: column; gap: 0; min-width: 3.3em; line-height: 1.1; text-align: center; }
+.cars-ui--port .cars-offer__ask, .cars-ui--land .cars-offer__ask { font-size: 1em; }
+.cars-ui--port .cars-offer__line, .cars-ui--land .cars-offer__line { gap: 0 0.4em; flex-wrap: nowrap; white-space: nowrap; }
+.cars-ui--port .cars-offer__haggle, .cars-ui--land .cars-offer__haggle { padding: 0.15em 0.35em; }
+.cars-ui--land .cars-offers { gap: 2px; }
+.cars-offer__haggle small { font-size: 1em; font-weight: var(--font-weight-regular); color: var(--xr-panel-muted); }
+.cars-offer__state { display: inline-flex; align-items: center; gap: 0.35em; min-height: var(--tap-min); padding: 0 0.4em; font-weight: var(--font-weight-bold); }
+.cars-offer__state--bought { color: var(--xr-cars-good); }
+.cars-offer__state--gone { color: var(--xr-cars-bad); }
+.cars-speed { display: inline-flex; align-items: center; gap: 0.25em; white-space: nowrap; font-weight: var(--font-weight-bold); }
+.cars-speed--fast { color: var(--xr-cars-good); }
+.cars-speed--slow { color: var(--xr-cars-bad); }
+.cars-speed--normal { color: var(--xr-panel-muted); }
+
+/* price and advertising: big option cards */
+.cars-opts { display: grid; gap: var(--space-1); }
+.cars-opts--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cars-opts--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.cars-opt { position: relative; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 0.2em; min-height: 4.6em; padding: 0.45em 0.5em; text-align: left; font-weight: var(--font-weight-regular); background: var(--xr-cars-card); border-color: var(--xr-cars-line-soft); }
+.cars-opt__head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35em; font-weight: var(--font-weight-bold); }
+.cars-opt__big { font-size: 1.1em; font-weight: var(--font-weight-black); }
+.cars-opt__sub { color: var(--xr-panel-muted); overflow-wrap: anywhere; }
+.cars-opt.is-on { border: 2px solid var(--xr-accent); background: var(--xr-cars-card-on); }
+.cars-opt.is-on::after { content: ""; position: absolute; right: 0.5em; bottom: 0.65em; width: 0.8em; height: 0.42em; border-left: 0.22em solid var(--xr-accent); border-bottom: 0.22em solid var(--xr-accent); transform: rotate(-45deg); }
+.cars-ui--land .cars-opt { min-height: var(--tap-min); padding: 0.2em 0.4em; gap: 0; }
+.cars-ui--land .cars-opt__big { font-size: 1em; }
+.cars-ui--land .cars-fine, .cars-ui--port .cars-fine, .cars-ui--land .cars-panel--buy .cars-head, .cars-ui--port .cars-panel--buy .cars-head { display: none; }
+.cars-ui--port .cars-offer .cars-ico, .cars-ui--land .cars-offer .cars-ico { width: 1.55em; height: 0.85em; }
+.cars-opt.is-tip { box-shadow: inset 0 -0.25em 0 var(--xr-cars-tipc); }
+
+.cars-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-1); }
+.cars-ui--port .cars-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cars-strip__empty { grid-column: 1 / -1; color: var(--xr-panel-muted); }
+.cars-chip { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0 0.3em; min-height: var(--tap-min); padding: 0.2em 0.35em; box-sizing: border-box; border: 1px solid var(--xr-cars-line-soft); border-bottom: 0.22em solid var(--cars-seg); border-radius: var(--radius-sm); background: var(--xr-cars-card); text-align: left; }
+.cars-chip .cars-ico { width: 1.6em; height: 0.88em; }
+.cars-chip__price { font-weight: var(--font-weight-black); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cars-chip__cost { grid-column: 1 / -1; color: var(--xr-panel-muted); white-space: nowrap; }
+.cars-chip__since { grid-column: 1 / -1; display: inline-flex; align-items: center; gap: 0.25em; color: var(--xr-cars-warn); font-weight: var(--font-weight-bold); white-space: nowrap; }
+.cars-chip.is-dusty { border-color: var(--xr-cars-warn); border-bottom-color: var(--cars-seg); }
+.cars-chip:hover { background: var(--xr-button-hover); }
+
+.cars-targets { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.cars-targets__label { color: var(--xr-panel-muted); font-weight: var(--font-weight-bold); margin-right: 0.2em; }
+.cars-pill { display: inline-flex; align-items: center; gap: 0.3em; min-height: var(--tap-min); min-width: var(--tap-min); padding: 0 0.6em; box-sizing: border-box; border: 1px solid var(--xr-cars-line-soft); border-radius: var(--radius-pill); background: var(--xr-cars-card); font-weight: var(--font-weight-bold); }
+.cars-pill .cars-ico { width: 1.7em; height: 0.94em; }
+.cars-pill.is-on { border: 2px solid var(--xr-accent); background: var(--xr-cars-card-on); }
+.cars-pill:disabled { opacity: 0.45; }
+.cars-ui--port .cars-pill__name { display: none; }
+.cars-ui--port .cars-pill { padding: 0 0.45em; }
+.cars-ui--port .cars-targets, .cars-ui--land .cars-targets { flex-wrap: nowrap; }
+.cars-ui--port .cars-pill, .cars-ui--land .cars-pill { flex: 1 1 0; justify-content: center; padding: 0 0.2em; white-space: nowrap; }
+
+.cars-match { display: grid; gap: var(--space-1); }
+.cars-match__head { font-weight: var(--font-weight-bold); }
+.cars-match__grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-1); }
+.cars-match__cell { display: grid; justify-items: center; gap: 0.1em; padding: 0.3em 0.15em; border: 1px solid var(--xr-cars-line-soft); border-top: 0.22em solid var(--cars-seg); border-radius: var(--radius-sm); background: var(--xr-cars-card); text-align: center; }
+.cars-match__nums { font-size: 1.05em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cars-match__verdict { display: inline-flex; align-items: center; gap: 0.25em; color: var(--xr-panel-muted); }
+.cars-match__cell.is-ok .cars-match__verdict { color: var(--xr-cars-good); }
+.cars-match__cell.is-empty .cars-match__verdict { color: var(--xr-cars-warn); }
+.cars-match__cell.is-stay .cars-match__verdict { color: var(--xr-cars-bad); }
+.cars-ui--port .cars-match__word, .cars-ui--land .cars-match__word { display: none; }
+.cars-ui--desk .cars-match__word { line-height: 1.1; }
+.cars-ui--desk .cars-match__verdict { flex-direction: column; }
+
+/* the running week */
+.cars-tally { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-1); }
+.cars-tally__cell { display: grid; justify-items: center; padding: 0.4em 0.2em; border-radius: var(--radius-sm); background: var(--xr-cars-card); text-align: center; }
+.cars-tally__num { font-size: 1.5em; font-weight: var(--font-weight-black); font-variant-numeric: tabular-nums; }
+.cars-tally__cell--gain .cars-tally__num { color: var(--xr-cars-good); }
+.cars-tally__label { color: var(--xr-panel-muted); }
+.cars-log { display: grid; gap: 0.25em; min-height: 5.2em; align-content: start; }
+.cars-log__item { display: flex; align-items: flex-start; gap: 0.45em; padding: 0.2em 0.5em; border-radius: var(--radius-sm); background: var(--xr-cars-card); }
+.cars-log__item.is-buy { font-weight: var(--font-weight-bold); }
+.cars-log__item.is-buy .cars-mark { color: var(--xr-cars-good); }
+.cars-log__item.is-none .cars-mark, .cars-log__item.is-dear .cars-mark { color: var(--xr-cars-bad); }
+
+/* the week's summary */
+.cars-sum__net { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); padding: 0.3em 0.6em; border-radius: var(--radius-sm); background: var(--xr-cars-card); }
+.cars-sum__label { font-weight: var(--font-weight-bold); }
+.cars-sum__num { font-size: 1.7em; font-weight: var(--font-weight-black); font-variant-numeric: tabular-nums; }
+.cars-sum__net.is-good .cars-sum__num { color: var(--xr-cars-good); }
+.cars-sum__net.is-bad .cars-sum__num { color: var(--xr-cars-bad); }
+.cars-sum { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.25em var(--space-3); padding: 0 0.6em; }
+.cars-sum dt small { display: block; font-size: 1em; color: var(--xr-panel-muted); }
+.cars-sum dd { font-weight: var(--font-weight-bold); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cars-sum dd.is-good { color: var(--xr-cars-good); }
+.cars-sum dd.is-bad { color: var(--xr-cars-bad); }
+
+/* footer: back and the main button */
+.cars-foot { display: flex; gap: var(--space-2); }
+.cars-foot__go { flex: 1; min-height: max(3em, var(--tap-min)); font-size: 1.05em; }
+.cars-ui--land .cars-foot__go { min-height: var(--tap-min); }
+.cars-foot__key { padding: 0.05em 0.45em; border: 1px solid var(--xr-cars-key-edge); border-radius: 0.35em; font-size: 1em; font-weight: var(--font-weight-regular); }
