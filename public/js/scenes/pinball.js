@@ -93,7 +93,7 @@ export class PinballScene extends BaseScene {
     this.speed = assist.pick(1, 0.8); // the ball's pace (time of the physics)
     // Ball save after each launch, per ball (s): while it runs every drained ball comes back, so
     // even a first round lasts a while. Generous for the first ball, then shorter.
-    this.saveTimes = assist.pick([25, 20, 15], [30]);
+    this.saveTimes = assist.pick([30, 25, 20], [30]);
     this.view = 'close'; // desktop: 'close' (the player's view) or 'full' (the whole machine)
     this.input = { left: false, right: false, plunger: false };
     // Who holds an input (keys, mouse buttons, fingers, thumb buttons, the headset's triggers).

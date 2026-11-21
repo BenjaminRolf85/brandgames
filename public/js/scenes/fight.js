@@ -104,7 +104,7 @@ const ARENA_R = 0.6;
 const ARENA_Z = -1.25;
 const ARENA_DROP = 0.72; // platform below eye height (table height in the room)
 const GAP = 0.33; // fighters stand at x = -GAP and +GAP
-const HUD_UP = 1.24; // scoreboard height above the platform (above the robot's announcement)
+const HUD_UP = 1.3; // scoreboard height above the platform (above the robot's announcement)
 const BEAT = 1.45; // seconds per move
 const IMPACT = 0.52; // when hits land within a beat
 const THROW_SLAM = 0.56; // after a landed throw: when the thrown fighter hits the floor
@@ -499,10 +499,11 @@ export class FightScene extends BaseScene {
    * Browser: the intro and the result are shown larger (the play area keeps its size). The layer
    * is scaled around a point at the top of the UI plane.
    */
-  zoom(k, top = 0.5) {
+  zoom(k, top = 0.5, lift = 0) {
     const pivot = new THREE.Vector3(0, this.eye + top, -this.dist);
     this.layer.scale.setScalar(k);
     this.layer.position.copy(pivot).multiplyScalar(1 - k);
+    this.layer.position.y += lift;
   }
 
   showIntro(focusMode = null) {
@@ -510,7 +511,9 @@ export class FightScene extends BaseScene {
     this.mode = 'intro';
     // Phones held sideways: the camera cannot come closer, so the panels grow instead.
     const portrait = this.flat && window.innerWidth < window.innerHeight;
-    this.zoom(!this.flat ? 1 : this.desk ? 1.3 : portrait ? 1.15 : 1.45, 0.55);
+    const k = !this.flat ? 1 : this.desk ? 1.3 : portrait ? 1.15 : 1.45;
+    // Lifted by what it grew, so the start buttons stay above the table's edge.
+    this.zoom(k, 0.55, (k - 1) * 0.8);
     this.applyControls();
     this.board.visible = false;
     // The table is empty until the fight starts; then the figures are projected in.
@@ -1023,7 +1026,7 @@ export class FightScene extends BaseScene {
     ctx.fillText(name, 192, 48);
     tex.needsUpdate = true;
     this.tell.move = move;
-    g.position.set(GAP, 0.93, 0.04);
+    g.position.set(GAP, 0.91, 0.04);
     g.visible = true;
     // A feint turning into the real attack: the icon pops (not with calm motion).
     const s = this.tell.size;
@@ -1049,7 +1052,7 @@ export class FightScene extends BaseScene {
   answersTo(shown) {
     const kp = this.kindP;
     const ka = this.kindA;
-    if (shown === 'counter') return ['punch', 'kick', 'throw'];
+    if (shown === 'counter') return this.energy.p >= 100 ? ['punch', 'kick', 'throw', 'special'] : ['punch', 'kick', 'throw'];
     if (shown === 'special') { const sp = SPECIALS[ka]; return [...(sp.stop ?? []), ...Object.keys(sp.weak ?? {})]; }
     if (shown === 'block' || shown === 'duck') return ATTACKS.filter((m) => damage(m, shown, kp, ka) > 0);
     return ['block', 'duck', 'punch', 'kick'].filter((m) => damage(shown, m, ka, kp) === 0);
@@ -1060,9 +1063,12 @@ export class FightScene extends BaseScene {
    * fitting buttons. It helps the first times each announcement comes (relaxed mode: always).
    */
   coach(shown) {
-    const n = (this.seenTell[shown] = (this.seenTell[shown] ?? 0) + 1);
+    // (The special in a counter counts as an announcement of its own: the coach shows it too.)
+    const what = shown === 'counter' && this.energy.p >= 100 ? 'counterSpecial' : shown;
+    const n = (this.seenTell[what] = (this.seenTell[what] ?? 0) + 1);
     if (!this.easy && n > COACH_TIMES) { this.hideCoach(); return; }
-    const best = shown === 'special' ? SPECIALS[this.kindA].counter : BEST[shown];
+    // With full energy the counter is the moment for your special: it cannot be stopped then.
+    const best = shown === 'special' ? SPECIALS[this.kindA].counter : shown === 'counter' && this.energy.p >= 100 ? 'special' : BEST[shown];
     const key = KEYCAP[best] ?? t(best === 'throw' ? 'fightKeySpace' : 'fightKeyEnter');
     const text = this.desk ? t('fightCoachKey', { move: this.moveName(best, this.kindP), key }) : t('fightCoach', { move: this.moveName(best, this.kindP) });
     this.coachSprite?.removeFromParent();
@@ -1149,11 +1155,11 @@ export class FightScene extends BaseScene {
       }
       if (ins) {
         ins.rotation.set(0, 0, 0);
-        ins.position.set(-0.89, y0 + 1.0 - this.insights.h / 2, ARENA_Z + 0.1);
+        ins.position.set(-0.89, y0 + 1.04 - this.insights.h / 2, ARENA_Z + 0.1);
       }
       if (cheat) {
         cheat.rotation.set(0, 0, 0);
-        cheat.position.set(0.89, y0 + 1.0 - cheat.h / 2, ARENA_Z + 0.1);
+        cheat.position.set(0.89, y0 + 1.04 - cheat.h / 2, ARENA_Z + 0.1);
       }
       return;
     }

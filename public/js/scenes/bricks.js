@@ -25,7 +25,7 @@
 // (assist.js), the controls per device (setControls), pause-safe (all time runs through update).
 import * as THREE from 'three';
 import { BaseScene } from '../scene.js';
-import { Button, Panel, textPanel, placeOnArc } from '../ui3d.js';
+import { Button, Panel, textPanel, placeOnArc, measureBlocks } from '../ui3d.js';
 import { color, hex, num } from '../tokens.js';
 import { t, L as loc } from '../i18n.js';
 import { SPONSOR } from '../content.js';
@@ -182,15 +182,20 @@ export class BricksScene extends BaseScene {
       return;
     }
     this.clearLayer();
-    const panel = this.add(textPanel(2.0, 0.3, [
+    const blocks = [
       { text: t('bricksName'), size: 'xr-text-title', weight: 'black', gap: 0.03 },
       { text: t('bricksIntro'), size: 'xr-text-md', color: color('xr-panel-muted'), gap: 0.03 },
       ...this.controlsBlocks(),
       { text: loc(SPONSOR.presentedBy), size: 'xr-text-sm', weight: 'bold', color: color('xr-warning') },
-    ]));
-    panel.position.set(0, this.eye + 0.3 - panel.h / 2, -this.dist);
+    ];
+    // Wide and near: the view cannot come closer than a step in front of the usual panels,
+    // so this one stands nearer to it (a low screen then shows it about twice as big).
+    const w = 1.9;
+    const z = -0.72;
+    const panel = this.add(textPanel(w, measureBlocks(blocks, w, num('xr-padding')) + 0.04, blocks));
+    panel.position.set(0, this.eye + 0.2 - panel.h / 2, z);
     const go = this.add(new Button(0.5, 0.13, { label: t('start'), variant: 'primary', labelSize: 'xr-text-lg', onClick: () => { this.startMusic(-1); this.start(); } }));
-    go.position.set(0, panel.position.y - panel.h / 2 - 0.04 - go.h / 2, -this.dist);
+    go.position.set(0, panel.position.y - panel.h / 2 - 0.04 - go.h / 2, z);
     this.popIn(panel);
     this.popIn(go, 0.1);
     this.app.host?.introduce(this, 'bricks', panel);
@@ -345,7 +350,8 @@ export class BricksScene extends BaseScene {
     this.coinTemplate = M.make('Coin');
     this.bagTemplate = M.make('Bag');
     // Grab areas: the belt and the pallet (the nearest part), and the crane's hook (a truss).
-    const pad = this.grabPad(new THREE.BoxGeometry(0.25, 0.14, 0.52), new THREE.Vector3(BELT_X, 0.07, 0.04));
+    // (Browser: a little slimmer, so a tap beside the house's right wall is not taken for the pallet.)
+    const pad = this.grabPad(new THREE.BoxGeometry(this.engine.isXR ? 0.25 : 0.19, 0.14, 0.52), new THREE.Vector3(BELT_X, 0.07, 0.04));
     this.pad = pad;
     this.hookPad = this.grabPad(new THREE.SphereGeometry(0.11, 12, 8), HOOK_AT.clone());
     this.hookPad.visible = false;
@@ -2666,7 +2672,7 @@ export class BricksScene extends BaseScene {
         if (left > 260) { area = { x: 0, w: left - 10, y0: lay.chart.y }; bottom2 = 10; }
       }
       const ch = this.cardGroup.userData.h + 0.02;
-      const cppm = Math.min(lay.touch ? 900 : ppm * 1.05, (area.w - 20) / (this.cardGroup.userData.w + 0.02), (lay.Hh - area.y0 - bottom2 - 16) / ch);
+      const cppm = Math.min(lay.touch ? 900 : ppm * 0.8, (area.w - 20) / (this.cardGroup.userData.w + 0.02), (lay.Hh - area.y0 - bottom2 - 16) / ch);
       const cyc = (area.y0 + lay.Hh - bottom2) / 2;
       this.pin(this.cardHolder, area.x + area.w / 2, cyc, cppm, 0.4);
     }

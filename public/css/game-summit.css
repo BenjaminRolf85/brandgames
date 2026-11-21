@@ -317,13 +317,18 @@
   background: var(--xr-panel-bg);
   font-weight: var(--font-weight-bold);
 }
-/* The speed bonus that runs down, at the end of the stage row. */
+/* The speed bonus that runs down: a small tag on top of the talk (portrait), at the end of the
+   stage row where the talk stands beside the wall. */
 .summit-talk__speed {
-  flex: none;
-  margin-left: auto;
+  position: absolute;
+  right: max(var(--space-3), env(safe-area-inset-right));
+  bottom: 100%;
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
+  padding: 0.1em var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--xr-panel-bg);
   color: var(--xr-summit-flow);
   white-space: nowrap;
 }
@@ -400,6 +405,7 @@
 
 /* Landscape: the talk sits on the right, the wall on the left. */
 @media (orientation: landscape) {
+  .summit-talk__speed { position: static; flex: none; margin-left: auto; padding: 0; background: none; }
   .summit-talk {
     left: auto;
     top: calc(max(var(--space-3), env(safe-area-inset-top)) + var(--tap-min) + var(--space-2));
@@ -416,6 +422,7 @@
   .summit-answer { padding-top: var(--space-1); padding-bottom: var(--space-1); }
   .summit-talk__meters { display: none; }
   .summit-talk__quote { padding: var(--space-1) var(--space-2); }
+  .summit-talk__stage { display: none; } /* the stage is in the status line */
 }
 /* Desktop: larger type; beside the wall the talk is a column that starts at the top. */
 .summit-talk--desk { font-size: var(--xr-summit-talk-font-desk); gap: var(--space-3); }

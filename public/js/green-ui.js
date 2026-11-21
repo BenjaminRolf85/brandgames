@@ -1,6 +1,9 @@
-// "Grünes Portfolio" (key 'green'): the 3D UI. Project cards (tiles to click or grab), the AI
-// forecast panel (heat-map legend, forecast with its 80 % range and confidence, the AI's top
-// picks, the running year, forecast versus result), the region dashboard and number formats.
+// "Grünes Portfolio" (key 'green'): the 3D UI. Project cards (tiles to click or grab), the action
+// and answer buttons, the AI forecast panel (the newcomer's next step, heat-map legend, forecast
+// with its usual range and confidence, the AI's top picks, the running year, forecast versus
+// result and the points), the region dashboard, the AI's warning (confidence, price of reacting,
+// risk of waiting, outcome) and number formats. No letters below the shared small-text size;
+// what does not fit a panel is left out, never squeezed in.
 // Colors and sizes from the tokens; the shared Panel/textPanel building blocks from ui3d.js.
 import { Panel, textPanel, roundRect } from './ui3d.js';
 import { color, num, font } from './tokens.js';

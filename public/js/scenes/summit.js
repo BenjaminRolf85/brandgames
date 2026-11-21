@@ -1508,7 +1508,7 @@ export class SummitScene extends BaseScene {
     // Low enough that Echo stays in the picture below the new holds (and after a slip).
     const low = 0.62;
     const box = top ? { x0: -0.42, x1: 0.48, y0: eye - 0.16, y1: eye + 0.46, z: -0.62 }
-      : late ? { x0: -0.45, x1: 0.45, y0: eye - 0.62, y1: eye + 0.47, z: -0.62 }
+      : late ? { x0: -0.45, x1: 0.45, y0: eye - 0.7, y1: eye + 0.47, z: -0.62 }
         : { x0: -0.42, x1: 0.42, y0: eye - low, y1: eye + (this.portraitFrame?.visible ? 0.2 : 0.0), z: -0.62 };
     this.frame(cam, dt, box, ins);
     return true;

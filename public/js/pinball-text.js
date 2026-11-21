@@ -191,7 +191,7 @@ addStrings({
     pinballGoodReach: '{n} Menschen erreicht.',
     pinballGoodStart: 'Der Anfang ist gemacht.',
     pinballNextEasy: 'Die Kugel ist schnell weg? In den Einstellungen gibt es den Modus „Entspannt“: langsamere Kugel und mehr Hilfen.',
-    pinballNextArrow: 'Ziel auf den blauen Pfeil: Jeder richtige KI-Tipp bringt einen Bonus, mehrere in Serie noch mehr.',
+    pinballNextArrow: 'Ziele auf den blauen Pfeil: Jeder richtige KI-Tipp bringt einen Bonus, mehrere in Serie noch mehr.',
     pinballNextFunnel: 'Sammle Treffer, bis „Abschluss“ erscheint, und triff dann das Haus am rechten Rand: Ein Neukunde bringt 200 Punkte und zwei Kugeln.',
     pinballNextJackpot: 'Nach einem Neukunden leuchtet der Jackpot: Die rechte Rampe führt in die Zentrale.',
     pinballNextAll: 'Triff alle sechs Kanäle mit einer Kugel: Danach zählt jeder Treffer doppelt.',

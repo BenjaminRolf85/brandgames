@@ -22,9 +22,10 @@
 // buttons for the projects, then tap a plot.
 import * as THREE from 'three';
 import { BaseScene } from '../scene.js';
-import { placeOnArc } from '../ui3d.js';
+import { placeOnArc, Button, textPanel } from '../ui3d.js';
 import { num, color } from '../tokens.js';
-import { t } from '../i18n.js';
+import { t, L } from '../i18n.js';
+import { SPONSOR } from '../content.js';
 import { sfx } from '../sfx.js';
 import { music } from '../music.js';
 import { CHRISTMAS } from '../christmas.js';
@@ -91,9 +92,31 @@ export class GreenScene extends BaseScene {
       this.layout(true);
       this.start();
     } else {
-      this.intro(t('greenName'), t('greenIntro'), () => this.start());
+      if (this.engine.touchUI && !this.portrait) this.wideIntro();
+      else this.intro(t('greenName'), t('greenIntro'), () => this.start());
       this.layout(true);
     }
+  }
+
+  /**
+   * The intro for a phone held sideways: the same content as BaseScene.intro(), on a wide and
+   * short panel, so the letters stay large on the low screen (the diorama waits behind "start").
+   */
+  wideIntro() {
+    this.clearLayer();
+    this.introWide = true;
+    const panel = this.add(textPanel(1.9, 0.3, [
+      { text: t('greenName'), size: 'xr-text-title', weight: 'black', gap: 0.025 },
+      { text: t('greenIntro'), size: 'xr-text-md', color: color('xr-panel-muted'), gap: 0.03 },
+      ...this.controlsBlocks(),
+      { text: L(SPONSOR.presentedBy), size: 'xr-text-sm', weight: 'bold', color: color('xr-warning') },
+    ]));
+    panel.position.set(0, this.eye + 0.36 - panel.h / 2, -this.dist);
+    const go = this.add(new Button(0.5, 0.14, { label: t('start'), variant: 'primary', labelSize: 'xr-text-lg', onClick: () => { this.startMusic(-1); this.start(); } }));
+    go.position.set(0, panel.position.y - panel.h / 2 - 0.04 - go.h / 2, -this.dist);
+    this.popIn(panel);
+    this.popIn(go, 0.1);
+    this.prepareMusic();
   }
 
   /** '' on a desktop, 'Touch' on a phone, 'XR' in the headset: picks the text for the device. */
@@ -152,7 +175,9 @@ export class GreenScene extends BaseScene {
     const tilt = num('xr-green-tilt');
     const over = this.mode === 'over';
     const intro = this.mode === 'intro';
-    board.visible = xr || !over; // behind the results only in the headset (on the table)
+    // Behind the results only in the headset (on the table); not behind the wide intro of a
+    // phone held sideways.
+    board.visible = (xr || !over) && !(intro && this.introWide && touch && !portrait);
     if (this.region) {
       this.region.cloudY = xr ? 0.27 : 0.16;
       this.region.showSun = xr && !over;
@@ -168,8 +193,6 @@ export class GreenScene extends BaseScene {
       board.position.set(0, eye - (touch && portrait ? 1.16 : 1.12), -1.6);
       board.rotation.set(tilt, 0, 0);
       board.scale.setScalar(touch && portrait ? 1 : 0.95);
-      // A phone held sideways is short: the diorama goes beside the panel, so the text stays large.
-      if (touch && !portrait) { board.position.set(1.0, eye + 0.02, -1.6); board.scale.setScalar(0.72); }
     } else if (over) {
       board.position.set(0, eye - 0.95, -2.3);
       board.rotation.set(tilt, 0, 0);
@@ -263,7 +286,7 @@ export class GreenScene extends BaseScene {
     this.alert.rotation.set(0, 0, 0);
     if (xr) {
       this.alert.position.set(0, eye + 0.04, num('xr-green-table-z') - 0.16);
-      this.alert.scale.setScalar(1);
+      this.alert.scale.setScalar(0.86); // fits between the two side panels
       this.toastSlot = { pos: this.alert.position.clone(), scale: 1, w: 0.72, shared: true };
     } else if (!touch) {
       this.alert.position.set(0, eye + 0.33, -1.25);
@@ -872,6 +895,7 @@ export class GreenScene extends BaseScene {
    */
   mark(id) {
     this.cursor = id && this.region?.plots.has(id) ? id : null;
+    this.markNdc = this.engine.mouse?.ndc?.clone() ?? null; // (moving the mouse takes over again)
     const live = this.engine.live;
     if (this.cursor && live) live.textContent = String(this.region.plots.get(this.cursor).box.userData.label ?? '');
   }
@@ -1369,9 +1393,11 @@ export class GreenScene extends BaseScene {
       const id = this.plotUnder(p);
       if (id && !hover) hover = id;
     }
-    // The keyboard's mark (arrow keys, Tab) counts like a pointer over the plot.
+    // The keyboard's mark (number and arrow keys, Tab) counts like a pointer over the plot, and
+    // goes before a mouse that merely rests somewhere; moving the mouse takes over again.
+    if (this.cursor && this.markNdc && e.mouse?.active && e.mouse.ndc.distanceTo(this.markNdc) > 0.02) this.cursor = null;
     const mark = !e.isXR && this.mode === 'plan' ? this.cursor ?? e.focus?.userData.plot ?? null : null;
-    if (mark && !hover) hover = mark;
+    if (mark) hover = mark;
     R.setFocusRing(mark);
     // Dragging a card: once the pointer leaves the card, a ghost follows it onto the plots.
     const d = this.drag;

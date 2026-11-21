@@ -4,7 +4,8 @@
 // of every plot from weather data (wind speed, sun hours) with a confidence, and the demand of the
 // town's districts (children, families); the real year then brings weather surprises.
 // While the year runs, the AI warns of live events (storm, heat peak, dark doldrums, flood) with a
-// confidence that is calibrated (80 % comes true four times in five): react in time or not.
+// confidence that is calibrated (80 % comes true four times in five, 30 % only three times in
+// ten): react, or wait and see.
 // Citizens voice wishes where the AI's demand forecast is high (louder when ignored), and the
 // player may bet against the AI's wind forecast on an uncertain plot (human versus AI).
 //
@@ -30,8 +31,9 @@ export const TYPES = {
 };
 export const CHEAPEST = Math.min(...TYPE_KEYS.map((k) => TYPES[k].cost));
 
-// Live events while the year runs. The AI warns about 6 s ahead with a confidence; the player
-// reacts (or not). Effects in green-sim (resolveLive), looks in green-visuals and the scene.
+// Live events while the year runs. The AI warns a few seconds ahead with a confidence; the player
+// reacts (at a price) or waits (at a risk). Effects in green-sim (resolveLive), looks in
+// green-visuals and the scene.
 export const LIVE = {
   storm: { token: 'xr-green-wind', icon: 'greenStorm' },
   heat: { token: 'xr-green-sun', icon: 'greenHeat' },

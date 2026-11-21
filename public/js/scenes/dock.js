@@ -798,7 +798,12 @@ export class DockScene extends BaseScene {
       c.pose.pos.lerpVectors(fromP, to, k);
       c.pose.pos.y += Math.sin(k * Math.PI) * 0.05;
       c.pose.quat.slerpQuaternions(fromQ, toQ, k);
-    }, () => { if (this.flat && this.active === c) this.coach(this.dev(c.kind === 'scaffold' ? 'dockCoachPoint' : 'dockCoachTurn')); });
+    }, () => {
+      if (!this.flat || this.active !== c) return;
+      this.coach(this.dev(c.kind === 'scaffold' ? 'dockCoachPoint' : 'dockCoachTurn'), c.kind === 'scaffold' ? 'xr-dock-you' : 'xr-dock-ai');
+      // Desktop: the first free spot is chosen at once, so the atoms to pick from are in view.
+      if (this.desk && c.kind === 'scaffold' && this.shop.sel === null) this.shop.select(this.shop.nextEmpty(-1, true));
+    });
     sfx.grab();
   }
 
