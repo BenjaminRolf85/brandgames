@@ -301,11 +301,6 @@ export class FightScene extends BaseScene {
     this.tween(0.16, (k) => b.scale.setScalar(0.9 + 0.1 * k));
   }
 
-  /** Particle bursts are smaller with calm motion. */
-  burst(worldPos, tokenName, count = 22) {
-    super.burst(worldPos, tokenName, this.calm ? Math.ceil(count * 0.35) : count);
-  }
-
   // ---------- arena ----------
 
   buildArena() {
@@ -833,6 +828,9 @@ export class FightScene extends BaseScene {
       else if (toA > 0) why = t('fightWhyTrade');
       else { why = t('fightWhyBeats', { a: this.moveName(ex.am, ka), b: this.moveName(pm, kp) }); this.stats.pair += 1; }
     }
+    // Hit by a move you saw coming (too late, or the wrong answer): the coach names the answer
+    // the next time the robot announces it.
+    if (toP > 0 && !ex.revealed && this.seenTell[ex.am] >= COACH_TIMES) this.seenTell[ex.am] = COACH_TIMES - 1;
     this.beat(pm, ex.am, 1);
     this.schedule((pm === 'special' || ex.am === 'special' ? IMPACT + 0.12 : IMPACT) + 0.05, () => {
       if (this.mode !== 'live') return;
@@ -1153,9 +1151,10 @@ export class FightScene extends BaseScene {
         con.rotation.set(-0.26, 0, 0);
         con.position.set(0, y0 - 0.17, ARENA_Z + 0.68);
       } else if (con) {
-        con.rotation.set(0, 0, 0);
-        con.scale.setScalar(0.92);
-        con.position.set(0.99, y0 + 0.5, ARENA_Z + 0.1);
+        // Tactics: the console (moves, the three slots, "fight") in the same place, larger.
+        con.rotation.set(-0.26, 0, 0);
+        con.scale.setScalar(1.2);
+        con.position.set(0, y0 - 0.34, ARENA_Z + 0.68);
       }
       if (ins) {
         ins.rotation.set(0, 0, 0);
@@ -1407,7 +1406,7 @@ export class FightScene extends BaseScene {
   buildInsights() {
     const { eye } = this;
     const live = this.liveMode;
-    const panel = new Panel(0.6, live ? 0.46 : 0.74, (ctx, c) => this.drawInsights(ctx, c));
+    const panel = new Panel(0.6, live ? 0.46 : 0.84, (ctx, c) => this.drawInsights(ctx, c));
     // In a holder, so the browser layout can move and enlarge it while it pops in (placePanels).
     const holder = new THREE.Group();
     holder.add(panel);

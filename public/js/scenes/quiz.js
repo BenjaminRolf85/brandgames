@@ -420,7 +420,6 @@ export class QuizScene extends BaseScene {
     const ok = idx === item.c;
     if (!item.bonus) record(item.id, ok);
     const speed = this.speedBar ? this.speedNow() : assist.easy ? SPEED : 0;
-    const calm = assist.reducedMotion;
     const at = btn.getWorldPosition(new THREE.Vector3());
 
     let gained = 0;
@@ -437,7 +436,7 @@ export class QuizScene extends BaseScene {
       }
       sfx.correct();
       this.engine.haptic(pointer, 0.6, 60);
-      this.burst(at, item.bonus ? 'xr-warning' : 'xr-success', Math.round((item.bonus ? 40 : 22) * (calm ? 0.35 : 1)));
+      this.burst(at, item.bonus ? 'xr-warning' : 'xr-success', item.bonus ? 40 : 22); // BaseScene.burst: fewer with calm motion
       if (gained) floatText(this, `+${gained}`, item.bonus ? 'xr-warning' : 'xr-success', at.clone().add(new THREE.Vector3(0, 0.06, 0.04)));
       // A streak of three or more: the buddy calls it out next to its head.
       if (state.streak >= 3) {

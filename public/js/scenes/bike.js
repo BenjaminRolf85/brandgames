@@ -1319,8 +1319,10 @@ export class BikeScene extends BaseScene {
     // Taught at the moment it matters, once: what to do when the AI is unsure. Relaxed mode
     // says at the first stop what it changes.
     const scan = this.scans[this.sec];
-    if (scan.tricky && !this.hints.unsure) { this.hints.unsure = true; this.toast(t('bikeUnsureFirst'), t('bikeUnsureFirstSub'), 'xr-warning', 6); }
-    else if (this.easy && this.sec === 0) this.toast(t('bikeEasyStart', { n: this.tune.shields }), null, 'xr-success', 4);
+    // (Not on phones: there the hint would cover the trail the player should look at; the
+    // console's header says it.)
+    if (scan.tricky && !this.hints.unsure && !this.engine.touchUI) { this.hints.unsure = true; this.toast(t('bikeUnsureFirst'), t('bikeUnsureFirstSub'), 'xr-warning', 6); }
+    else if (this.easy && this.sec === 0) this.toast(t('bikeEasyStart', { n: this.tune.shields }), null, 'xr-success', 3);
   }
 
   /** A tire brings its fitting pressure along: one decision per stop (the pressure can still be changed). */
@@ -2776,7 +2778,8 @@ export class BikeScene extends BaseScene {
       if (show.gauge) place(this.gauge, 0.012, 0.985, 0, 1, desk * 0.9);
       if (this.toastPanel) place(this.toastPanel, 0.5, freeTop + 0.07, 0.5, 0, desk * 0.85);
       if (show.pumpBtn) place(this.pumpHold, 0.5, 0.72, 0.5, 0.5, desk);
-      if (show.pitBtn) place(this.pitHold, 0.5, 0.8, 0.5, 0.5, desk * 0.85);
+      // The stop button sits in the free lower right corner (not on the bike or the trail).
+      if (show.pitBtn) place(this.pitHold, 0.988, 0.985, 1, 1, desk * 0.85);
       this.freeShift = 0;
       return;
     }
@@ -2830,7 +2833,8 @@ export class BikeScene extends BaseScene {
       if (show.gauge && m !== 'choose' && m !== 'scan' && m !== 'pit') place(this.gauge, 0.992, top, 1, 0, small);
       else this.gauge.visible = false;
       if (show.livePanel && m !== 'pit') place(this.livePanel, 0.008, leftY, 0, 0, Math.min(phone * 0.85, (H - leftY * H - 90) / 0.42, (W * 0.34) / 0.66));
-      if (show.pitBtn) place(this.pitHold, 0.5, 0.97, 0.5, 1, Math.min(phone, (W * 0.34) / 0.66));
+      // The stop button: on the right between the gauge and the thumb buttons (not on the bike).
+      if (show.pitBtn) place(this.pitHold, 0.992, 0.52, 1, 0.5, Math.min(phone, (W * 0.3) / 0.66));
       if (this.toastPanel) place(this.toastPanel, 0.5, top + 0.02, 0.5, 0, Math.min(phone, (W * 0.44) / 0.64));
     }
     // The bike in the middle of the free band between the panels.

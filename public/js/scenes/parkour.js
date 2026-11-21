@@ -164,7 +164,7 @@ export class ParkourScene extends BaseScene {
     this.buildHud();
 
     this.setControls({
-      desktop: [[t('parkourKeyFlap'), t('parkourCtlFlap')], [t('parkourKeyPause'), t('pauseTitle')]],
+      desktop: [[t('parkourKeyFlap'), t('parkourCtlFlap')], [t('parkourKeyPause'), t('parkourCtlPause')]],
       touch: [[t('parkourTouchFlap'), t('parkourCtlFlap')]],
       xr: [[t('parkourXrFlap'), t('parkourCtlFlap')]],
     });

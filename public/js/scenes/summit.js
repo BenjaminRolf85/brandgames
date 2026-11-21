@@ -1260,7 +1260,10 @@ export class SummitScene extends BaseScene {
     // One tip: the stage of the talk where most holds went wrong.
     const worst = this.stageMiss.reduce((b, v, k) => (v > this.stageMiss[b] ? k : b), 0);
     const tip = this.stageMiss[worst] > 0 ? t(`summitTip_${STAGES[worst].key}`) : t(this.easy ? 'summitTipPerfectEasy' : 'summitTipPerfect');
-    const well = t('summitWellA', { first: this.firstSolid, n: this.picks, flow: this.bestFlow }) + (this.outreads ? ` ${t('summitWellOutread', { n: this.outreads })}` : '');
+    // What went well: the solid holds, or (after a hard round) the summits that were reached.
+    const solid = this.firstSolid >= this.picks * 0.4;
+    const well = (solid ? t('summitWellA', { first: this.firstSolid, n: this.picks, flow: this.bestFlow }) : t(this.deals ? 'summitWellDeals' : 'summitWellTry', { deals: this.deals, total: n }))
+      + (this.outreads ? ` ${t('summitWellOutread', { n: this.outreads })}` : '');
     this.results({
       gameKey: 'summit', score, correct: this.deals, total: n,
       line: `${rating} ${t('summitLine', { deals: this.deals, total: n, trust: avg })}`,
@@ -1510,6 +1513,11 @@ export class SummitScene extends BaseScene {
     const box = top ? { x0: -0.42, x1: 0.48, y0: eye - 0.16, y1: eye + 0.46, z: -0.62 }
       : late ? { x0: -0.45, x1: 0.45, y0: eye - 0.7, y1: eye + 0.47, z: -0.62 }
         : { x0: -0.42, x1: 0.42, y0: eye - low, y1: eye + (this.portraitFrame?.visible ? 0.2 : 0.0), z: -0.62 };
+    // Out of strength: Echo hangs in the rope, and that is what the picture shows.
+    if (this.mode === 'fall' && this.climber && this.mountain) {
+      const y = this.mountain.position.y + this.climber.grip.y;
+      Object.assign(box, { x0: -0.42, x1: 0.42, y0: y - 0.45, y1: y + 0.4 });
+    }
     this.frame(cam, dt, box, ins);
     return true;
   }

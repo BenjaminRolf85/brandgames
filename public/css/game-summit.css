@@ -227,8 +227,8 @@
   color: var(--xr-summit-flow);
   white-space: nowrap;
 }
-.summit-flow.is-pop { animation: summit-pop 0.45s var(--ease-out); }
-@keyframes summit-pop { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
+.summit-flow.is-pop { transform-origin: right center; animation: summit-pop 0.45s var(--ease-out); }
+@keyframes summit-pop { 0% { transform: scale(1); } 40% { transform: scale(1.2); } 100% { transform: scale(1); } }
 
 .summit-talk__quote {
   padding: var(--space-2) var(--space-3);
@@ -450,4 +450,12 @@
     align-content: start;
   }
   .summit-talk--desk .summit-talk__hint { order: 2; }
+}
+/* A low desktop window (e.g. a small laptop): tighter rows, and the hint floats over the foot of
+   the wall instead of taking room in the column. */
+@media (orientation: landscape) and (max-height: 700px) {
+  .summit-talk--desk { gap: var(--space-2); }
+  .summit-talk--desk .summit-talk__quote { padding: var(--space-2) var(--space-3); }
+  .summit-talk--desk .summit-answer { padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2); }
+  .summit-talk--desk .summit-talk__hint { position: fixed; left: var(--space-3); bottom: var(--space-3); max-width: 40%; }
 }

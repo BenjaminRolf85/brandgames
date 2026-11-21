@@ -52,7 +52,7 @@ const tuning = (xr) => ({
   loanMonth: assist.pick(5.6, 8), // seconds per month while the loan builds (the build takes months)
   snowAt: assist.pick(32, 38), // the first snow
   creditCap: assist.pick(6, Infinity), // savings waiting for the pallet; more is a lost deposit (never in the relaxed mode)
-  quick: assist.pick(xr ? 5 : 2.8, Infinity), // seconds to set a part for the run (relaxed: no clock)
+  quick: assist.pick(xr ? 5 : 2.2, Infinity), // seconds to set a part for the run (relaxed: no clock)
   runLen: assist.pick(5, 3), // parts in a row for an extra brick
   wobble: assist.pick(40, 0), // points a wobbling part costs
   skew: assist.pick(25, 0),
@@ -190,12 +190,12 @@ export class BricksScene extends BaseScene {
     ];
     // Wide and near: the view cannot come closer than a step in front of the usual panels,
     // so this one stands nearer to it (a low screen then shows it about twice as big).
-    const w = 1.9;
-    const z = -0.72;
-    const panel = this.add(textPanel(w, measureBlocks(blocks, w, num('xr-padding')) + 0.04, blocks));
+    const w = 2.0;
+    const z = -0.8;
+    const panel = this.add(textPanel(w, measureBlocks(blocks, w, num('xr-padding')) + 0.02, blocks));
     panel.position.set(0, this.eye + 0.2 - panel.h / 2, z);
-    const go = this.add(new Button(0.5, 0.13, { label: t('start'), variant: 'primary', labelSize: 'xr-text-lg', onClick: () => { this.startMusic(-1); this.start(); } }));
-    go.position.set(0, panel.position.y - panel.h / 2 - 0.04 - go.h / 2, z);
+    const go = this.add(new Button(0.5, 0.12, { label: t('start'), variant: 'primary', labelSize: 'xr-text-lg', onClick: () => { this.startMusic(-1); this.start(); } }));
+    go.position.set(0, panel.position.y - panel.h / 2 - 0.03 - go.h / 2, z);
     this.popIn(panel);
     this.popIn(go, 0.1);
     this.app.host?.introduce(this, 'bricks', panel);
@@ -1133,7 +1133,7 @@ export class BricksScene extends BaseScene {
     // Phones: the chart shows the weather; the bar stays short.
     const weather = this.roofOn || !snow || this.engine.touchUI ? '' : ` · ${t('bricksHudSnow', { n: snow })}`;
     // Phones: the bar stays short (the run shows in the popups and in the bar over the pallet).
-    const run = this.mode === 'play' && this.run > 0 && !this.engine.touchUI ? ` · ${t('bricksHudRun', { n: this.run % this.T.runLen, of: this.T.runLen })}` : '';
+    const run = this.mode === 'play' && this.run % this.T.runLen > 0 && !this.engine.touchUI ? ` · ${t('bricksHudRun', { n: this.run % this.T.runLen, of: this.T.runLen })}` : '';
     return `${t('bricksHud', { month: this.month, saved: this.plan.saved, target: this.target, score: this.score })}${run}${weather}`;
   }
 
@@ -1149,6 +1149,7 @@ export class BricksScene extends BaseScene {
 
   /** A short text that rises from a spot on the plot (points, the run, a finished row). */
   pop(text, token, at, lift = 0.05) {
+    if (this.card) return; // a decision card is open: nothing may lie over its text
     // Readable on every screen: at least about 22 px tall, however far the camera stands back.
     const ppm = this.engine.isXR ? Infinity : window.innerHeight / (2 * (this.camD ?? 1) * Math.tan(THREE.MathUtils.degToRad(30)));
     const sp = popSprite(text, token, Math.max(num('xr-text-sm'), 22 / ppm));
@@ -1531,6 +1532,9 @@ export class BricksScene extends BaseScene {
     this._places = null;
     this.cursor = null;
     this.aim = null;
+    // Popups still in the air would lie over the card's text.
+    for (const q of this.pops) { q.sp.removeFromParent(); q.sp.material.map.dispose(); q.sp.material.dispose(); }
+    this.pops = [];
     bsfx.event();
     const g = new THREE.Group();
     // The AI as an adviser: when the savings goal would be reached with each choice (and the neighbors' forecast).
@@ -1547,7 +1551,16 @@ export class BricksScene extends BaseScene {
     let h = panel.h;
     if (!this.engine.touchUI) {
       const desk = !this.engine.isXR;
-      const btns = ev.options.map((o, i) => new Button(cw / 2 - 0.02, 0.11, {
+      // The buttons get their full height up front. (A button measures its text with the
+      // padding of the height it is given and draws it with the padding of the height it grew
+      // to: a label that only just fits would wrap when drawn and push the key hint out.)
+      const bw = cw / 2 - 0.02;
+      const pad = num('xr-padding');
+      const line = num('xr-text-sm') * 1.3;
+      const perLine = (bw - 2 * pad) / (num('xr-text-sm') * 0.56);
+      const lines = Math.max(...ev.options.map((o) => Math.ceil((t(`bricksOpt_${o.key}`).length * 1.1) / perLine)));
+      const content = lines * line + (desk ? 0.022 + line : 0);
+      const btns = ev.options.map((o, i) => new Button(bw, Math.min(content / 0.68, content + 2 * pad), {
         label: t(`bricksOpt_${o.key}`), body: desk ? t('bricksKey', { n: i + 1 }) : null,
         variant: i ? 'secondary' : 'primary', labelSize: 'xr-text-sm', onClick: () => this.choose(i),
       }));
