@@ -210,9 +210,11 @@ export class BaseScene {
 
   intro(title, text, onStart) {
     this.clearLayer();
-    const panel = this.add(textPanel(1.1, 0.4, [
+    // Phones held sideways: a wide panel with larger text, so the camera can come close.
+    const wide = this.engine.touchUI && window.innerWidth > window.innerHeight * 1.2;
+    const panel = this.add(textPanel(wide ? 1.5 : 1.1, wide ? 0.3 : 0.4, [
       { text: title, size: 'xr-text-title', weight: 'black', gap: 0.04 },
-      { text, size: 'xr-text-md', color: color('xr-panel-muted'), gap: 0.04 },
+      { text, size: wide ? 'xr-text-lg' : 'xr-text-md', color: color('xr-panel-muted'), gap: 0.04 },
       ...this.controlsBlocks(),
       { text: L(SPONSOR.presentedBy), size: 'xr-text-sm', weight: 'bold', color: color('xr-warning') },
     ]));

@@ -1205,7 +1205,7 @@ export class FightScene extends BaseScene {
     g.userData.rows = twoRows ? 2 : 1;
     if (!deskLive) {
       const title = textPanel(twoRows ? 0.44 : 0.66, 0.06, [{ text: live ? t(this.engine.isXR ? 'fightLiveTitleXR' : 'fightLiveTitle') : t('fightProgram', { n: this.round }), size: 'xr-text-sm', weight: 'black' }], { surface: false });
-      title.position.y = twoRows ? 0.38 - title.h / 2 + 0.03 : 0.2;
+      title.position.y = twoRows ? 0.325 + title.h / 2 : 0.2; // two rows: above them, however many lines it has
       g.add(title);
     }
     this.moveButtons = MOVES.map((m) => {

@@ -707,7 +707,9 @@ export class Engine {
     const cy = (minY + maxY) / 2;
     // Phones: also centered sideways, so a panel on one side does not shrink everything.
     const cx = touch ? (minX + maxX) / 2 : 0;
-    let need = 0.2;
+    // The nearest the camera may come. Phones held sideways have so little height that panels
+    // need the camera closer than the player's spot, or their text gets too small to read.
+    let need = touch && cam.aspect > 1.2 ? -0.7 : 0.2;
     pts.forEach((v) => {
       need = Math.max(need, v.z + (margin * Math.abs(v.x - cx)) / th, v.z + (margin * Math.abs(v.y - cy)) / (tv * free));
     });
