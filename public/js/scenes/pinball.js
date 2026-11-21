@@ -91,7 +91,9 @@ export class PinballScene extends BaseScene {
     this.calm = assist.reducedMotion;
     this.balls = assist.pick(3, 5);
     this.speed = assist.pick(1, 0.8); // the ball's pace (time of the physics)
-    this.saveTimes = assist.pick([20, 15, 12], [25]); // ball save after each launch, per ball (s)
+    // Ball save after each launch, per ball (s): while it runs every drained ball comes back, so
+    // even a first round lasts a while. Generous for the first ball, then shorter.
+    this.saveTimes = assist.pick([25, 20, 15], [30]);
     this.view = 'close'; // desktop: 'close' (the player's view) or 'full' (the whole machine)
     this.input = { left: false, right: false, plunger: false };
     // Who holds an input (keys, mouse buttons, fingers, thumb buttons, the headset's triggers).
@@ -497,7 +499,7 @@ export class PinballScene extends BaseScene {
     b.vy = launchSpeed(pull);
     b.vx = 0;
     this.mode = 'play';
-    // A ball that was just saved is not saved twice.
+    // A saved ball does not start a new save: the first one runs out.
     if (!this.savedServe) this.saveUntil = this.playT + this.saveTime();
     this.savedServe = false;
     this.launchedAt = this.playT;
@@ -1080,7 +1082,6 @@ export class PinballScene extends BaseScene {
     }
     this.multi = false;
     if (this.playT < this.saveUntil) {
-      if (!this.easy) this.saveUntil = 0; // one save per ball (relaxed: every drain while it runs)
       this.saves += 1;
       this.mode = 'drain';
       this.message(t('pinballDmdSave'), '', 1.6);

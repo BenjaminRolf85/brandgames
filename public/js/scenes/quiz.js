@@ -260,7 +260,8 @@ export class QuizScene extends BaseScene {
     this.wakeShadows?.(1);
     this.state = {
       queue: items, total: items.length, i: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, learned: new Map(), retried: new Set(),
-      tq: 0, jokers: { half: true, bot: true }, tip: null, botMissed: false,
+      // Jokers: uses left (relaxed mode: two of each).
+      tq: 0, jokers: { half: assist.pick(1, 2), bot: assist.pick(1, 2) }, tip: null, botMissed: false,
     };
     this.ask();
   }
@@ -275,6 +276,7 @@ export class QuizScene extends BaseScene {
     this.phase = 'ask';
     state.tq = 0;
     state.tip = null;
+    state.halfUsed = false;
     // The buddy thinks along; a bonus question makes it go "wow" first.
     this.bot.setMood('think');
     if (item.bonus) this.bot.setMood('wow', 1.2);
@@ -340,8 +342,9 @@ export class QuizScene extends BaseScene {
     const keys = !this.engine.isXR && !this.engine.touchUI;
     const item = state.queue[state.i];
     const make = (kind, labelKey, key, onClick) => {
-      const used = !state.jokers[kind];
-      const base = t(labelKey);
+      const left = state.jokers[kind];
+      const used = left <= 0;
+      const base = left > 1 ? `${t(labelKey)} ${left}x` : t(labelKey);
       const label = used ? t('quizJokerUsed', { label: base }) : keys ? t('quizJokerKey', { label: base, key }) : base;
       const b = new Button(w, h, { label, labelSize: 'xr-text-sm', variant: 'sponsor', grow: false, onClick });
       // 50:50 needs more than two answers.
@@ -360,10 +363,11 @@ export class QuizScene extends BaseScene {
   useHalf() {
     const { state } = this;
     const item = state.queue[state.i];
-    if (this.phase !== 'ask' || !state.jokers.half || item.a.length < 3) return;
+    if (this.phase !== 'ask' || state.jokers.half <= 0 || state.halfUsed || item.a.length < 3) return;
     const wrong = shuffle(this.answers.filter((b) => b.userData.answerIdx !== item.c && !b.state.disabled));
     if (wrong.length < 2) return;
-    state.jokers.half = false;
+    state.jokers.half -= 1;
+    state.halfUsed = true; // once per question
     sfx.shatter();
     wrong.slice(0, wrong.length - 1).forEach((b) => b.set({ disabled: true, status: 'muted', tip: false }));
     const b = this.jokerButtons.half;
@@ -379,10 +383,10 @@ export class QuizScene extends BaseScene {
   useBot() {
     const { state } = this;
     const item = state.queue[state.i];
-    if (this.phase !== 'ask' || !state.jokers.bot) return;
+    if (this.phase !== 'ask' || state.jokers.bot <= 0 || state.tip) return;
     const open = this.answers.filter((b) => !b.state.disabled);
     if (open.length < 2) return;
-    state.jokers.bot = false;
+    state.jokers.bot -= 1;
     const levels = open.length > 2 ? [60, 70, 70, 80, 80, 90] : [70, 80, 90];
     const percent = levels[Math.floor(Math.random() * levels.length)];
     const right = Math.random() * 100 < percent;
@@ -523,7 +527,7 @@ export class QuizScene extends BaseScene {
     this.phase = 'done';
     this.bot.setMood(s.correct / s.total >= 0.7 ? 'happy' : 'idle');
     // Saved jokers pay (not after a round without a single correct answer).
-    const saved = (s.jokers.half ? 1 : 0) + (s.jokers.bot ? 1 : 0);
+    const saved = (s.jokers.half > 0 ? 1 : 0) + (s.jokers.bot > 0 ? 1 : 0);
     const jokerPts = s.correct > 0 ? saved * JOKER_SAVE : 0;
     s.score += jokerPts;
     // The rating in three steps, by the points that count (relaxed mode counts a share).

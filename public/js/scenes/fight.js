@@ -345,6 +345,7 @@ export class FightScene extends BaseScene {
     this.playerKind = 'nova';
     this.holoP = holoUniforms('xr-fight-holo');
     this.holoA = holoUniforms('xr-fight-holo');
+    this.holoP.calm = this.holoA.calm = this.calm; // calm motion: the holograms do not flicker
     this.makePlayer('nova');
 
     // Colored rim lights over each fighter
@@ -626,6 +627,7 @@ export class FightScene extends BaseScene {
     this.clearLayer();
     this.zoom(1);
     this.mode = 'intro-fight';
+    this.redrawBoard();
     this.announcer.say('fightCallStart', { name: this.opp.name }, this.opp.token, { priority: true });
     sfx.build();
     this.room.scan(this.stage3d.getWorldPosition(new THREE.Vector3()));
@@ -1159,6 +1161,8 @@ export class FightScene extends BaseScene {
     // Phones held sideways: the fighters fill the height; the table's front edge may run out of
     // the picture under the thumbs' buttons (portrait frames the whole table top).
     this.fitLip.userData.noFit = !portrait;
+    // The scoreboard as wide as the screen allows.
+    this.board.scale.setScalar(portrait ? 1.12 : 1.5);
     // Larger than in the headset, so the buttons are easy to hit with a finger.
     if (con) {
       con.rotation.set(0, 0, 0);

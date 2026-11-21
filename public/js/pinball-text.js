@@ -50,7 +50,7 @@ addStrings({
     // Hints, once each, at the moment they matter.
     pinballHintTipRight: 'Der Tipp {ch} war richtig (Zielgruppe: {g}). Die KI merkt es sich.',
     pinballHintTipWeak: 'Wenig Resonanz. Auch das ist eine Messung: Die KI probiert weiter.',
-    pinballHintSave: 'Gerettet: Kurz nach dem Abschuss kommt die Kugel zurück.',
+    pinballHintSave: 'Gerettet: In den ersten Sekunden kommt jede Kugel zurück (Licht „Nochmal“).',
     pinballHintLost: 'Tipp: Drück den Flipper erst, wenn die Kugel auf ihm liegt.',
     pinballHintGroup: 'Neue Zielgruppe: {g}. Die KI schätzt die Kanäle neu ein.',
     pinballHintAware: 'Die Leute kennen dich. Sammle jetzt Klicks, dann in die Filiale.',
@@ -248,7 +248,7 @@ addStrings({
     pinballCoachVaultSub: 'Hit the left ramp: a second ball comes into play.',
     pinballHintTipRight: 'The tip {ch} was right (target group: {g}). The AI remembers it.',
     pinballHintTipWeak: 'Low response. That is a measurement too: the AI keeps trying.',
-    pinballHintSave: 'Saved: shortly after the launch the ball comes back.',
+    pinballHintSave: 'Saved: in its first seconds every ball comes back (the "Again" light).',
     pinballHintLost: 'Tip: press the flipper only when the ball lies on it.',
     pinballHintGroup: 'New target group: {g}. The AI rates the channels afresh.',
     pinballHintAware: 'People know you now. Collect clicks, then go to the branch.',
