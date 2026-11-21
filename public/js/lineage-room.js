@@ -34,6 +34,15 @@ const fontOf = (b, px) => (b.mono ? `${color('font-weight-bold')} ${Math.round(p
 
 /** Wraps a technical name at its separators (CUST_NO, CRM.CUSTOMER), other text at spaces. */
 function wrapText(ctx, b, maxW) {
+  if (b.keep) { // metadata (types, example values, owners): between words only, never a hyphen
+    const out = [];
+    let cur = '';
+    for (const w of String(b.text).split(' ')) {
+      if (cur && ctx.measureText(`${cur} ${w}`).width > maxW) { out.push(cur); cur = w; } else cur = cur ? `${cur} ${w}` : w;
+    }
+    out.push(cur);
+    return out;
+  }
   if (!b.mono) return wrap(ctx, b.text, maxW);
   const lines = [];
   let line = '';
@@ -216,6 +225,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
   const seenDone = new Set();
   let linesBuilt = false;
   let needId = null; // the unit whose tag says what it needs
+  let lane = null; // an upright phone, stage 2: { x } where the cables run down beside the rows
   let nameSize = T2; // names on the tags (a little smaller on a phone held sideways)
   const rubber = new THREE.Mesh(new THREE.CylinderGeometry(TUBE, TUBE, 1, 8).translate(0, 0.5, 0), mats.drag);
   rubber.visible = false;
@@ -230,6 +240,8 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
 
   const state = { hud: null, prompt: '', fb: null, fbText: '', hint: false };
   const bounds = { x0: -0.5, x1: 0.5, y0: -0.3, y1: 0.3 };
+  const fullBounds = bounds;
+  let focusKey = '';
   let head = null;
   let menuBtn = null;
   let hintBtn = null;
@@ -306,7 +318,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
   }
 
   /** After a layout: the plane behind the field and (headset) the panel above it. */
-  function frame() {
+  function frame(bounds = fullBounds) {
     if (backing) { backing.removeFromParent(); backing.dispose(); backing = null; }
     const W = bounds.x1 - bounds.x0 + 0.1;
     const H = bounds.y1 - bounds.y0 + 0.1;
@@ -326,6 +338,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       holder.add(backing);
       const hw = Math.max(1.5, W);
       if (Math.abs(hw - headW) > 1e-3) buildHead(hw); else head.redraw();
+      holder.position.x = -cx;
       const hy = cy + H / 2 + 0.02 + HEAD_H / 2;
       head.position.set(cx, hy, 0);
       menuBtn.position.set(cx + hw / 2 - 0.14, hy + HEAD_H / 2 - 0.052, 0.006);
@@ -402,6 +415,13 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       ctx.stroke();
       ctx.setLineDash([]);
       drawBlocks(ctx, mm, L.blocks, px + PAD, py + PAD, pw - PAD * 2);
+      if (L.ownerNote) { // the owner's full name, on the name's line (phones: when the unit is pointed at or selected)
+        ctx.font = font('bold', mm(T1));
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = L.glow;
+        ctx.fillText(L.ownerNote, mm(M + w - PAD), mm(py + PAD) + mm(T2) * LH / 2);
+      }
       if (L.badge) { // a mark in the tag's corner (connected; the source that changes): more than a color
         const r = mm(0.022);
         const cx = mm(M + w) - r * 1.1;
@@ -472,6 +492,8 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     seenDone.clear();
     linesBuilt = false;
     needId = null;
+    focusKey = '';
+    lane = null;
     if (engine.focus && !engine.focus.parent) engine.setFocus(null);
   }
 
@@ -514,11 +536,23 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
 
   /** A phone shows two layers of the graph at a time: from the report back to the sources. */
   function focusCols() {
-    if (model?.kind !== 'graph' || !screen) return null;
-    if (!small() && !model.impact?.active && model.needs.every((n) => n.done)) return null; // desktop: the finished trail in full
+    if (model?.kind !== 'graph') return null;
+    if (screen && !small() && !model.impact?.active && model.needs.every((n) => n.done)) return null; // desktop: the finished trail in full
     const open = model.needs.filter((n) => !n.done).map((n) => model.nodes.find((x) => x.id === n.asker).col);
     const c = model.impact?.active || !open.length ? 3 : Math.max(...open);
     return [c - 1, c];
+  }
+  /** The box of what is in view: the two layers in focus, else everything (holder coordinates). */
+  function focusBox() {
+    const f = focusCols();
+    if (!f) return bounds;
+    const b = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
+    for (const k of cards) {
+      if (!f.includes(k.node.col)) continue;
+      b.x0 = Math.min(b.x0, k.x - k.w / 2); b.x1 = Math.max(b.x1, k.x + k.w / 2);
+      b.y0 = Math.min(b.y0, k.y - k.h / 2); b.y1 = Math.max(b.y1, k.y + k.h / 2);
+    }
+    return b;
   }
   function applyFocus() {
     const f = focusCols();
@@ -527,6 +561,9 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       c.mesh.visible = on;
       c.token.visible = on;
     }
+    // Headset: the board and the panel above it follow the layers in view, centred in front of the player.
+    const key = f ? f.join() : 'all';
+    if (!screen && key !== focusKey) { focusKey = key; frame(focusBox()); }
   }
 
   // ---- links as 3D pipes ----
@@ -550,6 +587,15 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
         if (s === 'out') l.p = pt; else l.q = pt;
       });
     }
+    if (lane) {
+      list.forEach((l, i) => {
+        const a = byId.get(l.a);
+        const b = byId.get(l.b);
+        l.p = new THREE.Vector3(a.x + a.w / 2, a.y, 0.03);
+        l.q = new THREE.Vector3(b.x + b.w / 2, b.y, 0.03);
+        l.reach = 0.035 + (i % 4) * 0.017; // each cable its own track in the lane
+      });
+    }
     const flowAll = model.needs.every((n) => n.done);
     const tubes = { fixed: [], done: [], pulse: [] };
     let nd = 0;
@@ -559,7 +605,9 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       const bulge = l.kind === 'ai' ? 0.05 : l.kind === 'fixed' ? 0.02 : 0.035; // the pipe arches towards the viewer
       const c1 = vertical ? new THREE.Vector3(l.p.x, l.p.y - d, l.p.z + bulge) : new THREE.Vector3(l.p.x + d, l.p.y, l.p.z + bulge);
       const c2 = vertical ? new THREE.Vector3(l.q.x, l.q.y + d, l.q.z + bulge) : new THREE.Vector3(l.q.x - d, l.q.y, l.q.z + bulge);
-      l.curve = new THREE.CubicBezierCurve3(l.p, c1, c2, l.q);
+      l.curve = lane
+        ? new THREE.CubicBezierCurve3(l.p, new THREE.Vector3(lane.x + l.reach * 1.33, l.p.y, 0.05), new THREE.Vector3(lane.x + l.reach * 1.33, l.q.y, 0.05), l.q)
+        : new THREE.CubicBezierCurve3(l.p, c1, c2, l.q);
       if (l.kind === 'ai') {
         aiLines.push(l);
         for (let i = 1; i < 13 && nd < DOTS; i++) {
@@ -624,7 +672,8 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
         sharp(pill);
         pill.scale.setScalar(1 / K);
         const hit = new THREE.Mesh(new THREE.PlaneGeometry(0.21, 0.115), new THREE.MeshBasicMaterial({ visible: false }));
-        l.curve.getPoint(aiLines.length > 1 ? [0.5, 0.3, 0.7, 0.4, 0.6][li % 5] : 0.5, hit.position);
+        if (lane) { const a = byId.get(l.a); hit.position.set(a.x + a.w / 2 + 0.105, a.y, 0.04); } // beside its page, clear of every token
+        else l.curve.getPoint(aiLines.length > 1 ? [0.5, 0.3, 0.7, 0.4, 0.6][li % 5] : 0.5, hit.position);
         hit.position.z += 0.012;
         hit.add(pill);
         const name = model.nodes.find((x) => x.id === need.ai.id).title;
@@ -687,7 +736,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
 
   const nodeBlocks = (n, v, forSize = false) => {
     const blocks = [{ text: n.title, size: n.kind === 'desc' ? T1 + 0.002 : nameSize, mono: n.mono, weight: 'bold', gap: 0.008 }];
-    if (n.meta) blocks.push({ text: `${n.meta.ty} · ${n.meta.ex} · ${n.meta.ow}`, size: T1, color: C('muted'), glyph: n.meta.glyph });
+    if (n.meta) blocks.push({ text: small() ? `${n.meta.ty} · ${n.meta.ex}` : `${n.meta.ty} · ${n.meta.ex} · ${n.meta.ow}`, size: T1, color: C('muted'), glyph: n.meta.glyph, keep: true });
     else if (n.text) blocks.push({ text: n.text, size: T1, color: C('muted') });
     if (v.need.length && n.kind !== 'desc' && (forSize || n.id === needId)) blocks.push({ text: t('lineageNeeds', { need: v.need.join(' + ') }), size: T1, weight: 'bold', color: C('accent') });
     if (v.mark === 'hit') blocks.push({ text: t('lineageAffected'), size: T1, weight: 'bold', color: C('pulse'), icon: 'good' });
@@ -705,6 +754,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     const pick = !!model?.impact?.active && v.selectable; // a report that can be picked
     return {
       blocks: nodeBlocks(c.node, v), band: c.node.meta?.owKey ? C(`own-${c.node.meta.owKey}`) : null,
+      ownerNote: small() && c.node.meta && (u.hover || u.focus || v.selected) ? c.node.meta.ow : null,
       glow: v.changed ? C('pulse-line') : c.node.meta?.owKey ? C(`own-${c.node.meta.owKey}`) : C(TOK_COLOR[c.node.kind] ?? 'accent'), owner: c.node.meta?.ow ?? null, lit: v.selected || v.done || v.changed,
       fill: v.selected ? C('accent-soft') : v.changed || v.mark === 'hit' ? C('pulse-soft') : v.done ? C('good-soft') : v.selectable ? C('card') : C('card-soft'),
       stroke: ring(u, v.selected ? C('accent') : v.changed || v.mark === 'hit' || pick ? C('pulse-line') : v.mark === 'miss' ? C('bad') : v.done ? C('good-line') : v.need.length ? C('accent') : C('card-border')),
@@ -759,17 +809,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     frameBox() {
       const p = holder.position;
       const m = 0.014;
-      let b = bounds;
-      const f = focusCols();
-      if (f) {
-        // from the report back to the sources: the layer that still needs a link, and the one before it
-        b = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
-        for (const k of cards) {
-          if (!f.includes(k.node.col)) continue;
-          b.x0 = Math.min(b.x0, k.x - k.w / 2); b.x1 = Math.max(b.x1, k.x + k.w / 2);
-          b.y0 = Math.min(b.y0, k.y - k.h / 2); b.y1 = Math.max(b.y1, k.y + k.h / 2);
-        }
-      }
+      const b = focusBox();
       return { x0: p.x + b.x0 - m, x1: p.x + b.x1 + m, y0: p.y + b.y0 - m, y1: p.y + b.y1 + m, z: p.z + 0.02 };
     },
 
@@ -883,14 +923,28 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       const n = b.cols.length;
       const layers = b.cols.map((label, ci) => b.nodes.filter((nd) => nd.col === ci));
       // The unit: the token on its pedestal beside the tag; on an upright phone the graph's machines stand on top of their tags.
-      const zone = vertical ? { by: 0.2 } : { bx: flat ? (graph ? 0.15 : 0.11) : up2 ? 0.11 : graph ? (screen ? 0.2 : 0.14) : 0.17 };
+      const zoneOf = (nd) => (vertical ? { by: 0.2 } : { bx: flat ? (graph ? 0.15 : 0.11) : up2 ? (nd.kind === 'field' ? 0.17 : 0.11) : graph ? 0.2 : 0.17 });
       nameSize = flat ? T1 + 0.001 : T2;
-      const bx = zone.bx ?? 0;
-      const by = zone.by ?? 0;
-      const mk = (nd, w) => ({ node: nd, w, h: Math.max(bx ? Math.max(0.11, bx * 0.92) : 0, measure(nodeBlocks(nd, nodeView(b, nd, null), true), w, bx) + 0.004) + by });
-      const GAP = flat ? 0.008 : 0.02;
+      const stack = !graph && up2; // an upright phone, stage 2: full-width rows, the pages above the rack
+      const mk = (nd, w) => {
+        const zone = zoneOf(nd);
+        const bx = zone.bx ?? 0;
+        const minH = stack ? (nd.kind === 'field' ? 0.15 : 0.11) : bx ? Math.max(0.11, bx * 0.92) : 0;
+        return { node: nd, w, zone, h: Math.max(minH, measure(nodeBlocks(nd, nodeView(b, nd, null), true), w, bx) + 0.004) + (zone.by ?? 0) };
+      };
+      const GAP = flat || stack ? 0.008 : 0.02;
       const placed = [];
-      if (vertical) {
+      if (stack) {
+        const W = 0.86;
+        const LANE = 0.085; // room at the right for the cables
+        const fw = W - LANE;
+        const pw = fw - 0.2; // the pages leave room for the assistant's tag beside them
+        let y = 0;
+        layers[0].forEach((nd) => { const it = mk(nd, pw); placed.push({ ...it, x: -W / 2 + pw / 2, y: y - it.h / 2 }); y -= it.h + GAP; });
+        y -= 0.03;
+        layers[1].forEach((nd) => { const it = mk(nd, fw); placed.push({ ...it, x: -W / 2 + fw / 2, y: y - it.h / 2 }); y -= it.h + GAP; });
+        lane = { x: -W / 2 + fw };
+      } else if (vertical) {
         // an upright phone: four layers from the sources (top) to the reports (bottom)
         const W = 0.86;
         const gapX = 0.025;
@@ -903,8 +957,8 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
           y -= h + 0.12;
         });
       } else {
-        const lineGap = graph ? (screen ? 0.2 : 0.14) : up2 ? 0.09 : 0.26;
-        const cw = graph ? (screen ? 0.54 : 0.44) : up2 ? 0.395 : flat ? 0.8 : 0.72;
+        const lineGap = graph ? 0.24 : 0.26;
+        const cw = graph ? 0.54 : flat ? 0.8 : 0.72;
         const colsL = layers.map((list, ci) => {
           const its = list.map((nd) => mk(nd, cw));
           return { its, x: (ci - (n - 1) / 2) * (cw + lineGap), total: its.reduce((s, it) => s + it.h, 0) + (its.length - 1) * GAP };
@@ -917,13 +971,15 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       }
       placed.forEach((it) => {
         const c = { node: it.node, v: nodeView(b, it.node, null), mesh: null };
-        const mesh = makeCard(it.w, it.h, nodeLook(c), zone);
+        const bx = it.zone.bx ?? 0;
+        const by = it.zone.by ?? 0;
+        const mesh = makeCard(it.w, it.h, nodeLook(c), it.zone);
         c.mesh = mesh;
         Object.assign(c, place(mesh, it.x, it.y, { id: it.node.id, node: it.node, v: c.v }));
         cards[cards.length - 1] = c;
-        Object.assign(mesh.userData, { nodeId: it.node.id, label: it.node.title });
+        Object.assign(mesh.userData, { nodeId: it.node.id, label: it.node.meta ? `${it.node.title}. ${it.node.meta.ty}, ${it.node.meta.ex}, ${it.node.meta.ow}` : it.node.title });
         const kind = it.node.kind === 'field' ? it.node.meta.tyKey : it.node.kind;
-        const tok = token(kind, (by ? by : Math.min(bx, it.h)) * 0.72);
+        const tok = token(kind, (by ? by : Math.min(bx, it.h)) * (stack && kind !== 'desc' ? 0.9 : 0.72));
         if (by) tok.position.set(it.x, it.y + it.h / 2 - by / 2 + 0.012, 0.07);
         else tok.position.set(it.x - it.w / 2 + bx / 2, it.y + 0.01, 0.07);
         content.add(tok);
@@ -943,6 +999,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
         const rack = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mats.rack, fields.length * 2 + 2);
         const fx = fields[0].x;
         const fw = fields[0].w;
+        const bx = fields[0].mesh.userData.bx;
         const top = Math.max(...fields.map((c) => c.y + c.h / 2));
         const bot = Math.min(...fields.map((c) => c.y - c.h / 2));
         [-1, 1].forEach((s, i) => rack.setMatrixAt(i, m4.makeScale(0.007, top - bot + 0.03, 0.007).setPosition(fx - fw / 2 + (s < 0 ? -0.008 : bx + 0.004), (top + bot) / 2, 0.004)));
@@ -953,6 +1010,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
         holder.add(rack);
         extras.push(rack);
         bounds.x0 -= 0.012;
+        if (lane) bounds.x1 = Math.max(bounds.x1, lane.x + 0.085);
       }
       if (!screen) bounds.y1 += 0.01;
       droneTo.set(bounds.x1 - 0.04, bounds.y1 + 0.02, 0.06);

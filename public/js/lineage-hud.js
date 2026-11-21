@@ -160,7 +160,17 @@ export function screenHud({ onHint, onNext, onMenu, desk = false, calm = false }
         const left = `${Math.round(b.right + 8)}px`;
         if (root.style.left !== left) { root.style.left = left; root.style.top = `${Math.round(b.top)}px`; }
       } else if (root.style.left) { root.style.left = ''; root.style.top = ''; }
-      return { top: root.getBoundingClientRect().bottom + 6, bottom: landPhone ? 8 : H - foot.getBoundingClientRect().top + 6 };
+      if (!desk) {
+        // Phones: the feedback shows for a few seconds in the prompt's place, so the room keeps the whole height.
+        const r = row.getBoundingClientRect();
+        const rr = root.getBoundingClientRect();
+        const top = `${Math.round(r.top)}px`;
+        if (foot.style.top !== top) { foot.style.top = top; foot.style.bottom = 'auto'; }
+        const left = `${Math.round(rr.left)}px`;
+        if (foot.style.left !== left) { foot.style.left = left; foot.style.right = `${Math.round(window.innerWidth - rr.right)}px`; }
+        return { top: rr.bottom + 6, bottom: 8 };
+      }
+      return { top: root.getBoundingClientRect().bottom + 6, bottom: H - foot.getBoundingClientRect().top + 6 };
     },
 
     /** Calm motion: the view changes at once, covered by a short fade. */

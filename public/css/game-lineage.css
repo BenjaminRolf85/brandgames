@@ -238,7 +238,6 @@
   .lin-row { min-height: 0; }
   .lin-prompt { font-size: 1em; }
   .lin-speed { display: none; }
-  .lin-foot .lin-feedback__box.is-new { animation: lin-toast 5s var(--ease-out) forwards; }
   .lin-cardwrap { place-items: center; padding: var(--space-3); }
   .lin-card { padding: var(--space-3); gap: var(--space-2); width: min(100%, 36rem); }
   .lin-card h2 { font-size: 1.25em; }
@@ -249,6 +248,10 @@
   .lin-strip__item { padding-inline: 0.4em; }
   .lin-speed { width: 5.5em; }
 }
+/* Phones: the feedback is a note that lies over the prompt for a few seconds, then fades. */
+.lin-foot:not(.lin-foot--desk) .lin-feedback { height: auto; min-height: 2.4em; }
+.lin-foot:not(.lin-foot--desk) .lin-feedback__box { position: relative; min-height: 2.4em; }
+.lin-foot:not(.lin-foot--desk) .lin-feedback__box.is-new { animation: lin-toast 5s var(--ease-out) forwards; }
 /* Desktop: larger type. */
 .lin-play--desk, .lin-foot--desk { --xr-lineage-font: 1.0625rem; --xr-lineage-font-small: 1rem; }
 .lin-play--desk { top: calc(var(--space-3) + var(--tap-min) + var(--space-4)); left: var(--space-5); right: var(--space-5); }
