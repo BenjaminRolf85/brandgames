@@ -263,6 +263,8 @@ export class BricksScene extends BaseScene {
   build(M) {
     this.M = M;
     if (this.glowBoost > 1) M.mats.LampGlow.color.multiplyScalar(4);
+    // The glass mirrors the environment more strongly than the rest (its own map, its own strength).
+    if (this.engine.scene.environment) Object.assign(M.mats.Glass, { envMap: this.engine.scene.environment, envMapIntensity: 1.6 });
     // The ground in the colors of the place.
     const place = this.round.brief.place.id;
     M.mats.Grass.color.setHex(hex(`xr-bricks-grass-${place}`));

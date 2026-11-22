@@ -796,6 +796,16 @@ export class House {
       const y1 = RT - 0.004;
       const slope = Math.atan2(y1 - y0, z0 - z1);
       for (const side of [-1, 1]) {
+        // fine darker reeds running down the slope, of different lengths
+        for (let i = 0; i < 46; i++) {
+          const f0 = rnd(0, 0.55);
+          const f1 = Math.min(0.97, f0 + rnd(0.2, 0.5));
+          const len = (f1 - f0) * Math.hypot(z0 - z1, y0 - y1);
+          const f = (f0 + f1) / 2;
+          const reed = box(mats.ThatchDark, rnd(0.002, 0.0032), 0.003, len, rnd(-RX + 0.01, RX - 0.01), y0 + (y1 - y0) * f + 0.0012, side * (z0 + (z1 - z0) * f));
+          reed.rotation.x = side * slope;
+          g.add(reed);
+        }
         for (const f of [0.02, 0.3, 0.56, 0.8]) {
           const strip = box(mats.ThatchDark, 2 * RX + 0.012, 0.006, f < 0.1 ? 0.03 : 0.014, 0, y0 + (y1 - y0) * f + 0.002, side * (z0 + (z1 - z0) * f));
           strip.rotation.x = side * slope;

@@ -592,7 +592,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
       const on = !f || f.includes(c.node.col); // the other layers step aside until the trail is complete
       c.mesh.visible = on;
       c.token.visible = on || map; // the map: the places stay, only their tags step aside
-      if (routeView && map) c.mesh.userData.interactive = false; // while the car drives the route nothing is picked
+      if (map) c.mesh.userData.interactive = !!c.v?.selectable && !routeView && !(overview > 0); // while the car drives or the whole map shows, nothing is picked
     }
     // Headset: the board and the panel above it follow the layers in view, centred in front of the player.
     const key = f ? f.join() : 'all';

@@ -111,8 +111,8 @@
   --xr-lineage-zone:         2.6;       /* distance between the zones of the three stages */
   /* the browser's drive: the gate with its gantry stands under the tiles, the car drives up to it */
   --xr-lineage-deck:         2.4;       /* width of the road deck (m), the gantry's posts stand on its shoulders */
-  --xr-lineage-drive-scale:  0.76;      /* the road model's scale under the tiles */
-  --xr-lineage-drive-scale-flat: 0.47;  /* ... on a phone held sideways */
+  --xr-lineage-drive-scale:  0.72;      /* the road model's scale under the tiles */
+  --xr-lineage-drive-scale-flat: 0.4;   /* ... on a phone held sideways */
   --xr-lineage-gate-dist:    1.3;       /* from the car's start to the block (road model m) */
   --xr-lineage-gate-dist-tall: 1.2;    /* ... on an upright phone */
   --xr-lineage-gate-clear:   0.37;      /* from the road up to the tiles (m): the block fits below them */
