@@ -298,7 +298,8 @@ export class BricksScene extends BaseScene {
     const blob = contactShadow(0.08, 0.35);
     blob.position.y = 0.001;
     this.family.group.add(blob);
-    this.family.group.traverse((o) => { if (o.isMesh && o !== blob) o.castShadow = this.tier === 'high'; });
+    // The figures stand on a soft blob and throw no shadow of their own (fewer draw calls in the shadow pass).
+    this.family.group.traverse((o) => { if (o.isMesh) o.castShadow = false; });
     this.plotRoot.add(this.family.group);
     this.buildNeighbors(M);
     // Headset: a soft shadow under each plot, so the dioramas sit on the table or the floor.
@@ -521,6 +522,9 @@ export class BricksScene extends BaseScene {
       if (/^[1-8]$/.test(k) && this.mode === 'choose') {
         const card = this.cards[Number(k) - 1];
         if (card) { e.preventDefault(); this.pick(card); }
+      } else if ((k === 'd' || k === 'D') && this.mode === 'check') {
+        e.preventDefault();
+        this.toggleDetails();
       } else if ((k === 'e' || k === 'E') && this.mode === 'choose') {
         e.preventDefault();
         this.toggleDrawer();
@@ -727,14 +731,20 @@ export class BricksScene extends BaseScene {
   feedback(o, before, after) {
     const mine = this.plan().filter((id) => id !== o.id);
     const b = this.round.brief;
-    const delta = (key) => { const i = ['unity', 'people', 'place', 'future', 'value'].indexOf(key); const d = after.rows[i].score - before.rows[i].score; return d ? ` · ${t(`bricksCritShort_${key}`)} ${signed(d)}` : ''; };
+    // The criterion's change in points, where it says the same as the message (not at the very first choice, where every bar starts from nothing).
+    const delta = (key, good) => {
+      if (!mine.length) return '';
+      const i = ['unity', 'people', 'place', 'future', 'value'].indexOf(key);
+      const d = after.rows[i].score - before.rows[i].score;
+      return d && d > 0 === good ? ` · ${t(`bricksCritShort_${key}`)} ${signed(d)}` : '';
+    };
     const clash = mine.find((id) => clashes(id, o.id));
-    if (clash) return [t('bricksFb_clash', { a: optShort(clash), b: optShort(o.id) }) + delta('unity'), 'xr-danger', 'down'];
-    for (const k of b.place.weather) if (o.w?.[k] < 0) return [t('bricksFb_weatherBad', { w: t(`bricksWeather_${k}`) }) + delta('place'), 'xr-danger', 'down'];
-    for (const k of b.place.weather) if (o.w?.[k] > 0) return [t('bricksFb_weatherGood', { w: t(`bricksWeather_${k}`) }) + delta('place'), 'xr-success', 'up'];
+    if (clash) return [t('bricksFb_clash', { a: optShort(clash), b: optShort(o.id) }) + delta('unity', false), 'xr-danger', 'down'];
+    for (const k of b.place.weather) if (o.w?.[k] < 0) return [t('bricksFb_weatherBad', { w: t(`bricksWeather_${k}`) }) + delta('place', false), 'xr-danger', 'down'];
+    for (const k of b.place.weather) if (o.w?.[k] > 0) return [t('bricksFb_weatherGood', { w: t(`bricksWeather_${k}`) }) + delta('place', true), 'xr-success', 'up'];
     const styles = mine.map((id) => OPTION[id].style).filter(Boolean);
-    if (o.style && styles.length && styles.every((s) => s === o.style)) return [t('bricksFb_style') + delta('unity'), 'xr-success', 'up'];
-    const d = after.total - before.total;
+    if (o.style && styles.length && styles.every((s) => s === o.style)) return [t('bricksFb_style') + delta('unity', true), 'xr-success', 'up'];
+    const d = mine.length ? after.total - before.total : 0;
     return [`${t('bricksFb_plain', { a: optShort(o.id) })}${d ? ` · ${signed(d)}` : ''}`, 'xr-panel-text', d > 0 ? 'up' : d < 0 ? 'down' : null];
   }
 
@@ -1515,8 +1525,8 @@ export class BricksScene extends BaseScene {
       if (this.offerSame) arc(this.sameBtn, 0.62, eye - 0.27, 0.95, 1.2);
     } else if (this.mode === 'check') {
       arc(this.checkPanel, 0, eye + 0.3, 1.05);
-      arc(this.labelMe, -0.5, eye - 0.1, 1.0);
-      arc(this.labelNb, 0.66, eye - 0.1, 1.0);
+      arc(this.labelMe, -0.7, eye - 0.2, 1.0);
+      arc(this.labelNb, 0.8, eye - 0.2, 1.0);
       arc(this.goBtn, this.check.final ? 0.2 : 0, eye - 0.1, 1.0, 1.3);
       if (this.check.final) arc(this.detailsBtn, -0.24, eye - 0.1, 1.0, 1.3);
     } else {

@@ -322,7 +322,7 @@ export class OptionCard extends Panel {
     const edge = s.focus ? 'xr-focus' : s.selected ? 'xr-success' : tip ? 'xr-bricks-ai' : 'xr-panel-border';
     this.surface({ fill: color(s.selected ? 'xr-bricks-card-on' : active ? 'xr-bricks-card-hover' : 'xr-bricks-card-bg'), stroke: color(edge), strokeWidth: num('xr-border-width') * (s.focus ? 3 : s.selected || active ? 2 : 1.2), stripe: false });
     const slim = W / Hh > 5; // a row of the extras list on a narrow screen
-    const pic = Math.min(Hh - 2 * pad, slim ? Hh : W * 0.4);
+    const pic = Math.min(Hh - 2 * pad, slim ? Hh : W * (s.compact ? 0.3 : 0.4));
     drawOption(ctx, s.id, pad, pad, pic, s.thumb);
     // the key number
     const nb = sm * 1.15;
@@ -352,7 +352,14 @@ export class OptionCard extends Panel {
       fitFont(ctx, name, 'black', sm, nameW + 1);
       ctx.fillText(name, x, cy + sm * 0.05);
       const cx = x + nameW + sm * 0.6;
-      if (s.chips?.length) chipRow(ctx, s.chips.slice(0, 1), cx, cy - sm * 0.72, px0 - cx - sm * 0.4, sm * 0.9);
+      if (s.locked) {
+        // what is missing, where the chip would be (the name stays readable)
+        const text = t('bricksLocked', { n: euro(s.missing) });
+        ctx.fillStyle = ctx.strokeStyle = color('xr-panel-muted');
+        glyph(ctx, 'lock', cx + sm * 0.5, cy, sm * 0.85);
+        fitFont(ctx, text, 'bold', sm * 0.94, px0 - cx - sm * 1.6, 0.75);
+        ctx.fillText(text, cx + sm * 1.2, cy + sm * 0.05);
+      } else if (s.chips?.length) chipRow(ctx, s.chips.slice(0, 1), cx, cy - sm * 0.72, px0 - cx - sm * 0.4, sm * 0.9);
       ctx.font = font('black', sm);
       ctx.fillStyle = color(s.locked ? 'xr-panel-muted' : 'xr-bricks-price');
       ctx.fillText(price, px0, cy + sm * 0.05);
@@ -360,7 +367,7 @@ export class OptionCard extends Panel {
     } else {
       // the badge: top right; where the tick box sits there, or the card is narrow, bottom right
       const tile = s.selected !== undefined || right - x < sm * 11;
-      const badge = tip ? this.badge(ctx, right, tile ? Hh - pad - sm * 1.4 - (s.selected !== undefined ? 0 : sm * 0.6) : pad, sm) : 0;
+      const badge = tip && !s.locked ? this.badge(ctx, right, tile ? Hh - pad - sm * 1.4 - (s.selected !== undefined ? 0 : sm * 0.6) : pad, sm) : 0;
       const box = s.selected !== undefined ? b + sm * 0.4 : 0;
       let y = pad;
       ctx.textBaseline = 'top';
@@ -380,7 +387,7 @@ export class OptionCard extends Panel {
       const detail = f && (active || s.words);
       const detailText = !detail ? '' : f.value !== undefined ? `${t('bricksAi', { n: f.value })} · ${t(`bricksConf_${f.level}`)}` : `${t('bricksAiGain', { n: `${f.gain > 0 ? '+' : ''}${f.gain}` })} · ${t(`bricksConf_${f.level}`)}`;
       // the exact forecast gets its own line where there is room, else it takes the place of the surcharge
-      const roomy = barY - (y + ppx * 1.2 + sm * 1.7) > sm * 1.25;
+      const roomy = barY - (y + ppx * 1.2 + sm * 1.7) > sm * 1.7;
       if (detail && !roomy) {
         ctx.fillStyle = color('xr-bricks-ai');
         fitFont(ctx, detailText, 'bold', sm * 0.94, right - x - pw - sm * 0.6, 0.75);
@@ -389,6 +396,8 @@ export class OptionCard extends Panel {
         const note = s.basic ? t('bricksBasic') : t('bricksUpcharge', { n: euro(s.more) });
         ctx.fillStyle = color('xr-panel-muted');
         fitFont(ctx, note, 'bold', sm, right - x - pw - sm * 0.6, 0.8);
+        // never cut off: where even the smaller size does not fit, the price shrinks a little to make room
+        if (ctx.measureText(note).width > right - x - pw - sm * 0.5) { const k = (right - x - sm * 0.6) / (pw + ctx.measureText(note).width); ctx.clearRect(x, y - 1, right - x, ppx * 1.15); ctx.fillStyle = color(s.selected ? 'xr-bricks-card-on' : active ? 'xr-bricks-card-hover' : 'xr-bricks-card-bg'); ctx.fillRect(x, y - 1, right - x, ppx * 1.15); ctx.font = font('black', ppx * k); ctx.fillStyle = color(s.locked ? 'xr-panel-muted' : 'xr-bricks-price'); ctx.fillText(price, x, y + ppx * (1 - k) * 0.5); const pw2 = ctx.measureText(price).width; ctx.font = font('bold', sm * 0.8 * Math.max(k, 0.9)); ctx.fillStyle = color('xr-panel-muted'); ctx.fillText(note, x + pw2 + sm * 0.5, y + ppx * 0.22); } else
         ctx.fillText(note, x + pw + sm * 0.6, y + ppx * 0.22);
       }
       y += ppx * 1.2;
@@ -413,7 +422,7 @@ export class OptionCard extends Panel {
       }
     }
     // locked: dimmed, with a padlock and the amount missing
-    if (s.locked) {
+    if (s.locked && !slim) {
       ctx.fillStyle = color('xr-bricks-lock-veil');
       roundRect(ctx, 0, 0, W, Hh, this.m(num('xr-radius')));
       ctx.fill();
@@ -731,8 +740,12 @@ export function extrasButton(w, h, get, onClick) {
     const text = s.open ? t('bricksWishClose') : s.ids.length ? t('bricksWishBtn', { n: s.ids.length, sum: euro(s.sum) }) : t('bricksWishBtn0');
     let x = pad;
     if (s.star && !s.open) { ctx.fillStyle = color('xr-warning'); chipStar(ctx, x + sm * 0.5, Hh / 2, sm * 0.95); x += sm * 1.2; }
-    const pics = s.open ? [] : s.ids.slice(0, 4);
-    const pw = pics.length * (Hh - 2 * pad + pad * 0.5);
+    // the text keeps its size; the little pictures of the earmarked extras take the room that is left
+    ctx.font = font('black', sm);
+    const each = Hh - 2 * pad + pad * 0.5;
+    const fits = Math.max(0, Math.floor((W - pad - x - ctx.measureText(text).width - sm * 0.4) / each));
+    const pics = s.open ? [] : s.ids.slice(0, Math.min(4, fits));
+    const pw = pics.length * each;
     ctx.fillStyle = color('xr-panel-text');
     const px = fitFont(ctx, text, 'black', sm, W - pad - x - pw - (pics.length ? sm * 0.4 : 0), 0.8);
     ctx.fillText(text, x, Hh / 2 + px * 0.05);

@@ -534,6 +534,9 @@ export class House {
         if (p.kind === 'lintel') this.b('Concrete', p.x, p.y, p.z, L - GAP, H - GAP, D, { yaw: p.yaw, delay });
         else by[p.kind].push({ x: p.x, y: p.y, z: p.z, yaw: p.yaw, delay, tint: rnd(0.84, 1.08), warm: rnd(-0.04, 0.04) });
       }
+      // The mortar: a core inside every stretch of wall, a little thinner than the bricks, so the
+      // joints are filled (and nothing shows through them). It rises with the courses.
+      for (const w of boxes) this.b('Concrete', w.x, w.y, w.z, w.len, w.h - 0.002, D - 0.007, { yaw: w.yaw, how: 'grow', dur: 0.95, tint: 1.25 });
       const G = this.M.geo;
       this.cur.bits.push(new Bits(this.cur.home, G.brick, this.M.mats.BrickClay, by.full, this.cast));
       this.cur.bits.push(new Bits(this.cur.home, G.half, this.M.mats.BrickClay, by.half, this.cast));

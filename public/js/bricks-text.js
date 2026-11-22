@@ -262,7 +262,7 @@ addStrings({
     bricksTipShort_swap: 'Tipp: {b} statt {a}',
     bricksTipShort_add: 'Tipp: {a} dazu',
     bricksTipShort_drop: 'Tipp: ohne {a}',
-    bricksTipShort_plan: 'Tipp: {list}',
+    bricksTipShort_plan: 'Besser: {list}',
     bricksTipShort_none: 'Besser ging es nicht',
     bricksDetMe: 'Du: {spent} von {budget}. {list}',
     bricksDetNb: 'Winter ({kind}): {spent}. {list}',
@@ -488,13 +488,6 @@ addStrings({
     bricksLearn2Q: 'Why is the AI sometimes wrong?',
     bricksLearn2A: 'It only knows houses that were already built: it has hardly seen rare combinations, and your wishes and your budget are not in its data. A forecast helps, checking it is up to you.',
     bricksLearn3Q: 'What did your money buy?',
-  },
-});
-
-addLines({
-  intro_bricks: {
-    de: 'Heute bauen wir ein Haus! Du entscheidest: welche Wände, welches Dach, welche Extras. Aber Achtung, das Geld ist knapp. Die KI rät mit, und am Ende vergleichen wir mit den Nachbarn!',
-    en: 'Today we build a house! You decide: which walls, which roof, which extras. But careful, money is tight. The AI gives advice, and in the end we compare with the neighbors!',
     bricksOptS_timber: 'Timber frame',
     bricksOptS_concrete: 'Concrete',
     bricksOptS_wood: 'Wood cladding',
@@ -525,11 +518,18 @@ addLines({
     bricksTipShort_swap: 'Tip: {b} instead of {a}',
     bricksTipShort_add: 'Tip: add {a}',
     bricksTipShort_drop: 'Tip: drop {a}',
-    bricksTipShort_plan: 'Tip: {list}',
+    bricksTipShort_plan: 'Better: {list}',
     bricksTipShort_none: 'It could not be better',
     bricksDetMe: 'You: {spent} of {budget}. {list}',
     bricksDetNb: 'Winters ({kind}): {spent}. {list}',
     bricksDetBest: 'Best plan ({n} %): {list}',
     bricksDetLoan: 'Left over: {n} less loan',
+  },
+});
+
+addLines({
+  intro_bricks: {
+    de: 'Heute bauen wir ein Haus! Du entscheidest: welche Wände, welches Dach, welche Extras. Aber Achtung, das Geld ist knapp. Die KI rät mit, und am Ende vergleichen wir mit den Nachbarn!',
+    en: 'Today we build a house! You decide: which walls, which roof, which extras. But careful, money is tight. The AI gives advice, and in the end we compare with the neighbors!',
   },
 });
