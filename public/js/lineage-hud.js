@@ -34,7 +34,7 @@ export function screenHud({ onHint, onNext, onMenu, desk = false, calm = false }
   const root = el('div', `lin-play${desk ? ' lin-play--desk' : ''}${calm ? ' is-calm' : ''}`);
   const head = el('div', 'lin-head');
   const strip = el('ol', 'lin-strip');
-  const pills = [1, 2, 3].map((n) => {
+  const pills = [1, 2].map((n) => {
     const li = el('li', 'lin-strip__item');
     const fill = el('span', 'lin-strip__fill');
     li.append(fill, el('span', 'lin-strip__num', String(n)), el('span', 'lin-strip__name', t(`lineageStage${n}`)));
@@ -116,6 +116,12 @@ export function screenHud({ onHint, onNext, onMenu, desk = false, calm = false }
       box.innerHTML = kind ? icon(kind) : '';
       box.append(el('span', '', text ?? ''));
       feedback.replaceChildren(box);
+      // Phones: the note stands in the prompt's place; the prompt steps aside until the note has
+      // faded, so the two texts never show through each other.
+      if (!desk) {
+        row.classList.toggle('is-covered', !!kind);
+        if (kind) box.addEventListener('animationend', () => { if (feedback.firstChild === box) row.classList.remove('is-covered'); }, { once: true });
+      }
     },
 
     setSpeed(k, points) {
