@@ -575,6 +575,7 @@ body.is-playing { overflow: hidden; }
 .xmas-lights__bulb--5 { color: var(--color-xmas-light-5); }
 @keyframes xmas-twinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 @media (prefers-reduced-motion: reduce) { .xmas-lights__bulb { animation: none; } }
+.hero__riddle { margin: var(--space-4) 0 0; max-width: 60ch; color: var(--color-text-muted); font-size: var(--text-md); }
 .hero__sign { margin: var(--space-4) 0 0; max-width: 60ch; color: var(--color-xmas-sign); font-size: var(--text-md); font-weight: var(--font-weight-bold); }
 .hero__art { margin: 0; }
 .hero__art img { display: block; width: 100%; height: auto; }
