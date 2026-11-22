@@ -248,7 +248,7 @@ export class PinballScene extends BaseScene {
       new THREE.PlaneGeometry(0.05, 0.015).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
     ));
-    label.position.set(0, 0.0012, -0.036); // playfield y 0.141
+    label.position.set(0, 0.0012, -0.047); // playfield y 0.152
     this.postCanvas = c;
     this.postTex = tex;
     this.postLabelKey = '';

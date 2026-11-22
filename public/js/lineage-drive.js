@@ -390,7 +390,7 @@ export function makeDrive({ calm = false, short = false } = {}) {
             st.clear = Math.min(1, st.clear + dt * (calm ? 50 : 3)); // then its piece of the block clears and the car rolls on
             if (st.clear >= 1) st.carZ -= 0.7 * dt;
           }
-        } else if (!gate.visible) st.carZ += (-st.G - 1.6 - st.carZ) * Math.min(1, dt * 2); // cruising
+        } else if (!gate.visible) st.carZ += ((st.fin >= 0 ? -0.3 : -st.G - 1.6) - st.carZ) * Math.min(1, dt * 2); // cruising (at the finish: in front of the camera)
         if (st.carZ < -st.G - 1.6) st.carZ = -st.G - 1.6;
         gate.position.z = st.gateZ;
       }

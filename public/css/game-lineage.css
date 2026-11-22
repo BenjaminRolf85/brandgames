@@ -112,7 +112,7 @@
   /* the browser's drive: the gate with its gantry stands under the tiles, the car drives up to it */
   --xr-lineage-deck:         2.4;       /* width of the road deck (m), the gantry's posts stand on its shoulders */
   --xr-lineage-drive-scale:  0.8;       /* the road model's scale under the tiles */
-  --xr-lineage-drive-scale-flat: 0.55;  /* ... on a phone held sideways */
+  --xr-lineage-drive-scale-flat: 0.47;  /* ... on a phone held sideways */
   --xr-lineage-gate-dist:    1.3;       /* from the car's start to the block (road model m) */
   --xr-lineage-gate-dist-tall: 1.2;    /* ... on an upright phone */
   --xr-lineage-gate-clear:   0.37;      /* from the road up to the tiles (m): the block fits below them */
@@ -120,10 +120,11 @@
   --xr-lineage-pitch-tall:   12;        /* ... on an upright phone */
   --xr-lineage-pitch-flat:   8;         /* ... on a phone held sideways */
   /* the browser's interchange: the route graph lies on the ground, seen from above at an angle */
-  --xr-lineage-map-tilt:     26;        /* how far the map lies back (degrees; 90 is flat on the floor) */
+  --xr-lineage-map-tilt:     22;        /* how far the map lies back (degrees; 90 is flat on the floor) */
+  --xr-lineage-map-tilt-tall: 15;       /* ... on an upright phone */
   --xr-lineage-map-fov:      28;        /* the camera's field of view on the map (degrees) */
   --xr-lineage-map-road:     0.05;      /* width of a road (m) */
-  --xr-lineage-map-car:      0.4;       /* the car's scale on the map */
+  --xr-lineage-map-car:      0.3;       /* the car's scale on the map */
 }
 
 /* A soft vignette over the room, and the short fade that covers a camera cut in calm motion. */

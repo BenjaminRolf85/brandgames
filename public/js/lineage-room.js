@@ -239,7 +239,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
   let lane = null; // an upright phone, stage 2: { x } where the cables run down beside the rows
   let barY = 0; // stage 1: the time bar's height (holder coordinates)
   let map = false; // the browser, stage 2: the graph is an interchange seen from above at an angle
-  const TILT = THREE.MathUtils.degToRad(num('xr-lineage-map-tilt'));
+  let TILT = 0; // set per board: an upright phone tilts the map less (its far row would get too small)
   const ROAD = num('xr-lineage-map-road');
   let ground = null; // the interchange's ground (made once)
   let callout = null; // the map: what the open gap needs, a sign in the gap
@@ -511,6 +511,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
     linesBuilt = false;
     needId = null;
     needKey = '';
+    overview = 0;
     if (callout) { callout.removeFromParent(); callout.dispose(); callout = null; }
     entryAt = null;
     routeView = false;
@@ -557,8 +558,9 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
   const toZone = () => { holder.position.x = screen ? ((state.hud?.stage ?? 0) - 1) * ZONE : 0; };
 
   /** A phone shows two layers of the graph at a time: from the report back to the sources. */
+  let overview = 0; // the map: seconds the whole interchange stays in view (the impact question begins with it)
   function focusCols() {
-    if (model?.kind !== 'graph' || (routeView && screen)) return null;
+    if (model?.kind !== 'graph' || (routeView && screen) || overview > 0) return null;
     if (screen && !small() && !model.impact?.active && model.needs.every((n) => n.done)) return null; // desktop: the finished trail in full
     const open = model.needs.filter((n) => !n.done).map((n) => model.nodes.find((x) => x.id === n.asker).col);
     const c = model.impact?.active || !open.length ? 3 : Math.max(...open);
@@ -581,7 +583,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
     for (const c of cards) {
       const on = !f || f.includes(c.node.col); // the other layers step aside until the trail is complete
       c.mesh.visible = on;
-      c.token.visible = on;
+      c.token.visible = on || map; // the map: the places stay, only their tags step aside
     }
     // Headset: the board and the panel above it follow the layers in view, centred in front of the player.
     const key = f ? f.join() : 'all';
@@ -659,10 +661,10 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
     curveOf.clear();
     if (!model) return;
     const byId = new Map(cards.map((c) => [c.id, c]));
-    const list = linesOf(model).filter((l) => byId.has(l.a) && byId.has(l.b) && byId.get(l.a).mesh.visible && byId.get(l.b).mesh.visible);
+    const list = linesOf(model).filter((l) => byId.has(l.a) && byId.has(l.b) && (map || (byId.get(l.a).mesh.visible && byId.get(l.b).mesh.visible)));
     if (map) { // roads into the interchange: from the entry to every source (they say nothing about the route)
       entryAt = entry();
-      if (entryAt) for (const c of cards.filter((x) => x.node.col === 0 && x.mesh.visible)) list.push({ a: '@entry', b: c.id, kind: 'fixed', entry: true });
+      if (entryAt) for (const c of cards.filter((x) => x.node.col === 0)) list.push({ a: '@entry', b: c.id, kind: 'fixed', entry: true });
     }
     const side = new Map();
     for (const l of list) for (const [id, s] of [[l.a, 'out'], [l.b, 'in']]) { const k = `${id}:${s}`; if (!side.has(k)) side.set(k, []); side.get(k).push(l); }
@@ -837,7 +839,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
     if (!map && v.need.length && n.kind !== 'desc' && (forSize || n.id === needId)) blocks.push({ text: t('lineageNeeds', { need: v.need.join(' + ') }), size: T1, weight: 'bold', color: C('accent') });
     if (v.mark === 'hit') blocks.push({ text: t('lineageAffected'), size: T1, weight: 'bold', color: C('pulse'), icon: 'good' });
     else if (v.mark === 'miss') blocks.push({ text: t('lineageNotAffected'), size: T1, weight: 'bold', color: C('bad'), icon: 'bad' });
-    else if (v.done && !v.need.length && n.kind !== 'desc' && n.kind !== 'field') blocks.push({ text: t('lineageDone'), size: T1, weight: 'bold', color: C('good'), icon: 'good' });
+    else if (!map && v.done && !v.need.length && n.kind !== 'desc' && n.kind !== 'field') blocks.push({ text: t('lineageDone'), size: T1, weight: 'bold', color: C('good'), icon: 'good' });
     // Room for the line that comes later ("not affected"), so a label never grows.
     else if (forSize && n.col === 3) blocks.push({ text: t('lineageNotAffected'), size: T1, weight: 'bold', icon: 'bad' });
     return blocks;
@@ -855,7 +857,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
       stroke: ring(u, v.selected ? C('accent') : v.changed || v.mark === 'hit' || pick ? C('pulse-line') : v.mark === 'miss' ? C('bad') : v.done ? C('good-line') : v.need.length ? C('accent') : C('card-border')),
       dash: (v.need.length > 0 || pick) && !v.selected && !u.focus,
       wide: v.selected || v.changed || !!v.mark || pick || u.hover || u.focus,
-      badge: v.changed ? 'change' : v.done && (c.node.kind === 'desc' || c.node.kind === 'field') ? 'good' : null,
+      badge: v.changed ? 'change' : v.done && (map || c.node.kind === 'desc' || c.node.kind === 'field') ? 'good' : null,
       badgeFill: v.changed ? C('pulse-line') : v.need.length ? C('accent') : C('good-line'),
       halo: v.selected,
       opacity: 1,
@@ -906,12 +908,12 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
     path.forEach((c, i) => { // across each place from where the road comes in to where the next one leaves
       if (legs.length) legs.push(new THREE.LineCurve3(legs[legs.length - 1].getPoint(1), c.getPoint(0)));
       legs.push(c);
-      if (i === path.length - 1) legs.push(new THREE.LineCurve3(c.getPoint(1), c.getPoint(1).add(new THREE.Vector3(vertical ? 0 : 0.1, vertical ? -0.08 : 0, 0))));
     });
+    const stopAt = 0.13; // it stops on the road in front of the destination, its tag stays free
     const end = () => { routeView = false; applyFocus(); buildLines(); done?.(); };
     if (!legs.length) { end(); return; }
     const lens = legs.map((c) => Math.max(1e-4, c.getLength()));
-    const total = lens.reduce((a, b) => a + b, 0);
+    const total = Math.max(0.01, lens.reduce((a, b) => a + b, 0) - stopAt);
     const tan = new THREE.Vector3();
     let last = 0;
     scene.tween(calm ? 1.4 : Math.min(4.2, 1.6 + total * 0.45), (k) => {
@@ -961,7 +963,11 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
         if (!c.mesh.visible) continue;
         const u = c.mesh.userData;
         for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) out.push(c.mesh.localToWorld(new THREE.Vector3(sx * (u.w / 2 + 0.01) * K, sy * (u.h / 2 + 0.006) * K, 0)));
-        if (map) for (const sx of [-1, 1]) out.push(holder.localToWorld(new THREE.Vector3(c.x + sx * 0.1, c.y - 0.1, 0)));
+        if (map) { // its token (it stands up from the map) and a little of the map around the tags
+          const tk = c.token;
+          if (!vertical) out.push(holder.localToWorld(new THREE.Vector3(tk.position.x - tk.userData.size * 0.6, tk.position.y, tk.position.z + tk.userData.size * 0.5)));
+          if (!vertical) for (const sx of [-1, 1]) out.push(holder.localToWorld(new THREE.Vector3(c.x + sx * (c.w / 2 + 0.12), c.y, 0)));
+        }
       }
       if (scanner && !map) out.push(holder.localToWorld(new THREE.Vector3(0, barY + 0.035, 0.06)));
       return out;
@@ -980,11 +986,12 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
       const up2 = tall();
       // The browser: the tiles hang on the gantry over the road, each token beside its tag (compact,
       // so the road and the car below stay in view); an upright phone hangs them in two rows.
-      const cols = screen ? (up2 ? 2 : tiles.length) : up2 ? (tiles.length === 4 ? 2 : 1) : tiles.length;
-      const side = !screen && up2 && cols === 1; // a single column: the token stands beside its tag
-      const tw = screen ? (up2 ? 0.43 : 0.47) : up2 ? (cols === 2 ? 0.41 : 0.84) : 0.4;
-      const zone = screen ? { bx: up2 ? 0.095 : 0.11, inset: true } : side ? { bx: 0.2 } : { by: up2 ? 0.21 : 0.22 };
-      const gap = screen ? 0.03 : up2 ? 0.035 : 0.045;
+      // (the headset hangs them compact too, a little narrower: the row stands at arm's length)
+      const cols = up2 ? 2 : tiles.length;
+      const side = false;
+      const tw = screen ? (up2 ? 0.43 : 0.47) : 0.43;
+      const zone = { bx: up2 ? 0.095 : screen ? 0.11 : 0.085, inset: true };
+      const gap = 0.03;
       const items = tiles.map((tl, i) => ({ tl, i, st: { kind: null, keyK: key, showKey: false }, indent: zone.inset ? zone.bx : 0, textW: zone.inset ? tw - PAD * 2 : 0 }));
       const th = Math.max(side ? 0.2 : 0, ...items.map((it) => measure(tileLook({ ...it, st: { kind: 'right' } })().blocks, tw, zone.inset ? 0 : zone.bx ?? 0))) + (zone.by ?? 0);
       const rows = Math.ceil(tiles.length / cols);
@@ -1095,6 +1102,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
       vertical = graph && up2;
       // The browser: the graph is an interchange, a map that lies tilted back; its places stand on it, the links are roads.
       map = screen && graph;
+      TILT = THREE.MathUtils.degToRad(num(up2 ? 'xr-lineage-map-tilt-tall' : 'xr-lineage-map-tilt'));
       holder.rotation.x = map ? -TILT : 0;
       if (map) {
         if (!ground) ground = makeGround();
@@ -1213,6 +1221,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
 
     refresh({ sel: s }) {
       if (!model) return;
+      if (map && model.impact?.active && !model.impact.shown) { model.impact.shown = true; overview = 2.6; }
       sel = s;
       for (const c of cards) {
         const v = nodeView(model, c.node, sel);
@@ -1268,6 +1277,9 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
         obj.quaternion.setFromRotationMatrix(basis.makeBasis(xAxis, yAxis, zAxis));
       }, { ease: (k) => k * k * (3 - 2 * k), onDone: end });
     },
+
+    /** For tests: the whole map is in view for a moment (the impact question begins with it). */
+    get overview() { return overview > 0; },
 
     /** For tests: the smallest text size on the field right now (m). */
     textMin: () => (model ? T1 : scanner && screen ? TS : T1),
@@ -1355,6 +1367,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
     tick(dt) {
       if (!holder.visible) return;
       time += dt;
+      if (overview > 0) { overview -= dt; if (overview <= 0) { applyFocus(); buildLines(); showNeed(); } }
       for (const c of cards) {
         const u = c.mesh.userData;
         const want = u.hover || u.focus || (c.id && c.id === sel) ? 1 : 0;

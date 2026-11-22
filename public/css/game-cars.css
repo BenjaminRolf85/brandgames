@@ -42,13 +42,26 @@
   --xr-cars-trunk:            #7a563a;
   --xr-cars-pole:             #8d95a6;
   --xr-cars-lamp:             #fff3c4;
-  --xr-cars-floor:            #d9dce2;
-  --xr-cars-wall:             #dcd8ce;
+  --xr-cars-floor:            #646b7a;   /* showroom: the polished stone floor */
+  --xr-cars-wall:             #e2e0da;   /* showroom: white cladding, fascia, gallery */
   --xr-cars-wall-2:           #3b4459;
-  --xr-cars-roof:             #d3d8e0;
-  --xr-cars-fascia:           #d9483f;
-  --xr-cars-glass:            #bfe6ff;
+  --xr-cars-roof:             #c9cfd9;
+  --xr-cars-fascia:           #e0463d;   /* showroom: the lit band on the fascia and the pylon */
+  --xr-cars-glass:            #9fd2f2;
   --xr-cars-interior:         #ffe9b0;
+  --xr-cars-show-plinth:      #b9bcc4;
+  --xr-cars-show-accent:      #3b4459;   /* showroom: the dark wall behind the cars */
+  --xr-cars-show-frame:       #4c5568;   /* showroom: mullions, door frames, columns */
+  --xr-cars-show-podium:      #c3c9d3;
+  --xr-cars-show-shine:       #ffffff;   /* showroom: light streaks on the glass */
+  --xr-cars-show-canopy:      #3b4459;
+  --xr-cars-roof-unit:        #a9b1be;
+  --xr-cars-shop-wall:        #cfd4dd;   /* workshop wing */
+  --xr-cars-shop-band:        #4a8fe0;
+  --xr-cars-shop-door:        #aeb6c3;
+  --xr-cars-shop-rib:         #8d96a6;
+  --xr-cars-pylon:            #2f3747;
+  --xr-cars-doormat:          #3a3f4b;
   --xr-cars-sign:             #fff7df;
   --xr-cars-sign-ink:         #2a2f3d;
   --xr-cars-flag-1:           #e8574f;
