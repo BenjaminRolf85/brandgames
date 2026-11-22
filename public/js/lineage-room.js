@@ -229,6 +229,9 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
   const seenDone = new Set();
   let linesBuilt = false;
   let needId = null; // the unit whose tag says what it needs
+  let oddLabel = ''; // what the right tile of stage 1 is called ("does not belong", "fits")
+  let routeView = false; // the finished route in full, while the car drives it
+  const curveOf = new Map(); // 'a>b' -> the curve of a link
   let lane = null; // an upright phone, stage 2: { x } where the cables run down beside the rows
   let nameSize = T2; // names on the tags (a little smaller on a phone held sideways)
   const rubber = new THREE.Mesh(new THREE.CylinderGeometry(TUBE, TUBE, 1, 8).translate(0, 0.5, 0), mats.drag);
@@ -265,7 +268,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
         let x = p.m(0.025);
         const cy = p.m(0.052);
         ctx.font = font('bold', p.m(T1));
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 2; i++) {
           // The stage that is played shows its name; the others are a number (done: a check).
           const now = i === hud.stage;
           const done = i < hud.stage;
@@ -484,6 +487,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
     seenDone.clear();
     linesBuilt = false;
     needId = null;
+    routeView = false;
     focusKey = '';
     lane = null;
     if (engine.focus && !engine.focus.parent) engine.setFocus(null);
@@ -528,7 +532,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
 
   /** A phone shows two layers of the graph at a time: from the report back to the sources. */
   function focusCols() {
-    if (model?.kind !== 'graph') return null;
+    if (model?.kind !== 'graph' || (routeView && screen)) return null;
     if (screen && !small() && !model.impact?.active && model.needs.every((n) => n.done)) return null; // desktop: the finished trail in full
     const open = model.needs.filter((n) => !n.done).map((n) => model.nodes.find((x) => x.id === n.asker).col);
     const c = model.impact?.active || !open.length ? 3 : Math.max(...open);
@@ -561,6 +565,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
   // ---- links as 3D pipes ----
   function buildLines() {
     clearLines();
+    curveOf.clear();
     if (!model) return;
     const byId = new Map(cards.map((c) => [c.id, c]));
     const list = linesOf(model).filter((l) => byId.has(l.a) && byId.has(l.b) && byId.get(l.a).mesh.visible && byId.get(l.b).mesh.visible);
@@ -600,7 +605,8 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
       l.curve = lane
         ? new THREE.CubicBezierCurve3(l.p, new THREE.Vector3(lane.x + l.reach * 1.33, l.p.y, 0.05), new THREE.Vector3(lane.x + l.reach * 1.33, l.q.y, 0.05), l.q)
         : new THREE.CubicBezierCurve3(l.p, c1, c2, l.q);
-      tubes[l.kind].push(new THREE.TubeGeometry(l.curve, 18, TUBE * (l.kind === 'fixed' ? 0.85 : 1.3), 6, false));
+      curveOf.set(`${l.a}>${l.b}`, l.curve);
+      tubes[l.kind].push(new THREE.TubeGeometry(l.curve, 18, TUBE * (l.kind === 'fixed' ? 0.9 : 1.9), 6, false)); // the player's links are lit roads
       if (l.kind !== 'fixed' || flowAll) flows.push(l.curve);
       // every pipe plugs into a socket at both ends; the player's links carry a check mark; a new link sparks once
       for (const pt of [l.p, l.q]) if (ns < SOCKETS) sockets.setMatrixAt(ns++, m4.compose(pt, qI, v2.setScalar(TUBE * 2.3)));
@@ -658,7 +664,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
     const blocks = [{ text: tl.title, size: tl.mono ? 0.044 : 0.04, mono: tl.mono, weight: 'bold', gap: 0.016, color: off ? C('muted') : C('ink') }];
     const tokCol = C(TOK_COLOR[tl.tok] ?? 'accent');
     for (const p of tl.parts) blocks.push({ text: p.glyph ? p.text : `${p.label}  ${p.text}`, size: T1 + 0.003, gap: 0.011, color: C('muted'), glyph: p.glyph ?? null, hot: p.key || (st.showKey && p.k === st.keyK) });
-    if (kind === 'right' || kind === 'answer') blocks.push({ text: t('lineageOdd'), size: T1, weight: 'bold', color: C('good'), icon: 'good' });
+    if (kind === 'right' || kind === 'answer') blocks.push({ text: oddLabel, size: T1, weight: 'bold', color: C('good'), icon: 'good' });
     if (kind === 'wrong') blocks.push({ text: t('lineageWrong'), size: T1, weight: 'bold', color: C('bad'), icon: 'bad' });
     return {
       blocks, band: tl.owKey ? C(`own-${tl.owKey}`) : null, glow: tl.owKey ? C(`own-${tl.owKey}`) : tokCol, owner: tl.owKey ? tl.parts.find((p) => p.k === 'ow')?.text : null, lit: kind === 'right' || kind === 'answer',
@@ -740,6 +746,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
       if (!on) { clearContent(); cardUi.forEach((o) => { o.removeFromParent(); o.dispose?.(); }); cardUi = []; }
     },
 
+    clear() { clearContent(); model = null; },
     setHud(h) { state.hud = h; head?.redraw(); },
     setPrompt(text) { if (state.prompt !== text) { state.prompt = text; head?.redraw(); } },
     setFeedback(kind, text) { state.fb = kind; state.fbText = text ?? ''; head?.redraw(); },
@@ -755,7 +762,8 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
     },
 
     // ---- stage 1: tokens in a row under the scanner ----
-    showOdd({ tiles, key }) {
+    showOdd({ tiles, key, rightLabel }) {
+      oddLabel = rightLabel ?? t('lineageOdd');
       clearContent();
       model = null;
       resetBounds();
@@ -791,7 +799,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
       });
       // the scanner: a bar of light above the row and a beam that passes over the tokens
       const W = bounds.x1 - bounds.x0;
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(W, 0.008, 0.02), mats.drag);
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(W, 0.016, 0.02), mats.drag);
       bar.position.set(0, bounds.y1 + 0.02, 0.06);
       const oneRow = rows === 1 && !side;
       const bh = oneRow ? zone.by + 0.03 : bounds.y1 - bounds.y0 + 0.02;
@@ -800,10 +808,19 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
       holder.add(bar, beam);
       extras.push(bar, beam);
       bounds.y1 += 0.05; // room for the token that is lifted out
-      scanner = side ? { beam, x0: -tw / 2 + zone.bx / 2, x1: -tw / 2 + zone.bx / 2, to: null, side: true } : { beam, x0: bounds.x0 + tw * 0.5, x1: bounds.x1 - tw * 0.5, to: null };
+      scanner = side ? { bar, beam, x0: -tw / 2 + zone.bx / 2, x1: -tw / 2 + zone.bx / 2, to: null, side: true } : { bar, beam, x0: bounds.x0 + tw * 0.5, x1: bounds.x1 - tw * 0.5, to: null };
       bounds.x0 -= up2 ? 0.01 : 0.045;
       bounds.x1 += up2 ? 0.01 : 0.045;
       frame();
+    },
+
+    /** The time that is left before the car reaches the obstacle (1 to 0): the bar above the tiles shrinks and turns red. */
+    setTimer(k) {
+      if (!scanner) return;
+      scanner.bar.visible = k != null;
+      if (k == null) return;
+      scanner.bar.scale.x = Math.max(0.001, k);
+      scanner.bar.material = k < 0.3 ? mats.bad : mats.drag;
     },
 
     markOdd(i, kind) {
@@ -975,6 +992,44 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
     },
 
     shake,
+
+    /**
+     * The route is complete: the whole interchange shows and a small car drives it from a source
+     * to the destination (obj: the car, about 0.5 m long). done() when it has arrived.
+     */
+    driveRoute(obj, done) {
+      routeView = true;
+      applyFocus();
+      buildLines();
+      // from the destination back along the lit roads to a source
+      const path = [];
+      let at = 'r1';
+      for (let i = 0; i < 4; i++) {
+        const l = model.links.find((x) => x.b === at && curveOf.has(`${x.a}>${x.b}`) && x.state === 'done') ?? model.links.find((x) => x.b === at && curveOf.has(`${x.a}>${x.b}`));
+        if (!l) break;
+        path.unshift(curveOf.get(`${l.a}>${l.b}`));
+        at = l.a;
+      }
+      const end = () => { obj.removeFromParent(); routeView = false; applyFocus(); buildLines(); done?.(); };
+      if (!path.length) { end(); return; }
+      obj.scale.setScalar(0.3);
+      holder.add(obj);
+      const tan = new THREE.Vector3();
+      const zAxis = new THREE.Vector3();
+      const xAxis = new THREE.Vector3();
+      const yAxis = new THREE.Vector3(0, 0, 1);
+      const basis = new THREE.Matrix4();
+      scene.tween(calm ? 1.2 : 2.6, (k) => {
+        const f = Math.min(path.length - 1e-4, k * path.length);
+        const c = path[Math.floor(f)];
+        c.getPoint(f % 1, obj.position);
+        obj.position.z += 0.03;
+        c.getTangent(f % 1, tan).setZ(0).normalize();
+        zAxis.copy(tan).negate(); // the car's nose points along the road, its roof at the viewer
+        xAxis.crossVectors(yAxis, zAxis).normalize();
+        obj.quaternion.setFromRotationMatrix(basis.makeBasis(xAxis, yAxis, zAxis));
+      }, { ease: (k) => k * k * (3 - 2 * k), onDone: end });
+    },
 
     pop(text, target) {
       const c = target?.tile != null ? cards[target.tile] : cards.find((x) => x.id === target?.node);

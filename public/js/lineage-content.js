@@ -513,3 +513,32 @@ export function drawRound({ easy = false, seen = new Set(), rnd = Math.random } 
   const graphs = fresh(GRAPHS, seen, rnd).slice(0, 2).map((g) => makeGraph(g, { missing: easy ? 3 : 4, rnd }));
   return { rows, boards, graphs, ids: [...rows.map((r) => r.id), ...boards.map((b) => b.id), ...graphs.map((g) => g.id)] };
 }
+
+/**
+ * A field question for the drive: a sign names what is meant in plain words, four fields stand
+ * on the gantry and one of them is it (among them its false friend, the field with the similar name).
+ */
+export function matchRow(theme, easy = false, rnd = Math.random) {
+  const must = theme.pairs.filter((p) => p.must);
+  const target = must[Math.floor(rnd() * must.length)] ?? theme.pairs[0];
+  const friend = must.find((p) => p !== target)?.f;
+  const others = shuffle(Object.keys(theme.fields).filter((id) => id !== target.f && id !== friend), rnd);
+  const ids = [target.f, ...(friend ? [friend] : []), ...others].slice(0, easy ? 3 : 4);
+  const tiles = shuffle(ids.map((id) => ({ ...theme.fields[id], odd: id === target.f })), rnd);
+  return { id: `m-${theme.id}`, kind: 'match', lvl: 2, show: ['ty', 'ex'], key: 'ex', ask: target.d, tiles, odd: tiles.findIndex((tl) => tl.odd) };
+}
+
+/**
+ * A round of the drive: six obstacles (four odd-one-out rows from easy to tricky, and two field
+ * questions) and two interchanges. Relaxed: five obstacles of three tiles, routes with three gaps.
+ */
+export function drawDrive({ easy = false, seen = new Set(), rnd = Math.random } = {}) {
+  const odd = (lvl, not) => fresh(ODD.filter((x) => x.lvl === lvl && x.cat !== not), seen, rnd)[0];
+  const a = odd(1);
+  const themes = fresh(THEMES, seen, rnd).slice(0, 2);
+  const m = themes.map((th) => matchRow(th, easy, rnd));
+  const list = easy ? [a, m[0], odd(2), m[1], odd(3)] : [a, odd(1, a.cat), m[0], odd(2), m[1], odd(3)];
+  const rows = list.map((r) => (r.kind === 'match' ? r : oddRow(r, easy, rnd)));
+  const graphs = fresh(GRAPHS, seen, rnd).slice(0, 2).map((g) => makeGraph(g, { missing: easy ? 3 : 4, rnd }));
+  return { rows, graphs, ids: [...list.map((r) => r.id), ...themes.map((th) => th.id), ...graphs.map((g) => g.id)] };
+}

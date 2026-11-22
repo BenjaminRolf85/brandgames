@@ -30,6 +30,20 @@
   --xr-lineage-flow:         var(--p-mint-400);
   --xr-lineage-flow-light:   #eafff6;
 
+  /* the data highway and Echo's car */
+  --xr-lineage-road:         #0e1434;
+  --xr-lineage-road-edge:    var(--p-cyan-400);
+  --xr-lineage-road-mark:    #dfe9ff;
+  --xr-lineage-gantry:       #5b6ee0;
+  --xr-lineage-car:          var(--p-coral-400);
+  --xr-lineage-car-trim:     #f4f6ff;
+  --xr-lineage-car-glass:    #8fe6ff;
+  --xr-lineage-car-lamp:     #fff6c9;
+  --xr-lineage-car-tail:     #ff4d6d;
+  --xr-lineage-car-tire:     #1b2040;
+  --xr-lineage-obstacle:     var(--p-amber-400);
+  --xr-lineage-obstacle-dark: #3a2a6e;
+
   /* field tokens: one shape and one color per kind of data (the shape says it, not the color alone) */
   --xr-lineage-tok-date:     var(--p-violet-400);
   --xr-lineage-tok-amt:      var(--p-amber-400);
