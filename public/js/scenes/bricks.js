@@ -270,7 +270,7 @@ export class BricksScene extends BaseScene {
     M.mats.Grass.color.setHex(hex(`xr-bricks-grass-${place}`));
     M.mats.GrassDark.color.setHex(hex(`xr-bricks-grass-${place}`)).multiplyScalar(0.78);
     // The house throws shadows where the device affords it; the neighbors never do.
-    this.house = new House(this.plotRoot, M, { cast: this.tier !== 'low', calm: this.calm });
+    this.house = new House(this.plotRoot, M, { cast: this.tier !== 'low', calm: this.calm, lod: this.engine.isXR, hold: ['extras'] });
     this.house.decorate(place);
     this.crane = new Crane(M, this.plotRoot, CRANE_AT);
     if (this.tier !== 'high') this.crane.root.traverse((o) => { o.castShadow = false; });
@@ -362,7 +362,7 @@ export class BricksScene extends BaseScene {
     const inner = new THREE.Group(); // mirrored copy of the plot
     inner.scale.set(-1, 1, 1);
     root.add(inner);
-    nb.house = new House(inner, M, { cast: false, calm: this.calm, settle: true });
+    nb.house = new House(inner, M, { cast: false, calm: this.calm, settle: true, lod: true });
     nb.house.decorate(this.round.brief.place.id);
     nb.family = makeFamily('winter');
     nb.family.group.position.set(-0.25, 0.002, 0.31);
@@ -621,7 +621,7 @@ export class BricksScene extends BaseScene {
     this.drawer = false;
     this.briefOpen = false;
     // What can no longer change becomes one mesh per material (few draw calls): everything but the last choice and the extras.
-    this.house.freeze([DECISIONS[this.step - 1], 'extras']);
+    this.house.freeze(['extras']);
     this.nb.house.freeze();
     if (extras) {
       // The list becomes real: what is earmarked gets built, one after the other.
@@ -927,6 +927,7 @@ export class BricksScene extends BaseScene {
     c.root.visible = true;
     c.root.scale.set(1, 1, 1);
     this.house.build('roof', id, { held: true });
+    this.house.parts.roof.busy = true; // not merged with the rest while it hangs on the hook
     const part = this.house.parts.roof.home;
     const tgtY = HOUSE.y + this.house.roofTop + 0.012; // where the hook ends, plot-local
     const aim = c.aimAt(HOUSE.x, HOUSE.z);
@@ -942,6 +943,7 @@ export class BricksScene extends BaseScene {
       if (this.disposed) return;
       this.roofHang = null;
       part.position.y = 0;
+      if (this.house.parts.roof) this.house.parts.roof.busy = false;
       c.setSlings(null);
       bsfx.land();
       const at = HOUSE.clone().add(new THREE.Vector3(0, TOP, 0));
@@ -1364,8 +1366,10 @@ export class BricksScene extends BaseScene {
         out.plot = { x: 0, y: top + 30, w: W, h: y - top - 34 };
       }
       const lw = Math.min(180, out.plot.w * 0.44);
-      s.labelMe = { x: out.plot.x + out.plot.w * 0.25 - lw / 2, y: top, w: lw, h: 28, wrap: kind === 'row' ? 460 : 400 };
-      s.labelNb = { x: out.plot.x + out.plot.w * 0.75 - lw / 2, y: top, w: lw, h: 28, wrap: kind === 'row' ? 460 : 400 };
+      // while the view is on one house (the check on a wide screen), only that house's name, above it
+      const side = this.focusSide;
+      if (side !== 'b') s.labelMe = { x: out.plot.x + out.plot.w * (side ? 0.5 : 0.25) - lw / 2, y: top, w: lw, h: 28, wrap: kind === 'row' ? 460 : 400 };
+      if (side !== 'a') s.labelNb = { x: out.plot.x + out.plot.w * (side ? 0.5 : 0.75) - lw / 2, y: top, w: lw, h: 28, wrap: kind === 'row' ? 460 : 400 };
       out.both = true;
       return out;
     }
@@ -1617,29 +1621,28 @@ export class BricksScene extends BaseScene {
    */
   checkFocus(wide) {
     const c = this.check;
+    this.focusSide = null;
     if (!c || this.mode !== 'check' || c.wait > 0 || c.stage >= c.me.rows.length) return { key: 'all', box: null };
     const mine = this.spotOf(this.house, c.me.rows[c.stage].why);
     const theirs = this.spotOf(this.nb.house, c.them.rows[c.stage].why);
     if (!mine && !theirs) return { key: 'all', box: null };
-    const off = wide ? new THREE.Vector3(1.2, 0, 0) : new THREE.Vector3(0.66, 0, -0.96);
-    const mid = new THREE.Vector3(0, 0.16, 0);
-    const pts = [
-      (mine ?? mid).clone().add(HOUSE),
-      (theirs ?? mid).clone().multiply(new THREE.Vector3(-1, 1, 1)).add(HOUSE).add(off),
-    ];
-    const around = (list, r) => {
-      const lo = (a) => Math.min(...list.map((p) => p[a])) - r;
-      const hi = (a) => Math.max(...list.map((p) => p[a])) + r;
-      return [[lo('x'), hi('x')], [0, Math.max(0.34, hi('y') - 0.06)], [lo('z'), Math.min(hi('z'), 0.38)]];
-    };
-    // On a wide screen the two houses stand far apart: the view goes to the part on the player's
-    // house, then on to the neighbors'. On phones both stay in view together.
+    // On a wide screen the two houses stand far apart: the view goes to the player's house with
+    // the part, then on to the neighbors'. Each house is framed whole (the panels never cover it).
+    // On phones (and narrow windows) the screen is too small for that: both houses stay in view
+    // together, whole, and the arrows and the glow show the parts.
     c.split = wide && !this.engine.touchUI && !!mine && !!theirs;
-    if (c.split) {
-      const second = c.t > (this.calm ? 2.0 : 1.7);
-      return { key: `${c.stage}${second ? 'b' : 'a'}`, box: around([pts[second ? 1 : 0]], 0.27) };
-    }
-    return { key: String(c.stage), box: around(pts, 0.21) };
+    if (!c.split) return { key: 'all', box: null };
+    const second = c.t > (this.calm ? 2.0 : 1.7);
+    this.focusSide = second ? 'b' : 'a';
+    const house = second ? this.nb.house : this.house;
+    const sx = second ? -1 : 1; // the neighbors' plot is mirrored
+    const ox = second ? 1.2 : 0;
+    const ext = (ids) => ids.some((id) => house.extras.has(id));
+    const xa = ox + sx * (ext(['annex', 'conservatory']) ? -0.48 : -0.36);
+    const xb = ox + sx * (ext(['carport']) ? 0.6 : 0.36);
+    const spot = (second ? theirs : mine).clone().multiply(new THREE.Vector3(sx, 1, 1)).add(HOUSE).add(new THREE.Vector3(ox, 0, 0));
+    const box = [[Math.min(xa, xb, spot.x - 0.1), Math.max(xa, xb, spot.x + 0.1)], [0, Math.max(0.42, spot.y + 0.08)], [-0.26, 0.38]];
+    return { key: `${c.stage}${second ? 'b' : 'a'}`, box };
   }
 
   /** Calm motion's cut: a veil over the world (not over the panels), 0..1. */

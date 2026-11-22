@@ -200,6 +200,22 @@ function chamferBox(sx, sy, sz) {
   return f;
 }
 
+let LOD = null;
+/** Simpler bricks (one bevel, as big as the model's): for the headset and the neighbors. */
+function lodBricks(geo) {
+  if (LOD) return LOD;
+  const make = (src) => {
+    src.computeBoundingBox();
+    const s = src.boundingBox.getSize(new THREE.Vector3());
+    const f = chamferBox(s.x, s.y, s.z);
+    const g = new THREE.BufferGeometry();
+    for (const name of ['position', 'normal', 'color']) g.setAttribute(name, new THREE.BufferAttribute(f[name], 3));
+    return g;
+  };
+  LOD = { brick: make(geo.brick), half: make(geo.half), quoin: make(geo.quoin) };
+  return LOD;
+}
+
 /** One geometry from a list of [geometry, matrix, tint]. Plain boxes get bevelled edges on the way. */
 function fuse(list) {
   for (const entry of list) {
@@ -348,8 +364,9 @@ export class House {
    * plotRoot: the group the plot stands in (plot-local space); M: the loaded model
    * (bricks-visuals.js). cast: the house throws shadows; calm: gentle animations.
    */
-  constructor(plotRoot, M, { cast = true, calm = false, settle = false } = {}) {
+  constructor(plotRoot, M, { cast = true, calm = false, settle = false, lod = false, hold = null } = {}) {
     this.M = M;
+    this.hold = hold; // parts that stay apart (can still go away by themselves); all else is merged once at rest
     this.settle = settle; // never takes a part back: everything at rest is merged at once
     this.cast = cast;
     this.calm = calm;
@@ -362,7 +379,27 @@ export class House {
     if (this.plot) {
       this.plot.traverse((o) => { if (o.isMesh) { o.receiveShadow = true; o.castShadow = false; this.plotMeshes.set(o.material.name, o); } });
       this.site.add(this.plot);
+      // Plot parts that differ only in their color: one mesh (the color goes into the vertices).
+      for (const [from, to] of [['GrassDark', 'Grass'], ['SoilDark', 'Soil']]) {
+        const src = this.plotMeshes.get(from);
+        const host = this.plotMeshes.get(to);
+        if (!src || !host) continue;
+        const f = flat(src.geometry);
+        const k = [0, 1, 2].map((i) => src.material.color.toArray()[i] / Math.max(1e-4, host.material.color.toArray()[i]));
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(f.position.slice(), 3));
+        geo.setAttribute('normal', new THREE.BufferAttribute(f.normal.slice(), 3));
+        geo.setAttribute('color', new THREE.BufferAttribute(f.color.map((v, i) => v * k[i % 3]), 3));
+        const tmp = new THREE.Mesh(geo, host.material);
+        tmp.userData.ownGeo = true;
+        src.parent.add(tmp);
+        tmp.position.copy(src.position); tmp.quaternion.copy(src.quaternion); tmp.scale.copy(src.scale);
+        this.absorb(host, [tmp]);
+        src.removeFromParent();
+        this.plotMeshes.delete(from);
+      }
     }
+    this.lod = lod;
     this.glass = M.mats.Glass.clone();
     this.glass.emissive = new THREE.Color(hex('xr-bricks-window-light'));
     this.glass.emissiveIntensity = 0;
@@ -566,6 +603,7 @@ export class House {
     const key = decision === 'extras' ? `x:${id}` : decision;
     const part = this.parts[key];
     if (!part) return;
+    if (part.frozen) { this.rebuildWithout(key); return; }
     for (const g of [part.home, part.site]) {
       g.traverse((o) => { if (o.isInstancedMesh) o.dispose(); if (o.userData.ownGeo) o.geometry.dispose(); });
       g.removeFromParent();
@@ -575,6 +613,38 @@ export class House {
     if (decision === 'garden') this.showGarden(null);
     if (decision === 'heating') this.smokeAt = null;
     if (decision === 'door') this.doorPivot = null;
+    this.changed += 1;
+  }
+
+  /**
+   * A part that was already merged with the rest goes away: the house is built again without it,
+   * standing at once (rare: "back" after the part was frozen), and merged again.
+   */
+  rebuildWithout(key) {
+    const order = Object.keys(this.parts).filter((k) => k !== key);
+    const ids = Object.fromEntries(order.map((k) => [k, k.startsWith('x:') ? k.slice(2) : this.chosen[k]]));
+    for (const where of ['home', 'site']) {
+      for (const m of this.pool[where].values()) { flatCache.delete(m.geometry); m.geometry.dispose(); m.removeFromParent(); }
+      this.pool[where].clear();
+    }
+    for (const part of Object.values(this.parts)) {
+      for (const g of [part.home, part.site]) {
+        g.traverse((o) => { if (o.isInstancedMesh) o.dispose(); if (o.userData.ownGeo) o.geometry.dispose(); });
+        g.removeFromParent();
+      }
+    }
+    this.parts = {};
+    this.chosen = {};
+    this.extras = new Set();
+    this.smokeAt = null;
+    this.doorPivot = null;
+    this.showGarden(null);
+    for (const k of order) {
+      if (k.startsWith('x:')) this.build('extras', ids[k], { animate: false });
+      else this.build(k, ids[k], { animate: false });
+    }
+    this.update(0);
+    this.freeze(this.hold ?? []);
     this.changed += 1;
   }
 
@@ -609,7 +679,7 @@ export class House {
     if (busy) this.changed += 1;
     // parts that came to rest after the final freeze (or, for a house that never takes a part
     // back, any part at rest): frozen too, and the plot merged with them
-    else if ((this.final || this.settle) && Object.values(this.parts).some((p) => p.baked && !p.frozen)) this.freeze([], this.final);
+    else if ((this.final || this.settle || this.hold) && Object.entries(this.parts).some(([k, p]) => p.baked && !p.frozen && !p.busy && !(this.hold && !this.final && k.startsWith('x:')))) this.freeze(this.final ? [] : this.hold ?? [], this.final);
     return busy;
   }
 
@@ -658,7 +728,7 @@ export class House {
     if (final) this.final = true;
     const fresh = { home: new Map(), site: new Map() };
     for (const [key, part] of Object.entries(this.parts)) {
-      if (part.frozen || !part.baked || keep.includes(key) || (key.startsWith('x:') && keep.includes('extras'))) continue;
+      if (part.frozen || !part.baked || part.busy || keep.includes(key) || (key.startsWith('x:') && keep.includes('extras'))) continue;
       part.frozen = true;
       for (const where of ['home', 'site']) {
         const root = this[where];
@@ -735,7 +805,8 @@ export class House {
       // The mortar: a core inside every stretch of wall, a little thinner than the bricks, so the
       // joints are filled (and nothing shows through them). It rises with the courses.
       for (const w of boxes) this.b('Mortar', w.x, w.y, w.z, w.len, w.h - 0.002, D - 0.007, { yaw: w.yaw, how: 'grow', dur: 0.95 });
-      const G = this.M.geo;
+      // lod: bricks with one bevel instead of the model's rounded ones (a third of the triangles)
+      const G = this.lod ? lodBricks(this.M.geo) : this.M.geo;
       this.cur.bits.push(new Bits(this.cur.home, G.brick, this.M.mats.BrickClay, by.full, this.cast));
       this.cur.bits.push(new Bits(this.cur.home, G.half, this.M.mats.BrickClay, by.half, this.cast));
       this.cur.bits.push(new Bits(this.cur.home, G.quoin, this.M.mats.Quoin, by.post, this.cast));
@@ -867,12 +938,12 @@ export class House {
       const slope = Math.atan2(y1 - y0, z0 - z1);
       for (const side of [-1, 1]) {
         // fine darker reeds running down the slope, of different lengths
-        for (let i = 0; i < 46; i++) {
-          const f0 = rnd(0, 0.55);
-          const f1 = Math.min(0.97, f0 + rnd(0.2, 0.5));
+        for (let i = 0; i < 64; i++) {
+          const f0 = rnd(0, 0.7);
+          const f1 = Math.min(0.97, f0 + rnd(0.12, 0.35));
           const len = (f1 - f0) * Math.hypot(z0 - z1, y0 - y1);
           const f = (f0 + f1) / 2;
-          const reed = box(mats.ThatchDark, rnd(0.002, 0.0032), 0.003, len, rnd(-RX + 0.01, RX - 0.01), y0 + (y1 - y0) * f + 0.0012, side * (z0 + (z1 - z0) * f));
+          const reed = box(mats.ThatchDark, rnd(0.0015, 0.0025), 0.003, len, rnd(-RX + 0.01, RX - 0.01), y0 + (y1 - y0) * f + 0.0012, side * (z0 + (z1 - z0) * f));
           reed.rotation.x = side * slope;
           g.add(reed);
         }
@@ -883,7 +954,7 @@ export class House {
         }
       }
       for (const sx of [-1, 1]) { const tri = prism([[-OZ, 0], [OZ, 0], [0, RIDGE]], D, mats.Plaster); tri.position.x = sx * XH; g.add(tri); }
-      this.gutters(g, EY - 0.022, EZ + 0.01, 2 * RX - 0.02, true);
+      this.gutters(g, EY - 0.017, EZ - 0.003, 2 * RX - 0.02, true);
     } else if (id === 'green') {
       g.add(box(mats.Dark, 2 * OX + 0.05, 0.026, 2 * OZ + 0.05, 0, 0.013, 0));
       g.add(box(mats.Frame, 2 * OX + 0.056, 0.006, 2 * OZ + 0.056, 0, 0.028, 0));
