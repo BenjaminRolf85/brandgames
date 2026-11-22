@@ -116,6 +116,12 @@ export function screenHud({ onHint, onNext, onMenu, desk = false, calm = false }
       box.innerHTML = kind ? icon(kind) : '';
       box.append(el('span', '', text ?? ''));
       feedback.replaceChildren(box);
+      // Phones: the note stands in the prompt's place; the prompt steps aside until the note has
+      // faded, so the two texts never show through each other.
+      if (!desk) {
+        row.classList.toggle('is-covered', !!kind);
+        if (kind) box.addEventListener('animationend', () => { if (feedback.firstChild === box) row.classList.remove('is-covered'); }, { once: true });
+      }
     },
 
     setSpeed(k, points) {

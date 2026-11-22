@@ -256,7 +256,7 @@ export class LineageScene extends BaseScene {
     const tall = phone && window.innerWidth < window.innerHeight;
     const flat = phone && !tall && window.innerHeight < 520;
     // the road is a model a little smaller than the tiles (a phone held sideways: smaller still, it has no height to spare)
-    const sc = num(flat ? 'xr-lineage-drive-scale-flat' : 'xr-lineage-drive-scale');
+    const sc = num(flat ? 'xr-lineage-drive-scale-flat' : tall ? 'xr-lineage-drive-scale-tall' : 'xr-lineage-drive-scale');
     const G = num(tall ? 'xr-lineage-gate-dist-tall' : 'xr-lineage-gate-dist');
     const roadY = fb.y0 - num('xr-lineage-gate-clear') * sc;
     g.scale.setScalar(sc);
