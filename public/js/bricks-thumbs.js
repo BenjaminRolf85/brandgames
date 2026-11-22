@@ -133,6 +133,7 @@ export class Thumbs {
     for (const d of DECISIONS) h.remove(d);
     this.root.traverse((m) => { if (m.isMesh && m.userData.ownGeo) m.geometry.dispose(); });
     h.clear.dispose();
+    h.ball?.dispose();
     h.glass.dispose();
     this.target.dispose();
     this.target = null;
