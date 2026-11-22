@@ -2,10 +2,10 @@
 // playing field on every device).
 //   board = { kind: 'pairs' | 'graph', cols: [label], nodes: [{ id, col, kind, title, mono, meta }],
 //             links: [{ a, b, state: 'fixed' | 'done' }]   a is the node in the lower column
-//             needs: [{ id, asker, ans, text, ai: { id, conf } | null, aiState, done, tries }]
+//             needs: [{ id, asker, ans, text, done, tries }]
 //             taken: Set of used candidates (pairs), impact: { src, field, hit, found, wrong, lit, active } }
 // A need is one missing link: the asker (a description, or the downstream node of a graph) needs
-// the candidate `ans` from the neighbouring column. The assistant's proposal for it is `ai`.
+// the candidate `ans` from the neighbouring column.
 // No browser imports: the content checks (node) use this file too.
 
 export const colOf = (board, id) => board.nodes.find((n) => n.id === id)?.col ?? -1;
@@ -20,8 +20,6 @@ export function nodeView(board, node, sel) {
   const isCand = candCols.has(node.col) && !taken;
   return {
     need: open.map((n) => n.text).filter(Boolean),
-    chips: im ? [] : open.filter((n) => n.ai && n.aiState === 'open'),
-    missed: !im && open.some((n) => n.aiState === 'followed'),
     selectable: im ? (node.col === 3 && !im.found.has(node.id) && !im.wrong.has(node.id)) : (open.length > 0 || isCand),
     selected: sel === node.id,
     done: (had && !open.length) || taken,
@@ -30,17 +28,10 @@ export function nodeView(board, node, sel) {
   };
 }
 
-/** Every line a view draws: { a, b, kind: 'fixed' | 'done' | 'ai' | 'pulse', conf }. */
+/** Every line the room draws: { a, b, kind: 'fixed' | 'done' | 'pulse' }. Nothing shows before a pair is made. */
 export function linesOf(board) {
   const im = board.impact?.active ? board.impact : null;
   const out = board.links.map((l) => ({ a: l.a, b: l.b, kind: im?.lit.has(`${l.a}>${l.b}`) ? 'pulse' : l.state }));
-  if (!im) {
-    for (const n of board.needs) {
-      if (n.done || !n.ai || n.aiState !== 'open') continue;
-      const [a, b] = colOf(board, n.ai.id) < colOf(board, n.asker) ? [n.ai.id, n.asker] : [n.asker, n.ai.id];
-      out.push({ a, b, kind: 'ai', conf: n.ai.conf });
-    }
-  }
   return out;
 }
 
