@@ -173,6 +173,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
   const ZONE = num('xr-lineage-zone');
   const T1 = Math.max(num('xr-text-sm'), 0.035); // metadata: never below the small text token
   const T2 = 0.04; // names
+  const TS = screen ? 0.039 : T1; // the browser's gantry: the line under a tile's name (the smallest text in stage 1)
   const holder = new THREE.Group();
   holder.userData.noFit = true;
   holder.visible = false;
@@ -808,14 +809,22 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
     }
     const blocks = [{ text: tl.title, size: nameSize, mono: tl.mono, weight: 'bold', gap: 0.014, color: off ? C('muted') : C('ink') }];
     const tokCol = C(TOK_COLOR[tl.tok] ?? 'accent');
-    for (const p of tl.parts) blocks.push({ text: p.glyph ? p.text : `${p.label} ${p.text}`, size: ind ? T1 : T1 + 0.003, gap: 0.01, color: C('muted'), glyph: p.glyph ?? null, hot: p.key || (st.showKey && p.k === st.keyK), indent: ind, keep: !!ind });
-    if (kind === 'right' || kind === 'answer') blocks.push({ text: oddLabel, size: T1, weight: 'bold', color: C('good'), icon: 'good', indent: ind });
-    if (kind === 'wrong') blocks.push({ text: t('lineageWrongShort'), size: T1, weight: 'bold', color: C('bad'), icon: 'bad', indent: ind });
+    const hot = (p) => p.key || (st.showKey && p.k === st.keyK);
+    if (ind && tl.parts.length) { // the browser's gantry: name and one short line (type, example or owner), the token beside it
+      const g = tl.parts.find((p) => p.glyph);
+      const nb = (x) => String(x).replace(/ /g, '\u00a0'); // a part never breaks inside, only between the parts
+      blocks.push({ text: tl.parts.map((p) => nb(p.glyph ? p.text : `${p.label} ${p.text}`)).join(' · '), size: TS, gap: 0.006, color: C('muted'), glyph: g?.glyph ?? null, hot: tl.parts.some(hot), indent: ind, keep: true });
+    } else for (const p of tl.parts) blocks.push({ text: p.glyph ? p.text : `${p.label}  ${p.text}`, size: T1 + 0.003, gap: 0.011, color: C('muted'), glyph: p.glyph ?? null, hot: hot(p) });
+    // (the browser marks right and wrong with a badge in the corner; the headset writes it on the tile)
+    if (!ind && (kind === 'right' || kind === 'answer')) blocks.push({ text: oddLabel, size: T1, weight: 'bold', color: C('good'), icon: 'good' });
+    if (!ind && kind === 'wrong') blocks.push({ text: t('lineageWrong'), size: T1, weight: 'bold', color: C('bad'), icon: 'bad' });
     return {
       blocks, band: tl.owKey ? C(`own-${tl.owKey}`) : null, glow: tl.owKey ? C(`own-${tl.owKey}`) : tokCol, owner: tl.owKey ? tl.parts.find((p) => p.k === 'ow')?.text : null, lit: kind === 'right' || kind === 'answer',
       fill: kind === 'right' ? C('good-soft') : kind === 'wrong' ? C('bad-soft') : off ? C('card-soft') : C('card'),
       stroke: ring(u, kind === 'right' || kind === 'answer' ? C('good-line') : kind === 'wrong' ? C('bad') : C('card-border')),
       dash: kind === 'answer', wide: !!kind || u.hover || u.focus,
+      badge: ind && (kind === 'right' || kind === 'answer') ? 'good' : ind && kind === 'wrong' ? 'bad' : null,
+      badgeFill: kind === 'wrong' ? C('bad') : C('good-line'),
       opacity: 1,
     };
   };
@@ -992,7 +1001,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
         mesh.userData.label = `${c.tl.title}. ${c.tl.parts.map((p) => `${p.label} ${p.text}`).join('. ')}`;
         mesh.userData.onClick = () => onPickOdd?.(c.i);
         // its token stands on the pedestal: large enough to tell a coin from a calendar at a glance
-        const tok = token(c.tl.tok, (zone.bx ?? zone.by) * 0.7);
+        const tok = token(c.tl.tok, (zone.bx ?? zone.by) * (zone.inset ? 0.62 : 0.7));
         // (inset: below the name, beside the lines; the name's line is about 0.07 m)
         tok.position.set(zone.bx ? x - tw / 2 + zone.bx / 2 + (zone.inset ? PAD * 0.6 : 0) : x, zone.inset ? y - 0.035 : zone.bx ? y + 0.012 : y + th / 2 - zone.by / 2 + 0.014, 0.075);
         content.add(tok);
@@ -1150,7 +1159,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
         cards[cards.length - 1] = c;
         Object.assign(mesh.userData, { nodeId: it.node.id, label: it.node.meta ? `${it.node.title}. ${it.node.meta.ty}, ${it.node.meta.ex}, ${it.node.meta.ow}` : it.node.title });
         const kind = it.node.kind === 'field' ? it.node.meta.tyKey : it.node.kind;
-        const big = map && it.node.id === 'r1' ? 1.35 : 1; // the destination: a large sign
+        const big = map && it.node.id === 'r1' ? 1.2 : 1; // the destination: a large sign
         const tok = token(kind, (by ? by : Math.min(bx, it.h)) * (stack && kind !== 'desc' ? 0.9 : 0.72) * big);
         if (by) tok.position.set(it.x, it.y + it.h / 2 - by / 2 + 0.012, 0.07);
         else tok.position.set(it.x - it.w / 2 + bx / 2, it.y + 0.01, 0.07);
@@ -1259,6 +1268,9 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
         obj.quaternion.setFromRotationMatrix(basis.makeBasis(xAxis, yAxis, zAxis));
       }, { ease: (k) => k * k * (3 - 2 * k), onDone: end });
     },
+
+    /** For tests: the smallest text size on the field right now (m). */
+    textMin: () => (model ? T1 : scanner && screen ? TS : T1),
 
     /** For tests: the car's place on the map (holder coordinates). */
     carSpot: () => entryAt?.p ?? null,

@@ -92,6 +92,8 @@ export const psfx = {
     lastChime[i] = now;
     bell(a, [1318.5, 987.8, 659.3][i], 0, [0.05, 0.06, 0.07][i]);
   }),
+  // Relaxed mode: the rescue post is charged again (two short rising notes).
+  postReady: play((a) => { tone(a, 784, 0, 0.09, 'triangle', 0.06); tone(a, 1175, 0.09, 0.16, 'triangle', 0.06); }),
   // A chime run (bonus, campaign launch): bells going down.
   chimes: play((a, n = 6) => {
     for (let k = 0; k < n; k++) bell(a, [1318.5, 987.8, 659.3][k % 3], k * 0.11, 0.05);

@@ -179,7 +179,9 @@ export class LineageScene extends BaseScene {
    */
   screenCamera(cam, dt) {
     if (!this.playing()) { this.camInit = false; return false; }
-    if (cam.fov !== 42) { cam.fov = 42; cam.updateProjectionMatrix(); }
+    // The map is seen from a little farther with a longer lens: its labels stay upright and plain.
+    const fov = this.onRoad() ? 42 : num('xr-lineage-map-fov');
+    if (cam.fov !== fov) { cam.fov = fov; cam.updateProjectionMatrix(); }
     let pts;
     let pitch = 0;
     if (this.onRoad()) {

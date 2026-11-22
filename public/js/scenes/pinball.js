@@ -46,12 +46,16 @@ import { fmt } from '../pinball-backglass.js';
 
 const DURATION = EVENT ? 120 : 180; // seconds of campaign time
 const MAX_SCORE = 5000;
+// Every award is worth this share of its base value (balance: the base values below gave skilled
+// rounds far over the leaderboard's cap). addPoints applies it, so popups and texts that use
+// worth() show what really counts. The base values stay readable as before.
+const POINTS = 0.6;
 const TAP_PULL = 0.3; // a shorter pull than this is a tap: the plunger pulls back by itself
 const TAP_POWER = 0.72; // how far it pulls then
 const TIP_BONUS = 30; // the AI's tip was right ...
 const TIP_STREAK = 10; // ... and each one in a row adds this (up to TIP_BONUS_MAX)
 const TIP_BONUS_MAX = 60;
-const RANKS = [1200, 2800]; // points for the second and the third rating
+const RANKS = [720, 1680]; // points for the second and the third rating (1200 and 2800 before scaling)
 const DROP = 0.72; // playfield front below eye height (table height)
 const FRONT_Z = -0.4; // playfield front edge in front of the player
 const AUTO_LAUNCH = 12; // seconds in the shooter lane before the ball launches by itself
@@ -68,6 +72,8 @@ const KICK_SPEED = 1.45; // the kickback's shot along its path (m/s)
 const HQ_PASS = 10; // a ball through the head office
 const JACKPOT = 100; // the head office jackpot (lit by a new customer)
 const VAULT_PTS = 30; // a ball locked in the vault (then multiball)
+const POST_RECHARGE = 10; // relaxed: seconds of game time the rescue post needs after a save
+const POST_SEGS = 48; // segments of the rescue post's charge ring
 const clamp = THREE.MathUtils.clamp;
 const KEYS = {
   ArrowLeft: 'left', KeyA: 'left', ShiftLeft: 'left', KeyY: 'left', KeyZ: 'left',
@@ -94,6 +100,7 @@ export class PinballScene extends BaseScene {
     // Ball save after each launch, per ball (s): while it runs every drained ball comes back, so
     // even a first round lasts a while. Generous for the first ball, then shorter.
     this.saveTimes = assist.pick([30, 25, 20], [30]);
+    this.postRecharge = POST_RECHARGE;
     this.view = 'close'; // desktop: 'close' (the player's view) or 'full' (the whole machine)
     this.input = { left: false, right: false, plunger: false };
     // Who holds an input (keys, mouse buttons, fingers, thumb buttons, the headset's triggers).
@@ -197,20 +204,119 @@ export class PinballScene extends BaseScene {
     knob.userData.onGrab = (p) => this.grabPlunger(p);
     knob.userData.onRelease = () => this.releasePlunger();
     m.field.add(knob);
-    if (this.table.savePost) {
-      // Relaxed: a glowing ring marks the rescue post between the flippers.
-      const ring = (this.postRing = new THREE.Mesh(
-        new THREE.RingGeometry(0.0125, 0.0185, 32).rotateX(-Math.PI / 2),
-        new THREE.MeshBasicMaterial({ color: hex('xr-pinball-save'), transparent: true, opacity: 0.5, toneMapped: false, depthWrite: false }),
-      ));
-      ring.position.copy(fp(SAVE_POST.x, SAVE_POST.y, 0.0014));
-      ring.userData.noFit = true;
-      m.field.add(ring);
-      this.onSceneDispose(() => { ring.geometry.dispose(); ring.material.dispose(); });
-    }
+    if (this.table.savePost) this.buildSavePost(m, model);
     this.placePanels();
     m.dmd.show(t('pinballName').toUpperCase());
     m.setFloor(-10);
+  }
+
+  /**
+   * Relaxed mode: the rescue post between the flippers. Ready: raised, a glowing ring, the label
+   * "ready" with an arrow. After a save it goes down and recharges: dim, lowered, a ring that fills
+   * up and the label "wait" with the seconds left (so the state never hangs on color alone).
+   */
+  buildSavePost(m, model) {
+    const g = (this.postGroup = new THREE.Group());
+    g.position.copy(fp(SAVE_POST.x, SAVE_POST.y, 0));
+    g.userData.noFit = true;
+    m.field.add(g);
+    const post = model.parts.PinPost.clone(true);
+    post.scale.setScalar(SAVE_POST.r / 0.0065);
+    post.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.userData.noFit = true; } });
+    post.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(post); // in the playfield's units (not placed yet)
+    this.postDrop = clamp((box.max.y - box.min.y) * 0.75, 0.004, 0.03); // how far it sinks
+    g.add(post);
+    this.postMesh = post;
+    const ringMat = (opacity) => new THREE.MeshBasicMaterial({ color: hex('xr-pinball-save'), transparent: true, opacity, toneMapped: false, depthWrite: false, side: THREE.DoubleSide });
+    const ring = (this.postRing = new THREE.Mesh(new THREE.RingGeometry(0.0125, 0.0185, POST_SEGS).rotateX(-Math.PI / 2), ringMat(0.5)));
+    ring.position.y = 0.0014;
+    // The charge: an arc that fills clockwise from the top (mirrored ring, drawn in part).
+    const arc = (this.postArc = new THREE.Mesh(new THREE.RingGeometry(0.0128, 0.0182, POST_SEGS, 1, Math.PI / 2).rotateX(-Math.PI / 2), ringMat(0.85)));
+    arc.scale.x = -1;
+    arc.position.y = 0.0016;
+    arc.visible = false;
+    // The label on the playfield just above the post, between the flipper tips (below it the apron
+    // would hide it from the player's view).
+    const c = document.createElement('canvas');
+    c.width = 320;
+    c.height = 96;
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    const label = (this.postLabel = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.05, 0.015).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
+    ));
+    label.position.set(0, 0.0012, -0.036); // playfield y 0.141
+    this.postCanvas = c;
+    this.postTex = tex;
+    this.postLabelKey = '';
+    for (const o of [ring, arc, label]) o.userData.noFit = true;
+    g.add(ring, arc, label);
+    this.postUp = 1;
+    this.drawPostLabel(true, 0);
+    this.onSceneDispose(() => {
+      for (const o of [ring, arc, label]) { o.geometry.dispose(); o.material.dispose(); }
+      tex.dispose();
+    });
+  }
+
+  /** The rescue post's label: an arrow and "ready", or an hourglass and the seconds left. */
+  drawPostLabel(ready, secs) {
+    const key = ready ? 'ready' : `wait${secs}`;
+    if (key === this.postLabelKey || !this.postCanvas) return;
+    this.postLabelKey = key;
+    const c = this.postCanvas;
+    const ctx = c.getContext('2d');
+    const W = c.width;
+    const H = c.height;
+    ctx.clearRect(0, 0, W, H);
+    const on = color('xr-pinball-save');
+    const ink = ready ? on : color('xr-pinball-field-text');
+    ctx.globalAlpha = ready ? 0.92 : 0.7;
+    ctx.fillStyle = color('xr-pinball-dark');
+    ctx.beginPath();
+    ctx.roundRect(4, 4, W - 8, H - 8, 22);
+    ctx.fill();
+    ctx.lineWidth = ready ? 6 : 3;
+    ctx.strokeStyle = ink;
+    if (!ready) ctx.setLineDash([10, 8]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    // The icon: an arrow up (the post is up) or an hourglass (it is recharging).
+    ctx.strokeStyle = ink;
+    ctx.fillStyle = ink;
+    ctx.lineWidth = 7;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const ix = 50;
+    const iy = H / 2;
+    ctx.beginPath();
+    if (ready) {
+      ctx.moveTo(ix, iy + 24);
+      ctx.lineTo(ix, iy - 22);
+      ctx.moveTo(ix - 17, iy - 6);
+      ctx.lineTo(ix, iy - 24);
+      ctx.lineTo(ix + 17, iy - 6);
+    } else {
+      ctx.moveTo(ix - 16, iy - 24);
+      ctx.lineTo(ix + 16, iy - 24);
+      ctx.lineTo(ix - 16, iy + 24);
+      ctx.lineTo(ix + 16, iy + 24);
+      ctx.closePath();
+    }
+    ctx.stroke();
+    const text = ready ? t('pinballPostReady') : t('pinballPostCharging', { s: secs });
+    let px = 50;
+    ctx.font = font('black', px);
+    const maxW = W - 100;
+    while (ctx.measureText(text).width > maxW && px > 20) { px -= 2; ctx.font = font('black', px); }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 88 + (W - 100) / 2, H / 2 + 2);
+    this.postTex.needsUpdate = true;
   }
 
   /**
@@ -558,7 +664,7 @@ export class PinballScene extends BaseScene {
       funnel: { stage: 0, reach: 0, clicks: 0 }, kpi: { reach: 0, clicks: 0, customers: 0, history: [0], perChannel: {} },
       launches: 0, multi: false, showUntil: 0, shake: 0, kpiT: 0, histT: 0,
       personas: new Set(), xbLit: false, xbUsed: false, extraBalls: 0, kbLit: true, match: null,
-      vaultLit: false, hqLit: false,
+      vaultLit: false, hqLit: false, postReadyAt: 0,
       streak: 0, bestStreak: 0, saves: 0, postSaves: 0, lost: 0, jackpots: 0, note: null, autoPull: false,
     });
     this.machine?.chars.setCurrent(this.aud);
@@ -615,7 +721,7 @@ export class PinballScene extends BaseScene {
     const T = this.table;
     switch (type) {
       case 'bumper': {
-        if (obj.tag === 'savepost') { this.postSave(); break; }
+        if (obj.tag === 'savepost') { this.postSave(obj); break; }
         const i = obj.index;
         if (this.machine) this.machine.bumpers[i].flash = 1;
         psfx.bumper();
@@ -624,7 +730,7 @@ export class PinballScene extends BaseScene {
         break;
       }
       case 'kick':
-        this.score += 1;
+        this.score += POINTS;
         psfx.sling();
         if (this.machine) {
           this.machine.slings[obj.side > 0 ? 0 : 1].userData.flash.opacity = 1;
@@ -645,7 +751,7 @@ export class PinballScene extends BaseScene {
               this.vaultLit = true;
               this.machine?.town.vault(true);
               this.message(t('pinballDmdVaultLit'), t('pinballDmdVaultWhere'), 2.2);
-            } else this.message(t('pinballDmdDrops', { n: 60 * this.factor() }), '', 1.6);
+            } else this.message(t('pinballDmdDrops', { n: this.worth(60) }), '', 1.6);
             this.after(1.2, () => { if (!this.disposed) T.drops.forEach((q) => { q.down = false; q.seg.enabled = true; }); });
           }
         } else if (obj.tag === 'poster') {
@@ -698,21 +804,43 @@ export class PinballScene extends BaseScene {
     }
   }
 
-  /** Relaxed mode: the rescue post between the flippers kicked a ball back into play. */
-  postSave() {
+  /**
+   * Relaxed mode: the rescue post between the flippers kicked a ball back into play. Then it goes
+   * down and recharges for a while (game time: it stands still while the game is paused).
+   */
+  postSave(post) {
     psfx.kick();
     this.postFlash = 1;
     this.postSaves += 1;
+    post.enabled = false;
+    this.postReadyAt = this.playT + this.postRecharge;
     this.hint('post', t('pinballHintPost'));
+  }
+
+  /** The rescue post's recharge: back up once its time ran out and no ball lies over it. */
+  updateSavePost() {
+    const P = this.table.savePost;
+    if (!P || P.enabled || this.playT < this.postReadyAt) return;
+    const clear = this.table.world.balls.every((b) => b.mode === 'gone' || Math.hypot(b.x - P.x, b.y - P.y) > P.r + BALL_R + 0.003);
+    if (!clear) return;
+    P.enabled = true;
+    this.postFlash = 1;
+    psfx.postReady();
+    this.hint('postReady', t('pinballHintPostReady'), 3);
   }
 
   /** Reach x2 after a complete campaign or during the multiball (they do not stack). */
   factor() { return Math.max(this.mult, this.multi ? 2 : 1); }
 
+  /** What an award of n base points is worth right now (scaled, with the multiplier). */
+  worth(n) { return Math.round(n * POINTS * this.factor()); }
+
+  /** Adds an award of n base points (scaled by POINTS, with the multiplier); returns its worth. */
   addPoints(n) {
-    const p = n * this.factor();
-    this.score += p;
-    psfx.chime(p >= 100 ? 2 : p >= 20 ? 1 : 0);
+    const f = this.factor();
+    this.score += n * POINTS * f;
+    psfx.chime(n * f >= 100 ? 2 : n * f >= 20 ? 1 : 0);
+    return this.worth(n);
   }
 
   /** A persona standup: four different ones light the extra ball (once per game). */
@@ -737,7 +865,7 @@ export class PinballScene extends BaseScene {
       this.message(t('pinballDmdXbLit'), t('pinballDmdXbWhere'), 2.4);
       psfx.chimes(4);
     } else {
-      this.message(t('pinballDmdPersonas'), `+${PERSONAS_PTS * this.factor()}`, 1.8);
+      this.message(t('pinballDmdPersonas'), `+${this.worth(PERSONAS_PTS)}`, 1.8);
     }
   }
 
@@ -818,7 +946,7 @@ export class PinballScene extends BaseScene {
         this.bestStreak = Math.max(this.bestStreak, this.streak);
         const bonus = this.tipBonus(this.streak);
         pts += bonus;
-        line = t(this.streak > 1 ? 'pinballDmdTipStreak' : 'pinballDmdTipRight', { n: bonus * this.factor(), s: this.streak });
+        line = t(this.streak > 1 ? 'pinballDmdTipStreak' : 'pinballDmdTipRight', { n: this.worth(bonus), s: this.streak });
         sfx.coin();
         this.hint('tipRight', t('pinballHintTipRight', { ch: t(`pinballCh_${ch}`), g: t(`pinballGr_${this.aud}`) }));
       } else {
@@ -829,7 +957,7 @@ export class PinballScene extends BaseScene {
       this.replan();
     }
     this.addPoints(pts);
-    this.popup(`+${pts * this.factor()}`, CH_TOKEN[ch], x, y);
+    this.popup(`+${this.worth(pts)}`, CH_TOKEN[ch], x, y);
     if (ch !== 'social' || followed || !this.msg) this.message(t('pinballKpiReachUp', { n: fmt(people) }), line, ch === 'social' && !followed ? 0.8 : 1.6, followed ? line : false);
     this.flash(CH_TOKEN[ch], x, y);
     this.machine?.town.hit(ch);
@@ -970,7 +1098,7 @@ export class PinballScene extends BaseScene {
     this.jackpots += 1;
     this.holdOnRamp(b, 2.4);
     this.addPoints(JACKPOT);
-    this.message(t('pinballDmdJackpot'), t('pinballDmdJackpotHq', { n: JACKPOT * this.factor() }), 2.6);
+    this.message(t('pinballDmdJackpot'), t('pinballDmdJackpotHq', { n: this.worth(JACKPOT) }), 2.6);
     m?.town.hqCheer();
     m?.chars.cheerAll();
     psfx.jingle();
@@ -1041,7 +1169,7 @@ export class PinballScene extends BaseScene {
     this.machine?.det.lanePress(i);
     if (this.skillOpen && this.playT - this.launchedAt < 4) {
       this.addPoints(25);
-      this.message(t('pinballDmdSkill', { n: 25 * this.factor() }), t(`pinballGr_${g}`).toUpperCase(), 1.6);
+      this.message(t('pinballDmdSkill', { n: this.worth(25) }), t(`pinballGr_${g}`).toUpperCase(), 1.6);
     }
     this.skillOpen = false;
     this.lanesLit.add(i);
@@ -1057,9 +1185,9 @@ export class PinballScene extends BaseScene {
       this.addPoints(60);
       if (!this.kbLit) {
         this.kbLit = true;
-        this.message(t('pinballDmdAllGroups', { n: 60 * this.factor() }), t('pinballDmdKickbackLit'), 1.8);
+        this.message(t('pinballDmdAllGroups', { n: this.worth(60) }), t('pinballDmdKickbackLit'), 1.8);
       } else {
-        this.message(t('pinballDmdAllGroups', { n: 60 * this.factor() }), '', 1.8);
+        this.message(t('pinballDmdAllGroups', { n: this.worth(60) }), '', 1.8);
       }
       this.machine?.chars.cheerAll();
       this.after(0.6, () => { if (!this.disposed) this.lanesLit.clear(); });
@@ -1162,7 +1290,7 @@ export class PinballScene extends BaseScene {
           : this.jackpots === 0 ? 'pinballNextJackpot'
             : this.campaigns === 0 ? 'pinballNextAll' : 'pinballNextStreak';
     const learned = [
-      { q: t('pinballTipQ', { good }), a: t(next) },
+      { q: t('pinballTipQ', { good }), a: t(next, { n: Math.round(200 * POINTS) }) },
       { q: t('pinballLearnExploreQ'), a: t('pinballLearnExploreA', { x: P.explores, y: P.exploits }) },
     ];
     if (best && best.n >= 3) {
@@ -1183,7 +1311,7 @@ export class PinballScene extends BaseScene {
     const nextLine = rank < RANKS.length ? t('pinballRankNext', { pts: RANKS[rank] - counted, name: t(`pinballRank${rank + 2}`) }) : t('pinballRankTop');
     this.rank = rank;
     this.results({
-      gameKey: 'pinball', score, correct: score, total: 3500,
+      gameKey: 'pinball', score, correct: score, total: Math.round(3500 * POINTS),
       line: `${rankLine} ${nextLine}\n${t('pinballLine', { reach: fmt(K.reach), cust: K.customers, tips: this.tipsRight, of: this.tipsFollowed })}`,
       learned,
       onAgain: () => { playAgain = true; this.app.startGame('pinball'); },
@@ -1230,14 +1358,13 @@ export class PinballScene extends BaseScene {
     if (this.mode === 'ready' && !this.savedServe) {
       return { icon: 'launch', token: 'xr-pinball-lane-light', main: t(e.isXR ? 'pinballCoachLaunchXR' : e.touchUI ? 'pinballCoachLaunchTouch' : 'pinballCoachLaunchKeys'), sub: t('pinballCoachLaunchSub') };
     }
-    const F = this.factor();
-    if (this.funnel.stage === 2) return { icon: 'branch', token: CH_TOKEN.branch, main: t('pinballCoachDeal'), sub: t('pinballCoachDealSub', { n: 200 * F }) };
+    if (this.funnel.stage === 2) return { icon: 'branch', token: CH_TOKEN.branch, main: t('pinballCoachDeal'), sub: t('pinballCoachDealSub', { n: this.worth(200) }) };
     if (this.xbLit) return { icon: 'branch', token: CH_TOKEN.branch, main: t('pinballCoachExtra'), sub: t('pinballCoachExtraSub') };
-    if (this.hqLit) return { icon: 'app', token: CH_TOKEN.app, main: t('pinballCoachJackpot'), sub: t('pinballCoachJackpotSub', { n: JACKPOT * F }) };
+    if (this.hqLit) return { icon: 'app', token: CH_TOKEN.app, main: t('pinballCoachJackpot'), sub: t('pinballCoachJackpotSub', { n: this.worth(JACKPOT) }) };
     if (this.vaultLit) return { icon: 'video', token: CH_TOKEN.video, main: t('pinballCoachVault'), sub: t('pinballCoachVaultSub') };
     if (!this.tip) return null;
     const ch = this.tip.channel;
-    const sub = t('pinballCoachTipSub', { where: t(`pinballWhere_${ch}`), n: this.tipBonus(this.streak + 1) * F });
+    const sub = t('pinballCoachTipSub', { where: t(`pinballWhere_${ch}`), n: this.worth(this.tipBonus(this.streak + 1)) });
     return {
       icon: ch, token: CH_TOKEN[ch], main: t('pinballCoachTip', { ch: t(`pinballCh_${ch}`) }),
       sub: this.streak > 0 ? `${sub} ${t('pinballCoachStreak', { s: this.streak })}` : sub,
@@ -1581,7 +1708,7 @@ export class PinballScene extends BaseScene {
       if (this.mode === 'ready' && this.idle > AUTO_LAUNCH) { this.pull = 0.6; this.launch(); }
     }
     // Relaxed mode: the ball's world runs slower (this.speed).
-    if (playing || this.mode === 'drain') { T.world.step(dt * this.speed); this.rampStops(); }
+    if (playing || this.mode === 'drain') { T.world.step(dt * this.speed); this.rampStops(); this.updateSavePost(); }
     for (const b of T.world.balls) {
       // The gate swings when a ball leaves the shooter lane.
       if (this.machine && b.mode === 'field' && b.x > 0.245 && b.y > 0.78 && b.y < 0.86 && b.vy > 0) this.machine.gate.rotation.x = Math.min(1.2, b.vy * 0.6);
@@ -1696,11 +1823,22 @@ export class PinballScene extends BaseScene {
       });
       // Spare balls in the trough window.
       m.det.setTrough(this.mode === 'intro' || !this.planner ? this.balls - 1 : Math.max(0, this.balls - (this.ballNo ?? 1)) + (this.extraBalls ?? 0));
-      // Relaxed: the rescue post's ring glows and flashes when it kicks.
-      if (this.postRing) {
+      // Relaxed: the rescue post. Ready: up, its ring glows (and flashes when it kicks or is
+      // ready again). Recharging: down, a dim ring, an arc that fills up, the seconds on its label.
+      if (this.postGroup) {
+        const ready = T.savePost.enabled;
+        const left = Math.max(0, (this.postReadyAt ?? 0) - (this.playT ?? 0));
         this.postFlash = Math.max(0, (this.postFlash ?? 0) - dt * 3);
-        this.postRing.material.opacity = 0.4 + 0.15 * Math.sin(this.time * 3) + 0.45 * this.postFlash;
+        this.postUp += ((ready ? 1 : 0) - this.postUp) * Math.min(1, dt * (ready ? 12 : 7));
+        this.postMesh.position.y = -(1 - this.postUp) * this.postDrop;
+        this.postRing.material.opacity = ready ? 0.5 + 0.15 * Math.sin(this.time * 3) + 0.35 * this.postFlash : 0.12;
         this.postRing.scale.setScalar(1 + 0.5 * this.postFlash);
+        this.postArc.visible = !ready;
+        if (!ready) {
+          const k = clamp(1 - left / this.postRecharge, 0, 1);
+          this.postArc.geometry.setDrawRange(0, 6 * Math.max(1, Math.round(k * POST_SEGS)));
+        }
+        this.drawPostLabel(ready, Math.max(1, Math.ceil(left)));
       }
       // The studio's monitor: live KPIs (reach over time, clicks per channel, new customers).
       if (this.kpi) {

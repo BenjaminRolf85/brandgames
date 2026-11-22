@@ -260,10 +260,10 @@ export function buildTable(opts = {}) {
   // Rubber posts at the lane guides' tops (visual: the guides end in posts).
   for (const x of GUIDE_X) posts.push({ x, y: LANE_Y[1], r: 0.0045 });
   // Relaxed mode: the rescue post in the middle (a kicking circle; the scene tells it apart from
-  // the pop bumpers by its tag).
+  // the pop bumpers by its tag). After a save the scene turns it off while it recharges; it is
+  // drawn by the scene (it moves down and up), not with the other posts.
   let savePost = null;
   if (opts.savePost) {
-    posts.push({ x: SAVE_POST.x, y: SAVE_POST.y, r: SAVE_POST.r });
     savePost = w.addCircle(SAVE_POST.x, SAVE_POST.y, SAVE_POST.r, { e: 0.7, kick: SAVE_POST.kick, tag: 'savepost' });
   }
   // Rollover switches in the inlanes and outlanes (sensors, crossing downwards: dir -1).

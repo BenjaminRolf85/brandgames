@@ -45,7 +45,7 @@
   --xr-lineage-obstacle-dark: #3a2a6e;
   --xr-lineage-gap:          var(--p-cyan-400);  /* the lit strip between the car and the block */
   --xr-lineage-ground:       #0a0f2a;   /* the interchange's ground */
-  --xr-lineage-ground-line:  #1f2b66;   /* its grid */
+  --xr-lineage-ground-line:  #18224f;   /* its grid */
   --xr-lineage-map-fixed:    #4a5a9e;   /* roads that were there from the start */
 
   /* field tokens: one shape and one color per kind of data (the shape says it, not the color alone) */
@@ -120,7 +120,8 @@
   --xr-lineage-pitch-tall:   12;        /* ... on an upright phone */
   --xr-lineage-pitch-flat:   8;         /* ... on a phone held sideways */
   /* the browser's interchange: the route graph lies on the ground, seen from above at an angle */
-  --xr-lineage-map-tilt:     52;        /* how far the map lies back (degrees; 90 is flat on the floor) */
+  --xr-lineage-map-tilt:     26;        /* how far the map lies back (degrees; 90 is flat on the floor) */
+  --xr-lineage-map-fov:      28;        /* the camera's field of view on the map (degrees) */
   --xr-lineage-map-road:     0.05;      /* width of a road (m) */
   --xr-lineage-map-car:      0.4;       /* the car's scale on the map */
 }
