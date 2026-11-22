@@ -202,7 +202,14 @@ body {
 
 /* ---------- 3D stage (browser preview) ---------- */
 #stage { position: fixed; inset: 0; z-index: 100; background: var(--xr-bg-preview); }
-#stage canvas { display: block; width: 100%; height: 100%; }
+#stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+/* Touch devices: no double-tap zoom anywhere in the game (buttons and panels included), no
+   pull-to-refresh or rubber band behind it; see no-zoom.js for pinch and the zoom reset. */
+#stage { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+/* Set on every element (zero specificity, so a game's own `touch-action: none` on thumb buttons
+   still wins): older Safari versions do not pass the value on to children by themselves. */
+:where(#stage, #stage *) { touch-action: manipulation; }
+body.is-playing { overscroll-behavior: none; }
 .stage__close {
   position: absolute;
   top: max(var(--space-3), env(safe-area-inset-top));
