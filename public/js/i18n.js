@@ -2,7 +2,7 @@ const STRINGS = {
   de: {
     appTitle: 'Echomotion AR Experience',
     menuTitle: 'Echomotion AR Experience',
-    appSubtitle: 'Das Mixed-Reality-Quiz rund um Künstliche Intelligenz',
+    appSubtitle: 'Unsere AR/VR-Spiele, jetzt auch für den Browser',
     play: 'Spielen',
     start: 'Los geht’s',
     next: 'Weiter',
@@ -616,7 +616,7 @@ const STRINGS = {
     startVR: 'In VR starten',
     playBrowser: 'Im Browser spielen',
     pageEyebrowXmas: 'Frohe Weihnachten · AR und VR · Meta Quest 3 und Browser',
-    heroTitleXmas: 'Willkommen zu unserem AR/VR-Game',
+    heroTitleXmas: 'Unsere AR/VR-Spiele, jetzt auch für den Browser',
     pageLeadXmas: 'Ein kleines Dankeschön an unsere Kunden, Partner und Freunde: Flieg mit Echo durch den verschneiten Zauberwald, box als Weihnachtsmann gegen Roboter, schmück beim Quiz den Weihnachtsbaum und lern nebenbei eine Menge über KI. Mit der Meta Quest 3 direkt in deinem Raum oder einfach im Browser auf Handy und Computer.',
     heroSignXmas: 'Frohe Weihnachten und danke für ein großartiges Jahr! Dein Echomotion-Team',
     // Direct links (?spiel=...&fuer=...&score=...), the clients' games on the page, sharing
@@ -676,7 +676,7 @@ const STRINGS = {
   en: {
     appTitle: 'Echomotion AR Experience',
     menuTitle: 'Echomotion AR Experience',
-    appSubtitle: 'The mixed reality quiz about artificial intelligence',
+    appSubtitle: 'Our AR/VR games, now in your browser too',
     play: 'Play',
     start: 'Let’s go',
     next: 'Next',
@@ -1289,7 +1289,7 @@ const STRINGS = {
     startVR: 'Start in VR',
     playBrowser: 'Play in browser',
     pageEyebrowXmas: 'Merry Christmas · AR and VR · Meta Quest 3 and browser',
-    heroTitleXmas: 'Welcome to our AR/VR game',
+    heroTitleXmas: 'Our AR/VR games, now in your browser too',
     pageLeadXmas: 'A small thank-you to our customers, partners and friends: fly with Echo through the snowy magic forest, box as Santa against robots, decorate the Christmas tree in the quiz and learn a lot about AI along the way. With the Meta Quest 3 right in your room, or simply in the browser on your phone or computer.',
     heroSignXmas: 'Merry Christmas and thank you for a great year! Your Echomotion team',
     inviteEyebrow: 'A game made just for you',
