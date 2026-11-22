@@ -134,8 +134,8 @@ function flat(geo) {
 const _n = new THREE.Matrix3();
 const _v = new THREE.Vector3();
 /** Writes a geometry, moved by `matrix` and tinted, into the arrays of `out` at vertex `at`. */
-function writeInto(out, at, geo, matrix, tint = null) {
-  const f = flat(geo);
+function writeInto(out, at, geo, matrix, tint = null, ready = null) {
+  const f = ready ?? flat(geo);
   _n.getNormalMatrix(matrix);
   for (let i = 0; i < f.count; i++) {
     const k = i * 3;
@@ -148,12 +148,68 @@ function writeInto(out, at, geo, matrix, tint = null) {
   }
   return at + f.count;
 }
-/** One geometry from a list of [geometry, matrix, tint]. */
+const chamferCache = new Map();
+const _sc = new THREE.Vector3();
+const _ps = new THREE.Vector3();
+const _qt = new THREE.Quaternion();
+/**
+ * A box with bevelled edges as plain arrays (cached by size): six faces, twelve edge strips,
+ * eight corners. The bevel is the same on every box (2.5 mm, less on thin ones), so merged
+ * parts catch the light on their edges instead of looking like raw boxes.
+ */
+function chamferBox(sx, sy, sz) {
+  const key = `${Math.round(sx * 4000)}|${Math.round(sy * 4000)}|${Math.round(sz * 4000)}`;
+  let f = chamferCache.get(key);
+  if (f) return f;
+  const h = [sx / 2, sy / 2, sz / 2];
+  const c = Math.min(0.0025, 0.28 * Math.min(sx, sy, sz));
+  const pos = [];
+  const nor = [];
+  const tri = (a, b, d, n) => {
+    // wound so that it faces along n
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
+    const flip = (uy * vz - uz * vy) * n[0] + (uz * vx - ux * vz) * n[1] + (ux * vy - uy * vx) * n[2] < 0;
+    for (const p of flip ? [a, d, b] : [a, b, d]) { pos.push(p[0], p[1], p[2]); nor.push(n[0], n[1], n[2]); }
+  };
+  const quad = (a, b, d, e, n) => { tri(a, b, d, n); tri(a, d, e, n); };
+  const pt = (ax, v) => { const p = [0, 0, 0]; for (let i = 0; i < 3; i++) p[ax[i]] = v[i]; return p; };
+  const k = Math.SQRT1_2;
+  const k3 = 1 / Math.sqrt(3);
+  for (let a = 0; a < 3; a++) {
+    const b = (a + 1) % 3;
+    const d = (a + 2) % 3;
+    const ax = [a, b, d];
+    for (const sa of [-1, 1]) {
+      // the face
+      const n = pt(ax, [sa, 0, 0]);
+      quad(pt(ax, [sa * h[a], -(h[b] - c), -(h[d] - c)]), pt(ax, [sa * h[a], h[b] - c, -(h[d] - c)]), pt(ax, [sa * h[a], h[b] - c, h[d] - c]), pt(ax, [sa * h[a], -(h[b] - c), h[d] - c]), n);
+      for (const sb of [-1, 1]) {
+        // the edge between this face and the next axis' face
+        quad(pt(ax, [sa * h[a], sb * (h[b] - c), -(h[d] - c)]), pt(ax, [sa * h[a], sb * (h[b] - c), h[d] - c]), pt(ax, [sa * (h[a] - c), sb * h[b], h[d] - c]), pt(ax, [sa * (h[a] - c), sb * h[b], -(h[d] - c)]), pt(ax, [sa * k, sb * k, 0]));
+        if (a === 0) for (const sd of [-1, 1]) tri(pt(ax, [sa * h[a], sb * (h[b] - c), sd * (h[d] - c)]), pt(ax, [sa * (h[a] - c), sb * h[b], sd * (h[d] - c)]), pt(ax, [sa * (h[a] - c), sb * (h[b] - c), sd * h[d]]), pt(ax, [sa * k3, sb * k3, sd * k3]));
+      }
+    }
+  }
+  f = { position: new Float32Array(pos), normal: new Float32Array(nor), color: new Float32Array(pos.length).fill(1), count: pos.length / 3 };
+  if (chamferCache.size > 600) chamferCache.clear();
+  chamferCache.set(key, f);
+  return f;
+}
+
+/** One geometry from a list of [geometry, matrix, tint]. Plain boxes get bevelled edges on the way. */
 function fuse(list) {
-  const n = list.reduce((s, [geo]) => s + flat(geo).count, 0);
+  for (const entry of list) {
+    if (entry[0] !== UNIT) continue;
+    entry[1].decompose(_ps, _qt, _sc);
+    if (Math.min(Math.abs(_sc.x), Math.abs(_sc.y), Math.abs(_sc.z)) < 0.004 || _sc.x <= 0 || _sc.y <= 0 || _sc.z <= 0) continue;
+    entry[3] = chamferBox(_sc.x, _sc.y, _sc.z);
+    entry[1] = new THREE.Matrix4().compose(_ps, _qt, _sc.set(1, 1, 1));
+  }
+  const n = list.reduce((s, [geo, , , f]) => s + (f ?? flat(geo)).count, 0);
   const out = { position: new Float32Array(n * 3), normal: new Float32Array(n * 3), color: new Float32Array(n * 3) };
   let at = 0;
-  for (const [geo, matrix, tint] of list) at = writeInto(out, at, geo, matrix, tint);
+  for (const [geo, matrix, tint, f] of list) at = writeInto(out, at, geo, matrix, tint, f);
   const g = new THREE.BufferGeometry();
   for (const name of ['position', 'normal', 'color']) g.setAttribute(name, new THREE.BufferAttribute(out[name], 3));
   return g;
@@ -241,6 +297,65 @@ export class House {
     if (kind === 'hedge' || kind === 'playlawn') ['LampGlow', ...GREEN].forEach((n) => show.add(n));
     for (const n of [...GARDEN_ALL, ...SITE_ONLY]) { const m = this.plotMeshes.get(n); if (m) m.visible = show.has(n); }
     this.firVisible = !!kind && kind !== 'gravel';
+  }
+
+  // ---------- the place ----------
+
+  /**
+   * What the place looks like around the house (static, one mesh per material): rocks and firs
+   * in the hillside village, a paved edge with a street lamp in the new estate, a bit of lake
+   * with reeds and a jetty at the forest edge, fruit trees and flowers in the meadow.
+   */
+  decorate(place) {
+    const mats = this.M.mats;
+    const g = new THREE.Group();
+    const ball = new THREE.SphereGeometry(1, 10, 8);
+    const cone = new THREE.ConeGeometry(1, 1, 9);
+    const blob = (mat, x, y, z, rx, ry = rx, rz = rx) => { const m = new THREE.Mesh(ball, mat); m.position.set(x, y, z); m.scale.set(rx, ry, rz); g.add(m); return m; };
+    const spike = (mat, x, y, z, r, h) => { const m = new THREE.Mesh(cone, mat); m.position.set(x, y + h / 2, z); m.scale.set(r, h, r); g.add(m); return m; };
+    const fir = (x, z, h) => { g.add(box(mats.Bark, 0.012, h * 0.2, 0.012, x, h * 0.1, z)); [[0.12, 0.5, 0.34], [0.4, 0.42, 0.26], [0.66, 0.36, 0.17]].forEach(([y0, hh, r]) => spike(mats.LeafDark, x, h * y0, z, h * r, h * hh)); };
+    if (place === 'hill') {
+      [[-0.45, -0.35, 0.05], [-0.22, -0.37, 0.034], [0.12, -0.375, 0.04], [0.5, -0.36, 0.045], [0.56, 0.34, 0.03]].forEach(([x, z, r]) => { blob(mats.Stone, x, r * 0.35, z, r * 1.25, r * 0.75, r); blob(mats.Frame, x - r * 0.1, r * 0.82, z, r * 0.8, r * 0.22, r * 0.66); });
+      fir(-0.33, -0.365, 0.2);
+      fir(0.2, -0.37, 0.15);
+      fir(0.42, -0.375, 0.24);
+    } else if (place === 'estate') {
+      for (let i = 0; i < 8; i++) g.add(box(mats.ConcreteWall, 0.118, 0.005, 0.045, -0.4 + i * 0.123, 0.003, -0.372));
+      g.add(box(mats.Slim, 0.008, 0.2, 0.008, -0.44, 0.1, -0.345), box(mats.Slim, 0.05, 0.006, 0.008, -0.42, 0.2, -0.345), box(mats.LampGlow, 0.028, 0.008, 0.016, -0.405, 0.195, -0.345));
+      g.add(box(mats.Bark, 0.008, 0.12, 0.008, 0.14, 0.06, -0.33), box(mats.Plank, 0.006, 0.09, 0.006, 0.158, 0.045, -0.33));
+      blob(mats.Leaf, 0.14, 0.15, -0.33, 0.04, 0.048, 0.04);
+      g.add(box(mats.Slim, 0.03, 0.05, 0.03, 0.55, 0.025, 0.34), box(mats.Unit, 0.032, 0.006, 0.032, 0.55, 0.053, 0.34));
+    } else if (place === 'lake') {
+      const water = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.004, 22), this.clear);
+      water.userData.ownGeo = true;
+      water.position.set(-0.36, 0.003, -0.31);
+      water.scale.set(0.17, 1, 0.11);
+      const bed = new THREE.Mesh(water.geometry, mats.SolarCell);
+      bed.position.set(-0.36, 0.0015, -0.31);
+      bed.scale.set(0.18, 0.6, 0.118);
+      g.add(bed, water);
+      [[-0.5, -0.27], [-0.47, -0.36], [-0.25, -0.385], [-0.2, -0.3], [-0.42, -0.21], [-0.3, -0.21]].forEach(([x, z], i) => { spike(mats.Sedum, x, 0, z, 0.007, 0.06 + (i % 3) * 0.012); spike(mats.Sedum, x + 0.012, 0, z + 0.008, 0.006, 0.045); });
+      for (let i = 0; i < 4; i++) g.add(box(mats.Plank, 0.028, 0.005, 0.05, -0.33 + i * 0.03, 0.02, -0.25));
+      for (const x of [-0.335, -0.245]) g.add(box(mats.Beam, 0.007, 0.024, 0.007, x, 0.01, -0.232), box(mats.Beam, 0.007, 0.024, 0.007, x, 0.01, -0.268));
+      fir(0.14, -0.37, 0.2);
+      fir(0.45, -0.37, 0.16);
+      blob(mats.Stone, -0.19, 0.008, -0.36, 0.03, 0.016, 0.022);
+    } else {
+      [[-0.33, -0.35, 0.14], [0.12, -0.36, 0.16], [0.47, -0.355, 0.13]].forEach(([x, z, h]) => {
+        g.add(box(mats.Bark, 0.012, h * 0.5, 0.012, x, h * 0.25, z));
+        blob(mats.Leaf, x, h * 0.72, z, h * 0.34, h * 0.3, h * 0.34);
+        blob(mats.LeafDark, x - h * 0.16, h * 0.62, z + h * 0.08, h * 0.22);
+        for (let i = 0; i < 5; i++) { const a = i * 2.2; blob(mats.Berry, x + Math.cos(a) * h * 0.3, h * (0.6 + (i % 3) * 0.08), z + Math.sin(a) * h * 0.26 + 0.01, 0.007); }
+      });
+      for (let i = 0; i < 16; i++) g.add(box(i % 2 ? mats.FlowerA : mats.FlowerB, 0.009, 0.014, 0.009, -0.48 + ((i * 0.618) % 1) * 0.84, 0.007, -0.39 + ((i * 0.381) % 1) * 0.07));
+      g.add(box(mats.Plank, 0.07, 0.004, 0.022, -0.2, 0.03, -0.36), box(mats.Beam, 0.006, 0.03, 0.02, -0.228, 0.015, -0.36), box(mats.Beam, 0.006, 0.03, 0.02, -0.172, 0.015, -0.36));
+    }
+    g.traverse((m) => { if (m.isMesh) white(m.geometry); });
+    compact(g);
+    shadows(g, false);
+    ball.dispose();
+    cone.dispose();
+    this.site.add(g);
   }
 
   // ---------- building blocks ----------
@@ -385,18 +500,18 @@ export class House {
         for (const o of [...part[where].children]) {
           if (!o.userData.baked) continue;
           const list = fresh[where].get(o.material) ?? fresh[where].set(o.material, []).get(o.material);
-          list.push([o.geometry, new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld), null, o]);
+          list.push([o.geometry, new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld), null, null, o]);
         }
       }
     }
     for (const where of ['home', 'site']) {
       for (const [mat, list] of fresh[where]) {
         const old = this.pool[where].get(mat);
-        if (old) list.push([old.geometry, new THREE.Matrix4(), null, old]);
+        if (old) list.push([old.geometry, new THREE.Matrix4(), null, null, old]);
         const m = new THREE.Mesh(fuse(list), mat);
         m.castShadow = this.cast;
         m.receiveShadow = true;
-        for (const [, , , o] of list) { flatCache.delete(o.geometry); o.geometry.dispose(); o.removeFromParent(); }
+        for (const [, , , , o] of list) { flatCache.delete(o.geometry); o.geometry.dispose(); o.removeFromParent(); }
         this[where].add(m);
         this.pool[where].set(mat, m);
       }
@@ -419,6 +534,9 @@ export class House {
         if (p.kind === 'lintel') this.b('Concrete', p.x, p.y, p.z, L - GAP, H - GAP, D, { yaw: p.yaw, delay });
         else by[p.kind].push({ x: p.x, y: p.y, z: p.z, yaw: p.yaw, delay, tint: rnd(0.84, 1.08), warm: rnd(-0.04, 0.04) });
       }
+      // The mortar: a core inside every stretch of wall, a little thinner than the bricks, so the
+      // joints are filled (and nothing shows through them). It rises with the courses.
+      for (const w of boxes) this.b('Concrete', w.x, w.y, w.z, w.len, w.h - 0.002, D - 0.007, { yaw: w.yaw, how: 'grow', dur: 0.95, tint: 1.25 });
       const G = this.M.geo;
       this.cur.bits.push(new Bits(this.cur.home, G.brick, this.M.mats.BrickClay, by.full, this.cast));
       this.cur.bits.push(new Bits(this.cur.home, G.half, this.M.mats.BrickClay, by.half, this.cast));
@@ -428,7 +546,19 @@ export class House {
     if (id === 'concrete') {
       for (const w of boxes) {
         this.b('ConcreteWall', w.x, w.y, w.z, w.len, w.h, D, { yaw: w.yaw, how: 'drop', delay: w.wall * 0.2, dur: 0.45 });
-        if (w.part === 'col') this.b('Dark', w.x, TOP * 0.52, w.z, w.len, 0.0025, D + 0.002, { yaw: w.yaw, how: 'drop', delay: w.wall * 0.2, dur: 0.45 });
+        if (w.part === 'col') {
+          this.b('Dark', w.x, TOP * 0.52, w.z, w.len, 0.0025, D + 0.002, { yaw: w.yaw, how: 'drop', delay: w.wall * 0.2, dur: 0.45 });
+          // the marks of the formwork: tie holes in a grid, a joint between the boards
+          const wall = WALLS[w.wall];
+          const nx = Math.sin(wall.face) * (D / 2 + 0.0005);
+          const nz = Math.cos(wall.face) * (D / 2 + 0.0005);
+          const n = Math.max(1, Math.round(w.len / 0.045));
+          for (let i = 0; i < n; i++) {
+            const u = w.u0 + ((i + 0.5) / n) * (w.u1 - w.u0);
+            const [x, z] = wall.at(u);
+            for (const y of [TOP * 0.2, TOP * 0.8]) this.b('Dark', x + nx, y, z + nz, 0.006, 0.006, 0.006, { yaw: w.yaw, how: 'drop', delay: w.wall * 0.2, dur: 0.45 });
+          }
+        }
       }
       posts('ConcreteWall', 'drop', 0.75);
       return 1.3;
@@ -530,6 +660,10 @@ export class House {
       for (let x = -OX - 0.02; x <= OX + 0.021; x += (2 * OX + 0.04) / 10) slab.add(box(mats.MetalRoof, 0.005, 0.008, len, x, 0.008, 0));
       slab.add(box(mats.Slim, 2 * OX + 0.074, 0.014, 0.006, 0, -0.002, len / 2));
       g.add(slab);
+      const gutter = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 2 * OX + 0.06, 10).rotateZ(Math.PI / 2), mats.Metal);
+      gutter.userData.ownGeo = true;
+      gutter.position.set(0, y0 - 0.012, OZ + 0.046);
+      g.add(gutter, box(mats.Metal, 0.007, 0.2, 0.007, OX + 0.022, y0 - 0.112, OZ + 0.04));
       for (const sx of [-1, 1]) { const w = prism([[-OZ, 0], [OZ, 0], [OZ, y0 - 0.004], [-OZ, y1 - 0.004]], D, wallMat); w.position.x = sx * XH; g.add(w); }
       g.add(box(wallMat, 2 * XH - D, y1 - 0.006, D, 0, (y1 - 0.006) / 2, -ZH));
       g.add(box(mats.Slim, 2 * XH - D - 0.06, 0.03, D + 0.004, 0, 0.045, -ZH));
@@ -650,45 +784,48 @@ export class House {
 
   // ---------- heating ----------
 
+  /** The heating stands at the left wall near the front corner, where the view from the front left shows it. */
   build_heating(id) {
     const mats = this.M.mats;
     const g = new THREE.Group();
-    const x = OX + 0.05;
+    const x = -OX - 0.03;
     if (id === 'heatpump') {
-      g.add(box(mats.Concrete, 0.085, 0.006, 0.055, x, 0.003 - FOUND, 0.09));
-      g.add(box(mats.Unit, 0.074, 0.058, 0.04, x, 0.035 - FOUND, 0.09));
-      const fan = new THREE.Mesh(new THREE.CylinderGeometry(0.021, 0.021, 0.004, 20).rotateX(Math.PI / 2), mats.Dark);
+      g.add(box(mats.Concrete, 0.06, 0.006, 0.095, x, 0.003 - FOUND, 0.115));
+      g.add(box(mats.Unit, 0.042, 0.062, 0.082, x, 0.037 - FOUND, 0.115));
+      const fan = new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.023, 0.004, 20).rotateZ(Math.PI / 2), mats.Dark);
       fan.userData.ownGeo = true;
-      fan.position.set(x - 0.008, 0.037 - FOUND, 0.111);
+      fan.position.set(x - 0.022, 0.039 - FOUND, 0.105);
       g.add(fan);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.021, 0.003, 6, 20), mats.Slim);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.023, 0.003, 6, 20).rotateY(Math.PI / 2), mats.Slim);
       ring.userData.ownGeo = true;
-      ring.position.set(x - 0.008, 0.037 - FOUND, 0.112);
+      ring.position.set(x - 0.023, 0.039 - FOUND, 0.105);
       g.add(ring);
-      g.add(box(mats.Slim, 0.016, 0.006, 0.003, x + 0.024, 0.052 - FOUND, 0.111));
-      g.add(box(mats.Metal, 0.03, 0.006, 0.006, OX + 0.012, 0.03 - FOUND, 0.075));
+      for (const dz of [-0.012, 0, 0.012]) g.add(box(mats.Slim, 0.003, 0.03, 0.003, x - 0.0235, 0.039 - FOUND, 0.105 + dz));
+      g.add(box(mats.Slim, 0.003, 0.006, 0.018, x - 0.022, 0.058 - FOUND, 0.145));
+      g.add(box(mats.Metal, 0.012, 0.006, 0.006, -OX - 0.005, 0.03 - FOUND, 0.14));
     } else if (id === 'gas') {
-      g.add(box(mats.GasBox, 0.02, 0.05, 0.04, OX + 0.01, 0.05, 0.1));
-      g.add(box(mats.Dark, 0.004, 0.012, 0.02, OX + 0.021, 0.055, 0.1));
-      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, TOP + 0.09, 10), mats.Metal);
+      g.add(box(mats.GasBox, 0.02, 0.05, 0.042, -OX - 0.01, 0.05, 0.1));
+      g.add(box(mats.Dark, 0.004, 0.014, 0.022, -OX - 0.021, 0.055, 0.1));
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, TOP - 0.03, 10), mats.GasBox);
       pipe.userData.ownGeo = true;
-      pipe.position.set(OX + 0.012, (TOP + 0.09) / 2, 0.02);
+      pipe.position.set(-OX - 0.009, (TOP - 0.03) / 2, 0.15);
       g.add(pipe);
-      g.add(box(mats.Metal, 0.022, 0.005, 0.022, OX + 0.012, TOP + 0.092, 0.02));
-      g.add(box(mats.GasBox, 0.006, 0.006, 0.07, OX + 0.012, 0.03, 0.06));
+      g.add(box(mats.GasBox, 0.006, 0.006, 0.05, -OX - 0.009, 0.03, 0.125));
+      g.add(box(mats.Metal, 0.018, 0.008, 0.018, -OX - 0.009, TOP - 0.03, 0.15));
     } else {
       // A wood stove: its chimney on the outside wall and a stack of firewood.
       const top = TOP + RIDGE + 0.05;
-      g.add(box(mats.BrickClay, 0.05, top + FOUND, 0.05, OX + 0.025, (top - FOUND) / 2, -0.07));
-      g.add(box(mats.Concrete, 0.062, 0.008, 0.062, OX + 0.025, top + 0.004, -0.07));
+      g.add(box(mats.BrickClay, 0.05, top + FOUND, 0.05, -OX - 0.025, (top - FOUND) / 2, 0.135));
+      g.add(box(mats.Concrete, 0.062, 0.008, 0.062, -OX - 0.025, top + 0.004, 0.135));
+      g.add(box(mats.Dark, 0.034, 0.012, 0.034, -OX - 0.025, top + 0.014, 0.135));
       const log = new THREE.CylinderGeometry(0.009, 0.009, 0.05, 8).rotateZ(Math.PI / 2);
-      [[0, 0], [1, 0], [2, 0], [3, 0], [0.5, 1], [1.5, 1], [2.5, 1], [1, 2], [2, 2]].forEach(([i, j], n) => {
+      [[0, 0], [1, 0], [2, 0], [0.5, 1], [1.5, 1], [1, 2]].forEach(([i, j], n) => {
         const m = new THREE.Mesh(log, n % 2 ? mats.Bark : mats.Wood);
-        m.position.set(OX + 0.03, 0.009 - FOUND + j * 0.016, 0.05 + i * 0.019);
+        m.position.set(-OX - 0.03, 0.009 - FOUND + j * 0.016, 0.062 + i * 0.019);
         g.add(m);
       });
-      g.children[2].userData.ownGeo = true;
-      this.smokeAt = new THREE.Vector3(OX + 0.025, top + 0.02, -0.07);
+      g.children[3].userData.ownGeo = true;
+      this.smokeAt = new THREE.Vector3(-OX - 0.025, top + 0.03, 0.135);
     }
     this.one(g);
     return 0.7;
@@ -703,12 +840,12 @@ export class House {
       const g = new THREE.Group();
       const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.085, 16), mats.Shutter);
       tank.userData.ownGeo = true;
-      tank.position.set(OX + 0.045, 0.0425 - FOUND, -0.14);
+      tank.position.set(OX + 0.045, 0.0425 - FOUND, 0.12);
       const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.008, 16), mats.Dark);
       lid.userData.ownGeo = true;
-      lid.position.set(OX + 0.045, 0.089 - FOUND, -0.14);
-      g.add(tank, lid, box(mats.Metal, 0.006, TOP - 0.07, 0.006, OX + 0.008, (TOP + 0.09) / 2, -0.14), box(mats.Metal, 0.04, 0.006, 0.006, OX + 0.026, 0.092, -0.14));
-      g.add(box(mats.Metal, 0.004, 0.012, 0.012, OX + 0.045, 0.014 - FOUND, -0.105));
+      lid.position.set(OX + 0.045, 0.089 - FOUND, 0.12);
+      g.add(tank, lid, box(mats.Metal, 0.006, TOP - 0.07, 0.006, OX + 0.008, (TOP + 0.09) / 2, 0.12), box(mats.Metal, 0.04, 0.006, 0.006, OX + 0.026, 0.092, 0.12));
+      g.add(box(mats.Metal, 0.012, 0.012, 0.004, OX + 0.045, 0.014 - FOUND, 0.156));
       this.one(g);
       return 0.7;
     }
@@ -744,6 +881,14 @@ export class House {
       const g = new THREE.Group();
       g.add(box(mats.Dark, 0.02, 0.028, 0.004, 0.058, 0.1, OZ + 0.002), box(mats.LampGlow, 0.014, 0.018, 0.002, 0.058, 0.1, OZ + 0.005));
       for (const sx of [-1, 1]) g.add(box(mats.Unit, 0.012, 0.01, 0.012, sx * (OX - 0.02), TOP - 0.012, OZ + 0.007), box(mats.LampGlow, 0.005, 0.004, 0.002, sx * (OX - 0.02), TOP - 0.013, OZ + 0.014));
+      // an awning that drives out by itself over the right front window
+      const awning = new THREE.Group();
+      awning.position.set(0.144, 0.165, OZ + 0.004);
+      awning.rotation.x = 0.5;
+      for (let i = 0; i < 6; i++) awning.add(box(i % 2 ? mats.Frame : mats.Car, 0.0155, 0.004, 0.07, (i - 2.5) * 0.0155, 0, 0.035));
+      awning.add(box(mats.Unit, 0.1, 0.01, 0.012, 0, 0.004, 0));
+      g.add(awning);
+      for (const sx of [-1, 1]) g.add(box(mats.Metal, 0.003, 0.003, 0.064, 0.144 + sx * 0.047, 0.148, OZ + 0.034));
       const top = this.roofTop ?? TOP;
       g.add(box(mats.Metal, 0.003, 0.06, 0.003, -OX + 0.03, top + 0.012, -0.06), box(mats.Metal, 0.03, 0.003, 0.003, -OX + 0.03, top + 0.036, -0.06), box(mats.LampGlow, 0.006, 0.006, 0.006, -OX + 0.03, top + 0.045, -0.06));
       this.one(g);
@@ -774,7 +919,7 @@ export class House {
       const d = 0.2;
       const h0 = 0.11;
       const h1 = 0.15;
-      g.position.set(-OX - w / 2, 0, 0.01);
+      g.position.set(-OX - w / 2, 0, -0.07);
       g.add(box(mats.Stone, w, 0.006, d, 0, 0.003 - FOUND / 2, 0));
       g.add(box(this.clear, w, h0, 0.003, 0, h0 / 2, d / 2));
       g.add(box(this.clear, w, h0, 0.003, 0, h0 / 2, -d / 2));
@@ -831,19 +976,23 @@ export class House {
       // What shows of a cellar: light wells in front and the outside stairs at the side.
       const g = new THREE.Group();
       const y = -FOUND;
-      for (const x of [-0.144, 0.144]) {
+      for (const x of [-0.144]) {
         g.add(box(mats.Concrete, 0.074, 0.012, 0.032, x, y + 0.006, OZ + 0.026));
         g.add(box(mats.Slim, 0.062, 0.003, 0.022, x, y + 0.0125, OZ + 0.026));
         g.add(box(this.glass, 0.05, 0.012, 0.003, x, 0.004, OZ + 0.002));
       }
-      const sx = -OX - 0.06;
-      g.add(box(mats.Dark, 0.07, 0.004, 0.16, sx, y + 0.002, -0.02));
-      for (let i = 0; i < 5; i++) g.add(box(mats.ConcreteWall, 0.066, 0.004, 0.026, sx, y + 0.011 - i * 0.002, 0.045 - i * 0.03)).material = i > 2 ? mats.Concrete : mats.ConcreteWall;
-      for (const s of [-1, 1]) g.add(box(mats.Concrete, 0.01, 0.016, 0.17, sx + s * 0.04, y + 0.008, -0.02));
-      g.add(box(mats.Concrete, 0.09, 0.016, 0.01, sx, y + 0.008, -0.105));
-      g.add(box(mats.Metal, 0.004, 0.004, 0.17, sx - 0.04, y + 0.05, -0.02));
-      for (const z of [-0.1, -0.02, 0.06]) g.add(box(mats.Metal, 0.004, 0.036, 0.004, sx - 0.04, y + 0.032, z));
-      g.add(box(mats.Door, 0.05, 0.05, 0.004, sx, y + 0.03, -0.098));
+      // the outside stair: a pit along the front wall with steps going down, a railing, the cellar door
+      const z = OZ + 0.05;
+      const x0 = 0.215;
+      g.add(box(mats.Dark, 0.17, 0.004, 0.06, x0, y + 0.002, z));
+      for (let i = 0; i < 5; i++) { const st = box(i > 2 ? mats.Concrete : mats.ConcreteWall, 0.028, 0.004, 0.056, x0 + 0.062 - i * 0.03, y + 0.012 - i * 0.002, z); g.add(st); }
+      for (const dz of [-1, 1]) g.add(box(mats.Concrete, 0.19, 0.018, 0.01, x0, y + 0.009, z + dz * 0.035));
+      g.add(box(mats.Concrete, 0.01, 0.018, 0.08, x0 - 0.09, y + 0.009, z));
+      g.add(box(mats.Metal, 0.18, 0.004, 0.004, x0, y + 0.052, z + 0.035));
+      for (const dx of [-0.085, 0, 0.085]) g.add(box(mats.Metal, 0.004, 0.036, 0.004, x0 + dx, y + 0.034, z + 0.035));
+      g.add(box(mats.Door, 0.004, 0.05, 0.046, x0 - 0.084, y + 0.03, z));
+      // a plinth with cellar windows along the front
+      g.add(box(mats.ConcreteWall, 2 * OX + 0.012, 0.012, 0.008, 0, 0.002, OZ + 0.004));
       this.one(g);
       return 0.9;
     }
@@ -854,7 +1003,7 @@ export class House {
     const w = 0.17;
     const d = 0.19;
     const h = 0.15;
-    g.position.set(-OX - w / 2, 0, 0);
+    g.position.set(-OX - w / 2, 0, -0.07);
     g.add(box(mats.Concrete, w + 0.01, FOUND, d + 0.02, -0.005, -FOUND / 2, 0));
     g.add(box(mat, w, h, d, 0, h / 2, 0));
     if (walls === 'brick' || walls === 'wood') for (let i = 1; i < 5; i++) g.add(box(walls === 'brick' ? mats.Quoin : mats.Beam, w + 0.002, 0.002, d + 0.002, 0, i * H, 0));
@@ -874,9 +1023,28 @@ export class House {
 
   // ---------- garden ----------
 
+  /** A bicycle leaning at the front wall (two wheels, a frame, a saddle). */
+  bicycle() {
+    const mats = this.M.mats;
+    const g = new THREE.Group();
+    const wheel = new THREE.TorusGeometry(0.02, 0.0028, 6, 16);
+    for (const dx of [-0.028, 0.028]) { const w = new THREE.Mesh(wheel, mats.Dark); w.position.set(dx, 0.022, 0); g.add(w); }
+    g.children[0].userData.ownGeo = true;
+    const bar = (x, y, len, rz) => { const b = box(mats.Car, len, 0.004, 0.004, x, y, 0); b.rotation.z = rz; g.add(b); };
+    bar(0, 0.034, 0.044, 0.5);
+    bar(-0.004, 0.047, 0.036, 0);
+    bar(-0.014, 0.034, 0.03, -1.0);
+    bar(0.024, 0.04, 0.036, 1.25);
+    g.add(box(mats.Dark, 0.014, 0.004, 0.008, -0.022, 0.052, 0), box(mats.Dark, 0.004, 0.004, 0.026, 0.032, 0.058, 0));
+    g.position.set(0.215, 0.002, HOUSE_Z + OZ + 0.014);
+    g.rotation.set(0.16, 0.12, 0);
+    return g;
+  }
+
   build_garden(id) {
     const mats = this.M.mats;
     this.showGarden(id);
+    if (id !== 'gravel') this.one(this.bicycle(), { site: true, delay: 0.7 });
     const y = 0.002;
     const flowers = (n, x0, x1, z0, z1, delay) => {
       for (let i = 0; i < n; i++) this.b(i % 2 ? 'FlowerA' : 'FlowerB', rnd(x0, x1), y + 0.009, rnd(z0, z1), 0.011, 0.011, 0.011, { site: true, delay: delay + Math.random() * 0.4, yaw: Math.random() });
@@ -929,7 +1097,7 @@ export class House {
     g.add(box(mats.Sand, 0.1, 0.008, 0.1, sx, y + 0.006, sz));
     for (const [dx, dz, w, d] of [[0, 0.055, 0.12, 0.012], [0, -0.055, 0.12, 0.012], [0.055, 0, 0.012, 0.12], [-0.055, 0, 0.012, 0.12]]) g.add(box(mats.Wood, w, 0.016, d, sx + dx, y + 0.008, sz + dz));
     g.add(box(mats.FlowerA, 0.016, 0.014, 0.016, sx + 0.015, y + 0.02, sz - 0.01), box(mats.Mailbox, 0.02, 0.006, 0.008, sx - 0.02, y + 0.014, sz + 0.02));
-    const wx = 0.14;
+    const wx = 0.1;
     for (const s of [-1, 1]) for (const f of [-1, 1]) {
       const leg = box(mats.Beam, 0.007, 0.105, 0.007, wx + s * 0.05, y + 0.05, 0.27 + f * 0.022);
       leg.rotation.x = -f * 0.42;
