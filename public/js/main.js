@@ -23,6 +23,7 @@ import { AttractScene } from './scenes/attract.js';
 import { EVENT, EventKiosk } from './event.js';
 import { CHRISTMAS } from './christmas.js';
 import { decoratePage } from './xmas-page.js';
+import { lockZoom } from './no-zoom.js';
 
 // Games load on demand, so the first load only holds the menu, Echo and the shared parts.
 // Each entry resolves to a scene factory.
@@ -186,6 +187,7 @@ class App {
     }
     document.body.classList.add('is-playing');
     this.stage.hidden = false;
+    lockZoom(true); // touch devices: no double-tap or pinch zoom inside the game
     // Keyboard and screen readers: the page behind the game is out of reach while the game is
     // open, and the keys go to the game (Tab walks through its buttons, engine.js).
     this.page = document.getElementById('page');
@@ -219,6 +221,7 @@ class App {
     this.stage.hidden = true;
     if (document.fullscreenElement) document.exitFullscreen?.().catch?.(() => {});
     document.body.classList.remove('is-playing', 'is-xr');
+    lockZoom(false);
     if (this.page) this.page.inert = false;
     this.opener?.focus?.({ preventScroll: true });
     this.opener = null;
