@@ -66,7 +66,14 @@ const OWN = {
   FlowerA: ['xr-bricks-flower-1', 0.6, 0],
   FlowerB: ['xr-bricks-flower-2', 0.6, 0],
   Pebble: ['xr-bricks-pebble', 0.9, 0],
+  Mortar: ['xr-bricks-mortar', 0.95, 0],
+  Sill: ['xr-bricks-sill', 0.75, 0],
 };
+// The pieces of a wall (bricks, mortar, boards, beams): their end faces inside the narrow joints
+// stand edge-on to the eye at some joint, and there the depth of such a sliver can come out
+// nearer than the roof above it (a thin bright line on the roof). A slope-scaled depth offset
+// pushes exactly those grazing faces back; faces seen square-on barely move.
+const WALL_PIECES = ['BrickClay', 'Quoin', 'Mortar', 'Plank', 'ConcreteWall', 'Beam', 'Plaster'];
 // Materials that get snow in winter (everything facing up in the garden, and the roof).
 const SNOWY = ['Grass', 'GrassDark', 'Leaf', 'LeafDark', 'Fence', 'Stone', 'Sand', 'Soil', 'Roof', 'RoofDark', 'Mailbox', 'Bark', 'Thatch', 'MetalRoof', 'Sedum', 'Hedge', 'Pebble'];
 
@@ -79,6 +86,7 @@ const DETAIL = {
   Roof: [20, 220, 0.12], Concrete: [18, 240, 0.14], Wood: [12, 300, 0.14], Quoin: [60, 300, 0.12],
   Plaster: [22, 260, 0.1], ConcreteWall: [16, 240, 0.12], Plank: [10, 320, 0.16], Beam: [14, 300, 0.14], Thatch: [30, 420, 0.3], ThatchDark: [30, 420, 0.25],
   Sedum: [40, 300, 0.3], Hedge: [45, 320, 0.3], Pebble: [70, 520, 0.3], MetalRoof: [8, 160, 0.06],
+  Mortar: [50, 420, 0.16], Sill: [30, 260, 0.1],
 };
 
 /**
@@ -130,9 +138,11 @@ export function bricksMaterials() {
     if (DETAIL[name] && tier !== 'low') addDetail(out[name], DETAIL[name]);
     if (SNOWY.includes(name)) winterize(out[name]);
   }
-  // Glass reflects the sky a little (studio environment) until the lights go on.
-  out.Glass.roughness = 0.04;
-  out.Glass.metalness = 0.4;
+  for (const name of WALL_PIECES) Object.assign(out[name], { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2 });
+  // Glass mirrors the environment (the studio light, the sky) until the lights go on.
+  out.Glass.roughness = 0.03;
+  out.Glass.metalness = 0.85;
+  out.Glass.envMapIntensity = 2.2;
   out.LampGlow = new THREE.MeshBasicMaterial({ name: 'LampGlow', color: hex('xr-bricks-lamp'), toneMapped: false });
   return out;
 }
@@ -397,7 +407,7 @@ export const bsfx = {
 
 const _col = new THREE.Color();
 /** A geometry painted in one token color (vertex colors), moved and scaled into place. */
-function painted(geo, token, { x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, rx = 0 } = {}) {
+export function painted(geo, token, { x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, rx = 0 } = {}) {
   const g = geo.index ? geo.toNonIndexed() : geo;
   if (g !== geo) geo.dispose();
   if (rx) g.rotateX(rx);
@@ -411,7 +421,7 @@ function painted(geo, token, { x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, rx =
   g.deleteAttribute('uv');
   return g;
 }
-function joined(geos) {
+export function joined(geos) {
   const out = new THREE.BufferGeometry();
   for (const name of ['position', 'normal', 'color']) {
     const arr = new Float32Array(geos.reduce((n, g) => n + g.attributes[name].count * 3, 0));
@@ -423,7 +433,7 @@ function joined(geos) {
   return out;
 }
 
-/** A little figure (meters in its own space): legs, body, head, a winter hat (one mesh), arms that move. */
+/** A little figure (meters in its own space): legs, body, head, a winter hat (one mesh); its arms are drawn by the family (one instanced mesh). */
 function person({ h, shirt, pants, hat, skin }, mat) {
   const g = new THREE.Group();
   const r = h * 0.13;
@@ -435,16 +445,19 @@ function person({ h, shirt, pants, hat, skin }, mat) {
     painted(new THREE.SphereGeometry(r * 0.32, 8, 6), 'xr-bricks-fence', { y: h * 0.8 + r * 1.75, z: -r * 0.3 }),
   ]), mat);
   g.add(body);
-  const armGeo = painted(new THREE.CapsuleGeometry(r * 0.32, h * 0.2, 3, 8), shirt, { y: -h * 0.13 });
-  const arms = [-1, 1].map((sx) => {
-    const pivot = new THREE.Mesh(armGeo, mat);
-    pivot.position.set(sx * r * 1.05, h * 0.62, 0);
-    pivot.rotation.z = sx * 0.15;
-    g.add(pivot);
-    return pivot;
-  });
-  return { g, arms, h };
+  return { g, h, r, shirt, la: 0.15, ra: -0.15 };
 }
+
+// One arm of height 1 (scaled by the figure), white: the instance color is the shirt's.
+let ARM = null;
+function armGeo() {
+  ARM ??= painted(new THREE.CapsuleGeometry(0.13 * 0.32, 0.2, 3, 8), 'xr-bricks-family-white', { y: -0.13 });
+  return ARM;
+}
+const _fm = new THREE.Matrix4();
+const _fa = new THREE.Matrix4();
+const _fr = new THREE.Matrix4();
+const _fs = new THREE.Matrix4();
 
 const P = (h, shirt, hat, skin = 1) => ({ h, shirt: `xr-bricks-family-${shirt}`, pants: 'xr-bricks-family-pants', hat: `xr-bricks-family-hat-${hat}`, skin: `xr-bricks-family-skin-${skin}` });
 // Who stands on a plot: the builders of the brief, or the Winters next door.
@@ -469,6 +482,27 @@ export function makeFamily(kind = 'winter') {
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.8, vertexColors: true });
   const ppl = (FAMILIES[kind] ?? FAMILIES.winter).map((spec) => person(spec, mat));
   ppl.forEach((pp, i) => { pp.g.position.set(SPOTS[i][0], 0, SPOTS[i][1]); pp.turn = (i - 1) * -0.2; pp.g.rotation.y = pp.turn; group.add(pp.g); });
+  // All arms of the family: one instanced mesh, two per figure, in its shirt color.
+  const arms = new THREE.InstancedMesh(armGeo(), mat, ppl.length * 2);
+  arms.frustumCulled = false;
+  ppl.forEach((pp, i) => { const c = new THREE.Color(hex(pp.shirt)); arms.setColorAt(i * 2, c); arms.setColorAt(i * 2 + 1, c); });
+  arms.instanceColor.needsUpdate = true;
+  group.add(arms);
+  const placeArms = () => {
+    ppl.forEach((pp, i) => {
+      pp.g.updateMatrix();
+      [-1, 1].forEach((sx, j) => {
+        const z = j === 0 ? -pp.la : -pp.ra;
+        _fa.makeTranslation(sx * pp.r * 1.05, pp.h * 0.62, 0);
+        _fr.makeRotationZ(z);
+        _fs.makeScale(pp.h, pp.h, pp.h);
+        _fm.copy(pp.g.matrix).multiply(_fa).multiply(_fr).multiply(_fs);
+        arms.setMatrixAt(i * 2 + j, _fm);
+      });
+    });
+    arms.instanceMatrix.needsUpdate = true;
+  };
+  placeArms();
   let mood = null; // { kind, t, who }
   return {
     group,
@@ -505,9 +539,10 @@ export function makeFamily(kind = 'winter') {
         }
         pp.g.position.y = y;
         pp.g.rotation.y += (turn - pp.g.rotation.y) * Math.min(1, dt * 10);
-        pp.arms[0].rotation.z += (-la - pp.arms[0].rotation.z) * Math.min(1, dt * 14);
-        pp.arms[1].rotation.z += (-ra - pp.arms[1].rotation.z) * Math.min(1, dt * 14);
+        pp.la += (la - pp.la) * Math.min(1, dt * 14);
+        pp.ra += (ra - pp.ra) * Math.min(1, dt * 14);
       });
+      placeArms();
     },
   };
 }

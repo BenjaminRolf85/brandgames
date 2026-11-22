@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { hex } from './tokens.js';
 import { plainPlot } from './bricks-visuals.js';
+import { radialTexture } from './robot-visuals.js';
 import { L, H, D, GAP, TOP, XH, ZH, OX, OZ, RIDGE, EAVE, FOUND, HOUSE_Z, WALLS, CORNERS, brickPieces, wallBoxes, openings } from './bricks-plan.js';
 
 /** The model's materials use vertex colors (baked shading): plain geometry gets white ones. */
@@ -17,6 +18,7 @@ function white(geo) {
 }
 const UNIT = white(new THREE.BoxGeometry(1, 1, 1));
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+const _ident = new THREE.Matrix4();
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
@@ -38,6 +40,7 @@ const SITE_ONLY = ['Sand', 'Wood', 'Metal'];
 const GARDEN_BASE = ['WoodDark', 'Mailbox', 'Dark'];
 const GREEN = ['Bark', 'LeafDark', 'Leaf', 'Berry'];
 const GARDEN_ALL = ['Fence', 'LampGlow', ...GARDEN_BASE, ...GREEN];
+const TOGGLED = new Set([...GARDEN_ALL, ...SITE_ONLY]); // plot parts that the garden shows or hides
 
 /**
  * Many boxes (or bricks) of one material as one instanced mesh, each with its own little
@@ -197,12 +200,28 @@ function chamferBox(sx, sy, sz) {
   return f;
 }
 
+let LOD = null;
+/** Simpler bricks (one bevel, as big as the model's): for the headset and the neighbors. */
+function lodBricks(geo) {
+  if (LOD) return LOD;
+  const make = (src) => {
+    src.computeBoundingBox();
+    const s = src.boundingBox.getSize(new THREE.Vector3());
+    const f = chamferBox(s.x, s.y, s.z);
+    const g = new THREE.BufferGeometry();
+    for (const name of ['position', 'normal', 'color']) g.setAttribute(name, new THREE.BufferAttribute(f[name], 3));
+    return g;
+  };
+  LOD = { brick: make(geo.brick), half: make(geo.half), quoin: make(geo.quoin) };
+  return LOD;
+}
+
 /** One geometry from a list of [geometry, matrix, tint]. Plain boxes get bevelled edges on the way. */
 function fuse(list) {
   for (const entry of list) {
     if (entry[0] !== UNIT) continue;
     entry[1].decompose(_ps, _qt, _sc);
-    if (Math.min(Math.abs(_sc.x), Math.abs(_sc.y), Math.abs(_sc.z)) < 0.004 || _sc.x <= 0 || _sc.y <= 0 || _sc.z <= 0) continue;
+    if (Math.min(Math.abs(_sc.x), Math.abs(_sc.y), Math.abs(_sc.z)) < 0.0052 || _sc.x <= 0 || _sc.y <= 0 || _sc.z <= 0) continue;
     entry[3] = chamferBox(_sc.x, _sc.y, _sc.z);
     entry[1] = new THREE.Matrix4().compose(_ps, _qt, _sc.set(1, 1, 1));
   }
@@ -242,6 +261,26 @@ function box(mat, sx, sy, sz, x = 0, y = 0, z = 0) {
   return m;
 }
 
+const templates = new Map();
+/**
+ * A part made of many boxes, as one bevelled geometry per material (cached by key), for parts
+ * that stand several times on a house (the windows): each material then is one instanced mesh
+ * while they pop in, and one merged mesh once they stand. boxes: [mat, sx, sy, sz, x, y, z, rx].
+ */
+function template(key, boxes) {
+  let t = templates.get(key);
+  if (t) return t;
+  const by = {};
+  const q = new THREE.Quaternion();
+  for (const [mat, sx, sy, sz, x, y, z, rx = 0] of boxes) {
+    const m = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q.setFromEuler(new THREE.Euler(rx, 0, 0)), new THREE.Vector3(sx, sy, sz));
+    (by[mat] ??= []).push([UNIT, m, null]);
+  }
+  t = Object.fromEntries(Object.entries(by).map(([mat, list]) => [mat, fuse(list)]));
+  templates.set(key, t);
+  return t;
+}
+
 /** A prism: a 2D outline in the (z, y) plane, as long as `len` along x, centered. */
 function prism(points, len, mat) {
   const shape = new THREE.Shape(points.map(([z, y]) => new THREE.Vector2(z, y)));
@@ -257,13 +296,78 @@ function shadows(root, cast) {
   root.traverse((o) => { if (o.isMesh) { o.castShadow = cast; o.receiveShadow = true; } });
 }
 
+/**
+ * One window in its opening (local: origin on the wall's center line, +z out of the wall): a
+ * frame set back 2 mm from the face, the glass deeper still, glazing bars where the option has
+ * them, a stone sill that slopes out. Lattice windows get louvred shutters, wooden windows a
+ * wooden frame, a wooden sill and a flower box; the panorama window is a large box window set
+ * in front of the wall. [mat, sx, sy, sz, x, y, z, rx]
+ */
+function windowBoxes(id) {
+  const out = [];
+  const face = D / 2;
+  if (id === 'panorama') {
+    const w = 0.116;
+    const h = 0.144;
+    const y = 0.084 - 3.5 * H; // floor to lintel (the openings' centers are at 3.5 courses)
+    const F = 0.0065;
+    const fz = face + 0.006;
+    out.push(['Slim', w + F, F, 0.012, 0, y + h / 2, fz], ['Slim', w + F, F, 0.012, 0, y - h / 2, fz], ['Slim', F, h - F, 0.012, -w / 2, y, fz], ['Slim', F, h - F, 0.012, w / 2, y, fz]);
+    out.push(['Glass', w, h, 0.002, 0, y, face + 0.002]);
+    out.push(['Slim', 0.0045, h - F, 0.007, 0, y, face + 0.004]);
+    out.push(['Slim', w + 0.016, 0.004, 0.02, 0, y - h / 2 - F / 2 - 0.001, face + 0.01, 0.06]);
+    return out;
+  }
+  const hw = L / 2;
+  const hh = 1.5 * H;
+  const wood = id === 'woodwin';
+  const fr = wood ? 'Plank' : 'Frame';
+  const F = wood ? 0.0085 : 0.0068;
+  const fz = face - 0.009;
+  const gz = face - 0.014;
+  out.push([fr, 2 * hw, F, 0.014, 0, hh - F / 2, fz], [fr, 2 * hw, F, 0.014, 0, -hh + F / 2, fz]);
+  out.push([fr, F, 2 * hh - 2 * F, 0.014, -hw + F / 2, 0, fz], [fr, F, 2 * hh - 2 * F, 0.014, hw - F / 2, 0, fz]);
+  out.push(['Glass', 2 * hw - 2 * F + 0.002, 2 * hh - 2 * F + 0.002, 0.002, 0, 0, gz]);
+  const bz = gz + 0.0035;
+  const inner = 2 * hh - 2 * F;
+  if (id === 'plain') {
+    // two casements: a mullion, and a narrow sash frame inside the outer frame
+    out.push([fr, 0.0055, inner, 0.006, 0, 0, bz]);
+    out.push([fr, 2 * hw - 2 * F, 0.0035, 0.004, 0, hh - F - 0.0018, bz], [fr, 2 * hw - 2 * F, 0.0035, 0.004, 0, -hh + F + 0.0018, bz]);
+  } else if (id === 'lattice') {
+    // six panes, and louvred shutters on both sides
+    out.push([fr, 0.0038, inner, 0.005, 0, 0, bz]);
+    for (const y of [-0.0128, 0.0128]) out.push([fr, 2 * hw - 2 * F, 0.0034, 0.005, 0, y, bz]);
+    for (const sx of [-1, 1]) {
+      const x = sx * (hw + 0.0165);
+      out.push(['Shutter', 0.03, 2 * hh + 0.006, 0.004, x, 0, face + 0.002]);
+      for (let i = 0; i < 7; i++) out.push(['Shutter', 0.024, 0.0028, 0.0034, x, -0.036 + i * 0.012, face + 0.0048, 0.55]);
+      out.push(['Metal', 0.004, 0.003, 0.003, sx * (hw + 0.0005), 0.03, face + 0.004], ['Metal', 0.004, 0.003, 0.003, sx * (hw + 0.0005), -0.03, face + 0.004]);
+    }
+  } else if (wood) {
+    // a mullion and a transom (a small top light)
+    out.push([fr, 0.0065, inner, 0.006, 0, -0.006, bz], [fr, 2 * hw - 2 * F, 0.006, 0.006, 0, hh * 0.42, bz]);
+  }
+  // the sill: stone (wood under wooden windows), a little wider than the opening, sloping out
+  out.push([wood ? 'Plank' : 'Sill', 2 * hw + 0.016, 0.0062, 0.03, 0, -hh - 0.0028, face + 0.003, 0.12]);
+  if (wood) {
+    // a flower box under the sill
+    out.push(['Plank', 2 * hw + 0.004, 0.013, 0.014, 0, -hh - 0.016, face + 0.011]);
+    for (let i = 0; i < 5; i++) out.push([i % 2 ? 'FlowerA' : 'FlowerB', 0.0085, 0.008, 0.0085, -0.028 + i * 0.014, -hh - 0.0075 + (i % 2) * 0.002, face + 0.011 + (i % 2 ? 0.002 : -0.002)]);
+    for (let i = 0; i < 4; i++) out.push(['Leaf', 0.012, 0.007, 0.011, -0.021 + i * 0.014, -hh - 0.0085, face + 0.012]);
+  }
+  return out;
+}
+
 export class House {
   /**
    * plotRoot: the group the plot stands in (plot-local space); M: the loaded model
    * (bricks-visuals.js). cast: the house throws shadows; calm: gentle animations.
    */
-  constructor(plotRoot, M, { cast = true, calm = false } = {}) {
+  constructor(plotRoot, M, { cast = true, calm = false, settle = false, lod = false, hold = null } = {}) {
     this.M = M;
+    this.hold = hold; // parts that stay apart (can still go away by themselves); all else is merged once at rest
+    this.settle = settle; // never takes a part back: everything at rest is merged at once
     this.cast = cast;
     this.calm = calm;
     this.site = new THREE.Group();
@@ -275,7 +379,27 @@ export class House {
     if (this.plot) {
       this.plot.traverse((o) => { if (o.isMesh) { o.receiveShadow = true; o.castShadow = false; this.plotMeshes.set(o.material.name, o); } });
       this.site.add(this.plot);
+      // Plot parts that differ only in their color: one mesh (the color goes into the vertices).
+      for (const [from, to] of [['GrassDark', 'Grass'], ['SoilDark', 'Soil']]) {
+        const src = this.plotMeshes.get(from);
+        const host = this.plotMeshes.get(to);
+        if (!src || !host) continue;
+        const f = flat(src.geometry);
+        const k = [0, 1, 2].map((i) => src.material.color.toArray()[i] / Math.max(1e-4, host.material.color.toArray()[i]));
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(f.position.slice(), 3));
+        geo.setAttribute('normal', new THREE.BufferAttribute(f.normal.slice(), 3));
+        geo.setAttribute('color', new THREE.BufferAttribute(f.color.map((v, i) => v * k[i % 3]), 3));
+        const tmp = new THREE.Mesh(geo, host.material);
+        tmp.userData.ownGeo = true;
+        src.parent.add(tmp);
+        tmp.position.copy(src.position); tmp.quaternion.copy(src.quaternion); tmp.scale.copy(src.scale);
+        this.absorb(host, [tmp]);
+        src.removeFromParent();
+        this.plotMeshes.delete(from);
+      }
     }
+    this.lod = lod;
     this.glass = M.mats.Glass.clone();
     this.glass.emissive = new THREE.Color(hex('xr-bricks-window-light'));
     this.glass.emissiveIntensity = 0;
@@ -292,6 +416,7 @@ export class House {
   // ---------- the plot's own garden parts ----------
 
   showGarden(kind) {
+    if (this.siteMerged) return;
     const show = new Set(kind ? GARDEN_BASE : SITE_ONLY);
     if (kind === 'picket') ['Fence', 'LampGlow', ...GREEN].forEach((n) => show.add(n));
     if (kind === 'hedge' || kind === 'playlawn') ['LampGlow', ...GREEN].forEach((n) => show.add(n));
@@ -356,6 +481,67 @@ export class House {
     ball.dispose();
     cone.dispose();
     this.site.add(g);
+    // What has a material the plot always shows goes into the plot's own mesh of it (fewer draw calls).
+    for (const m of [...g.children]) {
+      const name = m.material.name;
+      const host = this.plotMeshes.get(name);
+      if (!host || TOGGLED.has(name) || !m.isMesh) continue;
+      this.absorb(host, [m]);
+    }
+  }
+
+  /** Merges meshes into a host mesh of the same material (in the host's space) and removes them. */
+  absorb(host, list) {
+    host.updateMatrixWorld(true);
+    const inv = host.matrixWorld.clone().invert();
+    const entries = [[host.geometry, new THREE.Matrix4(), null]];
+    for (const m of list) { m.updateMatrixWorld(true); entries.push([m.geometry, new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld), null]); }
+    const geo = fuse(entries);
+    if (host.userData.ownGeo) { flatCache.delete(host.geometry); host.geometry.dispose(); }
+    host.geometry = geo;
+    host.userData.ownGeo = true;
+    for (const m of list) { if (m.userData.ownGeo) { flatCache.delete(m.geometry); m.geometry.dispose(); } m.removeFromParent(); }
+  }
+
+  /**
+   * Once nothing on the plot can change any more (the check): every visible mesh of the plot,
+   * the place around it, the garden and the extras outside the house becomes one mesh per
+   * material; the parts the garden hid are dropped.
+   */
+  mergeSite() {
+    this.siteMerged = true;
+    const by = new Map();
+    const hidden = [];
+    // the site, and what of the house is frozen (one mesh per material in this.home)
+    for (const root of [this.site, this.home]) {
+      root.updateMatrixWorld(true);
+      const list = root === this.home ? [...this.pool.home.values()] : [];
+      if (root === this.site) {
+        root.traverse((o) => {
+          if (!o.isMesh || o.isInstancedMesh || o.userData.noFit) return;
+          let vis = true;
+          for (let q = o; q && q !== root; q = q.parent) { if (q.userData.noBake) return; if (!q.visible) vis = false; }
+          if (vis) list.push(o); else hidden.push(o);
+        });
+      }
+      for (const o of list) if (o.parent && !o.material.transparent) (by.get(o.material) ?? by.set(o.material, []).get(o.material)).push(o);
+    }
+    for (const list of by.values()) {
+      if (list.length < 2) continue;
+      const host = list.find((m) => m.castShadow) ?? list[0];
+      this.absorb(host, list.filter((m) => m !== host));
+    }
+    for (const o of hidden) { if (o.userData.ownGeo) { flatCache.delete(o.geometry); o.geometry.dispose(); } o.removeFromParent(); }
+    // the pools now hold the merged meshes (only those that sit directly in their root, as freeze() expects)
+    for (const where of ['home', 'site']) {
+      const pool = this.pool[where];
+      for (const [mat, m] of [...pool]) if (!m.parent) pool.delete(mat);
+      for (const list of by.values()) {
+        const host = list.find((m) => m.parent === this[where] && m.matrix.equals(_ident));
+        if (host) { pool.set(host.material, host); this.pool[where === 'home' ? 'site' : 'home'].delete(host.material); }
+      }
+    }
+    this.changed += 1;
   }
 
   // ---------- building blocks ----------
@@ -393,9 +579,23 @@ export class House {
     for (const [key, items] of this.cur.pending) {
       const [where, mat] = key.split('|');
       const geo = geos?.[mat] ?? UNIT;
-      this.cur.bits.push(new Bits(where === 's' ? this.cur.site : this.cur.home, geo, this.M.mats[mat] ?? this.M.mats.Concrete, items, this.cast));
+      this.cur.bits.push(new Bits(where === 's' ? this.cur.site : this.cur.home, geo, this.mat(mat), items, this.cast));
     }
     this.cur.pending.clear();
+  }
+
+  /** A material by its name (the house's own glass, which lights up at the end). */
+  mat(name) { return name === 'Glass' ? this.glass : this.M.mats[name] ?? this.M.mats.Concrete; }
+
+  /** Puts a template (one geometry per material) at every item ({ x, y, z, yaw, delay, how }), each material one instanced mesh. */
+  inst(tpl, items, site = false) {
+    for (const [name, geo] of Object.entries(tpl)) this.cur.bits.push(new Bits(site ? this.cur.site : this.cur.home, geo, this.mat(name), items.map((it) => ({ ...it })), this.cast));
+  }
+
+  /** Round things (shrubs, stones) of one material as one instanced mesh: items { x, y, z, sx, sy, sz, delay, how }. */
+  balls(name, items, site = true) {
+    this.ball ??= white(new THREE.SphereGeometry(1, 12, 9));
+    if (items.length) this.cur.bits.push(new Bits(site ? this.cur.site : this.cur.home, this.ball, this.mat(name), items, false));
   }
 
   /** Takes a part away again (an extra by its id). */
@@ -403,6 +603,7 @@ export class House {
     const key = decision === 'extras' ? `x:${id}` : decision;
     const part = this.parts[key];
     if (!part) return;
+    if (part.frozen) { this.rebuildWithout(key); return; }
     for (const g of [part.home, part.site]) {
       g.traverse((o) => { if (o.isInstancedMesh) o.dispose(); if (o.userData.ownGeo) o.geometry.dispose(); });
       g.removeFromParent();
@@ -412,6 +613,38 @@ export class House {
     if (decision === 'garden') this.showGarden(null);
     if (decision === 'heating') this.smokeAt = null;
     if (decision === 'door') this.doorPivot = null;
+    this.changed += 1;
+  }
+
+  /**
+   * A part that was already merged with the rest goes away: the house is built again without it,
+   * standing at once (rare: "back" after the part was frozen), and merged again.
+   */
+  rebuildWithout(key) {
+    const order = Object.keys(this.parts).filter((k) => k !== key);
+    const ids = Object.fromEntries(order.map((k) => [k, k.startsWith('x:') ? k.slice(2) : this.chosen[k]]));
+    for (const where of ['home', 'site']) {
+      for (const m of this.pool[where].values()) { flatCache.delete(m.geometry); m.geometry.dispose(); m.removeFromParent(); }
+      this.pool[where].clear();
+    }
+    for (const part of Object.values(this.parts)) {
+      for (const g of [part.home, part.site]) {
+        g.traverse((o) => { if (o.isInstancedMesh) o.dispose(); if (o.userData.ownGeo) o.geometry.dispose(); });
+        g.removeFromParent();
+      }
+    }
+    this.parts = {};
+    this.chosen = {};
+    this.extras = new Set();
+    this.smokeAt = null;
+    this.doorPivot = null;
+    this.showGarden(null);
+    for (const k of order) {
+      if (k.startsWith('x:')) this.build('extras', ids[k], { animate: false });
+      else this.build(k, ids[k], { animate: false });
+    }
+    this.update(0);
+    this.freeze(this.hold ?? []);
     this.changed += 1;
   }
 
@@ -444,6 +677,9 @@ export class House {
       else if (!part.baked) { part.baked = true; this.bake(part); busy = true; }
     }
     if (busy) this.changed += 1;
+    // parts that came to rest after the final freeze (or, for a house that never takes a part
+    // back, any part at rest): frozen too, and the plot merged with them
+    else if ((this.final || this.settle || this.hold) && Object.entries(this.parts).some(([k, p]) => p.baked && !p.frozen && !p.busy && !(this.hold && !this.final && k.startsWith('x:')))) this.freeze(this.final ? [] : this.hold ?? [], this.final);
     return busy;
   }
 
@@ -488,10 +724,11 @@ export class House {
    * for the garden): `keep` names the parts that may still be taken away (the last choice, the
    * extras before they are confirmed).
    */
-  freeze(keep = []) {
+  freeze(keep = [], final = false) {
+    if (final) this.final = true;
     const fresh = { home: new Map(), site: new Map() };
     for (const [key, part] of Object.entries(this.parts)) {
-      if (part.frozen || !part.baked || keep.includes(key) || (key.startsWith('x:') && keep.includes('extras'))) continue;
+      if (part.frozen || !part.baked || part.busy || keep.includes(key) || (key.startsWith('x:') && keep.includes('extras'))) continue;
       part.frozen = true;
       for (const where of ['home', 'site']) {
         const root = this[where];
@@ -516,11 +753,42 @@ export class House {
         this.pool[where].set(mat, m);
       }
     }
+    if ((this.final || this.settle) && this.chosen.garden && Object.values(this.parts).every((p) => p.frozen)) this.mergeSite();
     this.changed += 1;
   }
 
-  /** The windows light up (k: 0..1 times the scene's glow boost). */
-  lights(v) { this.glass.emissiveIntensity = v; }
+  /** The windows light up (k: 0..1 times the scene's glow boost); their warm light falls on the ground in front of them. */
+  lights(v) {
+    this.glass.emissiveIntensity = v;
+    if (v > 0 && !this.pools) this.makePools();
+    if (this.pools) {
+      this.pools.visible = v > 0;
+      this.pools.material.opacity = 0.42 * Math.min(1, v / 1.4);
+    }
+  }
+
+  /** Soft pools of window light on the ground in front of the windows and the door (one instanced mesh, additive). */
+  makePools() {
+    const list = openings();
+    const geo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({ map: radialTexture(), color: hex('xr-bricks-light-pool'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    const m = new THREE.InstancedMesh(geo, mat, list.length);
+    list.forEach((o, i) => {
+      const nx = Math.sin(o.face);
+      const nz = Math.cos(o.face);
+      const door = o.kind === 'door';
+      const out = door ? 0.06 : 0.05;
+      _q.setFromEuler(_e.set(0, o.face, 0));
+      m.setMatrixAt(i, _m.compose(_p.set(o.x + nx * (D / 2 + out), -FOUND + 0.0015, o.z + nz * (D / 2 + out)), _q, _s.set(door ? 0.1 : 0.12, 1, door ? 0.11 : 0.085)));
+    });
+    m.instanceMatrix.needsUpdate = true;
+    m.renderOrder = 2;
+    m.userData.ownGeo = true;
+    m.userData.noFit = true;
+    m.frustumCulled = false;
+    this.home.add(m);
+    this.pools = m;
+  }
 
   // ---------- walls ----------
 
@@ -536,42 +804,53 @@ export class House {
       }
       // The mortar: a core inside every stretch of wall, a little thinner than the bricks, so the
       // joints are filled (and nothing shows through them). It rises with the courses.
-      for (const w of boxes) this.b('Concrete', w.x, w.y, w.z, w.len, w.h - 0.002, D - 0.007, { yaw: w.yaw, how: 'grow', dur: 0.95, tint: 1.25 });
-      const G = this.M.geo;
+      for (const w of boxes) this.b('Mortar', w.x, w.y, w.z, w.len, w.h - 0.002, D - 0.007, { yaw: w.yaw, how: 'grow', dur: 0.95 });
+      // lod: bricks with one bevel instead of the model's rounded ones (a third of the triangles)
+      const G = this.lod ? lodBricks(this.M.geo) : this.M.geo;
       this.cur.bits.push(new Bits(this.cur.home, G.brick, this.M.mats.BrickClay, by.full, this.cast));
       this.cur.bits.push(new Bits(this.cur.home, G.half, this.M.mats.BrickClay, by.half, this.cast));
       this.cur.bits.push(new Bits(this.cur.home, G.quoin, this.M.mats.Quoin, by.post, this.cast));
       return 1.2;
     }
     if (id === 'concrete') {
+      // Board-marked concrete: the formwork's boards leave bands of slightly different shades
+      // with a fine groove between them, and a grid of tie holes on every stretch of wall.
       for (const w of boxes) {
-        this.b('ConcreteWall', w.x, w.y, w.z, w.len, w.h, D, { yaw: w.yaw, how: 'drop', delay: w.wall * 0.2, dur: 0.45 });
-        if (w.part === 'col') {
-          this.b('Dark', w.x, TOP * 0.52, w.z, w.len, 0.0025, D + 0.002, { yaw: w.yaw, how: 'drop', delay: w.wall * 0.2, dur: 0.45 });
-          // the marks of the formwork: tie holes in a grid, a joint between the boards
-          const wall = WALLS[w.wall];
-          const nx = Math.sin(wall.face) * (D / 2 + 0.0005);
-          const nz = Math.cos(wall.face) * (D / 2 + 0.0005);
-          const n = Math.max(1, Math.round(w.len / 0.045));
-          for (let i = 0; i < n; i++) {
-            const u = w.u0 + ((i + 0.5) / n) * (w.u1 - w.u0);
-            const [x, z] = wall.at(u);
-            for (const y of [TOP * 0.2, TOP * 0.8]) this.b('Dark', x + nx, y, z + nz, 0.006, 0.006, 0.006, { yaw: w.yaw, how: 'drop', delay: w.wall * 0.2, dur: 0.45 });
-          }
+        const o = { yaw: w.yaw, how: 'drop', delay: w.wall * 0.2, dur: 0.45 };
+        this.b('ConcreteWall', w.x, w.y, w.z, w.len, w.h, D - 0.003, { ...o, tint: 0.78 });
+        const n = Math.max(1, Math.round(w.h / H));
+        for (let i = 0; i < n; i++) {
+          const y = w.y - w.h / 2 + ((i + 0.5) * w.h) / n;
+          const band = Math.round((w.y - w.h / 2 + (i * w.h) / n) / H);
+          this.b('ConcreteWall', w.x, y, w.z, w.len, w.h / n - 0.0014, D, { ...o, tint: (band % 2 ? 0.95 : 1.04) * rnd(0.98, 1.02) });
+        }
+        const wall = WALLS[w.wall];
+        const nx = Math.sin(wall.face) * (D / 2 + 0.0004);
+        const nz = Math.cos(wall.face) * (D / 2 + 0.0004);
+        const k = Math.max(1, Math.round(w.len / 0.048));
+        for (let i = 0; i < k; i++) {
+          const u = w.u0 + ((i + 0.5) / k) * (w.u1 - w.u0);
+          const [x, z] = wall.at(u);
+          for (const y of [H * 1.5, H * 3.5, H * 5.5]) if (y > w.y - w.h / 2 + 0.008 && y < w.y + w.h / 2 - 0.008) this.b('Dark', x + nx, y, z + nz, 0.0055, 0.0055, 0.0016, { ...o, yaw: w.yaw });
         }
       }
       posts('ConcreteWall', 'drop', 0.75);
       return 1.3;
     }
     if (id === 'wood') {
+      // Wood cladding: boards that overlap a little (each one tilted, its lower edge out), on a
+      // dark core that fills the joints, with corner boards.
       for (const w of boxes) {
+        const wall = WALLS[w.wall];
+        const out = wall.key === 'front' || wall.key === 'right' ? 1 : -1;
+        this.b('Beam', w.x, w.y, w.z, w.len, w.h, D - 0.008, { yaw: w.yaw, tint: 0.55, delay: 0.02 });
         const n = Math.max(1, Math.round(w.h / H));
         for (let i = 0; i < n; i++) {
           const y = w.y - w.h / 2 + ((i + 0.5) * w.h) / n;
-          this.b('Plank', w.x, y, w.z, w.len - 0.0005, w.h / n - 0.002, D, { yaw: w.yaw, tint: rnd(0.82, 1.1), delay: Math.floor(y / H) * 0.11 + Math.random() * 0.06 });
+          this.b('Plank', w.x, y, w.z, w.len - 0.0005, w.h / n - 0.0022, D - 0.002, { yaw: w.yaw, rx: -out * 0.07, tint: rnd(0.8, 1.12), warm: rnd(-0.03, 0.04), delay: Math.floor(y / H) * 0.11 + Math.random() * 0.06 });
         }
       }
-      posts('Beam', 'grow');
+      for (const [x, z] of CORNERS) this.b('Beam', x, TOP / 2, z, D + 0.006, TOP, D + 0.006, { how: 'grow', dur: 0.4, tint: 1.15 });
       return 1.2;
     }
     // Timber frame: beams first, then the plastered fields.
@@ -611,7 +890,38 @@ export class House {
     const wallMat = { concrete: mats.ConcreteWall, wood: mats.Plank }[this.chosen.walls] ?? mats.Plaster;
     if (id === 'tiles') {
       const roof = this.M.make('Roof');
-      if (roof) g.add(roof);
+      if (roof) {
+        g.add(roof);
+        // The single tiles: a fine joint between them, every row shifted by half a tile.
+        const L_SLOPE = Math.hypot(EZ, RIDGE - EY);
+        const seg = L_SLOPE / 7;
+        const TW = 0.0405;
+        for (const side of [-1, 1]) {
+          const ux = -EZ * side;
+          const uy = RIDGE - EY;
+          const ul = Math.hypot(ux, uy);
+          const u = [ux / ul, uy / ul]; // (z, y) along the slope towards the ridge
+          let n = [-u[1], u[0]];
+          if (n[1] < 0) n = [-n[0], -n[1]];
+          for (let k = 0; k < 7; k++) {
+            const a0 = k * seg;
+            const a1 = Math.min(L_SLOPE + 0.004, (k + 1) * seg + 0.006);
+            const pa = [EZ * side + u[0] * a0 + n[0] * 0.012, EY + u[1] * a0 + n[1] * 0.012];
+            const pb = [EZ * side + u[0] * a1 + n[0] * 0.006, EY + u[1] * a1 + n[1] * 0.006];
+            const dz = pb[0] - pa[0];
+            const dy = pb[1] - pa[1];
+            const len = Math.hypot(dz, dy) * 0.86;
+            const cz = (pa[0] + pb[0]) / 2 + n[0] * 0.0003;
+            const cy = (pa[1] + pb[1]) / 2 + n[1] * 0.0003;
+            const rx = Math.atan2(-dy, dz);
+            for (let x = -RX + TW * (k % 2 ? 0.5 : 1); x < RX - 0.012; x += TW) {
+              const j = box(mats.RoofDark, 0.0016, 0.0018, len, x, cy, cz);
+              j.rotation.x = rx;
+              g.add(j);
+            }
+          }
+        }
+      }
     } else if (id === 'thatch') {
       const RT = RIDGE + 0.03;
       g.add(prism([[-EZ, EY - 0.01], [-EZ - 0.006, EY + 0.014], [-0.04, RT - 0.004], [0, RT + 0.006], [0.04, RT - 0.004], [EZ + 0.006, EY + 0.014], [EZ, EY - 0.01], [0, RIDGE - 0.008]], 2 * RX + 0.01, mats.Thatch));
@@ -627,6 +937,16 @@ export class House {
       const y1 = RT - 0.004;
       const slope = Math.atan2(y1 - y0, z0 - z1);
       for (const side of [-1, 1]) {
+        // fine darker reeds running down the slope, of different lengths
+        for (let i = 0; i < 64; i++) {
+          const f0 = rnd(0, 0.7);
+          const f1 = Math.min(0.97, f0 + rnd(0.12, 0.35));
+          const len = (f1 - f0) * Math.hypot(z0 - z1, y0 - y1);
+          const f = (f0 + f1) / 2;
+          const reed = box(mats.ThatchDark, rnd(0.0015, 0.0025), 0.003, len, rnd(-RX + 0.01, RX - 0.01), y0 + (y1 - y0) * f + 0.0012, side * (z0 + (z1 - z0) * f));
+          reed.rotation.x = side * slope;
+          g.add(reed);
+        }
         for (const f of [0.02, 0.3, 0.56, 0.8]) {
           const strip = box(mats.ThatchDark, 2 * RX + 0.012, 0.006, f < 0.1 ? 0.03 : 0.014, 0, y0 + (y1 - y0) * f + 0.002, side * (z0 + (z1 - z0) * f));
           strip.rotation.x = side * slope;
@@ -634,6 +954,7 @@ export class House {
         }
       }
       for (const sx of [-1, 1]) { const tri = prism([[-OZ, 0], [OZ, 0], [0, RIDGE]], D, mats.Plaster); tri.position.x = sx * XH; g.add(tri); }
+      this.gutters(g, EY - 0.017, EZ - 0.003, 2 * RX - 0.02, true);
     } else if (id === 'green') {
       g.add(box(mats.Dark, 2 * OX + 0.05, 0.026, 2 * OZ + 0.05, 0, 0.013, 0));
       g.add(box(mats.Frame, 2 * OX + 0.056, 0.006, 2 * OZ + 0.056, 0, 0.028, 0));
@@ -647,6 +968,9 @@ export class House {
         g.add(m);
       }
       g.children[3].userData.ownGeo = true;
+      // a gravel strip along the edge, where the water runs off, and a gutter at the front
+      for (const [sx, sz, x, z] of [[2 * OX + 0.02, 0.014, 0, OZ + 0.003], [2 * OX + 0.02, 0.014, 0, -OZ - 0.003], [0.014, 2 * OZ - 0.01, OX + 0.003, 0], [0.014, 2 * OZ - 0.01, -OX - 0.003, 0]]) g.add(box(mats.Pebble, sx, 0.006, sz, x, 0.036, z));
+      this.gutters(g, 0.008, OZ + 0.036, 2 * OX + 0.05, false);
     } else {
       // Mono-pitch metal roof: low at the street, high at the back.
       const y0 = 0.012;
@@ -663,7 +987,13 @@ export class House {
       const gutter = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 2 * OX + 0.06, 10).rotateZ(Math.PI / 2), mats.Metal);
       gutter.userData.ownGeo = true;
       gutter.position.set(0, y0 - 0.012, OZ + 0.046);
-      g.add(gutter, box(mats.Metal, 0.007, 0.2, 0.007, OX + 0.022, y0 - 0.112, OZ + 0.04));
+      g.add(gutter);
+      for (const sx of [-1, 1]) g.add(box(mats.Metal, 0.007, 0.2, 0.007, sx * (OX + 0.022), y0 - 0.112, OZ + 0.04));
+      // the flashing over the high edge at the back, and a fascia under the low one
+      const hi = new THREE.Group();
+      hi.position.set(0, y1 + 0.016, -OZ - 0.04);
+      hi.add(box(mats.Slim, 2 * OX + 0.078, 0.006, 0.02, 0, 0, 0.004), box(mats.Slim, 2 * OX + 0.078, 0.02, 0.005, 0, -0.008, -0.006));
+      g.add(hi);
       for (const sx of [-1, 1]) { const w = prism([[-OZ, 0], [OZ, 0], [OZ, y0 - 0.004], [-OZ, y1 - 0.004]], D, wallMat); w.position.x = sx * XH; g.add(w); }
       g.add(box(wallMat, 2 * XH - D, y1 - 0.006, D, 0, (y1 - 0.006) / 2, -ZH));
       g.add(box(mats.Slim, 2 * XH - D - 0.06, 0.03, D + 0.004, 0, 0.045, -ZH));
@@ -674,42 +1004,30 @@ export class House {
     return 1.0;
   }
 
+  /** Gutters along both eaves (or only the front) at height y and depth z, with downpipes at the front corners. */
+  gutters(g, y, z, len, both) {
+    const mats = this.M.mats;
+    const geo = new THREE.CylinderGeometry(0.0065, 0.0065, len, 10).rotateZ(Math.PI / 2);
+    for (const side of both ? [-1, 1] : [1]) {
+      const m = new THREE.Mesh(geo, mats.Metal);
+      m.position.set(0, y, side * z);
+      g.add(m);
+      for (const sx of [-1, 1]) {
+        const x = sx * (len / 2 - 0.02);
+        const drop = y + TOP + 0.004;
+        g.add(box(mats.Metal, 0.0075, drop, 0.0075, x, y - drop / 2, side * (z - 0.006)));
+        g.add(box(mats.Metal, 0.0075, 0.0075, 0.014, x, -TOP + 0.002, side * (z - 0.002)));
+      }
+    }
+    g.children[g.children.length - (both ? 10 : 5)].userData.ownGeo = true;
+  }
+
   // ---------- windows ----------
 
   build_windows(id) {
-    const mats = this.M.mats;
-    openings().filter((o) => o.kind === 'window').forEach((o, i) => {
-      const g = new THREE.Group();
-      g.position.set(o.x, o.y, o.z);
-      g.rotation.y = o.face;
-      if (id === 'panorama') {
-        // Floor-to-lintel glazing in a slim dark frame, set in front of the wall.
-        const w = 0.116;
-        const h = 0.144;
-        const y = 0.084 - o.y;
-        const z = D / 2 + 0.003;
-        g.add(box(this.glass, w, h, 0.004, 0, y, z));
-        for (const sx of [-1, 1]) g.add(box(mats.Slim, 0.006, h + 0.006, 0.008, (sx * w) / 2, y, z));
-        for (const sy of [-1, 1]) g.add(box(mats.Slim, w + 0.006, 0.006, 0.008, 0, y + (sy * h) / 2, z));
-        g.add(box(mats.Slim, 0.004, h, 0.007, 0, y, z));
-      } else {
-        const win = this.M.make('Window');
-        if (win) {
-          if (id === 'woodwin') win.traverse((m) => { if (m.isMesh && m.material.name === 'Frame') m.material = mats.Plank; else if (m.isMesh && m.material.name === 'Concrete') m.material = mats.Beam; });
-          g.add(win);
-        }
-        if (id === 'lattice') {
-          g.add(box(mats.Frame, 0.0035, 0.078, 0.003, 0, 0, 0.0065));
-          g.add(box(mats.Frame, 0.06, 0.0035, 0.003, 0, 0.012, 0.0065));
-          for (const sx of [-1, 1]) {
-            g.add(box(mats.Shutter, 0.028, 0.09, 0.005, sx * 0.052, 0, D / 2 + 0.001));
-            g.add(box(mats.Frame, 0.02, 0.003, 0.006, sx * 0.052, 0.02, D / 2 + 0.002));
-            g.add(box(mats.Frame, 0.02, 0.003, 0.006, sx * 0.052, -0.02, D / 2 + 0.002));
-          }
-        }
-      }
-      this.one(g, { delay: i * 0.1 });
-    });
+    // Every window is the same set of boxes: one instanced mesh per material while they pop in.
+    const items = openings().filter((o) => o.kind === 'window').map((o, i) => ({ x: o.x, y: o.y, z: o.z, yaw: o.face, delay: i * 0.1, dur: 0.3 }));
+    this.inst(template(`win:${id}`, windowBoxes(id)), items);
     return 0.9;
   }
 
@@ -772,7 +1090,14 @@ export class House {
         }
       }
     }
-    if (extra.children.length) this.one(extra, { delay: 0.3 });
+    if (id === 'painted' || id === 'canopy') {
+      // a stone step in front of the threshold
+      extra.add(box(mats.Sill, 0.098, FOUND - 0.002, 0.03, 0, -FOUND / 2 - 0.001, OZ + 0.016));
+    }
+    // a house number plate and a lit bell button beside the door, under the lamp
+    extra.add(box(mats.Frame, 0.014, 0.011, 0.0025, -0.058, 0.094, OZ + 0.0012), box(mats.Dark, 0.006, 0.006, 0.0012, -0.058, 0.094, OZ + 0.0028));
+    extra.add(box(mats.Metal, 0.0075, 0.012, 0.0028, -0.058, 0.074, OZ + 0.0014), box(mats.LampGlow, 0.0034, 0.0034, 0.0016, -0.058, 0.076, OZ + 0.0032));
+    this.one(extra, { delay: 0.3 });
     return 0.8;
   }
 
@@ -1023,6 +1348,72 @@ export class House {
 
   // ---------- garden ----------
 
+  /**
+   * What every garden has at the front: a small terrace at the left (stone slabs, a wooden deck
+   * or concrete slabs, with a table, two chairs and a potted plant), a bed under the right
+   * window, edging stones along the path to the gate and two low path lights.
+   */
+  frontGarden(id) {
+    const y = 0.002;
+    const S = { site: true };
+    const x0 = -0.245;
+    const x1 = -0.095;
+    const z0 = HOUSE_Z + OZ + 0.036;
+    const z1 = z0 + 0.064;
+    const cx = (x0 + x1) / 2;
+    const cz = (z0 + z1) / 2;
+    const d = 0.1;
+    if (id === 'picket') {
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) this.b('Stone', x0 + (i + 0.5) * ((x1 - x0) / 4), y + 0.002, z0 + (j + 0.5) * ((z1 - z0) / 2), (x1 - x0) / 4 - 0.0025, 0.005, (z1 - z0) / 2 - 0.0025, { ...S, tint: rnd(0.86, 1.04), delay: d + (i + j) * 0.04 });
+    } else if (id === 'gravel') {
+      for (let i = 0; i < 3; i++) this.b('ConcreteWall', x0 + (i + 0.5) * ((x1 - x0) / 3), y + 0.002, cz, (x1 - x0) / 3 - 0.003, 0.005, z1 - z0, { ...S, tint: rnd(0.92, 1.03), delay: d + i * 0.05 });
+    } else {
+      // a deck: boards on two dark joists
+      for (const z of [z0 + 0.012, z1 - 0.012]) this.b('WoodDark', cx, y + 0.002, z, x1 - x0, 0.004, 0.008, { ...S, delay: d });
+      const n = 6;
+      for (let i = 0; i < n; i++) this.b('Plank', cx, y + 0.0055, z0 + (i + 0.5) * ((z1 - z0) / n), x1 - x0 + 0.004, 0.003, (z1 - z0) / n - 0.0018, { ...S, tint: rnd(0.82, 1.05), delay: d + 0.1 + i * 0.03 });
+    }
+    // a table and two chairs (metal for the modern gravel garden, wood otherwise)
+    const fm = id === 'gravel' ? 'Slim' : 'Wood';
+    const fo = { ...S, delay: 0.45 };
+    const top = y + 0.008;
+    this.b(fm, cx, top + 0.022, cz, 0.036, 0.0035, 0.03, fo);
+    this.b('Slim', cx, top + 0.011, cz, 0.004, 0.021, 0.004, fo);
+    this.b('Slim', cx, top + 0.0015, cz, 0.016, 0.003, 0.016, fo);
+    for (const sx of [-1, 1]) {
+      const x = cx + sx * 0.034;
+      this.b(fm, x, top + 0.013, cz, 0.016, 0.003, 0.016, fo);
+      this.b(fm, x + sx * 0.007, top + 0.023, cz, 0.003, 0.018, 0.016, fo);
+      for (const dz of [-0.006, 0.006]) this.b('Slim', x - sx * 0.006, top + 0.006, cz + dz, 0.0025, 0.012, 0.0025, fo);
+      this.b('Slim', x + sx * 0.006, top + 0.0065, cz, 0.0025, 0.013, 0.012, fo);
+    }
+    // a potted plant at the corner of the terrace
+    this.b('WoodDark', x0 + 0.012, top + 0.008, z1 - 0.01, 0.016, 0.016, 0.016, { ...S, delay: 0.5 });
+    this.balls('Leaf', [{ x: x0 + 0.012, y: top + 0.025, z: z1 - 0.01, sx: 0.014, sy: 0.016, sz: 0.014, delay: 0.55 }, { x: x0 + 0.016, y: top + 0.036, z: z1 - 0.013, sx: 0.008, sy: 0.009, sz: 0.008, delay: 0.6 }]);
+    // the bed under the right window: soil with an edge, shrubs (grasses in the gravel garden)
+    const bz = HOUSE_Z + OZ + 0.025;
+    const gravel = id === 'gravel';
+    this.b(gravel ? 'Pebble' : 'Soil', 0.114, y + 0.003, bz, 0.104, 0.006, 0.03, { ...S, delay: 0.15 });
+    this.b('Sill', 0.114, y + 0.004, bz + 0.017, 0.11, 0.008, 0.004, { ...S, delay: 0.15 });
+    if (gravel) {
+      for (const [x, h] of [[0.078, 0.034], [0.112, 0.042], [0.146, 0.03]]) this.b('Sedum', x, y + h / 2, bz, 0.006, h, 0.006, { ...S, how: 'grow', delay: 0.3 });
+      this.balls('Stone', [{ x: 0.095, y: y + 0.006, z: bz + 0.004, sx: 0.01, sy: 0.006, sz: 0.008, delay: 0.3 }, { x: 0.13, y: y + 0.006, z: bz - 0.004, sx: 0.008, sy: 0.005, sz: 0.007, delay: 0.32 }]);
+    } else {
+      this.balls('LeafDark', [[0.078, 0.016], [0.114, 0.019], [0.15, 0.015]].map(([x, r], i) => ({ x, y: y + 0.006 + r * 0.7, z: bz - 0.002, sx: r, sy: r * 0.95, sz: r * 0.9, delay: 0.3 + i * 0.06, tint: rnd(0.9, 1.1) })));
+    }
+    // edging stones along both sides of the path, and two low path lights
+    const pz0 = HOUSE_Z + OZ + 0.034;
+    const n = 9;
+    const step = (FENCE_Z - 0.012 - pz0) / n;
+    for (const sx of [-1, 1]) {
+      for (let i = 0; i < n; i++) this.b('Sill', sx * 0.037, y + 0.003, pz0 + (i + 0.5) * step, 0.0065, 0.008, step - 0.0022, { ...S, tint: rnd(0.88, 1.02), delay: 0.2 + i * 0.03 });
+      const lz = FENCE_Z - 0.06;
+      this.b('Slim', sx * 0.05, y + 0.015, lz, 0.007, 0.03, 0.007, { ...S, how: 'grow', delay: 0.6 });
+      this.b('LampGlow', sx * 0.05, y + 0.0325, lz, 0.0085, 0.005, 0.0085, { ...S, delay: 0.7 });
+      this.b('Slim', sx * 0.05, y + 0.0365, lz, 0.011, 0.003, 0.011, { ...S, delay: 0.7 });
+    }
+  }
+
   /** A bicycle leaning at the front wall (two wheels, a frame, a saddle). */
   bicycle() {
     const mats = this.M.mats;
@@ -1049,12 +1440,10 @@ export class House {
     const flowers = (n, x0, x1, z0, z1, delay) => {
       for (let i = 0; i < n; i++) this.b(i % 2 ? 'FlowerA' : 'FlowerB', rnd(x0, x1), y + 0.009, rnd(z0, z1), 0.011, 0.011, 0.011, { site: true, delay: delay + Math.random() * 0.4, yaw: Math.random() });
     };
+    this.frontGarden(id);
     if (id === 'picket') {
-      // The white picket fence and the shrubs are the plot's own; flower beds along the house.
-      for (const [x0, x1] of [[-0.24, -0.06], [0.06, 0.24]]) {
-        this.b('Soil', (x0 + x1) / 2, y + 0.002, HOUSE_Z + OZ + 0.04, x1 - x0, 0.006, 0.035, { site: true, delay: 0.1 });
-        flowers(9, x0 + 0.01, x1 - 0.01, HOUSE_Z + OZ + 0.03, HOUSE_Z + OZ + 0.05, 0.3);
-      }
+      // The white picket fence and the shrubs are the plot's own; flowers in the bed along the house.
+      flowers(8, 0.07, 0.16, HOUSE_Z + OZ + 0.014, HOUSE_Z + OZ + 0.036, 0.3);
       return 0.9;
     }
     if (id === 'hedge') {
@@ -1065,7 +1454,8 @@ export class House {
       };
       for (const [x0, x1] of FENCE_RUNS) for (let x = x0 + 0.03; x < x1; x += 0.06) chunk(x, FENCE_Z, true);
       for (let z = FENCE_Z - 0.06; z > -0.12; z -= 0.06) chunk(-0.47, z, false);
-      flowers(22, -0.42, 0.3, 0.2, 0.33, 0.5);
+      flowers(10, 0.07, 0.3, 0.22, 0.33, 0.5);
+      flowers(8, -0.33, -0.1, 0.27, 0.34, 0.5);
       return 1.1;
     }
     if (id === 'gravel') {
@@ -1092,10 +1482,10 @@ export class House {
     }
     // A lawn to play on: a sandbox, a swing, a low wooden fence.
     const g = new THREE.Group();
-    const sx = -0.22;
-    const sz = 0.27;
-    g.add(box(mats.Sand, 0.1, 0.008, 0.1, sx, y + 0.006, sz));
-    for (const [dx, dz, w, d] of [[0, 0.055, 0.12, 0.012], [0, -0.055, 0.12, 0.012], [0.055, 0, 0.012, 0.12], [-0.055, 0, 0.012, 0.12]]) g.add(box(mats.Wood, w, 0.016, d, sx + dx, y + 0.008, sz + dz));
+    const sx = -0.2;
+    const sz = 0.305;
+    g.add(box(mats.Sand, 0.082, 0.008, 0.074, sx, y + 0.006, sz));
+    for (const [dx, dz, w, d] of [[0, 0.042, 0.1, 0.01], [0, -0.042, 0.1, 0.01], [0.046, 0, 0.01, 0.084], [-0.046, 0, 0.01, 0.084]]) g.add(box(mats.Wood, w, 0.016, d, sx + dx, y + 0.008, sz + dz));
     g.add(box(mats.FlowerA, 0.016, 0.014, 0.016, sx + 0.015, y + 0.02, sz - 0.01), box(mats.Mailbox, 0.02, 0.006, 0.008, sx - 0.02, y + 0.014, sz + 0.02));
     const wx = 0.1;
     for (const s of [-1, 1]) for (const f of [-1, 1]) {
