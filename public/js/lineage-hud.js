@@ -135,8 +135,8 @@ export function screenHud({ onHint, onNext, onMenu, desk = false, calm = false }
       const box = el('div', 'lin-card');
       box.setAttribute('role', 'dialog');
       box.append(el('h2', '', card.title), el('p', '', card.lines[0]));
-      const ai = el('p', 'lin-card__ai');
-      ai.innerHTML = icon('ai');
+      const ai = el('p', 'lin-card__note');
+      ai.innerHTML = icon('info');
       ai.append(el('span', '', card.lines[1]));
       const go = el('button', 'lin-card__go', card.button);
       go.type = 'button';

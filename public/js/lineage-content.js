@@ -1,11 +1,10 @@
 // "Datenspur": the content of the three stages, in German and English. Technical names stay as
 // they are in both languages; descriptions, example values and reasons are translated.
 //   ODD     rows of four tiles, one does not belong (lvl 1 easy to 3 tricky)
-//   THEMES  business descriptions and their data fields (the assistant's key words in `k`)
+//   THEMES  business descriptions and their data fields
 //   GRAPHS  small lineage graphs with missing links and impact questions
 // drawRound() picks a round from these pools (each at least three times larger than a round).
 // No browser imports: the content checks (node) use this file too.
-import { propose } from './lineage-ai.js';
 
 const B = (de, en) => ({ de, en });
 
@@ -126,8 +125,8 @@ export const ODD = [
 
 // ---------- stage 2: connect description and data field ----------
 // fields: name, type, example, owner, is (what the field really is: the reason shown when a line
-// is wrong). pairs: d description, k the assistant's key words, f the field, must (always on the
-// board: a false friend and the description its field really belongs to). decoy: one field too many.
+// is wrong). pairs: d description, f the field, must (always on the board: two descriptions whose
+// fields have similar names, the false friends that make a board worth reading). decoy: one field too many.
 const F = (n, ty, ex, ow, is) => ({ n, ty, ex, ow, is });
 export const THEMES = [
   { id: 'order',
@@ -140,11 +139,11 @@ export const THEMES = [
       INV_DT: F('INV_DT', 'date', '2026-03-16', 'fin', B('der Tag der Rechnung', 'the day of the invoice')),
     },
     pairs: [
-      { d: B('Tag, an dem der Kunde bestellt hat', 'Day the customer placed the order'), k: 'date customer order', f: 'ORDER_DT', must: true },
-      { d: B('Tag, an dem die bestellte Ware beim Kunden ankommt', 'Day the ordered goods arrive at the customer'), k: 'date order goods customer', f: 'ARRIVAL_DT', must: true },
-      { d: B('Gesamtwert der Bestellung in Euro', 'Total value of the order in euros'), k: 'amount order', f: 'ORD_AMT' },
-      { d: B('Nummer, unter der wir den Kunden führen', 'Number under which we keep the customer'), k: 'id customer', f: 'CUST_NO' },
-      { d: B('Wie weit die Bestellung gerade ist', 'How far along the order is'), k: 'order', f: 'ORD_STAT' },
+      { d: B('Tag, an dem der Kunde bestellt hat', 'Day the customer placed the order'), f: 'ORDER_DT', must: true },
+      { d: B('Tag, an dem die bestellte Ware beim Kunden ankommt', 'Day the ordered goods arrive at the customer'), f: 'ARRIVAL_DT', must: true },
+      { d: B('Gesamtwert der Bestellung in Euro', 'Total value of the order in euros'), f: 'ORD_AMT' },
+      { d: B('Nummer, unter der wir den Kunden führen', 'Number under which we keep the customer'), f: 'CUST_NO' },
+      { d: B('Wie weit die Bestellung gerade ist', 'How far along the order is'), f: 'ORD_STAT' },
     ],
     decoy: 'INV_DT' },
   { id: 'customer',
@@ -157,11 +156,11 @@ export const THEMES = [
       CONTACT_MAIL: F('CONTACT_MAIL', 'text', 'j.okafor@example.org', 'sales', B('die E-Mail der Ansprechperson', 'the e-mail of the contact person')),
     },
     pairs: [
-      { d: B('Name des Kunden, wie er im Vertrag steht', 'Name of the customer as written in the contract'), k: 'name customer contract', f: 'CUST_NAME', must: true },
-      { d: B('Name der Person, mit der wir beim Kunden sprechen', 'Name of the person we talk to at the customer'), k: 'name person customer', f: 'CONTACT_NAME', must: true },
-      { d: B('Tag, seit dem die Firma bei uns Kunde ist', 'Day since which the company has been our customer'), k: 'date company customer', f: 'CUST_SINCE_DT' },
-      { d: B('Gruppe, in die wir den Kunden einordnen', 'Group we sort the customer into'), k: 'group customer', f: 'SEGMENT' },
-      { d: B('Land des Kunden als Kürzel aus zwei Buchstaben', 'Country of the customer as a two-letter code'), k: 'country customer code', f: 'CTRY_CD' },
+      { d: B('Name des Kunden, wie er im Vertrag steht', 'Name of the customer as written in the contract'), f: 'CUST_NAME', must: true },
+      { d: B('Name der Person, mit der wir beim Kunden sprechen', 'Name of the person we talk to at the customer'), f: 'CONTACT_NAME', must: true },
+      { d: B('Tag, seit dem die Firma bei uns Kunde ist', 'Day since which the company has been our customer'), f: 'CUST_SINCE_DT' },
+      { d: B('Gruppe, in die wir den Kunden einordnen', 'Group we sort the customer into'), f: 'SEGMENT' },
+      { d: B('Land des Kunden als Kürzel aus zwei Buchstaben', 'Country of the customer as a two-letter code'), f: 'CTRY_CD' },
     ],
     decoy: 'CONTACT_MAIL' },
   { id: 'staff',
@@ -175,12 +174,12 @@ export const THEMES = [
       SAL_NET: F('SAL_NET', 'amt', B('2.710,00 €', '€2,710.00'), 'hr', B('das Gehalt nach Steuern', 'the salary after tax')),
     },
     pairs: [
-      { d: B('Eigene Personalnummer im Unternehmen', 'A person\'s own staff number in the company'), k: 'employee id company', f: 'EMP_ID', must: true },
-      { d: B('Personalnummer der Person, an die jemand berichtet', 'Staff number of the person someone reports to'), k: 'employee id person', f: 'MGR_ID', must: true },
-      { d: B('Erster Arbeitstag im Unternehmen', 'First day at work in the company'), k: 'date work company', f: 'HIRE_DT' },
-      { d: B('Geburtstag der Mitarbeiterin oder des Mitarbeiters', 'Birthday of the employee'), k: 'birth date employee', f: 'BIRTH_DT' },
-      { d: B('Monatsgehalt vor Steuern und Abgaben', 'Monthly salary before tax and deductions'), k: 'salary month', f: 'SAL_GRS' },
-      { d: B('Kürzel der Abteilung', 'Code of the department'), k: 'code department', f: 'DEPT_CD' },
+      { d: B('Eigene Personalnummer im Unternehmen', 'A person\'s own staff number in the company'), f: 'EMP_ID', must: true },
+      { d: B('Personalnummer der Person, an die jemand berichtet', 'Staff number of the person someone reports to'), f: 'MGR_ID', must: true },
+      { d: B('Erster Arbeitstag im Unternehmen', 'First day at work in the company'), f: 'HIRE_DT' },
+      { d: B('Geburtstag der Mitarbeiterin oder des Mitarbeiters', 'Birthday of the employee'), f: 'BIRTH_DT' },
+      { d: B('Monatsgehalt vor Steuern und Abgaben', 'Monthly salary before tax and deductions'), f: 'SAL_GRS' },
+      { d: B('Kürzel der Abteilung', 'Code of the department'), f: 'DEPT_CD' },
     ],
     decoy: 'SAL_NET' },
   { id: 'invoice',
@@ -194,12 +193,12 @@ export const THEMES = [
       GRS_AMT: F('GRS_AMT', 'amt', B('1.487,50 €', '€1,487.50'), 'fin', B('der Betrag mit Steuer', 'the amount with tax')),
     },
     pairs: [
-      { d: B('Tag, an dem die Rechnung geschrieben wurde', 'Day the invoice was written'), k: 'date invoice', f: 'INV_DT', must: true },
-      { d: B('Tag, bis zu dem die Rechnung bezahlt sein muss', 'Day by which the invoice must be paid'), k: 'date invoice', f: 'DUE_DT', must: true },
-      { d: B('Rechnungsbetrag ohne Umsatzsteuer', 'Invoice amount without sales tax'), k: 'invoice amount tax', f: 'NET_AMT' },
-      { d: B('Betrag der Umsatzsteuer auf der Rechnung', 'Amount of sales tax on the invoice'), k: 'amount tax invoice', f: 'TAX_AMT' },
-      { d: B('Nummer, die auf der Rechnung steht', 'Number printed on the invoice'), k: 'id invoice', f: 'INV_NO' },
-      { d: B('Tag, an dem das Geld bei uns eingegangen ist', 'Day the money reached us'), k: 'date money', f: 'PAY_DT' },
+      { d: B('Tag, an dem die Rechnung geschrieben wurde', 'Day the invoice was written'), f: 'INV_DT', must: true },
+      { d: B('Tag, bis zu dem die Rechnung bezahlt sein muss', 'Day by which the invoice must be paid'), f: 'DUE_DT', must: true },
+      { d: B('Rechnungsbetrag ohne Umsatzsteuer', 'Invoice amount without sales tax'), f: 'NET_AMT' },
+      { d: B('Betrag der Umsatzsteuer auf der Rechnung', 'Amount of sales tax on the invoice'), f: 'TAX_AMT' },
+      { d: B('Nummer, die auf der Rechnung steht', 'Number printed on the invoice'), f: 'INV_NO' },
+      { d: B('Tag, an dem das Geld bei uns eingegangen ist', 'Day the money reached us'), f: 'PAY_DT' },
     ],
     decoy: 'GRS_AMT' },
   { id: 'stock',
@@ -213,12 +212,12 @@ export const THEMES = [
       PROD_NAME: F('PROD_NAME', 'text', B('Thermobecher 0,4 l', 'Travel mug 0.4 l'), 'sales', B('der Name des Artikels', 'the name of the item')),
     },
     pairs: [
-      { d: B('Stückzahl, die der Kunde bestellt hat', 'Number of pieces the customer ordered'), k: 'quantity customer order', f: 'ORD_QTY', must: true },
-      { d: B('Menge, ab der wir Ware nachbestellen', 'Level at which we order new goods'), k: 'quantity order goods', f: 'MIN_QTY', must: true },
-      { d: B('Stückzahl, die gerade im Lager liegt', 'Number of pieces in the warehouse right now'), k: 'quantity warehouse', f: 'STOCK_QTY' },
-      { d: B('Preis für ein einzelnes Stück', 'Price of a single piece'), k: 'price unit', f: 'UNIT_PRICE' },
-      { d: B('Kürzel des Lagers, aus dem geliefert wird', 'Code of the warehouse that ships the goods'), k: 'code warehouse delivery', f: 'WH_CD' },
-      { d: B('Nummer, unter der der Artikel geführt wird', 'Number under which the item is kept'), k: 'id product', f: 'PROD_NO' },
+      { d: B('Stückzahl, die der Kunde bestellt hat', 'Number of pieces the customer ordered'), f: 'ORD_QTY', must: true },
+      { d: B('Menge, ab der wir Ware nachbestellen', 'Level at which we order new goods'), f: 'MIN_QTY', must: true },
+      { d: B('Stückzahl, die gerade im Lager liegt', 'Number of pieces in the warehouse right now'), f: 'STOCK_QTY' },
+      { d: B('Preis für ein einzelnes Stück', 'Price of a single piece'), f: 'UNIT_PRICE' },
+      { d: B('Kürzel des Lagers, aus dem geliefert wird', 'Code of the warehouse that ships the goods'), f: 'WH_CD' },
+      { d: B('Nummer, unter der der Artikel geführt wird', 'Number under which the item is kept'), f: 'PROD_NO' },
     ],
     decoy: 'PROD_NAME' },
   { id: 'mailing',
@@ -231,11 +230,11 @@ export const THEMES = [
       UNSUB_DT: F('UNSUB_DT', 'date', '2026-02-11', 'mkt', B('der Tag der Abmeldung', 'the day of unsubscribing')),
     },
     pairs: [
-      { d: B('Anzahl der Mails, die geöffnet wurden', 'Number of mails that were opened'), k: 'count mail open', f: 'OPEN_CNT', must: true },
-      { d: B('Wie viele von hundert Mails geöffnet wurden', 'How many in a hundred mails were opened'), k: 'count mail open', f: 'OPEN_RATE', must: true },
-      { d: B('Anzahl der verschickten Mails einer Kampagne', 'Number of mails sent in a campaign'), k: 'count sent mail campaign', f: 'SENT_CNT' },
-      { d: B('Anzahl der Klicks auf Links in der Mail', 'Number of clicks on links in the mail'), k: 'count click link mail', f: 'CLICK_CNT' },
-      { d: B('Kennung der Kampagne', 'ID of the campaign'), k: 'id campaign', f: 'CAMP_ID' },
+      { d: B('Anzahl der Mails, die geöffnet wurden', 'Number of mails that were opened'), f: 'OPEN_CNT', must: true },
+      { d: B('Wie viele von hundert Mails geöffnet wurden', 'How many in a hundred mails were opened'), f: 'OPEN_RATE', must: true },
+      { d: B('Anzahl der verschickten Mails einer Kampagne', 'Number of mails sent in a campaign'), f: 'SENT_CNT' },
+      { d: B('Anzahl der Klicks auf Links in der Mail', 'Number of clicks on links in the mail'), f: 'CLICK_CNT' },
+      { d: B('Kennung der Kampagne', 'ID of the campaign'), f: 'CAMP_ID' },
     ],
     decoy: 'UNSUB_DT' },
   { id: 'shipping',
@@ -248,11 +247,11 @@ export const THEMES = [
       DLV_ADDR: F('DLV_ADDR', 'text', B('Lindenweg 4, Leipzig', '4 Lindenweg, Leipzig'), 'log', B('die Lieferadresse', 'the delivery address')),
     },
     pairs: [
-      { d: B('Tag der Zustellung beim Empfänger', 'Day of delivery to the recipient'), k: 'date delivery recipient', f: 'DLV_DT', must: true },
-      { d: B('Tag, an dem wir die Lieferung losschicken', 'Day we send the delivery on its way'), k: 'date delivery', f: 'SHIP_DT', must: true },
-      { d: B('Nummer, mit der man die Sendung verfolgt', 'Number used to track the shipment'), k: 'id shipping', f: 'SHIP_NO' },
-      { d: B('Gewicht des Pakets in Kilogramm', 'Weight of the parcel in kilograms'), k: 'weight parcel kg', f: 'WEIGHT_KG' },
-      { d: B('Kürzel des Paketdienstes', 'Code of the parcel carrier'), k: 'code carrier', f: 'CARRIER_CD' },
+      { d: B('Tag der Zustellung beim Empfänger', 'Day of delivery to the recipient'), f: 'DLV_DT', must: true },
+      { d: B('Tag, an dem wir die Lieferung losschicken', 'Day we send the delivery on its way'), f: 'SHIP_DT', must: true },
+      { d: B('Nummer, mit der man die Sendung verfolgt', 'Number used to track the shipment'), f: 'SHIP_NO' },
+      { d: B('Gewicht des Pakets in Kilogramm', 'Weight of the parcel in kilograms'), f: 'WEIGHT_KG' },
+      { d: B('Kürzel des Paketdienstes', 'Code of the parcel carrier'), f: 'CARRIER_CD' },
     ],
     decoy: 'DLV_ADDR' },
   { id: 'web',
@@ -265,11 +264,11 @@ export const THEMES = [
       PAGE_URL: F('PAGE_URL', 'text', B('/produkte/becher', '/products/mugs'), 'it', B('die Adresse der Seite', 'the address of the page')),
     },
     pairs: [
-      { d: B('Kennung eines einzelnen Besuchs', 'ID of a single visit'), k: 'id visit', f: 'VISIT_ID', must: true },
-      { d: B('Kennung der Person, die die Seite besucht', 'ID of the person who visits the page'), k: 'id person visit', f: 'VISITOR_ID', must: true },
-      { d: B('Zeitpunkt, zu dem der Besuch begann', 'Time the visit began'), k: 'time visit', f: 'VISIT_TS' },
-      { d: B('Dauer des Besuchs in Sekunden', 'Length of the visit in seconds'), k: 'duration visit second', f: 'DURATION_SEC' },
-      { d: B('Gerät, mit dem die Seite besucht wurde', 'Device used to visit the page'), k: 'device page', f: 'DEVICE' },
+      { d: B('Kennung eines einzelnen Besuchs', 'ID of a single visit'), f: 'VISIT_ID', must: true },
+      { d: B('Kennung der Person, die die Seite besucht', 'ID of the person who visits the page'), f: 'VISITOR_ID', must: true },
+      { d: B('Zeitpunkt, zu dem der Besuch begann', 'Time the visit began'), f: 'VISIT_TS' },
+      { d: B('Dauer des Besuchs in Sekunden', 'Length of the visit in seconds'), f: 'DURATION_SEC' },
+      { d: B('Gerät, mit dem die Seite besucht wurde', 'Device used to visit the page'), f: 'DEVICE' },
     ],
     decoy: 'PAGE_URL' },
   { id: 'contract',
@@ -283,12 +282,12 @@ export const THEMES = [
       SIGN_DT: F('SIGN_DT', 'date', '2025-06-12', 'sales', B('der Tag der Unterschrift', 'the day of signing')),
     },
     pairs: [
-      { d: B('Tag, an dem der Vertrag beginnt', 'Day the contract starts'), k: 'date contract start', f: 'START_DT', must: true },
-      { d: B('Tag, an dem der Vertrag unterschrieben wurde', 'Day the contract was signed'), k: 'date contract start', f: 'SIGN_DT', must: true },
-      { d: B('Tag, an dem der Vertrag ausläuft', 'Day the contract runs out'), k: 'date contract', f: 'END_DT' },
-      { d: B('Frist für die Kündigung in Tagen', 'Notice period in days'), k: 'notice day', f: 'NOTICE_DAYS' },
-      { d: B('Gebühr pro Monat', 'Fee per month'), k: 'month fee', f: 'MONTHLY_FEE' },
-      { d: B('Verlängert sich der Vertrag von selbst? Ja oder Nein', 'Does the contract renew by itself? Yes or no'), k: 'renew contract auto', f: 'AUTO_RENEW' },
+      { d: B('Tag, an dem der Vertrag beginnt', 'Day the contract starts'), f: 'START_DT', must: true },
+      { d: B('Tag, an dem der Vertrag unterschrieben wurde', 'Day the contract was signed'), f: 'SIGN_DT', must: true },
+      { d: B('Tag, an dem der Vertrag ausläuft', 'Day the contract runs out'), f: 'END_DT' },
+      { d: B('Frist für die Kündigung in Tagen', 'Notice period in days'), f: 'NOTICE_DAYS' },
+      { d: B('Gebühr pro Monat', 'Fee per month'), f: 'MONTHLY_FEE' },
+      { d: B('Verlängert sich der Vertrag von selbst? Ja oder Nein', 'Does the contract renew by itself? Yes or no'), f: 'AUTO_RENEW' },
     ],
     decoy: 'CONTRACT_NO' },
 ];
@@ -296,7 +295,7 @@ export const THEMES = [
 // ---------- stage 3: the data trail ----------
 // nodes: id, col (0 source, 1 transformation, 2 warehouse, 3 report), n name, m what it holds.
 // edges: every link of the finished graph. missing: the links the player adds, each with what
-// the downstream node needs (need) and the assistant's key words (k). impact: a source changes,
+// the downstream node needs (need). impact: a source changes,
 // which reports are affected (hit).
 const N = (id, col, n, m) => ({ id, col, n, m });
 export const GRAPHS = [
@@ -315,10 +314,10 @@ export const GRAPHS = [
     ],
     edges: [['s1', 't1'], ['s2', 't1'], ['s3', 't2'], ['t1', 'w1'], ['t2', 'w2'], ['w1', 'r1'], ['w1', 'r2'], ['w2', 'r3']],
     missing: [
-      { e: ['w1', 'r1'], need: B('Umsatz je Region', 'revenue by region'), k: 'revenue region' },
-      { e: ['t1', 'w1'], need: B('Bestellungen mit Region des Kunden', 'orders with the customer\'s region'), k: 'order region customer' },
-      { e: ['s1', 't1'], need: B('Bestellungen mit Betrag', 'orders with amounts'), k: 'order amount' },
-      { e: ['s2', 't1'], need: B('die Region jedes Kunden', 'the region of every customer'), k: 'region customer' },
+      { e: ['w1', 'r1'], need: B('Umsatz je Region', 'revenue by region') },
+      { e: ['t1', 'w1'], need: B('Bestellungen mit Region des Kunden', 'orders with the customer\'s region') },
+      { e: ['s1', 't1'], need: B('Bestellungen mit Betrag', 'orders with amounts') },
+      { e: ['s2', 't1'], need: B('die Region jedes Kunden', 'the region of every customer') },
     ],
     impact: [
       { src: 's2', field: 'REGION', hit: ['r1', 'r2'] },
@@ -340,10 +339,10 @@ export const GRAPHS = [
     ],
     edges: [['s1', 't1'], ['s2', 't1'], ['s3', 't2'], ['t1', 'w1'], ['t2', 'w2'], ['w1', 'r1'], ['w1', 'r2'], ['w2', 'r3']],
     missing: [
-      { e: ['w1', 'r1'], need: B('je Rechnung: bezahlt oder offen', 'per invoice: paid or open'), k: 'open paid' },
-      { e: ['t1', 'w1'], need: B('Rechnungen mit ihrer Zahlung', 'invoices with their payment'), k: 'invoice payment' },
-      { e: ['s1', 't1'], need: B('die Rechnungen', 'the invoices'), k: 'invoice' },
-      { e: ['s2', 't1'], need: B('die Zahlungseingänge', 'the payments received'), k: 'payment' },
+      { e: ['w1', 'r1'], need: B('je Rechnung: bezahlt oder offen', 'per invoice: paid or open') },
+      { e: ['t1', 'w1'], need: B('Rechnungen mit ihrer Zahlung', 'invoices with their payment') },
+      { e: ['s1', 't1'], need: B('die Rechnungen', 'the invoices') },
+      { e: ['s2', 't1'], need: B('die Zahlungseingänge', 'the payments received') },
     ],
     impact: [
       { src: 's2', field: 'PAY_DT', hit: ['r1', 'r2'] },
@@ -365,10 +364,10 @@ export const GRAPHS = [
     ],
     edges: [['s1', 't1'], ['s2', 't1'], ['s3', 't2'], ['t1', 'w1'], ['t2', 'w2'], ['w1', 'r1'], ['w1', 'r2'], ['w2', 'r3']],
     missing: [
-      { e: ['w1', 'r1'], need: B('Reichweite je Artikel in Tagen', 'days of stock per item'), k: 'stock day' },
-      { e: ['t1', 'w1'], need: B('Bestand geteilt durch Verbrauch', 'stock divided by demand'), k: 'stock demand' },
-      { e: ['s1', 't1'], need: B('den Bestand von heute', 'today\'s stock'), k: 'stock' },
-      { e: ['s2', 't1'], need: B('die bestellte Stückzahl je Tag', 'the pieces ordered per day'), k: 'order quantity day' },
+      { e: ['w1', 'r1'], need: B('Reichweite je Artikel in Tagen', 'days of stock per item') },
+      { e: ['t1', 'w1'], need: B('Bestand geteilt durch Verbrauch', 'stock divided by demand') },
+      { e: ['s1', 't1'], need: B('den Bestand von heute', 'today\'s stock') },
+      { e: ['s2', 't1'], need: B('die bestellte Stückzahl je Tag', 'the pieces ordered per day') },
     ],
     impact: [
       { src: 's2', field: 'QTY', hit: ['r1', 'r2'] },
@@ -390,10 +389,10 @@ export const GRAPHS = [
     ],
     edges: [['s1', 't1'], ['s2', 't1'], ['s3', 't2'], ['t1', 'w1'], ['t2', 'w2'], ['w1', 'r1'], ['w1', 'r2'], ['w2', 'r3']],
     missing: [
-      { e: ['w1', 'r1'], need: B('den Anteil der Austritte', 'the share of exits'), k: 'turnover' },
-      { e: ['t1', 'w1'], need: B('Austritte geteilt durch Köpfe', 'exits divided by headcount'), k: 'exit share' },
-      { e: ['s2', 't1'], need: B('die Austritte mit Datum', 'the exits with dates'), k: 'exit date' },
-      { e: ['s1', 't1'], need: B('alle Mitarbeitenden je Abteilung', 'all employees per department'), k: 'employee department' },
+      { e: ['w1', 'r1'], need: B('den Anteil der Austritte', 'the share of exits') },
+      { e: ['t1', 'w1'], need: B('Austritte geteilt durch Köpfe', 'exits divided by headcount') },
+      { e: ['s2', 't1'], need: B('die Austritte mit Datum', 'the exits with dates') },
+      { e: ['s1', 't1'], need: B('alle Mitarbeitenden je Abteilung', 'all employees per department') },
     ],
     impact: [
       { src: 's2', field: 'EXIT_DT', hit: ['r1', 'r2'] },
@@ -415,10 +414,10 @@ export const GRAPHS = [
     ],
     edges: [['s1', 't1'], ['s2', 't1'], ['s3', 't2'], ['t1', 'w1'], ['t2', 'w2'], ['w1', 'r1'], ['w1', 'r2'], ['w2', 'r3']],
     missing: [
-      { e: ['w1', 'r1'], need: B('Öffnungs- und Klickrate je Kampagne', 'open and click rate per campaign'), k: 'open click rate campaign' },
-      { e: ['t1', 'w1'], need: B('die berechneten Raten', 'the calculated rates'), k: 'rate' },
-      { e: ['s1', 't1'], need: B('die verschickten Mails', 'the mails sent'), k: 'mail sent' },
-      { e: ['s2', 't1'], need: B('Öffnungen und Klicks in Mails', 'opens and clicks in mails'), k: 'open click' },
+      { e: ['w1', 'r1'], need: B('Öffnungs- und Klickrate je Kampagne', 'open and click rate per campaign') },
+      { e: ['t1', 'w1'], need: B('die berechneten Raten', 'the calculated rates') },
+      { e: ['s1', 't1'], need: B('die verschickten Mails', 'the mails sent') },
+      { e: ['s2', 't1'], need: B('Öffnungen und Klicks in Mails', 'opens and clicks in mails') },
     ],
     impact: [
       { src: 's1', field: 'SENT_CNT', hit: ['r1', 'r2'] },
@@ -440,10 +439,10 @@ export const GRAPHS = [
     ],
     edges: [['s1', 't1'], ['s2', 't1'], ['s3', 't2'], ['t1', 'w1'], ['t2', 'w2'], ['w1', 'r1'], ['w1', 'r2'], ['w2', 'r3']],
     missing: [
-      { e: ['w1', 'r1'], need: B('die Lieferzeit in Tagen', 'the delivery time in days'), k: 'delivery' },
-      { e: ['t1', 'w1'], need: B('Zustelltag minus Bestelltag', 'delivery day minus order day'), k: 'lead time' },
-      { e: ['s2', 't1'], need: B('den Zustelltag je Bestellung', 'the delivery day per order'), k: 'delivery date' },
-      { e: ['s1', 't1'], need: B('den Bestelltag', 'the order day'), k: 'order date' },
+      { e: ['w1', 'r1'], need: B('die Lieferzeit in Tagen', 'the delivery time in days') },
+      { e: ['t1', 'w1'], need: B('Zustelltag minus Bestelltag', 'delivery day minus order day') },
+      { e: ['s2', 't1'], need: B('den Zustelltag je Bestellung', 'the delivery day per order') },
+      { e: ['s1', 't1'], need: B('den Bestelltag', 'the order day') },
     ],
     impact: [
       { src: 's2', field: 'DLV_DT', hit: ['r1', 'r2'] },
@@ -474,26 +473,20 @@ export function oddRow(row, easy = false, rnd = Math.random) {
   return { id: row.id, lvl: row.lvl, show: row.show, key: row.key ?? null, why: row.why, tiles, odd: tiles.findIndex((tl) => tl.odd) };
 }
 
-/** One connect board: descriptions (askers) on the left, fields on the right, the assistant's proposals. */
+/** One connect board: descriptions (askers) on the left, fields on the right. */
 export function makeBoard(theme, { pairs = 4, decoy = false, rnd = Math.random } = {}) {
   const must = theme.pairs.filter((p) => p.must);
   const rest = shuffle(theme.pairs.filter((p) => !p.must), rnd);
   const chosen = shuffle([...must, ...rest].slice(0, pairs), rnd);
   const fieldIds = shuffle([...chosen.map((p) => p.f), ...(decoy && theme.decoy ? [theme.decoy] : [])], rnd);
   const fields = fieldIds.map((id) => ({ id, ...theme.fields[id] }));
-  const cands = fields.map((f) => ({ id: f.id, name: f.n }));
-  const asks = chosen.map((p, i) => ({ id: `d${i}`, d: p.d, f: p.f, ai: propose(p.k, cands) }));
+  const asks = chosen.map((p, i) => ({ id: `d${i}`, d: p.d, f: p.f }));
   return { id: theme.id, asks, fields };
 }
 
-/** One lineage graph for play: which links are missing (relaxed: three), the proposals, one impact question. */
+/** One lineage graph for play: which links are missing (relaxed: three), one impact question. */
 export function makeGraph(g, { missing = 4, rnd = Math.random } = {}) {
-  const miss = g.missing.slice(0, missing).map((m) => {
-    const [from, to] = m.e;
-    const col = g.nodes.find((n) => n.id === from).col;
-    const cands = g.nodes.filter((n) => n.col === col).map((n) => ({ id: n.id, name: n.n }));
-    return { from, to, need: m.need, ai: propose(m.k, cands) };
-  });
+  const miss = g.missing.slice(0, missing).map((m) => ({ from: m.e[0], to: m.e[1], need: m.need }));
   const impact = g.impact[Math.floor(rnd() * g.impact.length)];
   return { id: g.id, nodes: g.nodes, edges: g.edges, missing: miss, impact };
 }

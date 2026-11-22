@@ -206,7 +206,7 @@
 }
 .lin-card h2 { margin: 0; font-size: 1.5em; font-weight: var(--font-weight-black); }
 .lin-card p { margin: 0; }
-.lin-card__ai { display: flex; gap: var(--space-2); align-items: flex-start; padding: var(--space-2) var(--space-3); border: 2px dashed var(--xr-lineage-ai); border-radius: var(--xr-lineage-radius); background: var(--xr-lineage-ai-soft); color: var(--xr-lineage-ai); font-weight: var(--font-weight-bold); }
+.lin-card__note { display: flex; gap: var(--space-2); align-items: flex-start; padding: var(--space-2) var(--space-3); border: 2px solid var(--xr-lineage-accent); border-radius: var(--xr-lineage-radius); background: var(--xr-lineage-accent-soft); color: var(--xr-lineage-accent); font-weight: var(--font-weight-bold); }
 .lin-card__go {
   justify-self: center; min-height: var(--tap-min); min-width: 10rem; padding: 0 var(--space-5);
   border: 0; border-radius: var(--radius-pill); background: var(--xr-lineage-accent); color: var(--xr-lineage-on-good);

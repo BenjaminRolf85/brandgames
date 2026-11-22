@@ -4,9 +4,9 @@
 // for a description; tables are stacks of discs, the transformation is a turning gear, the
 // warehouse a hall, a report a screen whose bars grow when it is fed). Every token carries a
 // label of dark glass that always faces the viewer: name, metadata line, an owner band with the
-// owner's name. Links are 3D pipes that arch out of the field with packets of light travelling
-// in them; the AI assistant's proposals are dotted beams with a percentage tag, and a small drone
-// hovers at the proposal it is pointing out (it bows when it is corrected).
+// owner's name. A link exists only once the player has made a pair: it appears as a 3D pipe that
+// arches out of the field, with packets of light travelling in it and a check mark (a wrong pair
+// shows for a moment in red with a cross, then goes). Nothing on the field hints at the answer.
 //   Stage 1: the tokens stand in a row under a scanner light; the odd one is lifted out and the
 //            other three snap together with a link.
 //   Stages 2 and 3: press one label, then the other; or press, hold, move and release on the
@@ -16,7 +16,7 @@
 // own arrangement); the status strip is HTML (lineage-hud.js). Headset: the field stands at
 // arm's length with a panel for stage, points, prompt and feedback above it.
 // Budget: one draw call per label and token (textures are redrawn only when a label changes),
-// all pipes of one kind are one mesh, dots and packets are instanced.
+// all pipes of one kind are one mesh, sockets, check marks and packets are instanced.
 import * as THREE from 'three';
 import { Panel, Button, roundRect, wrap, textPanel } from './ui3d.js';
 import { color, hex, num, font } from './tokens.js';
@@ -76,11 +76,7 @@ function drawMark(ctx, kind, x, y, s) {
   if (kind === 'good') { ctx.moveTo(x + s * 0.15, y + s * 0.52); ctx.lineTo(x + s * 0.42, y + s * 0.78); ctx.lineTo(x + s * 0.88, y + s * 0.24); }
   else if (kind === 'bad') { ctx.moveTo(x + s * 0.2, y + s * 0.2); ctx.lineTo(x + s * 0.8, y + s * 0.8); ctx.moveTo(x + s * 0.8, y + s * 0.2); ctx.lineTo(x + s * 0.2, y + s * 0.8); }
   else if (kind === 'change') { ctx.moveTo(x + s * 0.5, y + s * 0.12); ctx.lineTo(x + s * 0.9, y + s * 0.85); ctx.lineTo(x + s * 0.1, y + s * 0.85); ctx.closePath(); }
-  else if (kind === 'ai') { // a four-pointed spark
-    ctx.moveTo(x + s * 0.5, y + s * 0.05); ctx.lineTo(x + s * 0.62, y + s * 0.38); ctx.lineTo(x + s * 0.95, y + s * 0.5); ctx.lineTo(x + s * 0.62, y + s * 0.62);
-    ctx.lineTo(x + s * 0.5, y + s * 0.95); ctx.lineTo(x + s * 0.38, y + s * 0.62); ctx.lineTo(x + s * 0.05, y + s * 0.5); ctx.lineTo(x + s * 0.38, y + s * 0.38); ctx.closePath();
-    ctx.fill();
-  } else if (kind === 'info') { ctx.arc(x + s * 0.5, y + s * 0.5, s * 0.36, 0, Math.PI * 2); }
+  else if (kind === 'info') { ctx.arc(x + s * 0.5, y + s * 0.5, s * 0.36, 0, Math.PI * 2); }
   ctx.stroke();
   ctx.restore();
 }
@@ -168,7 +164,7 @@ const SHAPES = {
 };
 const TOK_COLOR = { date: 'tok-date', amt: 'tok-amt', num: 'tok-num', text: 'tok-text', bool: 'tok-bool', desc: 'tok-desc', src: 'source', tr: 'machine', wh: 'house', rep: 'screen' };
 
-export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, onNext, onMenu, calm = false, screen = false, ar = false }) {
+export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onMenu, calm = false, screen = false, ar = false }) {
   const { engine } = scene;
   const K = screen ? 1.5 : 1; // labels are drawn larger than shown in the browser, so they stay sharp
   const LIFT = num('xr-lineage-lift');
@@ -188,7 +184,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
 
   const basic = (k, extra = {}) => new THREE.MeshBasicMaterial({ color: hex(`xr-lineage-${k}`), toneMapped: false, ...extra });
   const mats = {
-    fixed: basic('line'), done: basic('good-line'), pulse: basic('pulse-line'), ai: basic('ai'), light: basic('flow-light'), drag: basic('accent'),
+    fixed: basic('line'), done: basic('good-line'), pulse: basic('pulse-line'), light: basic('flow-light'), drag: basic('accent'),
     bad: basic('bad', { transparent: true }), rack: basic('card-border'),
     scan: basic('accent', { transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
     token: new THREE.MeshLambertMaterial({ vertexColors: true, emissive: hex('xr-lineage-tok-glow') }),
@@ -208,15 +204,23 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
   };
   const barsGeo = mergeGeometries([[-0.3, 0.3], [0, 0.55], [0.3, 0.42]].map(([x, h]) => new THREE.BoxGeometry(0.2, h, 0.05).translate(x, h / 2, 0)));
   const dotGeo = new THREE.SphereGeometry(1, 10, 8);
-  const DOTS = 220;
-  const dots = new THREE.InstancedMesh(dotGeo, mats.ai, DOTS);
   const PULSES = 60;
   const pulses = new THREE.InstancedMesh(dotGeo, mats.light, PULSES);
-  dots.frustumCulled = false;
   pulses.frustumCulled = false;
-  dots.count = 0;
   pulses.count = 0;
-  holder.add(dots, pulses);
+  holder.add(pulses);
+  // a check mark on every finished link (one instanced mesh): a link is marked by more than its color
+  const checkGeo = mergeGeometries([
+    tint(new THREE.CylinderGeometry(1, 1, 0.3, 20).rotateX(Math.PI / 2), new THREE.Color(hex('xr-lineage-good-line'))),
+    tint(new THREE.BoxGeometry(0.5, 0.2, 0.2).rotateZ(-0.8).translate(-0.3, -0.12, 0.2), new THREE.Color(hex('xr-lineage-on-good'))),
+    tint(new THREE.BoxGeometry(1.0, 0.2, 0.2).rotateZ(0.9).translate(0.2, 0.05, 0.2), new THREE.Color(hex('xr-lineage-on-good'))),
+  ]);
+  const CHECKS = 16;
+  const checkMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+  const checks = new THREE.InstancedMesh(checkGeo, checkMat, CHECKS);
+  checks.frustumCulled = false;
+  checks.count = 0;
+  holder.add(checks);
   const SOCKETS = 64;
   const sockets = new THREE.InstancedMesh(dotGeo, basic('ink'), SOCKETS);
   sockets.frustumCulled = false;
@@ -230,14 +234,6 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
   const rubber = new THREE.Mesh(new THREE.CylinderGeometry(TUBE, TUBE, 1, 8).translate(0, 0.5, 0), mats.drag);
   rubber.visible = false;
   holder.add(rubber);
-  // the assistant's drone: a small body with a ring and an eye
-  const drone = new THREE.Group();
-  drone.add(new THREE.Mesh(mergeGeometries([new THREE.SphereGeometry(0.026, 14, 10), new THREE.TorusGeometry(0.04, 0.005, 6, 20).rotateX(1.2)]), mats.ai), new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 6).translate(0, 0.004, 0.024), mats.light));
-  drone.visible = false;
-  holder.add(drone);
-  const droneTo = new THREE.Vector3();
-  let droneAct = null; // { kind, t }
-
   const state = { hud: null, prompt: '', fb: null, fbText: '', hint: false };
   const bounds = { x0: -0.5, x1: 0.5, y0: -0.3, y1: 0.3 };
   const fullBounds = bounds;
@@ -411,8 +407,10 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       ctx.lineWidth = mm(L.wide ? 0.007 : 0.004);
       ctx.strokeStyle = L.stroke;
       if (L.dash) ctx.setLineDash([mm(0.016), mm(0.012)]);
+      if (L.halo) { ctx.shadowColor = L.stroke; ctx.shadowBlur = mm(0.012); } // the selected unit glows softly
       roundRect(ctx, mm(px), mm(py), mm(pw), mm(ph), mm(0.018));
       ctx.stroke();
+      ctx.shadowBlur = 0;
       ctx.setLineDash([]);
       drawBlocks(ctx, mm, L.blocks, px + PAD, py + PAD, pw - PAD * 2);
       if (L.ownerNote) { // the owner's full name, on the name's line (phones: when the unit is pointed at or selected)
@@ -452,8 +450,6 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
   let vertical = false; // links run from top to bottom (the graph on an upright phone)
   let lineMeshes = [];
   let flows = [];
-  let pills = [];
-  let pillKey = '';
   let drag = null;
   let cardUi = [];
   let extras = []; // scanner, rack, links of stage 1
@@ -479,15 +475,11 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     extras = [];
     scanner = null;
     clearLines();
-    pills.forEach((o) => { o.removeFromParent(); o.userData.pill.dispose(); o.geometry.dispose(); });
-    pills = [];
-    pillKey = '';
     cards = [];
-    dots.count = 0;
+    checks.count = 0;
     pulses.count = 0;
     drag = null;
     rubber.visible = false;
-    drone.visible = false;
     sockets.count = 0;
     seenDone.clear();
     linesBuilt = false;
@@ -598,32 +590,25 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     }
     const flowAll = model.needs.every((n) => n.done);
     const tubes = { fixed: [], done: [], pulse: [] };
-    let nd = 0;
-    const aiLines = [];
+    let ns = 0;
+    let nc = 0;
     for (const l of list) {
       const d = Math.max(0.03, (vertical ? l.p.y - l.q.y : l.q.x - l.p.x) / 2);
-      const bulge = l.kind === 'ai' ? 0.05 : l.kind === 'fixed' ? 0.02 : 0.035; // the pipe arches towards the viewer
+      const bulge = l.kind === 'fixed' ? 0.02 : 0.035; // the pipe arches towards the viewer
       const c1 = vertical ? new THREE.Vector3(l.p.x, l.p.y - d, l.p.z + bulge) : new THREE.Vector3(l.p.x + d, l.p.y, l.p.z + bulge);
       const c2 = vertical ? new THREE.Vector3(l.q.x, l.q.y + d, l.q.z + bulge) : new THREE.Vector3(l.q.x - d, l.q.y, l.q.z + bulge);
       l.curve = lane
         ? new THREE.CubicBezierCurve3(l.p, new THREE.Vector3(lane.x + l.reach * 1.33, l.p.y, 0.05), new THREE.Vector3(lane.x + l.reach * 1.33, l.q.y, 0.05), l.q)
         : new THREE.CubicBezierCurve3(l.p, c1, c2, l.q);
-      if (l.kind === 'ai') {
-        aiLines.push(l);
-        for (let i = 1; i < 13 && nd < DOTS; i++) {
-          l.curve.getPoint(i / 13, v1);
-          dots.setMatrixAt(nd++, m4.compose(v1, qI, v2.setScalar(TUBE * 1.15)));
-        }
-      } else {
-        tubes[l.kind].push(new THREE.TubeGeometry(l.curve, 18, TUBE * (l.kind === 'fixed' ? 0.85 : 1.3), 6, false));
-        if (l.kind !== 'fixed' || flowAll) flows.push(l.curve);
-      }
-    }
-    // every pipe plugs into a socket at both ends; a new link sparks once
-    let ns = 0;
-    for (const l of list) {
-      if (l.kind === 'ai') continue;
+      tubes[l.kind].push(new THREE.TubeGeometry(l.curve, 18, TUBE * (l.kind === 'fixed' ? 0.85 : 1.3), 6, false));
+      if (l.kind !== 'fixed' || flowAll) flows.push(l.curve);
+      // every pipe plugs into a socket at both ends; the player's links carry a check mark; a new link sparks once
       for (const pt of [l.p, l.q]) if (ns < SOCKETS) sockets.setMatrixAt(ns++, m4.compose(pt, qI, v2.setScalar(TUBE * 2.3)));
+      if (model.links.some((x) => x.state === 'done' && x.a === l.a && x.b === l.b) && nc < CHECKS) {
+        l.curve.getPoint(0.5, v1);
+        v1.z += 0.012;
+        checks.setMatrixAt(nc++, m4.compose(v1, qI, v2.setScalar(0.017)));
+      }
       const key2 = `${l.a}>${l.b}`;
       if (l.kind === 'done' && !seenDone.has(key2)) {
         seenDone.add(key2);
@@ -632,9 +617,9 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     }
     sockets.count = ns;
     sockets.instanceMatrix.needsUpdate = true;
+    checks.count = nc;
+    checks.instanceMatrix.needsUpdate = true;
     linesBuilt = true;
-    dots.count = nd;
-    dots.instanceMatrix.needsUpdate = true;
     for (const kind of ['fixed', 'done', 'pulse']) {
       if (!tubes[kind].length) continue;
       const merged = tubes[kind].length > 1 ? mergeGeometries(tubes[kind]) : tubes[kind][0];
@@ -644,56 +629,6 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       lineMeshes.push(mesh);
     }
     pulses.count = Math.min(PULSES, flows.length * (calm ? 1 : 3));
-    // The assistant's tag on each proposal: one press accepts it (a finger-sized invisible target).
-    const key = aiLines.map((l) => `${l.a}>${l.b}`).join();
-    if (key !== pillKey) {
-      pillKey = key;
-      pills.forEach((o) => { o.removeFromParent(); o.userData.pill.dispose(); o.geometry.dispose(); });
-      pills = aiLines.map((l, li) => {
-        const need = model.needs.find((n) => !n.done && n.aiState === 'open' && ((n.asker === l.a && n.ai.id === l.b) || (n.asker === l.b && n.ai.id === l.a)));
-        const text = `${t('lineageAi')} ${need.ai.conf} %`;
-        const pill = new Panel(0.188 * K, 0.066 * K, (ctx, p) => {
-          const mm = (x) => p.m(x * K);
-          roundRect(ctx, 3, 3, p.canvas.width - 6, p.canvas.height - 6, mm(0.033));
-          ctx.fillStyle = p.state.hover ? C('tag') : C('ai-soft');
-          ctx.fill();
-          ctx.lineWidth = mm(p.state.focus ? 0.008 : 0.005);
-          ctx.setLineDash(p.state.focus ? [] : [mm(0.012), mm(0.009)]);
-          ctx.strokeStyle = p.state.focus ? C('focus') : C('ai');
-          ctx.stroke();
-          ctx.setLineDash([]);
-          ctx.fillStyle = C('ai');
-          drawMark(ctx, 'ai', mm(0.013), mm(0.017), mm(0.032));
-          ctx.font = font('bold', mm(T1));
-          ctx.textAlign = 'left';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(text, mm(0.05), p.canvas.height / 2 + 1);
-        });
-        sharp(pill);
-        pill.scale.setScalar(1 / K);
-        const hit = new THREE.Mesh(new THREE.PlaneGeometry(0.21, 0.115), new THREE.MeshBasicMaterial({ visible: false }));
-        if (lane) { const a = byId.get(l.a); hit.position.set(a.x + a.w / 2 + 0.105, a.y, 0.04); } // beside its page, clear of every token
-        else l.curve.getPoint(aiLines.length > 1 ? [0.5, 0.42, 0.58, 0.46, 0.54][li % 5] : 0.5, hit.position); // near the middle of its beam: clear of the tokens at both ends
-        hit.position.z += 0.012;
-        hit.add(pill);
-        const name = model.nodes.find((x) => x.id === need.ai.id).title;
-        Object.assign(hit.userData, { pill, interactive: true, w: 0.188, h: 0.066, label: t('lineageAiChipLabel', { conf: need.ai.conf, name }), onClick: () => onAccept?.(need.id) });
-        hit.userData.setHover = (v) => { pill.set({ hover: v }); pill.scale.setScalar((v ? 1.08 : 1) / K); };
-        hit.userData.setFocus = (v) => { pill.set({ focus: v }); };
-        holder.add(hit);
-        return hit;
-      });
-    }
-    for (let it = 0; it < 24; it++) {
-      for (let i = 0; i < pills.length; i++) for (let j = i + 1; j < pills.length; j++) {
-        const a = pills[i].position; const b = pills[j].position;
-        if (Math.abs(a.x - b.x) > 0.215 || Math.abs(a.y - b.y) > 0.118) continue;
-        const push = (0.124 - Math.abs(a.y - b.y)) / 2 * (a.y >= b.y ? 1 : -1);
-        a.y += push; b.y -= push;
-      }
-    }
-    drone.visible = pills.length > 0;
-    if (pills.length) droneTo.copy(pills[0].position).add(v1.set(0, 0.075, 0.03));
   }
 
   /**
@@ -741,7 +676,6 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     if (v.need.length && n.kind !== 'desc' && (forSize || n.id === needId)) blocks.push({ text: t('lineageNeeds', { need: v.need.join(' + ') }), size: T1, weight: 'bold', color: C('accent') });
     if (v.mark === 'hit') blocks.push({ text: t('lineageAffected'), size: T1, weight: 'bold', color: C('pulse'), icon: 'good' });
     else if (v.mark === 'miss') blocks.push({ text: t('lineageNotAffected'), size: T1, weight: 'bold', color: C('bad'), icon: 'bad' });
-    else if (v.missed) blocks.push({ text: t('lineageAiMissed'), size: T1, weight: 'bold', color: C('bad'), icon: 'bad' });
     else if (v.done && !v.need.length && n.kind !== 'desc' && n.kind !== 'field') blocks.push({ text: t('lineageDone'), size: T1, weight: 'bold', color: C('good'), icon: 'good' });
     // Room for the line that comes later ("not affected"), so a label never grows.
     else if (forSize && n.col === 3) blocks.push({ text: t('lineageNotAffected'), size: T1, weight: 'bold', icon: 'bad' });
@@ -762,6 +696,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       wide: v.selected || v.changed || !!v.mark || pick || u.hover || u.focus,
       badge: v.changed ? 'change' : v.done && (c.node.kind === 'desc' || c.node.kind === 'field') ? 'good' : null,
       badgeFill: v.changed ? C('pulse-line') : v.need.length ? C('accent') : C('good-line'),
+      halo: v.selected,
       opacity: 1,
     };
   };
@@ -775,20 +710,26 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     const q = new THREE.Vector3(cb.x, cb.y, 0.03);
     const mid = p.clone().add(q).multiplyScalar(0.5);
     mid.z = 0.09;
+    const curve = new THREE.QuadraticBezierCurve3(p, mid, q);
+    const at = curve.getPoint(0.5);
     const mat = mats.bad.clone();
-    const mesh = new THREE.Mesh(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(p, mid, q), 18, TUBE * 1.3, 6, false), mat);
+    const mesh = new THREE.Mesh(mergeGeometries([
+      new THREE.TubeGeometry(curve, 18, TUBE * 1.3, 6, false),
+      new THREE.BoxGeometry(0.05, 0.011, 0.011).rotateZ(Math.PI / 4).translate(at.x, at.y, at.z + 0.012), // the cross
+      new THREE.BoxGeometry(0.05, 0.011, 0.011).rotateZ(-Math.PI / 4).translate(at.x, at.y, at.z + 0.012),
+    ]), mat);
     holder.add(mesh);
     const x0 = ca.mesh.position.x;
-    scene.tween(0.7, (k) => {
-      mat.opacity = 1 - k;
+    scene.tween(1.1, (k) => {
+      mat.opacity = k < 0.55 ? 1 : 1 - (k - 0.55) / 0.45;
       if (!calm) {
-        mesh.position.y = Math.sin(k * 18) * 0.012 * (1 - k) - k * 0.03;
-        ca.mesh.position.x = x0 + Math.sin(k * 22) * 0.012 * (1 - k);
+        mesh.position.y = Math.sin(k * 20) * 0.008 * Math.max(0, 1 - k * 2);
+        ca.mesh.position.x = x0 + Math.sin(k * 24) * 0.012 * Math.max(0, 1 - k * 1.6);
       }
     }, { ease: (k) => k, onDone: () => { mesh.removeFromParent(); mesh.geometry.dispose(); mat.dispose(); ca.mesh.position.x = x0; } });
   }
 
-  const interactives = () => [...cards.map((c) => c.mesh), ...pills].filter((o) => o.userData.interactive && o.parent && o.visible);
+  const interactives = () => cards.map((c) => c.mesh).filter((o) => o.userData.interactive && o.parent && o.visible);
   const rectOf = (o) => { const u = o.userData; const p = o.position; return { x0: p.x - u.w / 2, x1: p.x + u.w / 2, y0: p.y - u.h / 2, y1: p.y + u.h / 2, x: p.x, y: p.y }; };
 
   const api = {
@@ -938,7 +879,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
         const W = 0.86;
         const LANE = 0.085; // room at the right for the cables
         const fw = W - LANE;
-        const pw = fw - 0.2; // the pages leave room for the assistant's tag beside them
+        const pw = fw;
         let y = 0;
         layers[0].forEach((nd) => { const it = mk(nd, pw); placed.push({ ...it, x: -W / 2 + pw / 2, y: y - it.h / 2 }); y -= it.h + GAP; });
         y -= 0.03;
@@ -1013,8 +954,6 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
         if (lane) bounds.x1 = Math.max(bounds.x1, lane.x + 0.085);
       }
       if (!screen) bounds.y1 += 0.01;
-      droneTo.set(bounds.x1 - 0.04, bounds.y1 + 0.02, 0.06);
-      drone.position.copy(droneTo);
       frame();
     },
 
@@ -1023,7 +962,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       sel = s;
       for (const c of cards) {
         const v = nodeView(model, c.node, sel);
-        const key = JSON.stringify([v.need, v.selectable, v.selected, v.done, v.changed, v.mark, v.missed, !!model.impact?.active]);
+        const key = JSON.stringify([v.need, v.selectable, v.selected, v.done, v.changed, v.mark, !!model.impact?.active]);
         c.v = v;
         c.mesh.userData.interactive = v.selectable;
         if (key !== c.key) { c.key = key; c.mesh.redraw(); }
@@ -1036,9 +975,6 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     },
 
     shake,
-
-    /** The drone reacts: it bows when it is corrected, shakes when it was followed into a mistake. */
-    aiReact(kind) { droneAct = { kind, t: 0 }; },
 
     pop(text, target) {
       const c = target?.tile != null ? cards[target.tile] : cards.find((x) => x.id === target?.node);
@@ -1054,12 +990,15 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
         ctx.fillText(text, pp.canvas.width / 2, pp.canvas.height / 2 + 2);
       });
       sharp(p);
-      p.position.set(c.x, c.y + c.h / 2, 0.1);
-      holder.add(p);
+      // It stays where the unit stood when the points were made (the board may move on to the next layers).
+      const base = scene.group.worldToLocal(holder.localToWorld(new THREE.Vector3(c.x, c.y + c.h / 2, 0.1)));
+      p.position.copy(base);
+      p.userData.noFit = true;
+      scene.group.add(p);
       scene.tween(1.1, (k) => {
         const sc = calm ? 1 : k < 0.15 ? 0.6 + (k / 0.15) * 0.5 : 1.1 - Math.min(0.1, (k - 0.15) * 0.5);
         p.scale.setScalar(sc / K);
-        if (!calm) p.position.y = c.y + c.h / 2 + k * 0.1;
+        if (!calm) p.position.y = base.y + k * 0.1;
         p.material.opacity = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
       }, { ease: (k) => k, onDone: () => { p.removeFromParent(); p.dispose(); } });
     },
@@ -1073,7 +1012,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       const panel = textPanel(1.0, 0.3, [
         { text: card.title, size: 'xr-text-lg', weight: 'black', color: C('ink'), gap: 0.03 },
         { text: card.lines[0], size: 'xr-text-sm', color: C('ink'), gap: 0.022 },
-        { text: card.lines[1], size: 'xr-text-sm', weight: 'bold', color: C('ai') },
+        { text: card.lines[1], size: 'xr-text-sm', weight: 'bold', color: C('accent') },
       ], { surface: { fill: C('board-solid'), stroke: C('board-edge'), stripe: false } });
       const cy = (bounds.y0 + bounds.y1) / 2;
       panel.position.set(0, cy + 0.06, 0.05);
@@ -1087,10 +1026,9 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
     focusFirst() { const l = interactives(); if (l.length) engine.setFocus(l[0]); },
     focusNode(id) { const c = cards.find((x) => x.id === id); if (c?.mesh.userData.interactive) engine.setFocus(c.mesh); },
     moveFocus(dx, dy) {
-      const all = interactives();
-      const list = all.filter((o) => !o.userData.pill); // the arrows move between the labels (Tab also reaches the assistant's tags)
+      const list = interactives();
       if (!list.length) return;
-      const cur = all.includes(engine.focus) ? engine.focus : null;
+      const cur = list.includes(engine.focus) ? engine.focus : null;
       if (!cur) { engine.setFocus(list[0]); return; }
       const c = rectOf(cur);
       let best = null;
@@ -1112,7 +1050,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
 
     /** For tests and tools: the things that can be pressed, with a key each. */
     targets() {
-      return [...cards.map((c) => ({ key: c.id ?? `tile${c.i}`, mesh: c.mesh })), ...pills.map((o, i) => ({ key: `pill${i}`, mesh: o, label: o.userData.label }))];
+      return cards.map((c) => ({ key: c.id ?? `tile${c.i}`, mesh: c.mesh }));
     },
 
     tick(dt) {
@@ -1150,21 +1088,6 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
         }
         pulses.instanceMatrix.needsUpdate = true;
       }
-      if (drone.visible) { // the drone hovers at the proposal it points out
-        drone.position.lerp(droneTo, Math.min(1, dt * (calm ? 30 : 3)));
-        if (!calm) drone.position.y += Math.sin(time * 2.4) * 0.0006;
-        drone.rotation.set(0, calm ? 0 : Math.sin(time * 1.1) * 0.5, 0);
-        if (droneAct) {
-          droneAct.t += dt;
-          const k = Math.min(1, droneAct.t / 0.9);
-          const w = Math.sin(k * Math.PI);
-          if (droneAct.kind === 'corrected') drone.rotation.x = w * 1.0; // a bow
-          else if (droneAct.kind === 'followed' && !calm) drone.rotation.z = Math.sin(k * 20) * 0.5 * (1 - k);
-          else if (droneAct.kind === 'confirm' && !calm) drone.rotation.y += k * Math.PI * 2;
-          drone.scale.setScalar(1 + w * 0.35);
-          if (k >= 1) { droneAct = null; drone.scale.setScalar(1); }
-        }
-      }
       if (drag) { // a cable follows the pointer while a label is held
         const ray = drag.p.ray;
         holder.worldToLocal(v1.copy(ray.origin));
@@ -1196,7 +1119,8 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onAccept, onHint, o
       barsGeo.dispose();
       dotGeo.dispose();
       rubber.geometry.dispose();
-      drone.children.forEach((o) => o.geometry.dispose());
+      checkGeo.dispose();
+      checkMat.dispose();
       holder.removeFromParent();
     },
   };

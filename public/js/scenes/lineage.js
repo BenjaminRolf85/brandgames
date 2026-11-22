@@ -8,14 +8,14 @@
 //   3 "Datenspur"         a small lineage graph (sources, transformation, warehouse, reports) with
 //                         missing links; then a source changes and the player picks the reports
 //                         that are affected (impact analysis). Two graphs.
-// The AI idea: an AI catalog assistant proposes links in stages 2 and 3 (dashed, with its
-// confidence). It only compares names (lineage-ai.js): right for obvious names, confidently
-// wrong for false friends. Accepting a right proposal is one tap for a few points, correcting a
-// wrong one brings a bonus, following a wrong one ends the streak. The result says how often it
-// was right and how many wrong proposals the player caught.
+// Connecting is always the same two steps: pick one side, then the other; only then a cable
+// appears and is checked (right: it locks as a pipe with flowing light; wrong: it shows for a
+// moment with a cross and the reason, then goes). Nothing on the board hints at the answer.
+// The AI idea is kept quiet: one "KI-Tipp" in stage 1, where an assistant greys out the fields
+// that surely belong together (the row then counts half); the result says so if it was used.
 // No lives and no game over; streaks multiply the points, a speed bonus only ever adds.
 // The playing field is a dark data room on every device (lineage-room.js): fields are 3D tokens
-// with labels, links are pipes with travelling light, the assistant has a drone. The three stages
+// with labels, links are pipes with travelling light. The three stages
 // have their zones from left to right (sources, catalog, warehouse and reports), in front of a
 // large data landscape that fills with flowing data as the round goes on; in the browser the
 // camera travels from zone to zone and frames exactly the labels of the current task.
@@ -53,7 +53,7 @@ await (async () => {
 })();
 
 // Points. A streak multiplies them (3 in a row x1.25, 6 x1.5, 10 x2); the speed bonus only adds.
-const PTS = { odd: 100, oddSpeed: 40, link: 80, confirm: 50, corrected: 40, retry: 40, impact: 80, boardSpeed: 60, clean: 40 };
+const PTS = { odd: 100, oddSpeed: 40, link: 72, retry: 36, impact: 80, boardSpeed: 60, clean: 40 };
 const SPEED = { odd: [4, 16], pairs: [20, 70], graph: [25, 85] }; // seconds: full bonus until, none from
 const MAX_SCORE = 4950;
 const RANKS = [0, 2400, 3800]; // rating in three steps (relaxed: RANKS_EASY)
@@ -82,14 +82,13 @@ export class LineageScene extends BaseScene {
     this.buildWorld();
     this.setControls({
       desktop: [[t('lineageKeyPick'), t('lineageDoPick')], [t('lineageKeyLink'), t('lineageDoLink')], [t('lineageKeyMove'), t('lineageDoMove')], [t('lineageKeyHint'), t('lineageDoHint')]],
-      touch: [[t('lineageTapPick'), t('lineageDoPick')], [t('lineageTapLink'), t('lineageDoLink')], [t('lineageTapAi'), t('lineageDoAi')]],
-      xr: [[t('lineageXRPick'), t('lineageDoPick')], [t('lineageXRLink'), t('lineageDoLink')], [t('lineageXRAi'), t('lineageDoAi')]],
+      touch: [[t('lineageTapPick'), t('lineageDoPick')], [t('lineageTapLink'), t('lineageDoLink')]],
+      xr: [[t('lineageXRPick'), t('lineageDoPick')], [t('lineageXRLink'), t('lineageDoLink')]],
     });
     const cb = {
       onPickOdd: (i) => this.pickOdd(i),
       onNode: (id) => this.pressNode(id),
       onLink: (a, b) => this.tryLink(a, b, 'drag'),
-      onAccept: (needId) => this.acceptAi(needId),
       onHint: () => this.useHint(),
       onNext: () => this.skip(),
       onMenu: () => this.menuOrPause(),
@@ -99,7 +98,7 @@ export class LineageScene extends BaseScene {
     this.room = roomView(this, { ...cb, calm: this.calm, screen: this.screenUI, ar: this.ar });
     this.hudEl = this.screenUI ? screenHud({ ...cb, desk: !this.engine.touchUI, calm: this.calm }) : null;
     this.view = {};
-    for (const k of ['show', 'setHud', 'setPrompt', 'setFeedback', 'setSpeed', 'setHint', 'showOdd', 'markOdd', 'lockOdd', 'showBoard', 'refresh', 'shake', 'pop', 'showCard', 'aiReact', 'focusFirst', 'focusNode', 'moveFocus', 'tick', 'remove']) {
+    for (const k of ['show', 'setHud', 'setPrompt', 'setFeedback', 'setSpeed', 'setHint', 'showOdd', 'markOdd', 'lockOdd', 'showBoard', 'refresh', 'shake', 'pop', 'showCard', 'focusFirst', 'focusNode', 'moveFocus', 'tick', 'remove']) {
       this.view[k] = (...a) => { this.hudEl?.[k]?.(...a); return this.room[k]?.(...a); };
     }
     this.onSceneDispose(() => this.view.remove());
@@ -282,7 +281,7 @@ export class LineageScene extends BaseScene {
     ];
     Object.assign(this, {
       score: 0, streak: 0, bestStreak: 0, stepIndex: -1, hintLeft: 1, sel: null, wait: null,
-      stats: { acts: 0, first: 0, oddOk: 0, oddN: 0, linkOk: 0, linkN: 0, aiN: 0, aiRight: 0, caught: 0, followed: 0, impactMiss: 0, impactN: 0 },
+      stats: { acts: 0, first: 0, oddOk: 0, oddN: 0, linkOk: 0, linkN: 0, impactMiss: 0, impactN: 0, hint: false },
     });
     this.view.show(true);
     this.mode = 'start';
@@ -351,7 +350,7 @@ export class LineageScene extends BaseScene {
       step.shown = true;
       this.stepIndex -= 1;
       this.mode = 'card';
-      const lines = step.kind === 'pairs' ? [t('lineageCard2Text'), t('lineageCardAi')] : [t('lineageCard3Text'), t('lineageCard3More')];
+      const lines = step.kind === 'pairs' ? [t('lineageCard2Text'), t('lineageCardHow')] : [t('lineageCard3Text'), t('lineageCard3More')];
       this.view.showCard({ title: t(step.kind === 'pairs' ? 'lineageCard2Title' : 'lineageCard3Title'), lines, button: t('lineageNext') });
       sfx.appear();
       this.waitThen(this.easy ? null : 9, () => { this.view.showCard(null); this.nextStep(); }, 0.5);
@@ -392,6 +391,7 @@ export class LineageScene extends BaseScene {
     if (this.mode !== 'odd' || this.hintLeft <= 0 || this.hinted) return;
     this.hintLeft -= 1;
     this.hinted = true;
+    this.stats.hint = true;
     const others = this.row.tiles.map((tl, i) => i).filter((i) => i !== this.row.odd);
     this.dimmed = others.slice(0, Math.max(1, others.length - 1));
     this.dimmed.forEach((i) => this.view.markOdd(i, 'dim'));
@@ -441,7 +441,7 @@ export class LineageScene extends BaseScene {
           ...d.fields.map((f) => ({ id: f.id, col: 1, kind: 'field', title: f.n, mono: true, is: L(f.is),
             meta: { tyKey: f.ty, owKey: f.ow, glyph: TYPES[f.ty].glyph, ty: L(TYPES[f.ty].name), ex: typeof f.ex === 'object' ? L(f.ex) : f.ex, ow: L(OWNERS[f.ow]) } })),
         ],
-        needs: d.asks.map((a) => ({ id: a.id, asker: a.id, ans: a.f, text: null, ai: a.ai, aiState: a.ai ? 'open' : 'none', done: false, tries: 0 })),
+        needs: d.asks.map((a) => ({ id: a.id, asker: a.id, ans: a.f, text: null, done: false, tries: 0 })),
       };
     } else {
       const missing = new Set(d.missing.map((m) => `${m.from}>${m.to}`));
@@ -449,7 +449,7 @@ export class LineageScene extends BaseScene {
         kind: 'graph', cols: COLS.map((k) => t(k)), taken: new Set(), impact: null, edges: d.edges,
         nodes: d.nodes.map((n) => ({ id: n.id, col: n.col, kind: KINDS[n.col], title: typeof n.n === 'object' ? L(n.n) : n.n, mono: n.col < 3, text: n.m ? L(n.m) : '' })),
         links: d.edges.filter(([a, b]) => !missing.has(`${a}>${b}`)).map(([a, b]) => ({ a, b, state: 'fixed' })),
-        needs: d.missing.map((m) => ({ id: `${m.from}>${m.to}`, asker: m.to, ans: m.from, text: L(m.need), ai: m.ai, aiState: m.ai ? 'open' : 'none', done: false, tries: 0 })),
+        needs: d.missing.map((m) => ({ id: `${m.from}>${m.to}`, asker: m.to, ans: m.from, text: L(m.need), done: false, tries: 0 })),
       };
       board.report = board.nodes.find((n) => n.id === 'r1').title;
       board.impactData = d.impact;
@@ -458,8 +458,6 @@ export class LineageScene extends BaseScene {
     this.mode = 'link';
     this.clock = 0;
     this.mistakes = 0;
-    const st = this.stats;
-    board.needs.forEach((n) => { if (n.ai) { st.aiN += 1; if (n.ai.id === n.ans) st.aiRight += 1; } });
     this.view.showBoard(board);
     this.view.setPrompt(board.kind === 'pairs' ? t(step.decoy ? 'lineagePairPromptDecoy' : 'lineagePairPrompt') : t('lineageGraphPrompt', { report: board.report }));
     this.view.setFeedback(null, '');
@@ -489,10 +487,10 @@ export class LineageScene extends BaseScene {
     if (!this.sel) {
       sfx.grab();
       this.select(id);
-      // Keyboard: the focus jumps to the other side, onto the assistant's proposal if there is one.
+      // Keyboard: the focus jumps to the other side.
       if (this.kb) {
         const need = b.needs.find((n) => !n.done && n.asker === id);
-        const other = need ? (need.aiState === 'open' && !b.taken.has(need.ai.id) ? need.ai.id : b.nodes.find((n) => n.col === colOf(b, need.ans) && !b.taken.has(n.id))?.id) : b.needs.find((n) => !n.done && n.ans === id)?.asker ?? b.needs.find((n) => !n.done && colOf(b, n.ans) === colOf(b, id))?.asker;
+        const other = need ? b.nodes.find((n) => n.col === colOf(b, need.ans) && !b.taken.has(n.id))?.id : b.needs.find((n) => !n.done && n.ans === id)?.asker ?? b.needs.find((n) => !n.done && colOf(b, n.ans) === colOf(b, id))?.asker;
         if (other) this.view.focusNode(other);
       }
       return;
@@ -500,12 +498,6 @@ export class LineageScene extends BaseScene {
     if (this.sel === id) { this.select(null); return; }
     if (colOf(b, this.sel) === colOf(b, id)) { sfx.grab(); this.select(id); return; }
     this.tryLink(this.sel, id, 'tap');
-  }
-
-  acceptAi(needId) {
-    if (this.mode !== 'link') return;
-    const need = this.board.needs.find((n) => n.id === needId && !n.done && n.aiState === 'open');
-    if (need) this.tryLink(need.asker, need.ai.id, 'ai');
   }
 
   tryLink(x, y) {
@@ -520,6 +512,7 @@ export class LineageScene extends BaseScene {
     this.linkWrong(asker, asker === x ? y : x);
   }
 
+  /** The pair is right: the cable locks as a pipe with flowing light. */
   linkRight(need) {
     const b = this.board;
     const st = this.stats;
@@ -527,35 +520,22 @@ export class LineageScene extends BaseScene {
     b.links.push({ a: need.ans, b: need.asker, state: 'done' });
     if (colOf(b, need.ans) > colOf(b, need.asker)) { const l = b.links[b.links.length - 1]; [l.a, l.b] = [l.b, l.a]; }
     if (b.kind === 'pairs') b.taken.add(need.ans);
-    const proposal = need.aiState === 'open' ? need.ai : null;
-    const confirm = proposal && proposal.id === need.ans;
-    const corrected = proposal && proposal.id !== need.ans;
-    need.aiState = 'used';
     st.acts += 1; st.linkN += 1;
     if (!need.tries) { st.first += 1; st.linkOk += 1; }
-    if (corrected) st.caught += 1;
-    const base = need.tries ? PTS.retry : confirm ? PTS.confirm : PTS.link;
     this.sel = null;
-    this.award(base, { node: need.asker }, corrected ? PTS.corrected : 0);
+    this.award(need.tries ? PTS.retry : PTS.link, { node: need.asker });
     this.refresh();
-    if (proposal) this.view.aiReact(corrected ? 'corrected' : 'confirm');
-    if (corrected) {
-      this.view.setFeedback('good', `${t('lineageLinkCorrected', { name: this.node(proposal.id).title })} ${t('lineageBonusCorrected', { n: PTS.corrected })}`);
-      sfx.powerup();
-    } else {
-      this.view.setFeedback('good', t(confirm ? 'lineageLinkConfirm' : 'lineageLinkRight'));
-      sfx.correct();
-    }
+    this.view.setFeedback('good', t('lineageRight'));
+    sfx.correct();
     if (b.needs.every((n) => n.done)) this.boardDone(); else if (this.kb) this.view.focusFirst();
   }
 
+  /** The pair is wrong: the cable shows for a moment with a cross and the reason, then both sides are free again. */
   linkWrong(askerId, candId) {
     const b = this.board;
     const cand = this.node(candId);
     const open = b.needs.filter((n) => !n.done && n.asker === askerId);
-    const followed = open.find((n) => n.aiState === 'open' && n.ai.id === candId);
     open.forEach((n) => { n.tries += 1; });
-    if (followed) { followed.aiState = 'followed'; this.stats.followed += 1; this.view.aiReact('followed'); }
     this.mistakes += 1;
     this.sel = null;
     this.miss();
@@ -564,7 +544,7 @@ export class LineageScene extends BaseScene {
       : t('lineageGraphReason', { name: cand.title, meta: cand.text, need: open.map((n) => n.text).join(' + ') });
     this.refresh();
     this.view.shake(candId, askerId);
-    this.view.setFeedback('bad', t(followed ? 'lineageAiWrong' : 'lineageLinkWrong', { reason }));
+    this.view.setFeedback('bad', t('lineageLinkWrong', { reason }));
     sfx.wrong();
     if (this.kb) this.view.focusNode(askerId);
   }
@@ -665,17 +645,14 @@ export class LineageScene extends BaseScene {
     const rating = nextAt
       ? t('lineageRankNext', { rank: t(`lineageRank${rank}`), n: Math.ceil((nextAt - score) * assist.scoreFactor), next: t(`lineageRank${rank + 1}`) })
       : t('lineageRankTop', { rank: t(`lineageRank${rank}`) });
-    const aiWrong = st.aiN - st.aiRight;
-    // What went well: the two strongest of rows, links, corrections and the impact analysis.
+    // What went well: the two strongest of rows, links and the impact analysis.
     const well = [
-      st.caught ? [st.caught / Math.max(1, aiWrong) + 0.2, t('lineageWellCaught', { n: st.caught })] : null,
       [st.oddOk / Math.max(1, st.oddN), t('lineageWellOdd', { ok: st.oddOk, n: st.oddN })],
       [st.linkOk / Math.max(1, st.linkN), t('lineageWellLink', { ok: st.linkOk, n: st.linkN })],
       st.impactN && !st.impactMiss ? [0.9, t('lineageWellImpact')] : null,
     ].filter(Boolean).sort((a, b) => b[0] - a[0]).slice(0, 2).map((w) => w[1]).join(' ');
     // One tip: where most went wrong.
-    const tip = st.followed ? 'lineageTipAi'
-      : st.oddN - st.oddOk >= 2 ? 'lineageTipOdd'
+    const tip = st.oddN - st.oddOk >= 2 ? 'lineageTipOdd'
         : st.linkN - st.linkOk >= 2 ? 'lineageTipLink'
           : st.impactMiss ? 'lineageTipImpact'
             : st.oddN - st.oddOk ? 'lineageTipOdd' : st.linkN - st.linkOk ? 'lineageTipLink' : 'lineageTipSpeed';
@@ -685,7 +662,8 @@ export class LineageScene extends BaseScene {
       learned: [
         { q: t('lineageWellQ'), a: well },
         { q: t('lineageTipQ'), a: t(tip) },
-        { q: t('lineageLearnQ'), a: st.aiN ? t('lineageLearnA', { right: st.aiRight, n: st.aiN, wrong: aiWrong, caught: st.caught }) : t('lineageLearnNone') },
+        // the AI lesson, only if the hint was used
+        ...(st.hint ? [{ q: t('lineageLearnQ'), a: t('lineageLearnHint') }] : []),
       ],
       onAgain: () => { quickStart = true; this.app.startGame('lineage'); },
     });
