@@ -60,7 +60,7 @@ export class CarsScene extends BaseScene {
     this.board = new THREE.Group();
     this.group.add(this.board);
     this.lot = new Lot(this.engine.renderer, {
-      xr: this.xr, ar: this.ar, calm: this.calm,
+      xr: this.xr, ar: this.ar, calm: this.calm, name: t('carsName'),
       signText: (car) => this.signText(car),
       onCar: (id, kind) => this.carEvent(id, kind),
     });
@@ -226,8 +226,10 @@ export class CarsScene extends BaseScene {
     this.board.updateMatrixWorld(true);
     const pts = [];
     for (const x of [-0.675, 0.675]) for (const y of [-0.03, 0.2]) for (const z of [-0.49, 0.53]) pts.push(new THREE.Vector3(x, y, z).applyMatrix4(this.board.matrixWorld));
-    // The flag poles are taller than the rest, but thin: they may touch the edge.
+    // The flag poles are taller than the rest, but thin: they may touch the edge. The showroom's
+    // roof and the pylon sign stay inside.
     pts.push(new THREE.Vector3(-0.5, 0.27, -0.4).applyMatrix4(this.board.matrixWorld));
+    for (const [x, y, z] of [[-0.37, 0.23, -0.465], [0.3, 0.23, -0.465], [-0.44, 0.25, -0.3]]) pts.push(new THREE.Vector3(x, y, z).applyMatrix4(this.board.matrixWorld));
     const tv = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
     const th = tv * (W / H);
     const pad = this.ui.shape === 'desk' ? 0.93 : 0.97;

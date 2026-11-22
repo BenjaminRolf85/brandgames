@@ -1,8 +1,8 @@
 // "Autohof" (key 'cars'): the used-car lot as a small 3D diorama, built from three.js geometry.
-// A showroom with a lit interior, eight painted bays in two rows, a pavement and a street, lamps,
-// flags, bunting and plants; five kinds of cars with clearly different shapes (and the same
-// side views as icons for the panels); visitors who walk the lot, look, nod or shake their heads;
-// transporters that bring the bought cars.
+// A two-storey glass showroom with a workshop wing and a pylon sign, eight painted bays in two
+// rows, a pavement and a street, lamps, flags, bunting and plants; five kinds of cars with
+// clearly different shapes (and the same side views as icons for the panels); visitors who walk
+// the lot, look, nod or shake their heads; transporters that bring the bought cars.
 //
 // Budget (Quest 3): the scenery is merged into a few meshes with vertex colors, every car is four
 // draw calls (paint, glass, trim with the wheels, lights) with geometry shared per segment, all
@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from '../vendor/addons/utils/BufferGeometryUtils.js';
 import { hex, color, font } from './tokens.js';
-import { gfxTier, softSun, contactShadow } from './gfx.js';
+import { gfxTier, softSun, contactShadow, studioEnvironment } from './gfx.js';
 
 const CM = 0.01;
 const TAU = Math.PI * 2;
@@ -154,9 +154,9 @@ function extrude(pts, width, { round = 0.5, bevel = 0.45, steps = 3 } = {}) {
 }
 
 /** A flat rounded rectangle lying on the ground (x by z), with a thickness and bevelled edges. */
-function slab(w, d, h, r, bevel = 0.004) {
+function slab(w, d, h, r, bevel = 0.004, curve = 6) {
   const pts = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]];
-  const g = new THREE.ExtrudeGeometry(roundShape(pts, r), { depth: h - bevel, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelOffset: -bevel, bevelSegments: 2, curveSegments: 6 });
+  const g = new THREE.ExtrudeGeometry(roundShape(pts, r), { depth: h - bevel, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelOffset: -bevel, bevelSegments: 2, curveSegments: curve });
   g.rotateX(-Math.PI / 2); // the outline's y becomes -z; its depth goes up
   return g;
 }
@@ -277,6 +277,11 @@ const EDGE = 0.64;
 const HEAD = -Math.PI / 2 + 0.42; // parked: nose towards the viewer, a little to the right
 const PEOPLE = 28;
 const POPUPS = 6;
+// The showroom across the back (a two-storey glass box, the sliding doors at x = door), the
+// workshop wing on its right and the pylon sign beside the entrance.
+const SHOW = { x0: -0.37, x1: 0.3, z0: -0.465, z1: -0.272, h: 0.19, story: 0.095, door: -0.265 };
+const SHOP = { x0: 0.292, x1: 0.49, z0: -0.455, z1: -0.29, h: 0.122 };
+const PYLON = { x: -0.44, z: -0.3, h: 0.245, w: 0.058, d: 0.018 };
 
 export const bayPos = (i) => ({ x: BAY_X[i % 4], z: ROW_Z[Math.floor(i / 4)] });
 
@@ -326,7 +331,11 @@ export class Lot {
     this.trimMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.25 });
     this.lightMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
     this.glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
-    this.windowMat = new THREE.MeshStandardMaterial({ color: hex('xr-cars-glass'), roughness: 0.08, metalness: 0.4, transparent: true, opacity: 0.26, envMapIntensity: 0.8, depthWrite: false });
+    // The showroom's glass and its polished parts reflect the studio environment (the one
+    // sceneLook puts on the scene) at their own strength.
+    const env = studioEnvironment(this.renderer);
+    this.showGlassMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.05, metalness: 0.6, transparent: true, opacity: 0.28, envMap: env, envMapIntensity: 1.0, depthWrite: false });
+    this.sheenMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.16, metalness: 0.3, envMap: env, envMapIntensity: 0.9 });
     const Paint = hi ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
     this.paintBase = new Paint({ roughness: 0.3, metalness: 0.35, envMapIntensity: 1.25, ...(hi ? { clearcoat: 1, clearcoatRoughness: 0.08 } : {}) });
     this.dust = new THREE.Color(hex('xr-cars-dust'));
@@ -440,7 +449,7 @@ export class Lot {
     }
     // A low hedge behind the back row and beside the showroom.
     g.push(tint(slab(0.2, 0.03, 0.03, 0.012, 0.006).translate(-0.5, 0, -0.26), t('hedge')));
-    g.push(tint(slab(0.2, 0.03, 0.03, 0.012, 0.006).translate(0.5, 0, -0.26), t('hedge')));
+    g.push(tint(slab(0.12, 0.03, 0.03, 0.012, 0.006).translate(0.565, 0, -0.26), t('hedge')));
     const mesh = new THREE.Mesh(merged(g), this.matte);
     mesh.receiveShadow = true;
     this.root.add(mesh);
@@ -453,72 +462,261 @@ export class Lot {
   }
 
   buildShowroom() {
+    // A two-storey glass showroom across the back of the lot: a flat roof with a parapet and two
+    // units on top, a lit fascia with the lot's name, a canopy over the sliding doors, three cars
+    // on a polished floor (one on a turntable), a gallery upstairs, a workshop wing with a roller
+    // door on the right and a pylon sign beside the entrance. Five draw calls for the building
+    // (walls, polished parts, glass, signs; lit parts join the lamps' mesh) and four for the cars.
     const t = (n) => hex(`xr-cars-${n}`);
-    const g = [];
+    const shell = [];
+    const sheen = [];
+    const panes = [];
     const glow = [];
-    const w = 0.66;
-    const d = 0.17;
-    const h = 0.125;
-    const z = -0.345;
-    // Floor, back and side walls, pillars, a roof with an overhang and a lit sign band.
-    g.push(tint(box(w, 0.006, d, 0, 0.003, z), t('floor')));
-    g.push(tint(box(w, h, 0.012, 0, h / 2, z - d / 2 + 0.006), t('wall')));
-    for (const s of [-1, 1]) g.push(tint(box(0.012, h, d, s * (w / 2 - 0.006), h / 2, z), t('wall')));
-    for (const x of [-0.11, 0.11]) g.push(tint(box(0.012, h, 0.012, x, h / 2, z + d / 2 - 0.006), t('wall-2')));
-    // The roof: a frame with a glass middle (from above you look in at the car on show) and a
-    // coloured band along the front that carries the sign.
-    const rw = w + 0.05;
-    const rd = d + 0.06;
-    const rz = z + 0.012;
+    const signs = [];
+    const { x0, x1, z0, z1, h, story, door } = SHOW;
+    const W = x1 - x0;
+    const D = z1 - z0;
+    const cx = (x0 + x1) / 2;
+    const cz = (z0 + z1) / 2;
+    const fz = z1 - 0.006; // the glass line
+    const blk = (w, d, hh, x, y, z, r = 0.006, bev = 0.002, curve = 3) => slab(w, d, hh, r, bev, curve).translate(x, y + bev, z);
+    const frame = t('show-frame');
+    // Plinth, walls, the roof with its parapet, two units on the roof.
+    shell.push(tint(blk(W + 0.012, D + 0.01, 0.005, cx, 0, cz, 0.006, 0.0015), t('show-plinth')));
+    shell.push(tint(box(W - 0.02, h, 0.012, cx, h / 2, z0 + 0.006), t('wall')));
+    shell.push(tint(blk(0.02, D, h - 0.002, x0 + 0.01, 0, cz, 0.005), t('wall')));
+    shell.push(tint(blk(0.016, D, h - 0.002, x1 - 0.008, 0, cz, 0.005), t('wall')));
+    // The roof: solid over the gallery at the back, a skylight over the cars (seen from above).
+    const sk = { x0: x0 + 0.03, x1: x1 - 0.03, z0: z0 + 0.075, z1: z1 - 0.028 };
+    shell.push(tint(blk(W, sk.z0 - z0, 0.012, cx, h, (z0 + sk.z0) / 2, 0.005, 0.002), t('roof')));
+    shell.push(tint(blk(W, z1 - 0.006 - sk.z1, 0.012, cx, h, (sk.z1 + z1 - 0.006) / 2, 0.003, 0.002), t('roof')));
+    for (const x of [x0 + 0.015, x1 - 0.015]) shell.push(tint(box(0.03, 0.012, sk.z1 - sk.z0, x, h + 0.007, (sk.z0 + sk.z1) / 2), t('roof')));
+    panes.push(tint(box(sk.x1 - sk.x0, 0.002, sk.z1 - sk.z0, (sk.x0 + sk.x1) / 2, h + 0.01, (sk.z0 + sk.z1) / 2), t('glass')));
+    for (let i = 1; i < 6; i++) sheen.push(tint(box(0.004, 0.004, sk.z1 - sk.z0, sk.x0 + ((sk.x1 - sk.x0) * i) / 6, h + 0.012, (sk.z0 + sk.z1) / 2), t('show-frame')));
+    sheen.push(tint(box(sk.x1 - sk.x0, 0.004, 0.004, (sk.x0 + sk.x1) / 2, h + 0.012, (sk.z0 + sk.z1) / 2), t('show-frame')));
+    shell.push(tint(box(W, 0.012, 0.008, cx, h + 0.018, z0 + 0.004), t('wall')));
+    for (const x of [x0 + 0.004, x1 - 0.004]) shell.push(tint(box(0.008, 0.012, D - 0.01, x, h + 0.018, cz - 0.004), t('wall')));
+    for (const [ux, uw, ud, uh] of [[-0.2, 0.075, 0.044, 0.024], [0.13, 0.054, 0.04, 0.018]]) {
+      shell.push(tint(blk(uw, ud, uh, ux, h + 0.012, z0 + 0.04, 0.004, 0.0015), t('roof-unit')));
+      shell.push(tint(new THREE.CylinderGeometry(uw * 0.22, uw * 0.22, 0.003, 10).translate(ux - uw * 0.18, h + 0.014 + uh, z0 + 0.04), t('wall-2')));
+      shell.push(tint(box(uw * 0.36, 0.002, ud * 0.7, ux + uw * 0.2, h + 0.0135 + uh, z0 + 0.04), t('wall-2')));
+    }
+    // The fascia: a white band over the glass that rises above the roof, with a lit stripe.
+    shell.push(tint(blk(W + 0.016, 0.02, 0.068, cx, 0.15, z1 + 0.004, 0.005, 0.002), t('wall')));
+    glow.push(tint(box(W + 0.017, 0.012, 0.004, cx, 0.159, z1 + 0.0138), t('fascia')));
+    for (const x of [x0 - 0.007, x1 + 0.007]) glow.push(tint(box(0.003, 0.012, 0.02, x, 0.159, z1 + 0.004), t('fascia')));
+    // Inside: the gallery upstairs with a dark wall below it, a lit strip, three pendant lamps,
+    // a counter by the door.
+    shell.push(tint(box(W - 0.04, story - 0.008, 0.003, cx, story / 2, z0 + 0.0135), t('show-accent')));
+    shell.push(tint(blk(W - 0.036, 0.046, 0.006, cx, story - 0.004, z0 + 0.035, 0.003, 0.001), t('wall')));
+    glow.push(tint(box(W - 0.04, 0.003, 0.002, cx, story - 0.003, z0 + 0.0585), t('interior')));
+    glow.push(tint(box(W - 0.06, 0.006, 0.002, cx, story + 0.05, z0 + 0.0125), t('interior')));
+    for (const x of [-0.17, 0.02, 0.2]) {
+      glow.push(tint(new THREE.CylinderGeometry(0.011, 0.014, 0.006, 12).translate(x, 0.143, cz + 0.02), t('interior')));
+      sheen.push(tint(new THREE.CylinderGeometry(0.0008, 0.0008, h - 0.146, 3).translate(x, (h + 0.146) / 2, cz + 0.02), frame));
+    }
+    shell.push(tint(blk(0.042, 0.022, 0.026, -0.328, 0.006, z0 + 0.03, 0.004), t('wall')));
+    shell.push(tint(box(0.046, 0.003, 0.026, -0.328, 0.0345, z0 + 0.03), t('wall-2')));
+    // The polished floor and the turntable.
+    sheen.push(tint(blk(W - 0.03, D - 0.016, 0.003, cx, 0.005, cz - 0.002, 0.004, 0.001), t('floor')));
+    sheen.push(tint(new THREE.CylinderGeometry(0.074, 0.076, 0.006, 24).translate(0.02, 0.012, cz - 0.004), t('show-podium')));
+    sheen.push(tint(new THREE.CylinderGeometry(0.0765, 0.0765, 0.0015, 24).translate(0.02, 0.0095, cz - 0.004), t('show-frame')));
+    // The glass front: slim mullions, a transom at the gallery, the sliding doors in a frame.
+    const dHalf = 0.036;
+    const dTop = 0.08;
+    const gx0 = x0 + 0.02;
+    const gx1 = x1 - 0.016;
+    const n = 8;
+    for (let i = 0; i <= n; i++) {
+      const x = gx0 + ((gx1 - gx0) * i) / n;
+      const inDoor = Math.abs(x - door) < dHalf + 0.004;
+      const y0 = inDoor ? dTop : 0.005;
+      sheen.push(tint(box(0.0035, 0.15 - y0, 0.005, x, (0.15 + y0) / 2, fz + 0.002), frame));
+    }
+    for (const [a, b] of [[gx0, door - dHalf], [door + dHalf, gx1]]) sheen.push(tint(box(b - a, 0.005, 0.006, (a + b) / 2, 0.0075, fz + 0.002), frame));
+    for (const y of [story, 0.148]) sheen.push(tint(box(gx1 - gx0, 0.004, 0.006, (gx0 + gx1) / 2, y, fz + 0.002), frame));
+    for (const s of [-1, 1]) sheen.push(tint(box(0.005, dTop, 0.008, door + s * dHalf, dTop / 2 + 0.005, fz + 0.003), frame));
+    sheen.push(tint(box(dHalf * 2 + 0.005, 0.006, 0.008, door, dTop + 0.005, fz + 0.003), frame));
+    const leafW = dHalf - 0.004;
     for (const s of [-1, 1]) {
-      g.push(tint(box(0.05, 0.012, rd, s * (rw / 2 - 0.025), h + 0.006, rz), t('roof')));
-      g.push(tint(box(rw, 0.012, 0.04, 0, h + 0.006, rz + s * (rd / 2 - 0.02)), t('roof')));
+      const lx = door + s * (leafW / 2 + 0.002);
+      panes.push(tint(box(leafW, dTop - 0.004, 0.002, lx, dTop / 2 + 0.005, fz + 0.006), t('glass')));
+      for (const e of [-1, 1]) sheen.push(tint(box(0.0025, dTop - 0.004, 0.003, lx + e * (leafW / 2 - 0.001), dTop / 2 + 0.005, fz + 0.006), frame));
+      sheen.push(tint(box(leafW, 0.004, 0.003, lx, 0.008, fz + 0.006), frame));
     }
-    g.push(tint(box(0.014, 0.012, rd, 0, h + 0.006, rz), t('roof')));
-    g.push(tint(box(rw + 0.004, 0.03, 0.01, 0, h + 0.004, rz + rd / 2 + 0.004), t('fascia')));
-    g.push(tint(box(w * 0.52 + 0.014, 0.046, 0.008, 0, h + 0.04, rz + rd / 2 + 0.002), t('wall-2')));
-    // Inside: a bright back wall strip and ceiling lights (they glow), a little counter.
-    glow.push(tint(box(w - 0.04, 0.012, 0.004, 0, h - 0.02, z - d / 2 + 0.016), t('interior')));
-    for (const x of [-0.2, 0, 0.2]) glow.push(tint(box(0.08, 0.004, 0.02, x, h - 0.004, z), t('interior')));
-    g.push(tint(box(0.07, 0.03, 0.03, 0.25, 0.018, z - 0.03), t('wall-2')));
-    const walls = new THREE.Mesh(merged(g), this.matte);
-    walls.castShadow = this.tier !== 'low';
-    walls.receiveShadow = true;
-    this.root.add(walls);
-    // The glass front and sides.
-    const panes = [box(w - 0.03, h - 0.012, 0.004, 0, h / 2 + 0.004, z + d / 2 - 0.004), box(rw - 0.09, 0.004, rd - 0.07, 0, h + 0.006, rz)];
-    const glass = new THREE.Mesh(merged(panes.map((p) => { const o = p.toNonIndexed(); p.dispose(); o.deleteAttribute('uv'); return o; })), this.windowMat);
-    glass.renderOrder = 2;
-    this.root.add(glass);
-    // A lit interior: a warm light inside (no shadows) on capable devices, glowing strips everywhere.
-    if (this.tier !== 'low') {
-      const lamp = new THREE.PointLight(hex('xr-cars-interior'), 0.08, 0.5, 2);
-      lamp.position.set(0, h - 0.03, z);
-      this.root.add(lamp);
+    panes.push(tint(box(door - dHalf - gx0, 0.143, 0.002, (gx0 + door - dHalf) / 2, 0.0775, fz), t('glass')));
+    panes.push(tint(box(gx1 - door - dHalf, 0.143, 0.002, (gx1 + door + dHalf) / 2, 0.0775, fz), t('glass')));
+    panes.push(tint(box(dHalf * 2, 0.148 - dTop - 0.008, 0.002, door, (0.148 + dTop + 0.008) / 2, fz), t('glass')));
+    panes.push(tint(box(W - 0.05, 0.02, 0.002, cx, story + 0.013, z0 + 0.057), t('glass'))); // the gallery's rail
+    // Reflections: slanted light streaks on the glass.
+    const streak = (xb, wb, slant) => {
+      const y0 = 0.009;
+      const y1 = 0.146;
+      const q = new THREE.BufferGeometry();
+      const v = [xb, y0, 0, xb + wb, y0, 0, xb + wb + slant, y1, 0, xb, y0, 0, xb + wb + slant, y1, 0, xb + slant, y1, 0];
+      q.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+      q.computeVertexNormals();
+      return tint(q.translate(0, 0, fz + 0.0016), t('show-shine'));
+    };
+    for (const [xb, wb] of [[-0.215, 0.022], [-0.185, 0.008], [0.07, 0.03], [0.108, 0.01], [0.235, 0.014]]) panes.push(streak(xb, wb, 0.05));
+    // The canopy over the entrance on two slim columns, with downlights; planters by the door,
+    // a step and a mat.
+    // The canopy: a dark frame with a glass top (the doors stay in sight from above).
+    const cw = 0.22;
+    const cd = 0.058;
+    const ccx = door - 0.002;
+    const cz0 = z1 - 0.006;
+    shell.push(tint(blk(cw, 0.012, 0.009, ccx, story, z1 + cd - 0.012, 0.004, 0.002), t('show-canopy')));
+    for (const s of [-1, 1]) shell.push(tint(box(0.012, 0.009, cd - 0.012, ccx + s * (cw / 2 - 0.006), story + 0.0055, cz0 + (cd - 0.012) / 2), t('show-canopy')));
+    shell.push(tint(box(cw - 0.024, 0.006, 0.008, ccx, story + 0.004, cz0 + 0.004), t('show-canopy')));
+    panes.push(tint(box(cw - 0.024, 0.002, cd - 0.02, ccx, story + 0.006, cz0 + 0.008 + (cd - 0.02) / 2), t('glass')));
+    for (const s of [-1, 1]) sheen.push(tint(new THREE.CylinderGeometry(0.0032, 0.0032, story, 8).translate(ccx + s * (cw / 2 - 0.012), story / 2, z1 + cd - 0.012), frame));
+    for (const s of [-1, 1]) glow.push(tint(box(0.03, 0.001, 0.004, ccx + s * 0.06, story - 0.0004, z1 + cd - 0.012), t('interior')));
+    shell.push(tint(blk(0.1, 0.03, 0.003, door, 0, z1 + 0.012, 0.004, 0.001), t('show-plinth')));
+    shell.push(tint(box(0.064, 0.0012, 0.018, door, 0.0045, z1 + 0.013), t('doormat')));
+    for (const s of [-1, 1]) {
+      shell.push(tint(new THREE.CylinderGeometry(0.011, 0.009, 0.018, 10).translate(door + s * 0.064, 0.009, z1 + 0.018), t('wall-2')));
+      shell.push(tint(new THREE.IcosahedronGeometry(0.014, 1).scale(1, 1.25, 1).translate(door + s * 0.064, 0.03, z1 + 0.018), t('hedge')));
     }
-    // The sign on the roof: a car's side view, lit (no name: the lot belongs to nobody in particular).
+    // The workshop wing: a lower box with a blue band, a roller door with ribs and a small window.
+    const sw = SHOP.x1 - SHOP.x0;
+    const sd = SHOP.z1 - SHOP.z0;
+    const scx = (SHOP.x0 + SHOP.x1) / 2;
+    const scz = (SHOP.z0 + SHOP.z1) / 2;
+    const sz1 = SHOP.z1;
+    shell.push(tint(blk(sw, sd, SHOP.h, scx, 0, scz, 0.008, 0.003), t('shop-wall')));
+    shell.push(tint(blk(sw + 0.008, sd + 0.008, 0.007, scx, SHOP.h, scz, 0.006, 0.002), t('roof')));
+    shell.push(tint(blk(0.04, 0.03, 0.014, scx + 0.04, SHOP.h + 0.008, scz - 0.02, 0.003, 0.0015), t('roof-unit')));
+    shell.push(tint(blk(sw + 0.002, 0.008, 0.02, scx, SHOP.h - 0.019, sz1 + 0.002, 0.002, 0.001), t('shop-band')));
+    const dw = 0.108;
+    const dh = 0.082;
+    const dx = scx + 0.022;
+    shell.push(tint(box(dw + 0.014, dh + 0.007, 0.004, dx, (dh + 0.007) / 2, sz1 + 0.0025), t('wall-2')));
+    shell.push(tint(box(dw, dh, 0.004, dx, dh / 2, sz1 + 0.0045), t('shop-door')));
+    for (let i = 1; i <= 7; i++) shell.push(tint(box(dw - 0.002, 0.0024, 0.002, dx, (i * dh) / 8, sz1 + 0.0068), t('shop-rib')));
+    shell.push(tint(box(dw + 0.016, 0.011, 0.012, dx, dh + 0.012, sz1 + 0.006), t('wall-2')));
+    glow.push(tint(box(0.03, 0.003, 0.008, dx, dh + 0.0185, sz1 + 0.008), t('lamp')));
+    sheen.push(tint(box(0.036, 0.04, 0.003, SHOP.x0 + 0.034, 0.062, sz1 + 0.0035), frame));
+    panes.push(tint(box(0.03, 0.034, 0.002, SHOP.x0 + 0.034, 0.062, sz1 + 0.0055), t('glass')));
+    // The pylon sign: a tall slab with a lit top and a face on both sides.
+    const P = PYLON;
+    shell.push(tint(blk(P.w + 0.02, P.d + 0.016, 0.008, P.x, 0, P.z, 0.004, 0.0015), t('wall-2')));
+    shell.push(tint(blk(P.w, P.d, P.h, P.x, 0, P.z, 0.006, 0.002), t('pylon')));
+    glow.push(tint(box(P.w - 0.01, 0.005, P.d + 0.003, P.x, P.h - 0.006, P.z), t('fascia')));
+    // The signs share one texture: the fascia's (left part) and the pylon's (right part).
     const c = document.createElement('canvas');
-    c.width = 384;
-    c.height = 96;
+    c.width = 512;
+    c.height = 512;
     const ctx = c.getContext('2d');
-    ctx.fillStyle = color('xr-cars-sign');
-    ctx.fillRect(0, 0, 384, 96);
-    for (let i = 0; i < 3; i++) drawSegIcon(ctx, ['small', 'suv', 'cabrio'][i], 30 + i * 116, 14, 116, color('xr-cars-sign-ink'), color('xr-cars-sign'));
+    this.drawShowSigns(ctx);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 4;
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.52, 0.04), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
-    sign.position.set(0, h + 0.04, rz + rd / 2 + 0.0065);
-    this.root.add(sign);
+    const part = (geo, px, py, pw, ph) => {
+      const uv = geo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, (px + uv.getX(i) * pw) / 512, 1 - (py + (1 - uv.getY(i)) * ph) / 512);
+      return geo;
+    };
+    const fw = 0.368;
+    signs.push(part(new THREE.PlaneGeometry(fw, fw / 8), 0, 0, 512, 64).translate(cx, 0.192, z1 + 0.0168));
+    const pw = P.w - 0.008;
+    const ph = pw * (448 / 128);
+    for (const s of [1, -1]) {
+      const face = part(new THREE.PlaneGeometry(pw, ph), 0, 64, 128, 448);
+      if (s < 0) face.rotateY(Math.PI);
+      signs.push(face.translate(P.x, P.h - 0.016 - ph / 2, P.z + s * (P.d / 2 + 0.0012)));
+    }
+    this.signTexShow = tex;
+    const sign = new THREE.Mesh(merged(signs), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
+    // Meshes: walls (casting shadows), polished parts, glass (drawn after the cars inside).
+    const walls = new THREE.Mesh(merged(shell), this.matte);
+    walls.castShadow = this.tier !== 'low';
+    walls.receiveShadow = true;
+    const shiny = new THREE.Mesh(merged(sheen), this.sheenMat);
+    shiny.receiveShadow = true;
+    const glass = new THREE.Mesh(merged(panes), this.showGlassMat);
+    glass.renderOrder = 2;
+    this.showroom = new THREE.Group();
+    this.showroom.add(walls, shiny, glass, sign);
+    this.root.add(this.showroom);
     this.signMesh = sign;
-    // One car on show inside.
-    const show = this.makeCar({ id: 901, seg: 'cabrio', cond: 'top', weeks: 0 }, { hit: false, shadow: false });
-    show.g.position.set(-0.1, 0.006, z - 0.005);
-    show.g.rotation.y = -0.22;
-    show.g.scale.setScalar(0.86);
-    this.root.add(show.g);
-    this.showCar = show;
+    // A lit interior: a warm light inside (no shadows) on capable devices, glowing parts everywhere.
+    if (this.tier !== 'low') {
+      const lamp = new THREE.PointLight(hex('xr-cars-interior'), 0.08, 0.6, 2);
+      lamp.position.set(cx, 0.13, cz + 0.02);
+      this.showroom.add(lamp);
+    }
+    // Three cars on show, merged into one mesh per material (four draw calls for all three).
+    this.buildShowCars([
+      ['electric', -0.168, 0.01, cz - 0.004, -Math.PI + 0.55],
+      ['cabrio', 0.02, 0.016, cz - 0.006, -0.28],
+      ['suv', 0.198, 0.01, cz - 0.004, -0.55],
+    ]);
     this.glowParts = glow;
+  }
+
+  /** The showroom's signs: the fascia (512 x 64 at the top) and the pylon's face (128 x 448 below). */
+  drawShowSigns(ctx) {
+    const name = this.opts.name ?? 'Autohof';
+    const bg = color('xr-cars-sign');
+    const ink = color('xr-cars-sign-ink');
+    const band = color('xr-cars-fascia');
+    const rr = (x, y, w, hh, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, hh, r); ctx.fill(); };
+    const fit = (text, weight, px, max) => { let s = px; ctx.font = font(weight, s); while (ctx.measureText(text).width > max && s > 10) { s -= 1; ctx.font = font(weight, s); } };
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // The fascia: a light box with the name between two cars.
+    ctx.fillStyle = bg;
+    rr(0, 0, 512, 64, 12);
+    drawSegIcon(ctx, 'small', 18, 13, 70, ink, bg);
+    drawSegIcon(ctx, 'cabrio', 424, 13, 70, ink, bg);
+    ctx.fillStyle = ink;
+    fit(name, 'black', 44, 300);
+    ctx.fillText(name, 256, 35);
+    // The pylon: a lit head with a car and the name, below it three kinds of cars on tiles.
+    ctx.fillStyle = color('xr-cars-pylon');
+    ctx.fillRect(0, 64, 128, 448);
+    ctx.fillStyle = band;
+    rr(4, 68, 120, 150, 12);
+    drawSegIcon(ctx, 'small', 14, 84, 100, bg, band);
+    ctx.fillStyle = bg;
+    fit(name, 'black', 30, 112);
+    ctx.fillText(name, 64, 180);
+    ['suv', 'estate', 'electric'].forEach((seg, i) => {
+      const y = 230 + i * 94;
+      ctx.fillStyle = bg;
+      rr(10, y, 108, 84, 10);
+      drawSegIcon(ctx, seg, 16, y + 14, 96, ink, bg);
+    });
+  }
+
+  /** Cars on show inside: [segment, x, y, z, turn], merged per material. */
+  buildShowCars(list) {
+    const parts = { paint: [], glass: [], trim: [], lights: [] };
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    const s = 0.8;
+    for (const [seg, x, y, z, turn] of list) {
+      const geo = buildCarGeo(seg, this.tok, this.tier);
+      m.compose(new THREE.Vector3(x, y, z), q.setFromAxisAngle(up, turn), new THREE.Vector3(s, s, s));
+      parts.paint.push(tint(geo.paint.clone().applyMatrix4(m), this.segColor[seg].getHex()));
+      if (geo.glass) parts.glass.push(geo.glass.clone().applyMatrix4(m));
+      parts.trim.push(geo.trim.clone().applyMatrix4(m));
+      parts.lights.push(geo.lights.clone().applyMatrix4(m));
+    }
+    this.showPaint = this.paintBase.clone();
+    this.showPaint.vertexColors = true;
+    this.showPaint.color.set(0xffffff);
+    this.showPaint.roughness = 0.16;
+    if ('clearcoat' in this.showPaint) this.showPaint.clearcoat = 1;
+    this.showCars = [
+      new THREE.Mesh(merged(parts.paint), this.showPaint),
+      new THREE.Mesh(merged(parts.trim), this.trimMat),
+      new THREE.Mesh(merged(parts.lights), this.lightMat),
+      new THREE.Mesh(merged(parts.glass), this.glassMat),
+    ];
+    this.showroom.add(...this.showCars);
   }
 
   buildStreetFurniture() {
@@ -533,7 +731,7 @@ export class Lot {
       glow.push(tint(box(0.026, 0.003, 0.01, x + 0.02, 0.1955, z), t('lamp')));
     }
     // Plants in tubs, a bench, a litter bin.
-    this.treePos = [[-0.56, -0.36, 1.1], [0.52, -0.37, 1.25], [0.6, -0.12, 0.9], [-0.61, 0.2, 0.8]];
+    this.treePos = [[-0.56, -0.36, 1.1], [0.59, -0.39, 1.15], [0.6, -0.12, 0.9], [-0.61, 0.2, 0.8]];
     for (const [x, z, s] of this.treePos) {
       g.push(tint(new THREE.CylinderGeometry(0.006 * s, 0.008 * s, 0.07 * s, 6).translate(x, 0.035 * s, z), t('trunk')));
       g.push(tint(new THREE.IcosahedronGeometry(0.045 * s, 1).scale(1, 1.15, 1).translate(x, 0.1 * s, z), t('tree')));
@@ -578,10 +776,11 @@ export class Lot {
     const flagMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide });
     this.flagMesh = new THREE.Mesh(flagGeo, flagMat);
     this.root.add(this.flagMesh);
-    // Bunting from the showroom's roof to the front lamps: little pennants in turn colors.
+    // Bunting from the showroom's fascia to the front lamps: little pennants in turn colors.
     const bunt = [];
     const bc = [t('bunting-1'), t('bunting-2'), t('bunting-3'), t('bunting-4')];
-    const runs = [[[-0.33, 0.14, -0.26], [-0.56, 0.2, 0.285]], [[0.33, 0.14, -0.26], [0.585, 0.2, 0.285]], [[-0.56, 0.2, 0.285], [0.02, 0.2, 0.285]], [[0.02, 0.2, 0.285], [0.585, 0.2, 0.285]]];
+    const top = [0.152, SHOW.z1 + 0.016];
+    const runs = [[[SHOW.x0 + 0.01, ...top], [-0.56, 0.2, 0.285]], [[SHOW.x1 - 0.01, ...top], [0.585, 0.2, 0.285]], [[-0.56, 0.2, 0.285], [0.02, 0.2, 0.285]], [[0.02, 0.2, 0.285], [0.585, 0.2, 0.285]]];
     const a = new THREE.Vector3();
     const b = new THREE.Vector3();
     const p = new THREE.Vector3();
@@ -1381,7 +1580,6 @@ export class Lot {
   dispose() {
     this.anims.length = 0;
     for (const id of [...this.cars.keys()]) this.removeCar(id);
-    this.showCar?.paint.material.dispose();
     for (const m of this.bubbleMats.values()) { m.map.dispose(); m.dispose(); }
     this.bubbleGeo.dispose();
     for (const p of this.popups) { p.tex.dispose(); }
