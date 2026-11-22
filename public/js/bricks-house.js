@@ -18,6 +18,7 @@ function white(geo) {
 }
 const UNIT = white(new THREE.BoxGeometry(1, 1, 1));
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+const _ident = new THREE.Matrix4();
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
@@ -39,6 +40,7 @@ const SITE_ONLY = ['Sand', 'Wood', 'Metal'];
 const GARDEN_BASE = ['WoodDark', 'Mailbox', 'Dark'];
 const GREEN = ['Bark', 'LeafDark', 'Leaf', 'Berry'];
 const GARDEN_ALL = ['Fence', 'LampGlow', ...GARDEN_BASE, ...GREEN];
+const TOGGLED = new Set([...GARDEN_ALL, ...SITE_ONLY]); // plot parts that the garden shows or hides
 
 /**
  * Many boxes (or bricks) of one material as one instanced mesh, each with its own little
@@ -203,7 +205,7 @@ function fuse(list) {
   for (const entry of list) {
     if (entry[0] !== UNIT) continue;
     entry[1].decompose(_ps, _qt, _sc);
-    if (Math.min(Math.abs(_sc.x), Math.abs(_sc.y), Math.abs(_sc.z)) < 0.004 || _sc.x <= 0 || _sc.y <= 0 || _sc.z <= 0) continue;
+    if (Math.min(Math.abs(_sc.x), Math.abs(_sc.y), Math.abs(_sc.z)) < 0.0052 || _sc.x <= 0 || _sc.y <= 0 || _sc.z <= 0) continue;
     entry[3] = chamferBox(_sc.x, _sc.y, _sc.z);
     entry[1] = new THREE.Matrix4().compose(_ps, _qt, _sc.set(1, 1, 1));
   }
@@ -346,8 +348,9 @@ export class House {
    * plotRoot: the group the plot stands in (plot-local space); M: the loaded model
    * (bricks-visuals.js). cast: the house throws shadows; calm: gentle animations.
    */
-  constructor(plotRoot, M, { cast = true, calm = false } = {}) {
+  constructor(plotRoot, M, { cast = true, calm = false, settle = false } = {}) {
     this.M = M;
+    this.settle = settle; // never takes a part back: everything at rest is merged at once
     this.cast = cast;
     this.calm = calm;
     this.site = new THREE.Group();
@@ -376,6 +379,7 @@ export class House {
   // ---------- the plot's own garden parts ----------
 
   showGarden(kind) {
+    if (this.siteMerged) return;
     const show = new Set(kind ? GARDEN_BASE : SITE_ONLY);
     if (kind === 'picket') ['Fence', 'LampGlow', ...GREEN].forEach((n) => show.add(n));
     if (kind === 'hedge' || kind === 'playlawn') ['LampGlow', ...GREEN].forEach((n) => show.add(n));
@@ -440,6 +444,67 @@ export class House {
     ball.dispose();
     cone.dispose();
     this.site.add(g);
+    // What has a material the plot always shows goes into the plot's own mesh of it (fewer draw calls).
+    for (const m of [...g.children]) {
+      const name = m.material.name;
+      const host = this.plotMeshes.get(name);
+      if (!host || TOGGLED.has(name) || !m.isMesh) continue;
+      this.absorb(host, [m]);
+    }
+  }
+
+  /** Merges meshes into a host mesh of the same material (in the host's space) and removes them. */
+  absorb(host, list) {
+    host.updateMatrixWorld(true);
+    const inv = host.matrixWorld.clone().invert();
+    const entries = [[host.geometry, new THREE.Matrix4(), null]];
+    for (const m of list) { m.updateMatrixWorld(true); entries.push([m.geometry, new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld), null]); }
+    const geo = fuse(entries);
+    if (host.userData.ownGeo) { flatCache.delete(host.geometry); host.geometry.dispose(); }
+    host.geometry = geo;
+    host.userData.ownGeo = true;
+    for (const m of list) { if (m.userData.ownGeo) { flatCache.delete(m.geometry); m.geometry.dispose(); } m.removeFromParent(); }
+  }
+
+  /**
+   * Once nothing on the plot can change any more (the check): every visible mesh of the plot,
+   * the place around it, the garden and the extras outside the house becomes one mesh per
+   * material; the parts the garden hid are dropped.
+   */
+  mergeSite() {
+    this.siteMerged = true;
+    const by = new Map();
+    const hidden = [];
+    // the site, and what of the house is frozen (one mesh per material in this.home)
+    for (const root of [this.site, this.home]) {
+      root.updateMatrixWorld(true);
+      const list = root === this.home ? [...this.pool.home.values()] : [];
+      if (root === this.site) {
+        root.traverse((o) => {
+          if (!o.isMesh || o.isInstancedMesh || o.userData.noFit) return;
+          let vis = true;
+          for (let q = o; q && q !== root; q = q.parent) { if (q.userData.noBake) return; if (!q.visible) vis = false; }
+          if (vis) list.push(o); else hidden.push(o);
+        });
+      }
+      for (const o of list) if (o.parent && !o.material.transparent) (by.get(o.material) ?? by.set(o.material, []).get(o.material)).push(o);
+    }
+    for (const list of by.values()) {
+      if (list.length < 2) continue;
+      const host = list.find((m) => m.castShadow) ?? list[0];
+      this.absorb(host, list.filter((m) => m !== host));
+    }
+    for (const o of hidden) { if (o.userData.ownGeo) { flatCache.delete(o.geometry); o.geometry.dispose(); } o.removeFromParent(); }
+    // the pools now hold the merged meshes (only those that sit directly in their root, as freeze() expects)
+    for (const where of ['home', 'site']) {
+      const pool = this.pool[where];
+      for (const [mat, m] of [...pool]) if (!m.parent) pool.delete(mat);
+      for (const list of by.values()) {
+        const host = list.find((m) => m.parent === this[where] && m.matrix.equals(_ident));
+        if (host) { pool.set(host.material, host); this.pool[where === 'home' ? 'site' : 'home'].delete(host.material); }
+      }
+    }
+    this.changed += 1;
   }
 
   // ---------- building blocks ----------
@@ -542,6 +607,9 @@ export class House {
       else if (!part.baked) { part.baked = true; this.bake(part); busy = true; }
     }
     if (busy) this.changed += 1;
+    // parts that came to rest after the final freeze (or, for a house that never takes a part
+    // back, any part at rest): frozen too, and the plot merged with them
+    else if ((this.final || this.settle) && Object.values(this.parts).some((p) => p.baked && !p.frozen)) this.freeze([], this.final);
     return busy;
   }
 
@@ -586,7 +654,8 @@ export class House {
    * for the garden): `keep` names the parts that may still be taken away (the last choice, the
    * extras before they are confirmed).
    */
-  freeze(keep = []) {
+  freeze(keep = [], final = false) {
+    if (final) this.final = true;
     const fresh = { home: new Map(), site: new Map() };
     for (const [key, part] of Object.entries(this.parts)) {
       if (part.frozen || !part.baked || keep.includes(key) || (key.startsWith('x:') && keep.includes('extras'))) continue;
@@ -614,6 +683,7 @@ export class House {
         this.pool[where].set(mat, m);
       }
     }
+    if ((this.final || this.settle) && this.chosen.garden && Object.values(this.parts).every((p) => p.frozen)) this.mergeSite();
     this.changed += 1;
   }
 

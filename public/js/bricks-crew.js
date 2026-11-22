@@ -10,13 +10,13 @@ import { painted, joined } from './bricks-visuals.js';
 import { HOUSE_Z, OZ } from './bricks-plan.js';
 
 const H = 0.15; // figure height (meters in plot space, before the scale)
-const SCALE = 1.2;
+const SCALE = 0.86;
 const R = H * 0.13;
 const SHOULDER = new THREE.Vector3(R * 1.12, H * 0.62, 0);
 const FRONT = HOUSE_Z + OZ; // plot-local z of the front wall's face
-// The ladder leans against the gutter at the front left: its foot and its top (plot-local).
-const LADDER_FOOT = new THREE.Vector3(-0.212, 0.002, FRONT + 0.125);
-const LADDER_TOP = new THREE.Vector3(-0.212, 0.19, FRONT + 0.05);
+// The ladder leans against the gutter at the front left corner (clear of the window): its foot and its top (plot-local).
+const LADDER_FOOT = new THREE.Vector3(-0.228, 0.002, FRONT + 0.115);
+const LADDER_TOP = new THREE.Vector3(-0.228, 0.19, FRONT + 0.05);
 const ease = (k) => k * k * (3 - 2 * k);
 
 function bodyGeo() {
@@ -98,11 +98,11 @@ export class Crew {
     // Who stands where: at the wheelbarrow, at the foot of the ladder, up on the ladder.
     const up = LADDER_FOOT.clone().lerp(LADDER_TOP, 0.36);
     this.men = [
-      { at: new THREE.Vector3(0.37, 0.002, FRONT + 0.11), face: -2.2, hammer: false },
-      { at: new THREE.Vector3(-0.15, 0.002, FRONT + 0.15), face: -2.75, hammer: true },
-      { at: new THREE.Vector3(up.x, up.y, up.z + 0.022), face: Math.PI, hammer: true },
+      { at: new THREE.Vector3(0.36, 0.002, FRONT + 0.075), face: -2.3, hammer: false, exit: 1 },
+      { at: new THREE.Vector3(-0.31, 0.002, FRONT + 0.03), face: 0.9, hammer: true, exit: -1 },
+      { at: new THREE.Vector3(up.x, up.y, up.z + 0.016), face: Math.PI, hammer: true, exit: -1 },
     ].map((m, i) => ({ ...m, pos: m.at.clone(), yaw: m.face, swing: 0, phase: i * 1.7 }));
-    this.barrowAt = new THREE.Vector3(0.335, 0.002, FRONT + 0.075);
+    this.barrowAt = new THREE.Vector3(0.33, 0.002, FRONT + 0.035);
     this.barrow.position.copy(this.barrowAt);
     this.barrow.rotation.y = -2.2;
     this.state = 'off'; // 'in' | 'on' | 'out' | 'off'
@@ -160,8 +160,8 @@ export class Crew {
         this.ladder.scale.y = Math.max(0.001, 1 - ease(Math.min(1, this.t / 0.7)));
         this.men.forEach((m, i) => {
           if (walk <= 0) return;
-          const tx = 0.8 + i * 0.06;
-          const tz = FRONT + 0.2 + i * 0.03;
+          const tx = m.exit * (0.78 + i * 0.05);
+          const tz = FRONT + (m.exit > 0 ? 0.06 : 0.0) + i * 0.02;
           const from = i === 2 ? new THREE.Vector3(m.at.x, 0.002, m.at.z + 0.03) : m.at;
           const kk = ease(k);
           m.pos.set(from.x + (tx - from.x) * kk, 0.002, from.z + (tz - from.z) * kk);

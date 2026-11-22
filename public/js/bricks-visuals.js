@@ -433,7 +433,7 @@ export function joined(geos) {
   return out;
 }
 
-/** A little figure (meters in its own space): legs, body, head, a winter hat (one mesh), arms that move. */
+/** A little figure (meters in its own space): legs, body, head, a winter hat (one mesh); its arms are drawn by the family (one instanced mesh). */
 function person({ h, shirt, pants, hat, skin }, mat) {
   const g = new THREE.Group();
   const r = h * 0.13;
@@ -445,16 +445,19 @@ function person({ h, shirt, pants, hat, skin }, mat) {
     painted(new THREE.SphereGeometry(r * 0.32, 8, 6), 'xr-bricks-fence', { y: h * 0.8 + r * 1.75, z: -r * 0.3 }),
   ]), mat);
   g.add(body);
-  const armGeo = painted(new THREE.CapsuleGeometry(r * 0.32, h * 0.2, 3, 8), shirt, { y: -h * 0.13 });
-  const arms = [-1, 1].map((sx) => {
-    const pivot = new THREE.Mesh(armGeo, mat);
-    pivot.position.set(sx * r * 1.05, h * 0.62, 0);
-    pivot.rotation.z = sx * 0.15;
-    g.add(pivot);
-    return pivot;
-  });
-  return { g, arms, h };
+  return { g, h, r, shirt, la: 0.15, ra: -0.15 };
 }
+
+// One arm of height 1 (scaled by the figure), white: the instance color is the shirt's.
+let ARM = null;
+function armGeo() {
+  ARM ??= painted(new THREE.CapsuleGeometry(0.13 * 0.32, 0.2, 3, 8), 'xr-bricks-family-white', { y: -0.13 });
+  return ARM;
+}
+const _fm = new THREE.Matrix4();
+const _fa = new THREE.Matrix4();
+const _fr = new THREE.Matrix4();
+const _fs = new THREE.Matrix4();
 
 const P = (h, shirt, hat, skin = 1) => ({ h, shirt: `xr-bricks-family-${shirt}`, pants: 'xr-bricks-family-pants', hat: `xr-bricks-family-hat-${hat}`, skin: `xr-bricks-family-skin-${skin}` });
 // Who stands on a plot: the builders of the brief, or the Winters next door.
@@ -479,6 +482,27 @@ export function makeFamily(kind = 'winter') {
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.8, vertexColors: true });
   const ppl = (FAMILIES[kind] ?? FAMILIES.winter).map((spec) => person(spec, mat));
   ppl.forEach((pp, i) => { pp.g.position.set(SPOTS[i][0], 0, SPOTS[i][1]); pp.turn = (i - 1) * -0.2; pp.g.rotation.y = pp.turn; group.add(pp.g); });
+  // All arms of the family: one instanced mesh, two per figure, in its shirt color.
+  const arms = new THREE.InstancedMesh(armGeo(), mat, ppl.length * 2);
+  arms.frustumCulled = false;
+  ppl.forEach((pp, i) => { const c = new THREE.Color(hex(pp.shirt)); arms.setColorAt(i * 2, c); arms.setColorAt(i * 2 + 1, c); });
+  arms.instanceColor.needsUpdate = true;
+  group.add(arms);
+  const placeArms = () => {
+    ppl.forEach((pp, i) => {
+      pp.g.updateMatrix();
+      [-1, 1].forEach((sx, j) => {
+        const z = j === 0 ? -pp.la : -pp.ra;
+        _fa.makeTranslation(sx * pp.r * 1.05, pp.h * 0.62, 0);
+        _fr.makeRotationZ(z);
+        _fs.makeScale(pp.h, pp.h, pp.h);
+        _fm.copy(pp.g.matrix).multiply(_fa).multiply(_fr).multiply(_fs);
+        arms.setMatrixAt(i * 2 + j, _fm);
+      });
+    });
+    arms.instanceMatrix.needsUpdate = true;
+  };
+  placeArms();
   let mood = null; // { kind, t, who }
   return {
     group,
@@ -515,9 +539,10 @@ export function makeFamily(kind = 'winter') {
         }
         pp.g.position.y = y;
         pp.g.rotation.y += (turn - pp.g.rotation.y) * Math.min(1, dt * 10);
-        pp.arms[0].rotation.z += (-la - pp.arms[0].rotation.z) * Math.min(1, dt * 14);
-        pp.arms[1].rotation.z += (-ra - pp.arms[1].rotation.z) * Math.min(1, dt * 14);
+        pp.la += (la - pp.la) * Math.min(1, dt * 14);
+        pp.ra += (ra - pp.ra) * Math.min(1, dt * 14);
       });
+      placeArms();
     },
   };
 }

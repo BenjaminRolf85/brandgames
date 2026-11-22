@@ -362,7 +362,7 @@ export class BricksScene extends BaseScene {
     const inner = new THREE.Group(); // mirrored copy of the plot
     inner.scale.set(-1, 1, 1);
     root.add(inner);
-    nb.house = new House(inner, M, { cast: false, calm: this.calm });
+    nb.house = new House(inner, M, { cast: false, calm: this.calm, settle: true });
     nb.house.decorate(this.round.brief.place.id);
     nb.family = makeFamily('winter');
     nb.family.group.position.set(-0.25, 0.002, 0.31);
@@ -1121,7 +1121,7 @@ export class BricksScene extends BaseScene {
   updateCheck(dt) {
     const c = this.check;
     if (!c || this.mode !== 'check') return;
-    if (c.wait > 0) { c.wait -= dt; if (c.wait <= 0) { this.house.freeze(); this.nb.house.freeze(); bsfx.row(); } return; }
+    if (c.wait > 0) { c.wait -= dt; if (c.wait <= 0) { this.house.freeze([], true); this.nb.house.freeze([], true); bsfx.row(); } return; }
     const rows = c.me.rows.length;
     const grow = c.grow;
     c.t += dt;
@@ -1129,8 +1129,8 @@ export class BricksScene extends BaseScene {
     if (c.stage < rows) {
       this.point(this.markMe, this.house, c.me.rows[c.stage].why);
       this.point(this.markNb, this.nb.house, c.them.rows[c.stage].why);
-      if (c.t > (this.calm ? 3.2 : 2.5)) {
-        if (c.stage + 1 < rows) { c.stage += 1; c.grow = 0; c.t = 0; bsfx.row(); } else this.showSummary();
+      if (c.t > (c.split ? (this.calm ? 4.2 : 3.6) : (this.calm ? 3.2 : 2.5))) {
+        if (c.stage + 1 < rows) { c.stage += 1; c.grow = 0; c.t = 0; c.split = false; bsfx.row(); } else this.showSummary();
       }
     } else if (c.grow >= 1 && !c.final) {
       c.final = true;
@@ -1354,7 +1354,7 @@ export class BricksScene extends BaseScene {
         if (final) s.details = { x: W - m - w, y: Hh - m - btnH + 4, w: 130, h: btnH - 4 };
         out.plot = { x: 0, y: top + 30, w: W - w - 2 * m, h: Hh - top - 30 - m };
       } else {
-        const ppm = kind === 'row' ? clamp(W / 2.3, 460, 560) : (W - 2 * m) / pw;
+        const ppm = kind === 'row' ? clamp(W / 2.5, 420, 520) : (W - 2 * m) / pw;
         const w = pw * ppm;
         const h = ph * ppm;
         const y = Hh - m - btnH - m - h;
@@ -1627,10 +1627,19 @@ export class BricksScene extends BaseScene {
       (mine ?? mid).clone().add(HOUSE),
       (theirs ?? mid).clone().multiply(new THREE.Vector3(-1, 1, 1)).add(HOUSE).add(off),
     ];
-    const r = 0.21;
-    const lo = (a) => Math.min(...pts.map((p) => p[a])) - r;
-    const hi = (a) => Math.max(...pts.map((p) => p[a])) + r;
-    return { key: String(c.stage), box: [[lo('x'), hi('x')], [0, Math.max(0.34, hi('y') - 0.06)], [lo('z'), Math.min(hi('z'), 0.38)]] };
+    const around = (list, r) => {
+      const lo = (a) => Math.min(...list.map((p) => p[a])) - r;
+      const hi = (a) => Math.max(...list.map((p) => p[a])) + r;
+      return [[lo('x'), hi('x')], [0, Math.max(0.34, hi('y') - 0.06)], [lo('z'), Math.min(hi('z'), 0.38)]];
+    };
+    // On a wide screen the two houses stand far apart: the view goes to the part on the player's
+    // house, then on to the neighbors'. On phones both stay in view together.
+    c.split = wide && !this.engine.touchUI && !!mine && !!theirs;
+    if (c.split) {
+      const second = c.t > (this.calm ? 2.0 : 1.7);
+      return { key: `${c.stage}${second ? 'b' : 'a'}`, box: around([pts[second ? 1 : 0]], 0.27) };
+    }
+    return { key: String(c.stage), box: around(pts, 0.21) };
   }
 
   /** Calm motion's cut: a veil over the world (not over the panels), 0..1. */
