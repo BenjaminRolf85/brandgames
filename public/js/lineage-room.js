@@ -216,7 +216,8 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
     tint(new THREE.BoxGeometry(1.0, 0.2, 0.2).rotateZ(0.9).translate(0.2, 0.05, 0.2), new THREE.Color(hex('xr-lineage-on-good'))),
   ]);
   const CHECKS = 16;
-  const checks = new THREE.InstancedMesh(checkGeo, new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }), CHECKS);
+  const checkMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+  const checks = new THREE.InstancedMesh(checkGeo, checkMat, CHECKS);
   checks.frustumCulled = false;
   checks.count = 0;
   holder.add(checks);
@@ -1119,6 +1120,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
       dotGeo.dispose();
       rubber.geometry.dispose();
       checkGeo.dispose();
+      checkMat.dispose();
       holder.removeFromParent();
     },
   };
