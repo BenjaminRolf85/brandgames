@@ -39,6 +39,14 @@ function wrapText(ctx, b, maxW) {
     let cur = '';
     for (const w of String(b.text).split(' ')) {
       if (cur && ctx.measureText(`${cur} ${w}`).width > maxW) { out.push(cur); cur = w; } else cur = cur ? `${cur} ${w}` : w;
+      while (ctx.measureText(cur).width > maxW && cur.length > 1) { // too long for a line: at a fixed space, else (an e-mail address) where it must
+        let k = cur.length - 1;
+        const fixed = [...cur.matchAll(/\u00a0/g)].map((m) => m.index).reverse().find((i) => i > 0 && ctx.measureText(cur.slice(0, i)).width <= maxW);
+        if (fixed) { out.push(cur.slice(0, fixed)); cur = cur.slice(fixed + 1); continue; }
+        while (k > 1 && ctx.measureText(cur.slice(0, k)).width > maxW) k -= 1;
+        out.push(cur.slice(0, k));
+        cur = cur.slice(k);
+      }
     }
     out.push(cur);
     return out;
@@ -584,6 +592,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
       const on = !f || f.includes(c.node.col); // the other layers step aside until the trail is complete
       c.mesh.visible = on;
       c.token.visible = on || map; // the map: the places stay, only their tags step aside
+      if (routeView && map) c.mesh.userData.interactive = false; // while the car drives the route nothing is picked
     }
     // Headset: the board and the panel above it follow the layers in view, centred in front of the player.
     const key = f ? f.join() : 'all';
@@ -814,7 +823,7 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
     const hot = (p) => p.key || (st.showKey && p.k === st.keyK);
     if (ind && tl.parts.length) { // the browser's gantry: name and one short line (type, example or owner), the token beside it
       const g = tl.parts.find((p) => p.glyph);
-      const nb = (x) => String(x).replace(/ /g, '\u00a0'); // a part never breaks inside, only between the parts
+      const nb = (x) => String(x).replace(/ /g, '\u00a0'); // a part breaks between the parts first ("z. B. 1.250,00 €" stays one)
       blocks.push({ text: tl.parts.map((p) => nb(p.glyph ? p.text : `${p.label} ${p.text}`)).join(' · '), size: TS, gap: 0.006, color: C('muted'), glyph: g?.glyph ?? null, hot: tl.parts.some(hot), indent: ind, keep: true });
     } else for (const p of tl.parts) blocks.push({ text: p.glyph ? p.text : `${p.label}  ${p.text}`, size: T1 + 0.003, gap: 0.011, color: C('muted'), glyph: p.glyph ?? null, hot: hot(p) });
     // (the browser marks right and wrong with a badge in the corner; the headset writes it on the tile)

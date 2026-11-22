@@ -12,7 +12,7 @@ addStrings({
     lineageFits: 'ist gemeint',
     lineageMatchPrompt: 'Hindernis voraus! Welches Feld ist gemeint: „{d}“?',
     lineageTag: 'Mit Echo über die Datenautobahn',
-    lineageDesc: 'Echo fährt auf der Datenautobahn: Umfahre Hindernisse mit der richtigen Antwort, bevor das Auto dort ist, und baue am Autobahnkreuz die Route zum Bericht aus den richtigen Datenpunkten.',
+    lineageDesc: 'Echo fährt auf der Datenautobahn: Wähle das richtige Feld, bevor das Auto am Hindernis ist, dann baut ihr am Autobahnkreuz die Route zum Bericht aus den richtigen Datenpunkten.',
     lineageIntro: 'Echo fährt auf der Datenautobahn. Wähle das richtige Feld, bevor das Auto am Hindernis ist, und baue danach die Route zum Ziel: einen Datenpunkt wählen, dann den nächsten.',
     lineageIntroEasy: 'Echo fährt auf der Datenautobahn. Wähle das richtige Feld (das Auto wartet vor dem Hindernis) und baue danach die Route zum Ziel: einen Datenpunkt wählen, dann den nächsten.',
     // controls
@@ -101,7 +101,7 @@ addStrings({
     lineageFits: 'is the one',
     lineageMatchPrompt: 'Obstacle ahead! Which field is meant: "{d}"?',
     lineageTag: 'Down the data highway with Echo',
-    lineageDesc: 'Echo drives down the data highway: steer round obstacles with the right answer before the car gets there, and at the interchange build the route to the report from the right data points.',
+    lineageDesc: 'Echo drives down the data highway: pick the right field before the car reaches the obstacle, then build the route to the report at the interchange from the right data points.',
     lineageIntro: 'Echo drives down the data highway. Pick the right field before the car reaches the obstacle, then build the route to the destination: pick one data point, then the next.',
     lineageIntroEasy: 'Echo drives down the data highway. Pick the right field (the car waits in front of the obstacle), then build the route to the destination: pick one data point, then the next.',
     lineageKeyPick: 'Click or keys 1 to 4',

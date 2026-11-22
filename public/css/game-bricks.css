@@ -5,7 +5,9 @@
   --xr-bricks-gold:           #f0b43c;   /* the door knob */
   --xr-bricks-gold-glow:      #ffd970;
   --xr-bricks-concrete:       #8f8a82;   /* foundation, sills, lintels */
-  --xr-bricks-quoin:          #d9b88a;   /* sandstone corner pieces, mortar */
+  --xr-bricks-quoin:          #d9b88a;   /* sandstone corner pieces */
+  --xr-bricks-mortar:         #d6cdbd;   /* the mortar in the joints of the brick wall */
+  --xr-bricks-sill:           #e4ddd0;   /* stone window sills, door step, path edging */
   --xr-bricks-solar:          #1d2f5c;   /* solar cells */
   /* wall types built in code */
   --xr-bricks-plaster:        #f1e8d6;   /* timber frame: the plastered fields */
@@ -55,6 +57,17 @@
   --xr-bricks-interior:       #ff9f45;   /* warm glow behind the open door */
   --xr-bricks-metal:          #8e97a4;
   --xr-bricks-dark:           #2b2f38;
+  /* the builders on the site (hard hats, vests, wheelbarrow, ladder) */
+  --xr-bricks-worker-hat:     #ffcf2e;
+  --xr-bricks-worker-vest:    #ff7a1a;
+  --xr-bricks-worker-stripe:  #f4f6f8;
+  --xr-bricks-worker-shirt:   #39598c;
+  --xr-bricks-worker-pants:   #3a3f52;
+  --xr-bricks-barrow:         #2f8f68;
+  --xr-bricks-ladder:         #c9ced6;
+  /* the finale: warm light from the windows on the ground; the calm cut of the camera */
+  --xr-bricks-light-pool:     #ffb25e;
+  --xr-bricks-fade:           #0b0d1c;
   /* building site */
   --xr-bricks-crane:          #f2b632;
   --xr-bricks-crane-dark:     #3a3f4b;

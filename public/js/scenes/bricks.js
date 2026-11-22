@@ -39,6 +39,7 @@ import { DECISIONS, STEPS, OPTION, makeRound, judge, bestFrom, bestHouse, bestCh
 import { Adviser } from '../bricks-ai.js';
 import { TOP, OX, OZ, FOUND, HOUSE_Z } from '../bricks-plan.js';
 import { House, ROOF_SLINGS } from '../bricks-house.js';
+import { Crew } from '../bricks-crew.js';
 import { Thumbs } from '../bricks-thumbs.js';
 import { loadBricks, Crane, Puffs, bsfx, makeFamily } from '../bricks-visuals.js';
 import { OptionCard, briefPanel, briefChip, moneyBar, duelPanel, extrasButton, dotsPanel, strip, checkPanel, drawTag, euro, optShort, tagsOf, BRIEF, CHECK_SIZE } from '../bricks-panels.js';
@@ -323,6 +324,20 @@ export class BricksScene extends BaseScene {
     };
     this.markMe = arrow('xr-bricks-you', this.house.home);
     this.markNb = arrow('xr-bricks-neighbor', this.nb.house.home);
+    // ...and a soft glow on the part itself (in the headset also a small floating name).
+    const glow = (token, parent) => {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTexture(), color: hex(token), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      sp.scale.setScalar(0.16);
+      sp.renderOrder = 5;
+      sp.visible = false;
+      sp.userData.noFit = true;
+      parent.add(sp);
+      return sp;
+    };
+    this.markMe.userData.glow = glow('xr-bricks-you', this.house.home);
+    this.markNb.userData.glow = glow('xr-bricks-neighbor', this.nb.house.home);
+    // The builders on the site while the house goes up.
+    this.crew = new Crew(this.plotRoot, { cast: this.tier === 'high', calm: this.calm });
     // Little photos of the real parts for the cards, one per frame.
     this.thumbs = new Thumbs(this.engine, M, this.round, (id) => this.thumbReady(id));
     this.refreshLive();
@@ -782,6 +797,7 @@ export class BricksScene extends BaseScene {
     this.mode = 'build';
     bsfx.pick();
     this.hideCards();
+    this.crew.show();
     // Exactly one reaction: the builders' speech tag when a wish is at stake, else a short message.
     if (!this.react(o, o.decision)) this.say(...this.feedback(o, before, this.live));
     let time;
@@ -958,6 +974,8 @@ export class BricksScene extends BaseScene {
     for (const id of this.extras) this.buildExtra(id);
     this.neighborBuilds();
     this.parkCrane();
+    // The house is done: the builders pack up and walk off.
+    this.delay(this.extras.length ? 0.9 : 0.3, () => { if (!this.disposed) this.crew.leave(); });
     const all = this.plan();
     const me = judge(all, this.round);
     const them = this.round.neighbor.result;
@@ -1030,18 +1048,71 @@ export class BricksScene extends BaseScene {
     c.stage = c.me.rows.length;
     c.grow = 0;
     c.t = 0;
-    this.markMe.visible = false;
-    this.markNb.visible = false;
+    for (const mark of [this.markMe, this.markNb]) this.hideMark(mark);
+  }
+
+  hideMark(mark) {
+    mark.visible = false;
+    mark.userData.glow.visible = false;
+    if (mark.userData.label) mark.userData.label.visible = false;
+  }
+
+  /** Where the part a reason is about sits on a house (house-local), or null. */
+  spotOf(house, why) {
+    const id = why?.a;
+    const spot = id ? SPOT[id] ?? SPOT[OPTION[id]?.decision] : null;
+    if (!spot) return null;
+    const y = OPTION[id].decision === 'roof' || id === 'solar' ? (house.roofTop ?? TOP) - 0.02 : spot[1];
+    return new THREE.Vector3(spot[0], y, spot[2]);
   }
 
   /** Puts the pointer over the part a reason is about (or hides it). */
   point(mark, house, why) {
     const id = why?.a;
-    const spot = id ? SPOT[id] ?? SPOT[OPTION[id].decision] : null;
-    if (!spot) { mark.visible = false; return; }
+    const spot = id ? SPOT[id] ?? SPOT[OPTION[id]?.decision] : null;
+    if (!spot) { this.hideMark(mark); return; }
     const y = OPTION[id].decision === 'roof' || id === 'solar' ? (house.roofTop ?? TOP) + 0.07 : spot[1] + 0.05;
-    mark.visible = true;
+    // Calm motion's cut: nothing points while the view is dark.
+    mark.visible = !(this.fadeCut?.dark);
     mark.position.set(spot[0], y + (this.calm ? 0 : Math.abs(Math.sin(this.time * 4)) * 0.012), spot[2]);
+    const glow = mark.userData.glow;
+    const at = this.spotOf(house, why);
+    glow.visible = mark.visible;
+    glow.position.copy(at);
+    glow.material.opacity = this.calm ? 0.55 : 0.45 + 0.25 * Math.sin(this.time * 3.2);
+    if (!this.engine.isXR) return;
+    // The headset: a small floating name over the arrow (the view does not move there).
+    const key = `${this.check.stage}:${id}`;
+    if (mark.userData.labelKey !== key) {
+      mark.userData.labelKey = key;
+      const old = mark.userData.label;
+      if (old) { old.removeFromParent(); old.material.map.dispose(); old.material.dispose(); }
+      mark.userData.label = this.labelSprite(optShort(id), mark === this.markMe ? 'xr-bricks-you' : 'xr-bricks-neighbor');
+      this.group.add(mark.userData.label);
+    }
+    const label = mark.userData.label;
+    label.visible = mark.visible;
+    mark.updateMatrixWorld(true);
+    label.position.copy(mark.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(0, 0.075, 0));
+    if (this.group.parent) this.group.worldToLocal(label.position);
+  }
+
+  /** A small name tag as a sprite (the size of the smallest text in the headset). */
+  labelSprite(text, token) {
+    const c = document.createElement('canvas');
+    c.width = 1024;
+    c.height = 128;
+    const [w, h] = drawTag(c.getContext('2d'), text, token, 44);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.repeat.set(w / c.width, h / c.height);
+    tex.offset.set(0, 1 - h / c.height);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, toneMapped: false }));
+    sp.renderOrder = 8;
+    sp.userData.noFit = true;
+    const lh = num('xr-text-sm') * 1.15 * (128 / 44) * 0.82;
+    sp.scale.set(lh * (w / h), lh, 1);
+    return sp;
   }
 
   /** The check is staged: one criterion at a time, then the summary; then the lights go on. */
@@ -1094,6 +1165,8 @@ export class BricksScene extends BaseScene {
     if (this.engine.isXR) for (const { o, pos } of this.hudHome ?? []) { o.position.copy(pos); o.quaternion.identity(); }
     this.ui.visible = false;
     this.clearTags();
+    for (const mark of [this.markMe, this.markNb]) if (mark) this.hideMark(mark);
+    this.setFade(0);
     if (!this.engine.isXR && !this.engine.touchUI) for (const o of this.hudObjs ?? []) o.visible = false;
     this.refreshHud?.();
     if (this.engine.isXR) {
@@ -1155,7 +1228,8 @@ export class BricksScene extends BaseScene {
       this.relayout();
     }
     this.thumbs?.step();
-    this.house.update(dt);
+    this.crew.busy = this.house.update(dt) || !!this.roofHang;
+    this.crew.tick(dt, this.time);
     this.nb.house.update(dt);
     this.updateHang();
     this.crane.sway = this.calm ? 0 : 0.4;
@@ -1419,9 +1493,11 @@ export class BricksScene extends BaseScene {
     // The house with its garden; more room for a room at the left, the carport at the right, and the crane while it works.
     const has = (list) => list.some((id) => this.extras.includes(id));
     const tall = this.crane?.root.visible && (this.step <= 1 || !!this.roofHang);
-    const box = both
+    // In the check the view moves to the part each criterion is about, on both houses.
+    const focus = both ? this.checkFocus(wide) : null;
+    const box = focus?.box ?? (both
       ? (wide ? [[-0.5, 1.82], [0, 0.42], [-0.36, 0.38]] : [[-0.5, 1.25], [0, 0.42], [-1.3, 0.38]])
-      : [[has(['annex', 'conservatory']) ? -0.48 : -0.4, has(['carport']) ? 0.6 : 0.44], [0, tall ? 0.56 : 0.4], [-0.24, 0.38]];
+      : [[has(['annex', 'conservatory']) ? -0.48 : -0.4, has(['carport']) ? 0.6 : 0.44], [0, tall ? 0.56 : 0.4], [-0.24, 0.38]]);
     const C = new THREE.Vector3((box[0][0] + box[0][1]) / 2, (box[1][0] + box[1][1]) / 2, (box[2][0] + box[2][1]) / 2);
     this.plotRoot.updateMatrixWorld(true);
     const Cw = this.plotRoot.localToWorld(C.clone());
@@ -1435,10 +1511,40 @@ export class BricksScene extends BaseScene {
       this.plotRoot.localToWorld(q).sub(Cw).applyQuaternion(Ri);
       need = Math.max(need, q.z + Math.abs(q.x) / tx, q.z + Math.abs(q.y) / ty);
     }
-    // Calm motion: the view does not glide, it is simply there.
-    const k = this.camD === undefined || this.calm ? 1 : Math.min(1, dt * 4);
-    this.camD = (this.camD ?? need) + (need - (this.camD ?? need)) * k;
-    this.camC = (this.camC ?? Cw.clone()).lerp(Cw, k);
+    // A new view in the check: an eased glide of one second; calm motion: a short fade cut.
+    const viewKey = focus ? `check:${focus.key}` : 'play';
+    if (this.viewKey !== viewKey) {
+      const first = this.viewKey === undefined || this.camD === undefined;
+      this.viewKey = viewKey;
+      if (!first && focus) {
+        if (this.calm) this.fadeCut = { t: 0, dark: false };
+        else this.glide = { C: this.camC.clone(), D: this.camD, t: 0 };
+      } else this.glide = null;
+    }
+    let k = this.camD === undefined || this.calm ? 1 : Math.min(1, dt * 4);
+    const cut = this.fadeCut;
+    if (cut) {
+      // dark in 0.18 s, the new view, light again in 0.3 s
+      cut.t += dt;
+      const was = cut.dark;
+      cut.dark = cut.t >= 0.09 && cut.t < 0.4;
+      const a = cut.t < 0.18 ? cut.t / 0.18 : Math.max(0, 1 - (cut.t - 0.18) / 0.3);
+      this.setFade(a);
+      if (cut.t < 0.18) k = 0;
+      if (cut.t >= 0.48) { this.fadeCut = null; this.setFade(0); }
+      if (was !== cut.dark) this.layoutKey = '';
+    }
+    if (this.glide) {
+      const g = this.glide;
+      g.t += dt;
+      const e = ease(Math.min(1, g.t / 1.0));
+      this.camD = g.D + (need - g.D) * e;
+      this.camC = g.C.clone().lerp(Cw, e);
+      if (g.t >= 1.0) this.glide = null;
+    } else {
+      this.camD = (this.camD ?? need) + (need - (this.camD ?? need)) * k;
+      this.camC = (this.camC ?? Cw.clone()).lerp(Cw, k);
+    }
     cam.position.copy(this.camC).add(new THREE.Vector3(0, 0, this.camD).applyQuaternion(R));
     cam.quaternion.copy(R);
     if (cam.fov !== 60) cam.fov = 60;
@@ -1446,6 +1552,13 @@ export class BricksScene extends BaseScene {
     const cy = plot.y + plot.h / 2;
     cam.setViewOffset(lay.W, lay.Hh, lay.W / 2 - cx, lay.Hh / 2 - cy, lay.W, lay.Hh);
     cam.updateMatrixWorld(true);
+    if (this.fader?.visible) {
+      // the veil of the cut hangs between the world and the panels
+      const f = this.fader;
+      f.position.copy(cam.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(0, 0, -0.75).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion())));
+      if (f.parent) f.parent.worldToLocal(f.position);
+      f.quaternion.copy(cam.getWorldQuaternion(new THREE.Quaternion())).premultiply(f.parent.getWorldQuaternion(new THREE.Quaternion()).invert());
+    }
     if (lay.hud) {
       for (const o of this.hudObjs ?? []) {
         const isInfo = o.w > 0.5;
@@ -1492,6 +1605,43 @@ export class BricksScene extends BaseScene {
       this.pin(nb.root, lay.pip.x + lay.pip.w / 2, lay.pip.y + lay.pip.h / 2 + ppm * 0.2, ppm, 0.6, tilt);
     } else nb.root.visible = false;
     set(this.labelNb, both ? s.labelNb : nb.root.visible ? s.nbTag : null);
+  }
+
+  /**
+   * The part of the check's criterion on both houses (plot-local box), or the overview of the
+   * two houses (box null) for a criterion without a part, while the check waits, and for the
+   * summary. The box takes in the part on each house with some room around it, so both houses
+   * stay in view; where a house has no part for it, its middle.
+   */
+  checkFocus(wide) {
+    const c = this.check;
+    if (!c || this.mode !== 'check' || c.wait > 0 || c.stage >= c.me.rows.length) return { key: 'all', box: null };
+    const mine = this.spotOf(this.house, c.me.rows[c.stage].why);
+    const theirs = this.spotOf(this.nb.house, c.them.rows[c.stage].why);
+    if (!mine && !theirs) return { key: 'all', box: null };
+    const off = wide ? new THREE.Vector3(1.2, 0, 0) : new THREE.Vector3(0.66, 0, -0.96);
+    const mid = new THREE.Vector3(0, 0.16, 0);
+    const pts = [
+      (mine ?? mid).clone().add(HOUSE),
+      (theirs ?? mid).clone().multiply(new THREE.Vector3(-1, 1, 1)).add(HOUSE).add(off),
+    ];
+    const r = 0.21;
+    const lo = (a) => Math.min(...pts.map((p) => p[a])) - r;
+    const hi = (a) => Math.max(...pts.map((p) => p[a])) + r;
+    return { key: String(c.stage), box: [[lo('x'), hi('x')], [0, Math.max(0.34, hi('y') - 0.06)], [lo('z'), Math.min(hi('z'), 0.38)]] };
+  }
+
+  /** Calm motion's cut: a veil over the world (not over the panels), 0..1. */
+  setFade(a) {
+    if (!this.fader) {
+      if (a <= 0) return;
+      this.fader = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), new THREE.MeshBasicMaterial({ color: hex('xr-bricks-fade'), transparent: true, opacity: 0, depthWrite: false, toneMapped: false }));
+      this.fader.userData.noFit = true;
+      this.fader.frustumCulled = false;
+      this.group.add(this.fader);
+    }
+    this.fader.visible = a > 0;
+    this.fader.material.opacity = Math.min(1, a) * 0.92;
   }
 
   exitPlayView() {
@@ -1584,6 +1734,7 @@ export class BricksScene extends BaseScene {
     this.exitPlayView();
     setSnowAmount(0.6);
     this.thumbs?.dispose?.();
+    this.crew?.dispose();
     this.clearTags();
     for (const c of this.cards) c.dispose();
     for (const o of this.ui?.children ?? []) o.dispose?.();

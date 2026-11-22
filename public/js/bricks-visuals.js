@@ -66,7 +66,14 @@ const OWN = {
   FlowerA: ['xr-bricks-flower-1', 0.6, 0],
   FlowerB: ['xr-bricks-flower-2', 0.6, 0],
   Pebble: ['xr-bricks-pebble', 0.9, 0],
+  Mortar: ['xr-bricks-mortar', 0.95, 0],
+  Sill: ['xr-bricks-sill', 0.75, 0],
 };
+// The pieces of a wall (bricks, mortar, boards, beams): their end faces inside the narrow joints
+// stand edge-on to the eye at some joint, and there the depth of such a sliver can come out
+// nearer than the roof above it (a thin bright line on the roof). A slope-scaled depth offset
+// pushes exactly those grazing faces back; faces seen square-on barely move.
+const WALL_PIECES = ['BrickClay', 'Quoin', 'Mortar', 'Plank', 'ConcreteWall', 'Beam', 'Plaster'];
 // Materials that get snow in winter (everything facing up in the garden, and the roof).
 const SNOWY = ['Grass', 'GrassDark', 'Leaf', 'LeafDark', 'Fence', 'Stone', 'Sand', 'Soil', 'Roof', 'RoofDark', 'Mailbox', 'Bark', 'Thatch', 'MetalRoof', 'Sedum', 'Hedge', 'Pebble'];
 
@@ -79,6 +86,7 @@ const DETAIL = {
   Roof: [20, 220, 0.12], Concrete: [18, 240, 0.14], Wood: [12, 300, 0.14], Quoin: [60, 300, 0.12],
   Plaster: [22, 260, 0.1], ConcreteWall: [16, 240, 0.12], Plank: [10, 320, 0.16], Beam: [14, 300, 0.14], Thatch: [30, 420, 0.3], ThatchDark: [30, 420, 0.25],
   Sedum: [40, 300, 0.3], Hedge: [45, 320, 0.3], Pebble: [70, 520, 0.3], MetalRoof: [8, 160, 0.06],
+  Mortar: [50, 420, 0.16], Sill: [30, 260, 0.1],
 };
 
 /**
@@ -130,9 +138,11 @@ export function bricksMaterials() {
     if (DETAIL[name] && tier !== 'low') addDetail(out[name], DETAIL[name]);
     if (SNOWY.includes(name)) winterize(out[name]);
   }
-  // Glass reflects the sky a little (studio environment) until the lights go on.
-  out.Glass.roughness = 0.04;
-  out.Glass.metalness = 0.4;
+  for (const name of WALL_PIECES) Object.assign(out[name], { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2 });
+  // Glass mirrors the environment (the studio light, the sky) until the lights go on.
+  out.Glass.roughness = 0.03;
+  out.Glass.metalness = 0.85;
+  out.Glass.envMapIntensity = 2.2;
   out.LampGlow = new THREE.MeshBasicMaterial({ name: 'LampGlow', color: hex('xr-bricks-lamp'), toneMapped: false });
   return out;
 }
@@ -397,7 +407,7 @@ export const bsfx = {
 
 const _col = new THREE.Color();
 /** A geometry painted in one token color (vertex colors), moved and scaled into place. */
-function painted(geo, token, { x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, rx = 0 } = {}) {
+export function painted(geo, token, { x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, rx = 0 } = {}) {
   const g = geo.index ? geo.toNonIndexed() : geo;
   if (g !== geo) geo.dispose();
   if (rx) g.rotateX(rx);
@@ -411,7 +421,7 @@ function painted(geo, token, { x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, rx =
   g.deleteAttribute('uv');
   return g;
 }
-function joined(geos) {
+export function joined(geos) {
   const out = new THREE.BufferGeometry();
   for (const name of ['position', 'normal', 'color']) {
     const arr = new Float32Array(geos.reduce((n, g) => n + g.attributes[name].count * 3, 0));
