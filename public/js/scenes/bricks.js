@@ -1363,13 +1363,20 @@ export class BricksScene extends BaseScene {
       const cols = grid ? 2 : 1;
       const rows = grid ? 4 : 3;
       const availH = Hh - top - m;
-      const cardH = Math.min((availH - (rows - 1) * 5) / rows, ch * 420);
-      const cardW = (cardH / ch) * cw;
+      // Small phones: a narrower side column, and cards never so wide that no room is left for the house.
+      const sideW = Math.min(214, Math.max(150, W * 0.275));
+      const minPlot = 96;
+      let cardH = Math.min((availH - (rows - 1) * 5) / rows, ch * 420);
+      let cardW = (cardH / ch) * cw;
+      const maxColW = W - m - (sideW + 2 * m) - m - minPlot;
+      if (cols * cardW + (cols - 1) * 5 > maxColW) {
+        cardW = (maxColW - (cols - 1) * 5) / cols;
+        cardH = (cardW / cw) * ch;
+      }
       const colW = cols * cardW + (cols - 1) * 5;
       const x0 = W - m - colW;
       out.cards = Array.from({ length: n }, (_, i) => ({ x: x0 + (i % cols) * (cardW + 5), y: top + Math.floor(i / cols) * (cardH + 5), w: cardW, h: cardH }));
       out.cols = cols;
-      const sideW = 214;
       const k = sideW / 0.52;
       let y = top;
       s.whoLow = { x: m, y, w: sideW, h: 0.2 * k };
