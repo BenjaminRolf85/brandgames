@@ -37,6 +37,7 @@ import { roomView } from '../lineage-room.js';
 import { makeSky, makeBackdrop, makeLandscape, makeKeyLight } from '../lineage-visuals.js';
 import { makeDrive } from '../lineage-drive.js';
 import { sceneLook, bloom } from '../gfx.js';
+import { num } from '../tokens.js';
 
 // The game's design tokens (css/game-lineage.css). Linked in index.html like the other games';
 // until it is, the game loads the file itself before anything reads a token.
@@ -131,7 +132,6 @@ export class LineageScene extends BaseScene {
     if (e.isXR) { this.drive.group.position.set(0, this.eye - 0.8, -0.5); this.drive.group.scale.setScalar(0.42); }
     this.group.add(this.drive.group);
     this.onSceneDispose(() => this.drive.dispose());
-    this.driveTo = new THREE.Vector3();
     if (this.ar) {
       const y = this.eye - 0.82;
       this.land = makeLandscape({ calm: this.calm, pedestal: Math.max(0.2, (y - floorY) / 0.75 - 0.03) });
@@ -166,47 +166,100 @@ export class LineageScene extends BaseScene {
     return this.mode !== 'intro' && this.mode !== 'over';
   }
 
+  /** Stage 1 and the finish: the road with the gate is in view (else the interchange of stage 2). */
+  onRoad() {
+    return ['start', 'odd', 'oddDone', 'card', 'finish'].includes(this.mode);
+  }
+
   /**
-   * Browser, during play: the camera frames the labels of the current task, between the strip at
-   * the top and the feedback line; from stage to stage it travels on to the next zone.
+   * Browser, during play. Stage 1: the camera looks down the road a little, the tiles on the
+   * gantry at the top, the car at the foot of the frame. Stage 2: it looks at the interchange
+   * (the map lies tilted back) and follows the layers that are being linked. The frame is fitted
+   * between the strip at the top and the feedback line at the foot.
    */
   screenCamera(cam, dt) {
     if (!this.playing()) { this.camInit = false; return false; }
     if (cam.fov !== 42) { cam.fov = 42; cam.updateProjectionMatrix(); }
-    const box = this.viewBox();
-    const ins = this.hudEl.insets();
-    const H = window.innerHeight;
-    const tv = Math.tan(THREE.MathUtils.degToRad(21));
-    const fracH = Math.max(0.3, (H - ins.top - ins.bottom) / H);
-    const d = Math.max((box.y1 - box.y0) / 2 / fracH / tv, (box.x1 - box.x0) / 2 / (tv * cam.aspect)) * 1.01;
-    const cyN = (ins.bottom - ins.top) / H;
-    this.camTo.set((box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2 - cyN * d * tv, box.z + d);
-    this.group.localToWorld(this.camTo);
+    let pts;
+    let pitch = 0;
+    if (this.onRoad()) {
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+      const phone = this.engine.touchUI;
+      pitch = THREE.MathUtils.degToRad(num(phone && W < H ? 'xr-lineage-pitch-tall' : phone && H < 520 ? 'xr-lineage-pitch-flat' : 'xr-lineage-pitch'));
+      if (this.mode === 'finish' && this.roadCam) { pts = null; } else {
+        pts = this.mode === 'card' && this.roadPts ? this.roadPts : this.room.framePoints();
+        const g = this.drive.group;
+        g.updateMatrixWorld(true);
+        // the car at its start, Echo's head included, and the road behind it
+        for (const [x, y, z] of [[-0.24, 0, 0.32], [0.24, 0, 0.32], [0, 0.46, 0.05]]) pts.push(g.localToWorld(new THREE.Vector3(x, y, z)));
+        if (this.mode !== 'card') this.roadPts = pts.slice();
+      }
+    } else pts = this.room.framePoints();
+    if (pts?.length) {
+      this.fitView(cam, pts, pitch, this.hudEl.insets(), this.camTo);
+      if (this.onRoad()) this.roadCam = { pos: this.camTo.clone(), pitch };
+    } else if (this.roadCam) { this.camTo.copy(this.roadCam.pos); pitch = this.roadCam.pitch; }
     // Calm motion: no travel, the view changes at once.
-    if (!this.camInit || this.calm) { cam.position.copy(this.camTo); this.camInit = true; } else cam.position.lerp(this.camTo, Math.min(1, dt * 3.2));
-    cam.rotation.set(0, 0, 0);
+    const snap = !this.camInit || this.calm;
+    if (snap) { cam.position.copy(this.camTo); this.camPitch = pitch; this.camInit = true; } else {
+      cam.position.lerp(this.camTo, Math.min(1, dt * 3.2));
+      this.camPitch += (pitch - this.camPitch) * Math.min(1, dt * 3.2);
+    }
+    cam.rotation.set(-this.camPitch, 0, 0);
     return true;
   }
 
-  /** How much room below the playing field the road gets in the browser (m). */
-  roadRoom() {
-    const W = window.innerWidth;
+  /**
+   * Where the camera must stand (looking down by `pitch`) so that all points (world) are in the
+   * free part of the screen: between the strips at the top and the foot, with a small margin.
+   */
+  fitView(cam, pts, pitch, ins, out) {
     const H = window.innerHeight;
-    const phone = this.engine.touchUI;
-    if (this.mode === 'odd' || this.mode === 'oddDone' || this.mode === 'start') return phone ? (W > H ? 0.27 : 0.5) : 0.42;
-    return phone ? 0 : 0.2;
+    const tv = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
+    const th = tv * cam.aspect * 0.965;
+    const yt = (1 - (2 * ins.top) / H) * 0.98;
+    const yb = -1 + (2 * ins.bottom) / H + 0.01;
+    const f = new THREE.Vector3(0, -Math.sin(pitch), -Math.cos(pitch));
+    const u = new THREE.Vector3(0, Math.cos(pitch), -Math.sin(pitch));
+    const A = new THREE.Vector3();
+    pts.forEach((p) => A.add(p));
+    A.multiplyScalar(1 / pts.length);
+    const rel = pts.map((p) => { const d = p.clone().sub(A); return [d.x, d.dot(u), d.dot(f)]; });
+    const fit = (D) => {
+      let qlo = -Infinity; let qhi = Infinity; let slo = -Infinity; let shi = Infinity;
+      for (const [x, y, z0] of rel) {
+        const z = z0 + D;
+        if (z < 0.1) return null;
+        qlo = Math.max(qlo, x - z * th); qhi = Math.min(qhi, x + z * th);
+        slo = Math.max(slo, y - yt * z * tv); shi = Math.min(shi, y - yb * z * tv);
+      }
+      return qlo <= qhi && slo <= shi ? [(qlo + qhi) / 2, (slo + shi) / 2] : null;
+    };
+    let lo = 0.1; let hi = 60;
+    for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (fit(mid)) hi = mid; else lo = mid; }
+    const [q, sOff] = fit(hi) ?? [0, 0];
+    return out.copy(A).add(new THREE.Vector3(q, 0, 0)).addScaledVector(u, sOff).addScaledVector(f, -hi);
   }
 
-  /** What the browser's camera frames: the field with the road below it; at the finish line the car alone. */
-  viewBox() {
-    const box = this.room.frameBox();
-    if (this.mode === 'finish') {
-      const cx = (box.x0 + box.x1) / 2;
-      const y = this.drive.group.position.y;
-      return { x0: cx - 0.8, x1: cx + 0.8, y0: y - 0.05, y1: y + 0.9, z: box.z };
-    }
-    box.y0 -= this.roadRoom();
-    return box;
+  /** Browser: the road lies under the gantry of tiles, the block right below them, the car's start in front. */
+  placeRoad() {
+    const g = this.drive.group;
+    const on = this.playing() && (this.onRoad() || this.mode === 'over');
+    g.visible = on;
+    if (!on || this.mode === 'card' || this.mode === 'finish') return;
+    const fb = this.room.frameBox();
+    if (!Number.isFinite(fb.x0)) return;
+    const phone = this.engine.touchUI;
+    const tall = phone && window.innerWidth < window.innerHeight;
+    const flat = phone && !tall && window.innerHeight < 520;
+    // the road is a model a little smaller than the tiles (a phone held sideways: smaller still, it has no height to spare)
+    const sc = num(flat ? 'xr-lineage-drive-scale-flat' : 'xr-lineage-drive-scale');
+    const G = num(tall ? 'xr-lineage-gate-dist-tall' : 'xr-lineage-gate-dist');
+    const roadY = fb.y0 - num('xr-lineage-gate-clear') * sc;
+    g.scale.setScalar(sc);
+    g.position.set((fb.x0 + fb.x1) / 2, roadY, fb.z - 0.03 + G * sc);
+    this.drive.setGate({ G, width: Math.max((fb.x1 - fb.x0 + 0.04) / sc, this.drive.LANE * 3 + 0.22), top: (fb.bar - roadY) / sc });
   }
 
   // ---------- input ----------
@@ -257,15 +310,7 @@ export class LineageScene extends BaseScene {
     this.backdrop?.userData.tick(dt);
     this.land.userData.tick(dt);
     this.drive.tick(dt);
-    if (this.screenUI) {
-      // The road lies below the playing field, the car at the foot of the frame.
-      const fb = this.room.frameBox();
-      const g = this.drive.group.position;
-      this.driveTo.set((fb.x0 + fb.x1) / 2, fb.y0 - Math.max(0.2, this.roadRoom()) + 0.03, fb.z - 0.02);
-      if (!this.playing() || this.mode === 'finish') this.driveTo.y = g.y;
-      if (!this.driveInit || this.calm) { g.copy(this.driveTo); this.driveInit = this.playing(); } else g.lerp(this.driveTo, Math.min(1, dt * 4));
-      this.drive.group.visible = this.playing();
-    }
+    if (this.screenUI) this.placeRoad();
     if (this.screenUI && !this.engine.touchUI) {
       // Desktop: the camera stands still during play; the intro and the result fit themselves.
       const on = this.playing();
@@ -285,7 +330,7 @@ export class LineageScene extends BaseScene {
       // The obstacle comes closer. Relaxed: the car slows down and waits in front of it.
       this.clock += dt;
       const k = this.timeK();
-      this.drive.setObstacle(this.easy ? Math.max(0.16, k) : k);
+      this.drive.setObstacle(this.easy ? Math.max(0.2, k) : k);
       if (this.easy) this.drive.setSpeed(k > 0.2 ? 0.7 : 0);
       else { this.view.setTimer(k); this.view.setSpeed(k, this.speedPoints()); if (k <= 0) this.pickOdd(-1); }
     } else if (this.mode === 'link') {
@@ -297,7 +342,7 @@ export class LineageScene extends BaseScene {
 
   /** Stage 1: the share of the way that is left before the car reaches the obstacle (1 to 0). */
   timeK() {
-    return clamp(1 - this.clock / this.window, 0, 1);
+    return clamp(1 - Math.max(0, this.clock) / this.window, 0, 1);
   }
 
   speedK() {
@@ -401,6 +446,7 @@ export class LineageScene extends BaseScene {
       this.stepIndex -= 1;
       this.mode = 'card';
       this.drive.setSpeed(0); // the car stops at the interchange
+      if (this.screenUI) this.drive.clearGate();
       this.view.showCard({ title: t('lineageCard2Title'), lines: [t('lineageCard2Text'), t('lineageCardHow')], button: t('lineageNext') });
       sfx.appear();
       this.waitThen(this.easy ? null : 9, () => { this.view.showCard(null); this.nextStep(); }, 0.5);
@@ -415,7 +461,9 @@ export class LineageScene extends BaseScene {
   beginOdd(row, n = 0) {
     this.row = row;
     this.mode = 'odd';
-    this.clock = 0;
+    // Browser: the next gate slides in first, then its tiles show and the time runs.
+    const lead = this.screenUI && !this.calm ? 0.75 : 0;
+    this.clock = -lead;
     this.hinted = false;
     this.window = WINDOW[Math.min(WINDOW.length - 1, n)] + (row.kind === 'match' ? 1.5 : 0) + (this.easy ? 3 : 0);
     const val = (v) => (v && typeof v === 'object' ? L(v) : v);
@@ -432,7 +480,7 @@ export class LineageScene extends BaseScene {
     // A field question: the reason is what the right field is. An odd-one-out row brings its own.
     const hit = row.tiles[row.odd];
     this.why = row.kind === 'match' ? t('lineageIs', { name: hit.n, is: L(hit.is) }) : L(row.why);
-    this.view.showOdd({ tiles, key: row.key, rightLabel: t(row.kind === 'match' ? 'lineageFits' : 'lineageOdd') });
+    this.view.showOdd({ tiles, key: row.key, rightLabel: t(row.kind === 'match' ? 'lineageFits' : 'lineageOdd'), delay: lead * 0.6 });
     this.view.setPrompt(row.kind === 'match' ? t('lineageMatchPrompt', { d: L(row.ask) }) : t(row.lvl === 3 ? 'lineageOddPromptMeta' : 'lineageOddPrompt'));
     this.view.setFeedback(null, '');
     this.view.setHint(this.hintLeft > 0 ? 'ready' : null);
@@ -518,6 +566,8 @@ export class LineageScene extends BaseScene {
     this.view.showBoard(board);
     this.view.setPrompt(t('lineageGraphPrompt', { report: board.report }));
     this.drive.setSpeed(0);
+    // Browser: the car stands parked at the entry of the interchange.
+    if (this.screenUI) { this.drive.park(true); this.room.parkCar(this.drive.rig); }
     this.view.setFeedback(null, '');
     this.view.setHint(null);
     this.view.setSpeed(this.easy ? null : 1, PTS.boardSpeed);
@@ -620,7 +670,8 @@ export class LineageScene extends BaseScene {
     this.refresh();
     sfx.coin();
     sfx.whoosh();
-    this.view.driveRoute(this.drive.mini, () => { if (!this.disposed && this.mode === 'route') this.beginImpact(); });
+    const car = this.screenUI ? this.drive.rig : this.drive.mini;
+    this.view.driveRoute(car, () => { if (!this.disposed && this.mode === 'route') this.beginImpact(); }, (m) => this.drive.roll(m));
   }
 
   // ---------- a source changes: which reports does that reach? ----------
@@ -683,6 +734,7 @@ export class LineageScene extends BaseScene {
   /** The car drives through the finish gantry, then the result. */
   finishLine() {
     this.mode = 'finish';
+    if (this.screenUI) { this.drive.home(); this.drive.clearGate(); this.hudEl?.fade(); this.camInit = false; }
     this.view.clear();
     this.view.setHint(null);
     this.view.setSpeed(null);

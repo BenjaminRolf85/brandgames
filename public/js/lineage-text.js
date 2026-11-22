@@ -39,6 +39,7 @@ addStrings({
     // feedback
     lineageRight: 'Richtig!',
     lineageWrong: 'Falsch: Das Auto musste bremsen.',
+    lineageWrongShort: 'falsch',
     lineageLinkWrong: 'Kein Weg. {reason}',
     lineageIs: '{name} ist {is}.',
     lineageGraphReason: '{name} liefert: {meta}. Gebraucht wird: {need}.',
@@ -124,6 +125,7 @@ addStrings({
     lineageSelected: '{name} is selected. Now pick its counterpart.',
     lineageRight: 'Correct!',
     lineageWrong: 'Wrong: the car had to brake.',
+    lineageWrongShort: 'wrong',
     lineageLinkWrong: 'No road there. {reason}',
     lineageIs: '{name} is {is}.',
     lineageGraphReason: '{name} delivers: {meta}. Needed: {need}.',

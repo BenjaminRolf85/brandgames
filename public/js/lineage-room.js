@@ -61,7 +61,7 @@ function measure(blocks, w, band = 0) {
   blocks.forEach((b, i) => {
     const px = b.size * ppm;
     mctx.font = fontOf(b, px);
-    h += wrapText(mctx, b, (w - PAD * 2 - band) * ppm - indentOf(b, px)).length * b.size * LH + (i < blocks.length - 1 ? (b.gap ?? 0.007) : 0);
+    h += wrapText(mctx, b, (w - PAD * 2 - band - (b.indent ?? 0)) * ppm - indentOf(b, px)).length * b.size * LH + (i < blocks.length - 1 ? (b.gap ?? 0.007) : 0);
   });
   return h + PAD * 2;
 }
@@ -89,18 +89,18 @@ function drawBlocks(ctx, mm, blocks, x0, y0, w) {
   blocks.forEach((b) => {
     const px = mm(b.size);
     ctx.font = fontOf(b, px);
-    const indent = indentOf(b, px);
+    const indent = indentOf(b, px) + mm(b.indent ?? 0);
     const lines = wrapText(ctx, b, mm(w) - indent);
     if (b.hot) { // the metadata that decides: a marked field, not a color alone
       ctx.fillStyle = C('pulse-soft');
-      roundRect(ctx, mm(x0) - px * 0.3, y - px * 0.1, mm(w) + px * 0.6, lines.length * px * LH + px * 0.2, px * 0.3);
+      roundRect(ctx, mm(x0 + (b.indent ?? 0)) - px * 0.3, y - px * 0.1, mm(w - (b.indent ?? 0)) + px * 0.6, lines.length * px * LH + px * 0.2, px * 0.3);
       ctx.fill();
       ctx.lineWidth = Math.max(1, px * 0.08);
       ctx.strokeStyle = C('pulse-line');
       ctx.stroke();
     }
     lines.forEach((line, i) => {
-      let x = mm(x0);
+      let x = mm(x0 + (b.indent ?? 0));
       const cy = y + (px * LH) / 2;
       if (i === 0 && b.glyph) {
         ctx.fillStyle = C('ink');
@@ -114,7 +114,7 @@ function drawBlocks(ctx, mm, blocks, x0, y0, w) {
         ctx.font = fontOf(b, px);
       }
       if (i === 0 && b.icon) { ctx.fillStyle = b.color; drawMark(ctx, b.icon, x, cy - px * 0.5, px); }
-      if (i === 0) x += indent;
+      if (i === 0) x += indent - mm(b.indent ?? 0);
       ctx.fillStyle = b.color ?? C('ink');
       ctx.fillText(line, x, cy);
       y += px * LH;
@@ -233,6 +233,8 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
   let routeView = false; // the finished route in full, while the car drives it
   const curveOf = new Map(); // 'a>b' -> the curve of a link
   let lane = null; // an upright phone, stage 2: { x } where the cables run down beside the rows
+  let barY = 0; // stage 1: the time bar's height (holder coordinates)
+  let map = false; // the browser, stage 2: the graph is an interchange seen from above at an angle
   let nameSize = T2; // names on the tags (a little smaller on a phone held sideways)
   const rubber = new THREE.Mesh(new THREE.CylinderGeometry(TUBE, TUBE, 1, 8).translate(0, 0.5, 0), mats.drag);
   rubber.visible = false;
@@ -353,15 +355,22 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
   function makeCard(w, h, look, zone = {}) {
     const bx = zone.bx ?? 0;
     const by = zone.by ?? 0;
+    const bz = zone.bz ?? 0; // the map: room for the place's token below the tag
     const card = new Panel((w + M * 2) * K, (h + M * 2) * K, (ctx, p) => {
       const mm = (x) => p.m(x * K);
       const L = look();
       const u = p.userData;
-      const px = M + bx; // the tag
-      const py = M + by;
-      const pw = w - bx;
-      const ph = h - by;
-      if (bx || by) { // the pedestal: a lit ellipse in the owner's (or the kind's) color, with the owner's initial
+      const inset = !!zone.inset; // the token stands inside the tag, beside the lines below the name
+      const px = M + (inset ? 0 : bx); // the tag
+      let py = M + by;
+      const pw = w - (inset ? 0 : bx);
+      let ph = h - by - bz;
+      if (zone.grow) { // the tag sits on its token and is as tall as what it says (the need adds a line on top)
+        const ch = Math.min(ph, measure(L.blocks, pw, 0));
+        py += ph - ch;
+        ph = ch;
+      }
+      if ((bx || by) && !inset) { // the pedestal: a lit ellipse in the owner's (or the kind's) color, with the owner's initial
         const cx = mm(bx ? M + bx / 2 : M + w / 2);
         const cy = mm(bx ? M + h / 2 + Math.min(bx, h) * 0.4 : M + by * 0.92);
         const rx = mm(Math.min(bx || w, bx ? h * 1.1 : by * 1.2) * 0.44);
@@ -422,6 +431,10 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
         ctx.textBaseline = 'middle';
         ctx.fillStyle = L.glow;
         ctx.fillText(L.ownerNote, mm(M + w - PAD), mm(py + PAD) + mm(T2) * LH / 2);
+      }
+      if (bz && (L.lit || u.hover || u.focus)) { // the map: a short stem from the tag down to its place
+        ctx.fillStyle = u.focus ? C('focus') : L.stroke;
+        ctx.fillRect(mm(M + w / 2) - mm(0.003), mm(py + ph), mm(0.006), mm(Math.min(0.03, bz * 0.3)));
       }
       if (L.badge) { // a mark in the tag's corner (connected; the source that changes): more than a color
         const r = mm(0.022);
@@ -661,11 +674,18 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
     const kind = st.kind;
     const u = c.mesh?.userData ?? {};
     const off = kind === 'dim' || kind === 'rest'; // out of the game: darker and muted, but still solid and readable
-    const blocks = [{ text: tl.title, size: tl.mono ? 0.044 : 0.04, mono: tl.mono, weight: 'bold', gap: 0.016, color: off ? C('muted') : C('ink') }];
+    const ind = c.indent ?? 0;
+    let nameSize = tl.mono ? 0.044 : 0.04;
+    if (c.textW) { // a long name without breaks gets a little smaller, never below the metadata's size
+      mctx.font = fontOf({ mono: tl.mono, weight: 'bold' }, 100);
+      const longest = Math.max(...String(tl.title).split(/(?<=[_.\s])/).map((part) => mctx.measureText(part).width)) / 100;
+      nameSize = Math.max(T1 + 0.002, Math.min(nameSize, (c.textW / longest) * 0.98));
+    }
+    const blocks = [{ text: tl.title, size: nameSize, mono: tl.mono, weight: 'bold', gap: 0.014, color: off ? C('muted') : C('ink') }];
     const tokCol = C(TOK_COLOR[tl.tok] ?? 'accent');
-    for (const p of tl.parts) blocks.push({ text: p.glyph ? p.text : `${p.label}  ${p.text}`, size: T1 + 0.003, gap: 0.011, color: C('muted'), glyph: p.glyph ?? null, hot: p.key || (st.showKey && p.k === st.keyK) });
-    if (kind === 'right' || kind === 'answer') blocks.push({ text: oddLabel, size: T1, weight: 'bold', color: C('good'), icon: 'good' });
-    if (kind === 'wrong') blocks.push({ text: t('lineageWrong'), size: T1, weight: 'bold', color: C('bad'), icon: 'bad' });
+    for (const p of tl.parts) blocks.push({ text: p.glyph ? p.text : `${p.label} ${p.text}`, size: ind ? T1 : T1 + 0.003, gap: 0.01, color: C('muted'), glyph: p.glyph ?? null, hot: p.key || (st.showKey && p.k === st.keyK), indent: ind, keep: !!ind });
+    if (kind === 'right' || kind === 'answer') blocks.push({ text: oddLabel, size: T1, weight: 'bold', color: C('good'), icon: 'good', indent: ind });
+    if (kind === 'wrong') blocks.push({ text: t('lineageWrongShort'), size: T1, weight: 'bold', color: C('bad'), icon: 'bad', indent: ind });
     return {
       blocks, band: tl.owKey ? C(`own-${tl.owKey}`) : null, glow: tl.owKey ? C(`own-${tl.owKey}`) : tokCol, owner: tl.owKey ? tl.parts.find((p) => p.k === 'ow')?.text : null, lit: kind === 'right' || kind === 'answer',
       fill: kind === 'right' ? C('good-soft') : kind === 'wrong' ? C('bad-soft') : off ? C('card-soft') : C('card'),
@@ -758,29 +778,46 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
       const p = holder.position;
       const m = 0.014;
       const b = focusBox();
-      return { x0: p.x + b.x0 - m, x1: p.x + b.x1 + m, y0: p.y + b.y0 - m, y1: p.y + b.y1 + m, z: p.z + 0.02 };
+      return { x0: p.x + b.x0 - m, x1: p.x + b.x1 + m, y0: p.y + b.y0 - m, y1: p.y + b.y1 + m, z: p.z + 0.02, bar: p.y + barY };
+    },
+
+    /** The browser: the points the camera must show (world), for the labels in view and, on the map, their places. */
+    framePoints(out = []) {
+      holder.updateMatrixWorld(true);
+      for (const c of cards) {
+        if (!c.mesh.visible) continue;
+        const u = c.mesh.userData;
+        for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) out.push(c.mesh.localToWorld(new THREE.Vector3(sx * (u.w / 2 + 0.01) * K, sy * (u.h / 2 + 0.006) * K, 0)));
+        if (map) for (const sx of [-1, 1]) out.push(holder.localToWorld(new THREE.Vector3(c.x + sx * 0.1, c.y - 0.1, 0)));
+      }
+      if (scanner && !map) out.push(holder.localToWorld(new THREE.Vector3(0, barY + 0.035, 0.06)));
+      return out;
     },
 
     // ---- stage 1: tokens in a row under the scanner ----
-    showOdd({ tiles, key, rightLabel }) {
+    showOdd({ tiles, key, rightLabel, delay = 0 }) {
       oddLabel = rightLabel ?? t('lineageOdd');
       clearContent();
       model = null;
       resetBounds();
       toZone();
+      holder.rotation.x = 0;
       const up2 = tall();
-      const cols = up2 ? (tiles.length === 4 ? 2 : 1) : tiles.length;
-      const side = up2 && cols === 1; // a single column: the token stands beside its tag
-      const tw = up2 ? (cols === 2 ? 0.41 : 0.84) : 0.4;
-      const zone = side ? { bx: 0.2 } : { by: up2 ? 0.21 : 0.22 };
-      const gap = up2 ? 0.035 : 0.045;
-      const items = tiles.map((tl, i) => ({ tl, i, st: { kind: null, keyK: key, showKey: false } }));
-      const th = Math.max(side ? 0.2 : 0, ...items.map((it) => measure(tileLook({ ...it, st: { kind: 'right' } })().blocks, tw, zone.bx ?? 0))) + (zone.by ?? 0);
+      // The browser: the tiles hang on the gantry over the road, each token beside its tag (compact,
+      // so the road and the car below stay in view); an upright phone hangs them in two rows.
+      const cols = screen ? (up2 ? 2 : tiles.length) : up2 ? (tiles.length === 4 ? 2 : 1) : tiles.length;
+      const side = !screen && up2 && cols === 1; // a single column: the token stands beside its tag
+      const tw = screen ? (up2 ? 0.43 : 0.47) : up2 ? (cols === 2 ? 0.41 : 0.84) : 0.4;
+      const zone = screen ? { bx: up2 ? 0.095 : 0.11, inset: true } : side ? { bx: 0.2 } : { by: up2 ? 0.21 : 0.22 };
+      const gap = screen ? 0.03 : up2 ? 0.035 : 0.045;
+      const items = tiles.map((tl, i) => ({ tl, i, st: { kind: null, keyK: key, showKey: false }, indent: zone.inset ? zone.bx : 0, textW: zone.inset ? tw - PAD * 2 : 0 }));
+      const th = Math.max(side ? 0.2 : 0, ...items.map((it) => measure(tileLook({ ...it, st: { kind: 'right' } })().blocks, tw, zone.inset ? 0 : zone.bx ?? 0))) + (zone.by ?? 0);
       const rows = Math.ceil(tiles.length / cols);
       items.forEach((c) => {
         const col = c.i % cols;
         const row = Math.floor(c.i / cols);
-        const x = (col - (cols - 1) / 2) * (tw + gap);
+        const inRow = Math.min(cols, tiles.length - row * cols); // a short last row stands in the middle
+        const x = (col - (inRow - 1) / 2) * (tw + gap);
         const y = ((rows - 1) / 2 - row) * (th + gap);
         const mesh = makeCard(tw, th, tileLook(c), zone);
         c.mesh = mesh;
@@ -789,25 +826,28 @@ export function roomView(scene, { onPickOdd, onNode, onLink, onHint, onNext, onM
         mesh.userData.label = `${c.tl.title}. ${c.tl.parts.map((p) => `${p.label} ${p.text}`).join('. ')}`;
         mesh.userData.onClick = () => onPickOdd?.(c.i);
         // its token stands on the pedestal: large enough to tell a coin from a calendar at a glance
-        const tok = token(c.tl.tok, (side ? zone.bx : zone.by) * 0.7);
-        tok.position.set(side ? x - tw / 2 + zone.bx / 2 : x, side ? y + 0.012 : y + th / 2 - zone.by / 2 + 0.014, 0.075);
+        const tok = token(c.tl.tok, (zone.bx ?? zone.by) * 0.7);
+        // (inset: below the name, beside the lines; the name's line is about 0.07 m)
+        tok.position.set(zone.bx ? x - tw / 2 + zone.bx / 2 + (zone.inset ? PAD * 0.6 : 0) : x, zone.inset ? y - 0.035 : zone.bx ? y + 0.012 : y + th / 2 - zone.by / 2 + 0.014, 0.075);
         content.add(tok);
         c.token = tok;
         c.home = new THREE.Vector3(x, y, 0.012);
         c.tokHome = tok.position.clone();
-        arrive(mesh, tok, c.i * 0.07);
+        arrive(mesh, tok, delay + c.i * 0.07);
       });
       // the scanner: a bar of light above the row and a beam that passes over the tokens
       const W = bounds.x1 - bounds.x0;
       const bar = new THREE.Mesh(new THREE.BoxGeometry(W, 0.016, 0.02), mats.drag);
       bar.position.set(0, bounds.y1 + 0.02, 0.06);
-      const oneRow = rows === 1 && !side;
+      const oneRow = rows === 1 && !side && !zone.bx;
       const bh = oneRow ? zone.by + 0.03 : bounds.y1 - bounds.y0 + 0.02;
-      const beam = new THREE.Mesh(new THREE.PlaneGeometry(side ? zone.bx : tw * 0.62, bh), mats.scan);
+      const beam = new THREE.Mesh(new THREE.PlaneGeometry(zone.bx ? zone.bx : tw * 0.62, bh), mats.scan);
       beam.position.set(0, oneRow ? bounds.y1 - zone.by / 2 + 0.01 : (bounds.y0 + bounds.y1) / 2 + 0.01, 0.13);
+      beam.visible = !screen; // the browser: the gantry's time bar is enough
       holder.add(bar, beam);
       extras.push(bar, beam);
-      bounds.y1 += 0.05; // room for the token that is lifted out
+      barY = bar.position.y;
+      bounds.y1 += screen ? 0.03 : 0.05; // room for the token that is lifted out
       scanner = side ? { bar, beam, x0: -tw / 2 + zone.bx / 2, x1: -tw / 2 + zone.bx / 2, to: null, side: true } : { bar, beam, x0: bounds.x0 + tw * 0.5, x1: bounds.x1 - tw * 0.5, to: null };
       bounds.x0 -= up2 ? 0.01 : 0.045;
       bounds.x1 += up2 ? 0.01 : 0.045;
