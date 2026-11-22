@@ -306,8 +306,8 @@ Text never renders below `--xr-text-min` (0.033 m at 1.4 m distance). Panels gro
 - **Leaderboard:** The name is typed with the phone's keyboard.
 - **Styling:** All screen elements use the design tokens (`.mhud`, `.mtouch`, `.mpad`, `.mname` in `public/css/app.css`).
 
-**DE (kein Zoom im Spiel, Nov 2026):** Auf Tablets und Handys zoomen Doppeltippen und Zwei-Finger-Geste im Spiel nicht mehr (`public/js/no-zoom.js`, `touch-action` in `public/css/app.css`): Die Spielfläche und alle Elemente darüber blockieren den Doppeltipp-Zoom, die Zoom-Geste von Safari wird abgefangen, und ist die Seite doch einmal gezoomt, setzt sie sich zurück. Auf der Startseite bleibt Zoomen erlaubt.
-**EN (no zoom in the game, Nov 2026):** on tablets and phones a double tap or a pinch no longer zooms inside the game (`public/js/no-zoom.js`, `touch-action` in `public/css/app.css`): the stage and every element on it block the double-tap zoom, Safari's pinch gesture is cancelled, and if the page is zoomed anyway it resets. The landing page stays zoomable.
+**DE (kein Zoom im Spiel, Nov 2026):** Auf Tablets und Handys zoomen Doppeltippen und Zwei-Finger-Geste im Spiel nicht mehr (`public/js/no-zoom.js`, `touch-action` in `public/css/app.css`): Die Spielfläche und alle Elemente darüber blockieren Doppeltipp- und Zwei-Finger-Zoom (`touch-action: pan-x pan-y`), die Zoom-Geste von Safari wird abgefangen, und ist die Seite doch einmal gezoomt, setzt sie sich zurück. Auf der Startseite bleibt Zoomen erlaubt.
+**EN (no zoom in the game, Nov 2026):** on tablets and phones a double tap or a pinch no longer zooms inside the game (`public/js/no-zoom.js`, `touch-action` in `public/css/app.css`): the stage and every element on it block double-tap and pinch zoom (`touch-action: pan-x pan-y`), Safari's pinch gesture is cancelled, and if the page is zoomed anyway it resets. The landing page stays zoomable.
 
 ## AR-Raumeffekte / AR room effects (`public/js/ar-room.js`)
 

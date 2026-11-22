@@ -1,8 +1,8 @@
 // Touch devices (iPad, iPhone, Android tablets), Nov 2026: while a game is open, a double tap
 // or a pinch must not zoom the page, because the game fills the screen and there is no way to
 // zoom back out by hand. Three layers:
-//   1. CSS (app.css): `touch-action: manipulation` on the stage and `none` on the canvas stop
-//      the double-tap zoom in every modern browser, Safari on iOS 13+ included.
+//   1. CSS (app.css): `touch-action: pan-x pan-y` on the stage and its overlays and `none` on
+//      the canvas stop double-tap and pinch zoom in every modern browser, Safari on iOS 13+ included.
 //   2. Here: Safari's own pinch gesture (gesturestart / gesturechange) and a stray dblclick are
 //      cancelled while the stage is open.
 //   3. Here: if the page is zoomed anyway (an older iOS, an accessibility zoom), the viewport is
