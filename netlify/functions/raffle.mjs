@@ -13,7 +13,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 
 // Midnight in Germany is 23:00 UTC of the day before (winter time).
 export const OPEN_FROM = Date.parse('2026-12-23T23:00:00Z'); // 24 Dec 2026, 00:00
-export const OPEN_UNTIL = Date.parse('2027-01-06T23:00:00Z'); // 6 Jan 2027, 24:00
+export const OPEN_UNTIL = Date.parse('2027-01-15T23:00:00Z'); // 15 Jan 2027, 24:00
 const MAX_ENTRIES = 5000;
 const EMAIL_RE = /^[^\s@<>"',;]+@[^\s@<>"',;]+\.[^\s@<>"',;.]{2,}$/;
 const TEXT_RE = /^[^\p{C}<>]*$/u; // no control characters, no markup
