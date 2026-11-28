@@ -56,16 +56,9 @@
         <div class="hero__text">
           <!-- data-i18n-xmas: the text of the Christmas edition (SEASON in js/config.js) -->
           <p class="eyebrow" data-i18n="pageEyebrow" data-i18n-xmas="pageEyebrowXmas"></p>
-          <h1 class="hero__title" data-i18n="appSubtitle" data-i18n-xmas="heroTitleXmas"></h1>
+          <h1 class="hero__title" id="page-title" data-i18n="appSubtitle" data-i18n-xmas="heroTitleXmas"></h1>
           <p class="byline"><a class="byline__link" href="https://www.echomotion.ai" target="_blank" rel="noopener">by Echomotion - AI Trainings &amp; More</a></p>
           <p class="hero__lead" data-i18n="pageLead" data-i18n-xmas="pageLeadXmas"></p>
-          <ul class="hero__list" data-xmas hidden>
-            <li data-i18n="heroListXmas1"></li>
-            <li data-i18n="heroListXmas2"></li>
-            <li data-i18n="heroListXmas3"></li>
-          </ul>
-          <p class="hero__riddle" data-xmas hidden data-i18n="heroRiddleXmas"></p>
-          <p class="hero__sign" data-xmas hidden data-i18n="heroSignXmas"></p>
           <!-- A direct link to a game (?spiel=...): a personal invitation with the game's coin. -->
           <div class="invite" id="invite" hidden>
             <img class="invite__coin" id="invite-coin" src="" width="96" height="96" alt="">
@@ -79,21 +72,34 @@
           <div class="actions">
             <button type="button" class="btn btn--primary btn--lg" id="btn-ar" hidden data-i18n="startAR"></button>
             <button type="button" class="btn btn--secondary btn--lg" id="btn-vr" hidden data-i18n="startVR"></button>
-            <button type="button" class="btn btn--secondary btn--lg" id="btn-preview" data-i18n="playBrowser"></button>
+            <button type="button" class="btn btn--secondary btn--lg" id="btn-preview" data-i18n="playBrowser" data-i18n-xmas="playAllXmas"></button>
           </div>
           <p class="status" id="status" role="status" aria-live="polite"></p>
         </div>
-        <figure class="hero__art" data-xmas hidden>
-          <img src="assets/xmas-hero.webp" srcset="assets/xmas-hero-600.webp 599w, assets/xmas-hero.webp 1198w" sizes="(min-width: 900px) 46vw, 92vw" width="1198" height="722" alt="" data-i18n-alt="heroArtAlt" fetchpriority="high">
-        </figure>
+      </section>
+
+      <!-- Christmas edition: the advent calendar (js/advent.js). One door per day in December:
+           an AI use case from our projects, on many days a game as well. -->
+      <section class="advent container" id="advent" aria-labelledby="page-title" data-xmas hidden>
+        <p class="advent__note" id="advent-note" role="status" aria-live="polite"></p>
+        <ol class="advent__grid" id="advent-grid"></ol>
+        <div class="advent__sign">
+          <img class="advent__art" src="assets/xmas-hero-600.webp" width="600" height="362" alt="" data-i18n-alt="heroArtAlt" loading="lazy" decoding="async">
+          <p class="hero__sign" data-i18n="heroSignXmas"></p>
+        </div>
       </section>
       </div>
 
-      <!-- The games for our clients: a coin each; a click opens that game in the browser. -->
+      <!-- The games for our clients first, then the other games: a coin each; a click opens that game. -->
       <section class="container section clients" id="clients" aria-labelledby="clients-title" hidden>
-        <h2 class="section__title" id="clients-title" data-i18n="clientsPageTitle"></h2>
-        <p class="section__lead" data-i18n="clientsPageText"></p>
+        <h2 class="section__title" id="clients-title" data-i18n="clientsPageTitle" data-i18n-xmas="clientsTitleXmas"></h2>
+        <p class="section__lead" data-i18n="clientsPageText" data-i18n-xmas="clientsTextXmas"></p>
         <ul class="clients__grid" id="clients-grid"></ul>
+      </section>
+      <section class="container section clients" id="more-games" aria-labelledby="more-games-title" hidden>
+        <h2 class="section__title" id="more-games-title" data-i18n="moreGamesTitle"></h2>
+        <p class="section__lead" data-i18n="moreGamesText"></p>
+        <ul class="clients__grid" id="more-games-grid"></ul>
       </section>
 
       <section class="container section" aria-labelledby="ar-title">

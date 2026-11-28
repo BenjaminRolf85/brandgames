@@ -24,6 +24,7 @@ import { EVENT, EventKiosk } from './event.js';
 import { CHRISTMAS } from './christmas.js';
 import { decoratePage } from './xmas-page.js';
 import { lockZoom } from './no-zoom.js';
+import { setupAdvent } from './advent.js';
 
 // Games load on demand, so the first load only holds the menu, Echo and the shared parts.
 // Each entry resolves to a scene factory.
@@ -328,10 +329,13 @@ async function loadPageLeaderboard() {
 
 // ---------- direct links and the clients' games on the page ----------
 
+// The other games on the page, in the order of the 3D menu (Echo Parkour holds its three levels).
+const PAGE_GAMES = ['parkour', 'pong', 'quiz', 'fight', 'dataflight'];
+
 /**
  * A direct link (?spiel=pannenfrei&fuer=Team%20Nord&score=3200) shows a personal invitation in
- * the hero and opens that game (in the browser and in the headset); the clients' section lists
- * their seven games as coins that open the game directly.
+ * the hero and opens that game (in the browser and in the headset); below, the clients' games
+ * and then the other games are listed as coins that open the game directly.
  */
 function setupClientGames(app) {
   const link = readLink();
@@ -352,29 +356,33 @@ function setupClientGames(app) {
     invite.hidden = false;
     document.getElementById('invite-play').addEventListener('click', () => { app.pendingGame = link.game; app.openPreview(); });
   }
-  const section = document.getElementById('clients');
-  const grid = document.getElementById('clients-grid');
-  const games = CLIENT_GAMES.filter((k) => VISIBLE_MODES.includes(k));
-  if (!section || !grid || !games.length) return;
-  const build = () => {
-    grid.replaceChildren(...games.map((key) => {
-      const li = document.createElement('li');
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'clients__item';
-      const img = Object.assign(document.createElement('img'), { className: 'clients__coin', src: CARD_ART[key] ?? '', width: 104, height: 104, alt: '', loading: 'lazy', decoding: 'async' });
-      const name = Object.assign(document.createElement('span'), { className: 'clients__name', textContent: t(`${key}Name`) });
-      const tag = Object.assign(document.createElement('span'), { className: 'clients__tag', textContent: t(`${key}Tag`) });
-      b.append(img, name, tag);
-      b.setAttribute('aria-label', `${t('clientsPlay')}: ${t(`${key}Name`)}`);
-      b.addEventListener('click', () => { app.pendingGame = key; app.openPreview(); });
-      li.append(b);
-      return li;
-    }));
+  // The clients' games first, then the other games.
+  const coins = (sectionId, gridId, games) => {
+    const section = document.getElementById(sectionId);
+    const grid = document.getElementById(gridId);
+    if (!section || !grid || !games.length) return;
+    const build = () => {
+      grid.replaceChildren(...games.map((key) => {
+        const li = document.createElement('li');
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'clients__item';
+        const img = Object.assign(document.createElement('img'), { className: 'clients__coin', src: CARD_ART[key] ?? '', width: 104, height: 104, alt: '', loading: 'lazy', decoding: 'async' });
+        const name = Object.assign(document.createElement('span'), { className: 'clients__name', textContent: t(`${key}Name`) });
+        const tag = Object.assign(document.createElement('span'), { className: 'clients__tag', textContent: t(`${key}Tag`) });
+        b.append(img, name, tag);
+        b.setAttribute('aria-label', `${t('clientsPlay')}: ${t(`${key}Name`)}`);
+        b.addEventListener('click', () => { app.pendingGame = key; app.openPreview(); });
+        li.append(b);
+        return li;
+      }));
+    };
+    build();
+    onLangChange(build);
+    section.hidden = false;
   };
-  build();
-  onLangChange(build);
-  section.hidden = false;
+  coins('clients', 'clients-grid', CLIENT_GAMES.filter((k) => VISIBLE_MODES.includes(k)));
+  coins('more-games', 'more-games-grid', PAGE_GAMES.filter((k) => VISIBLE_MODES.includes(k)));
 }
 
 async function boot() {
@@ -402,6 +410,7 @@ async function boot() {
   document.getElementById('btn-vr').addEventListener('click', () => app.enterXR('immersive-vr'));
   document.getElementById('btn-preview').addEventListener('click', () => app.openPreview());
   setupClientGames(app);
+  if (CHRISTMAS) setupAdvent(app);
   document.querySelectorAll('[data-lab-open]').forEach((el) => el.addEventListener('click', () => app.openPreview(Number(el.dataset.labOpen))));
   document.getElementById('btn-close').addEventListener('click', () => app.closeStage());
   // Escape leaves the 3D view from the lobby; inside a game it pauses instead (pause.js).
