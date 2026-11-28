@@ -818,6 +818,30 @@
   --color-xmas-light-4: var(--p-cyan-400);
   --color-xmas-light-5: var(--p-pink-400);
 
+  /* Advent calendar on the landing page (advent.js): doors and the dialog with a door's content */
+  --advent-gap: var(--space-3);
+  --advent-gap-narrow: var(--space-2);
+  --advent-radius: var(--radius-md);
+  --advent-num: clamp(1.25rem, 3.2vw, 2rem);
+  --advent-dialog-width: 36rem;
+  --advent-coin: 5.5rem;
+  --color-advent-line: var(--p-sun-300);
+  --color-advent-door-bg: rgb(7 10 20 / 0.45);
+  --color-advent-today: var(--p-white);
+  --color-advent-open-bg: var(--p-sun-300);
+  --color-advent-open-text: var(--p-ink-950);
+  --color-advent-pic-text: var(--p-white);
+  --color-advent-pic-shade: rgb(7 10 20 / 0.55);
+  --color-advent-pic-shade-open: rgb(7 10 20 / 0.3);
+  --color-advent-dialog-bg: var(--p-ink-900);
+  --color-advent-dialog-alt: var(--p-ink-850);
+  --color-advent-dialog-text: var(--p-ink-50);
+  --color-advent-dialog-muted: var(--p-ink-300);
+  --color-advent-dialog-border: var(--p-ink-700);
+  --color-advent-scrim: rgb(7 10 20 / 0.72);
+  --color-advent-finale-a: var(--p-frost-900);
+  --color-advent-finale-b: var(--p-ink-950);
+
   /* Defaults (night) for tokens that only differ in the sunny skin */
   --color-hero-bg: transparent;
   --color-topbar-bg: color-mix(in srgb, var(--color-bg) 85%, transparent);
