@@ -759,8 +759,6 @@ body.is-playing { overflow: hidden; }
 .advent-dialog__foot { display: flex; flex-wrap: wrap; gap: var(--space-3); }
 .advent-dialog__foot .btn { text-decoration: none; }
 
-}
-
 .sponsor {
   color: var(--color-surface-text);
   padding: var(--space-6) var(--space-5);
