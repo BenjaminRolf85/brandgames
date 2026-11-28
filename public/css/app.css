@@ -696,6 +696,9 @@ body.is-playing { overflow: hidden; }
 /* door 24, Christmas Eve: a golden star door */
 .door--finale { border-color: var(--color-advent-line); background: linear-gradient(160deg, var(--color-advent-finale-a), var(--color-advent-finale-b)); box-shadow: inset 0 0 0 var(--advent-frame) var(--color-advent-finale-a), inset 0 0 0 calc(var(--advent-frame) + 1px) var(--color-advent-line-soft), 0 0 var(--space-4) color-mix(in srgb, var(--color-advent-line) 35%, transparent); }
 .door--finale.door--locked:not(.door--game) .door__num { opacity: 1; }
+/* today's glow stays when that door is opened or is the finale (their own shadows would replace it) */
+.door--today.door--open:not(.door--game) { box-shadow: inset 0 0 0 var(--advent-frame) var(--color-advent-open-bg), inset 0 0 0 calc(var(--advent-frame) + 1px) var(--color-advent-open-frame), 0 0 0 4px color-mix(in srgb, var(--color-advent-line) 28%, transparent), 0 0 30px color-mix(in srgb, var(--color-advent-line) 55%, transparent); }
+.door--today.door--finale:not(.door--open) { border-color: var(--color-advent-today); box-shadow: inset 0 0 0 var(--advent-frame) var(--color-advent-finale-a), inset 0 0 0 calc(var(--advent-frame) + 1px) var(--color-advent-line-soft), 0 0 0 4px color-mix(in srgb, var(--color-advent-line) 28%, transparent), 0 0 30px color-mix(in srgb, var(--color-advent-line) 55%, transparent); }
 .door--finale .door__num { margin-top: var(--space-4); }
 .door__star { position: absolute; top: 18%; left: 0; right: 0; display: grid; place-items: center; color: var(--color-advent-line); animation: door-twinkle 2.4s ease-in-out infinite; }
 .door--open .door__star { color: var(--color-advent-open-text); }
