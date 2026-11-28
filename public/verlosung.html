@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Teilnehmerliste der Verlosung im Adventskalender (nur für Echomotion). / Entries of the advent calendar raffle (Echomotion only).">
+  <meta name="theme-color" content="#0d1222">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Verlosung | Echomotion AR Experience</title>
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/pages.css">
+  <script type="module" src="js/raffle-page.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar__inner">
+      <a class="brand" href="./">
+        <img class="brand__mark" src="assets/echomotion-logo.png" alt="" width="28" height="28">
+        <span class="brand__text">
+          <span>Echomotion AR Experience</span>
+          <span class="brand__by">by Echomotion</span>
+        </span>
+      </a>
+      <div class="topbar__controls">
+        <div class="segmented" role="group" aria-label="Sprache / Language">
+          <button type="button" class="segmented__item" data-lang="de" aria-pressed="true">DE</button>
+          <button type="button" class="segmented__item" data-lang="en" aria-pressed="false">EN</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container raffle-page">
+    <div class="raffle-head">
+      <h1 class="raffle-title" data-t="title"></h1>
+      <p class="raffle-lead" data-t="lead"></p>
+    </div>
+
+    <form class="raffle-key" id="key-form" hidden novalidate>
+      <label class="field">
+        <span class="field__label" data-t="keyLabel"></span>
+        <input class="field__input" id="key" type="password" autocomplete="off" required>
+      </label>
+      <button type="submit" class="btn btn--primary" data-t="keyShow"></button>
+    </form>
+    <p class="field__error" id="error" role="alert" hidden></p>
+
+    <section id="content" hidden>
+      <p class="raffle-count" id="count" aria-live="polite"></p>
+      <div class="raffle-actions">
+        <button type="button" class="btn btn--secondary" id="reload" data-t="reload"></button>
+        <button type="button" class="btn btn--secondary" id="csv" data-t="csv"></button>
+      </div>
+
+      <section class="raffle-draw" aria-labelledby="draw-title">
+        <h2 class="raffle-h2" id="draw-title" data-t="drawTitle"></h2>
+        <p class="raffle-note" data-t="drawText"></p>
+        <div class="form-row">
+          <label class="field raffle-draw__n">
+            <span class="field__label" data-t="drawCount"></span>
+            <input class="field__input" id="draw-n" type="number" min="1" max="200" value="2" inputmode="numeric">
+          </label>
+          <button type="button" class="btn btn--primary" id="draw" data-t="drawGo"></button>
+          <button type="button" class="btn btn--secondary" id="copy" data-t="copy" hidden></button>
+        </div>
+        <ol class="raffle-winners" id="winners" aria-live="polite"></ol>
+      </section>
+
+      <h2 class="raffle-h2" data-t="listTitle"></h2>
+      <ul class="raffle-list" id="list"></ul>
+      <p class="raffle-note" data-t="privacy"></p>
+    </section>
+  </main>
+</body>
+</html>
