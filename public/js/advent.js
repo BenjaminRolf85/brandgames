@@ -2,7 +2,8 @@
 // day in December. Every door holds an AI use case from our projects (advent-data.js); 14 doors
 // also hold a game that starts with one tap. Doors of days to come stay locked; from the 25th
 // (and in later years) all are open. Opened doors are remembered on the device. Door 24 is the
-// finale: a golden star door with a Christmas greeting and the advent leaderboard (overall ranking).
+// finale: a golden star door with a Christmas greeting, the raffle for places at our AI event
+// (advent-raffle.js) and the advent leaderboard (overall ranking).
 //   ?tag=5      pretends it is December 5th (for checking the page and for tests)
 //   ?vorschau   opens all doors
 // All colors and sizes are design tokens (tokens.css, --advent-* and --color-advent-*).
@@ -10,6 +11,7 @@ import { t, L, getLang, onLangChange } from './i18n.js';
 import { CARD_ART } from './menu-coins.js';
 import { DOORS, ADVENT_YEAR, USE_CASES_URL, USE_CASES_TOTAL } from './advent-data.js';
 import { fetchTop, OVERALL } from './api.js';
+import { raffleCard } from './advent-raffle.js';
 
 const KEY = 'kiar.advent';
 const el = (tag, cls, text) => {
@@ -86,7 +88,7 @@ export function setupAdvent(app) {
 
     const finale = door.special === 'finale';
     if (finale) {
-      // Christmas Eve: the greeting, then who collected the most points during advent.
+      // Christmas Eve: the greeting, then the raffle, then who collected the most points during advent.
       const card = el('div', 'advent-finale');
       const stars = el('div', 'advent-finale__stars');
       stars.setAttribute('aria-hidden', 'true');
@@ -95,14 +97,15 @@ export function setupAdvent(app) {
       const hello = el('h2', 'advent-finale__title', t('adventFinaleTitle'));
       hello.id = 'advent-dialog-title';
       card.append(stars, art, hello, el('p', 'advent-finale__text', t('adventFinaleText')), el('p', 'advent-finale__sign', t('adventFinaleSign')));
-      const board = el('div', 'advent-board');
+      // The gift: a raffle for places at our AI event. The leaderboard stays one tap away.
+      const board = el('details', 'advent-case__more advent-board');
       const list = el('ol', 'advent-board__list');
       list.append(el('li', 'advent-board__state', t('loading')));
-      const again = el('button', 'btn btn--primary', t('adventFinalePlay'));
+      const again = el('button', 'btn btn--secondary', t('adventFinalePlay'));
       again.type = 'button';
       again.addEventListener('click', () => { dialog.close(); app.openPreview(); });
-      board.append(el('h3', 'advent-board__title', t('adventFinaleBoard')), el('p', 'advent-board__lead', t('adventFinaleBoardText')), list, again);
-      body.append(card, board);
+      board.append(el('summary', '', t('adventFinaleBoard')), el('p', 'advent-board__lead', t('adventFinaleBoardText')), list, again);
+      body.append(card, raffleCard(), board);
       fetchTop(OVERALL).then((data) => {
         if (shown !== door) return;
         if (!data.top?.length) { list.replaceChildren(el('li', 'advent-board__state', t('lbEmpty'))); return; }

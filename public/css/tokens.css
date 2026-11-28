@@ -841,6 +841,13 @@
   --color-advent-scrim: rgb(7 10 20 / 0.72);
   --color-advent-finale-a: var(--p-frost-900);
   --color-advent-finale-b: var(--p-ink-950);
+  /* the raffle form behind door 24 (advent-raffle.js) and the organizer's list (verlosung.html) */
+  --advent-time-width: 7.5rem;
+  --advent-check-size: 1.375rem;
+  --color-advent-field-bg: var(--p-ink-950);
+  --color-advent-field-border: var(--p-ink-400);
+  --color-advent-error: var(--p-rose-400);
+  --color-advent-note-bg: color-mix(in srgb, var(--p-sun-300) 14%, transparent);
 
   /* Defaults (night) for tokens that only differ in the sunny skin */
   --color-hero-bg: transparent;
