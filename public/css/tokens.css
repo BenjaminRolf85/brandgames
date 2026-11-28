@@ -11,6 +11,29 @@
 
 :root {
   /* ---------- 1. Primitives ---------- */
+  /* Christmas edition of the landing page ("gold paper"): fir green, gold foil, cream paper, wine red */
+  --p-fir-950: #0b211c;
+  --p-fir-900: #102c24;
+  --p-fir-850: #123329;
+  --p-fir-800: #1a4336;
+  --p-fir-600: #3a6f5f;
+  --p-fir-ink-900: #1d2a25;
+  --p-fir-ink-600: #56635d;
+  --p-sage-300: #a9b8ad;
+  --p-sage-200: #d5dccf;
+  --p-gold-100: #fbe7b1;
+  --p-gold-200: #f0d596;
+  --p-gold-300: #e3c27a;
+  --p-gold-500: #c99a45;
+  --p-gold-600: #b98f3c;
+  --p-gold-800: #7d560c;
+  --p-cream-50: #fffaf0;
+  --p-cream-100: #fbf3df;
+  --p-cream-200: #f6efe1;
+  --p-cream-300: #ecdcb6;
+  --p-cream-400: #e0d2b4;
+  --p-wine-700: #7a1f2b;
+  --p-wine-900: #4f1019;
   --p-ink-950: #070a14;
   --p-ink-900: #0d1222;
   --p-ink-850: #121a2e;
@@ -156,6 +179,7 @@
 
   /* Typography */
   --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif; /* headings and door numbers of the Christmas edition */
   --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "DejaVu Sans Mono", monospace;
   --font-weight-regular: 400;
   --font-weight-medium: 500;
@@ -803,13 +827,28 @@
   --p-sun-green-bright: #2e9e4f;
   --p-sun-green: #1f7a3a;
 
-  /* Christmas edition of the landing page (xmas-page.js): a winter night over the welcome area */
-  --color-xmas-hero-top: var(--p-frost-900);
-  --color-xmas-hero-bottom: var(--p-ink-950);
-  --color-xmas-text: var(--p-ink-50);
-  --color-xmas-muted: var(--p-snow-200);
-  --color-xmas-eyebrow: var(--p-cyan-400);
-  --color-xmas-sign: var(--p-sun-300);
+  /* Christmas edition of the landing page (xmas-page.js): a printed advent calendar. Fir green,
+     gold foil and a serif on the calendar band, cream paper below (.page--xmas at the end of this file). */
+  --color-xmas-hero-top: var(--p-fir-850);
+  --color-xmas-hero-bottom: var(--p-fir-950);
+  --color-xmas-text: var(--p-cream-100);
+  --color-xmas-muted: var(--p-sage-200);
+  --color-xmas-note: var(--p-sage-300);
+  --color-xmas-eyebrow: var(--p-gold-300);
+  --color-xmas-sign: var(--p-gold-300);
+  --color-xmas-glow: rgb(227 194 122 / 0.16);          /* warm light from above */
+  --color-xmas-vignette: rgb(0 0 0 / 0.45);            /* darker toward the bottom */
+  --color-xmas-button-top: var(--p-gold-200);
+  --color-xmas-button-bottom: var(--p-gold-500);
+  --color-xmas-button-border: var(--p-gold-600);
+  --color-xmas-button-text: var(--p-fir-ink-900);
+  --color-xmas-button-shine: rgb(255 255 255 / 0.6);
+  --color-xmas-shadow: rgb(0 0 0 / 0.35);
+  --color-xmas-card-shadow: rgb(60 40 10 / 0.08);
+  --xmas-snow-opacity: 0.45;
+  --color-xmas-paper: var(--p-cream-200);                /* the page behind everything (overscroll) */
+  /* fine paper grain over the green (an inline SVG noise, no extra request) */
+  --xmas-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .07 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
   --color-xmas-snow: var(--p-white);
   --color-xmas-wire: var(--p-leaf-700);
   --color-xmas-light-1: var(--p-red-500);
@@ -821,33 +860,45 @@
   /* Advent calendar on the landing page (advent.js): doors and the dialog with a door's content */
   --advent-gap: var(--space-3);
   --advent-gap-narrow: var(--space-2);
-  --advent-radius: var(--radius-md);
-  --advent-num: clamp(1.25rem, 3.2vw, 2rem);
+  --advent-radius: 0.75rem;
+  --advent-board-radius: 1.375rem;      /* the framed board the doors sit on */
+  --advent-board-pad: var(--space-4);
+  --advent-badge: 1.875rem;             /* the round day number on a game door */
+  --advent-frame: 4px;                  /* the embossed double frame inside a door */
+  --advent-num: clamp(1.5rem, 3vw, 2.3rem);
   --advent-dialog-width: 36rem;
   --advent-coin: 5.5rem;
-  --color-advent-line: var(--p-sun-300);
-  --color-advent-door-bg: rgb(7 10 20 / 0.45);
-  --color-advent-today: var(--p-white);
-  --color-advent-open-bg: var(--p-sun-300);
-  --color-advent-open-text: var(--p-ink-950);
-  --color-advent-pic-text: var(--p-white);
-  --color-advent-pic-shade: rgb(7 10 20 / 0.55);
-  --color-advent-pic-shade-open: rgb(7 10 20 / 0.3);
-  --color-advent-dialog-bg: var(--p-ink-900);
-  --color-advent-dialog-alt: var(--p-ink-850);
-  --color-advent-dialog-text: var(--p-ink-50);
-  --color-advent-dialog-muted: var(--p-ink-300);
-  --color-advent-dialog-border: var(--p-ink-700);
-  --color-advent-scrim: rgb(7 10 20 / 0.72);
-  --color-advent-finale-a: var(--p-frost-900);
-  --color-advent-finale-b: var(--p-ink-950);
+  --color-advent-line: var(--p-gold-300);
+  --color-advent-line-soft: color-mix(in srgb, var(--p-gold-300) 45%, transparent);
+  --color-advent-foil-top: var(--p-gold-100);       /* gold foil: numbers and badges */
+  --color-advent-foil-bottom: var(--p-gold-500);
+  --color-advent-door-top: var(--p-fir-800);
+  --color-advent-door-bottom: var(--p-fir-900);
+  --color-advent-board-bg: rgb(0 0 0 / 0.14);
+  --color-advent-ribbon: var(--p-wine-700);
+  --color-advent-ribbon-text: var(--p-cream-100);
+  --color-advent-door-bg: var(--p-fir-850);
+  --color-advent-today: var(--p-gold-100);
+  --color-advent-open-bg: var(--p-cream-100);
+  --color-advent-open-bg-deep: var(--p-cream-300);
+  --color-advent-open-frame: color-mix(in srgb, var(--p-gold-800) 40%, transparent);
+  --color-advent-open-text: var(--p-wine-700);
+  --color-advent-badge-text: var(--p-fir-ink-900);
+  --color-advent-dialog-bg: var(--p-fir-900);
+  --color-advent-dialog-alt: var(--p-fir-800);
+  --color-advent-dialog-text: var(--p-cream-100);
+  --color-advent-dialog-muted: var(--p-sage-200);
+  --color-advent-dialog-border: var(--p-fir-600);
+  --color-advent-scrim: rgb(5 16 13 / 0.78);
+  --color-advent-finale-a: var(--p-wine-700);
+  --color-advent-finale-b: var(--p-wine-900);
   /* the raffle form behind door 24 (advent-raffle.js) and the organizer's list (verlosung.html) */
   --advent-time-width: 7.5rem;
   --advent-check-size: 1.375rem;
-  --color-advent-field-bg: var(--p-ink-950);
-  --color-advent-field-border: var(--p-ink-400);
+  --color-advent-field-bg: var(--p-fir-950);
+  --color-advent-field-border: var(--p-sage-300);
   --color-advent-error: var(--p-rose-400);
-  --color-advent-note-bg: color-mix(in srgb, var(--p-sun-300) 14%, transparent);
+  --color-advent-note-bg: color-mix(in srgb, var(--p-gold-300) 14%, transparent);
 
   /* Defaults (night) for tokens that only differ in the sunny skin */
   --color-hero-bg: transparent;
@@ -940,4 +991,35 @@
   --xr-house-roof-dark: var(--p-sun-red-dark);
   --xr-house-wall:      var(--p-white);
   --xr-house-attic:     var(--p-sun-gray-50);
+}
+
+/* ---------- Christmas edition of the landing page: cream paper below the calendar ----------
+   Set on #page by xmas-page.js. Only the page itself: the 3D stage, the games and the dialogs
+   live outside of it and keep their own tokens. */
+.page--xmas {
+  --color-bg:            var(--p-cream-200);
+  --color-surface:       var(--p-cream-50);
+  --color-surface-alt:   var(--p-cream-100);
+  --color-border:        var(--p-cream-400);
+  --color-text:          var(--p-fir-ink-900);
+  --color-text-muted:    var(--p-fir-ink-600);
+  --color-surface-text:  var(--p-fir-ink-900);
+  --color-surface-muted: var(--p-fir-ink-600);
+  --color-primary:       var(--p-fir-850);
+  --color-primary-hover: var(--p-fir-800);
+  --color-on-primary:    var(--p-cream-100);
+  --color-accent:        var(--p-gold-500);
+  --color-focus:         var(--p-fir-850);
+  --color-sponsor:       var(--p-gold-800);
+  --color-byline:        var(--p-gold-800);
+  --color-sponsor-on-surface: var(--p-gold-800);
+  --color-eyebrow:       var(--p-gold-800);
+  --color-heading:       var(--p-fir-850);
+  --color-link:          var(--p-wine-700);
+  --color-topbar-bg:     color-mix(in srgb, var(--p-cream-200) 90%, transparent);
+  --color-control-bg:    var(--p-cream-100);
+  --color-secondary-bg:  var(--p-cream-50);
+  --color-coin-ring:     var(--p-gold-500);
+  background: var(--color-bg);
+  color: var(--color-text);
 }

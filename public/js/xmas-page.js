@@ -103,6 +103,9 @@ export function decoratePage() {
   const band = document.querySelector('.hero-band');
   if (!band) return;
   band.classList.add('hero-band--xmas');
+  // The whole landing page takes the Christmas look (tokens of .page--xmas); the 3D stage does not.
+  document.getElementById('page')?.classList.add('page--xmas');
+  document.body.classList.add('is-xmas');
   snow(band);
   lights(band);
   document.querySelectorAll('[data-xmas]').forEach((el) => { el.hidden = false; });

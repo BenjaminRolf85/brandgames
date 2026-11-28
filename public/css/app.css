@@ -572,10 +572,14 @@ body.is-playing { overflow: hidden; }
   overflow: hidden;
   isolation: isolate;
   color: var(--color-text);
-  background: linear-gradient(180deg, var(--color-xmas-hero-top), var(--color-xmas-hero-bottom));
+  background:
+    radial-gradient(70rem 38rem at 50% -10%, var(--color-xmas-glow), transparent 60%),
+    radial-gradient(56rem 44rem at 50% 120%, var(--color-xmas-vignette), transparent 60%),
+    var(--xmas-grain),
+    linear-gradient(180deg, var(--color-xmas-hero-top), var(--color-xmas-hero-bottom));
 }
 .hero-band--xmas .hero { position: relative; z-index: 1; padding-top: calc(var(--space-8) + var(--space-6)); }
-.xmas-snow { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; }
+.xmas-snow { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; opacity: var(--xmas-snow-opacity); }
 .xmas-lights { position: absolute; top: 0; left: 0; right: 0; z-index: 2; overflow: hidden; line-height: 0; pointer-events: none; }
 .xmas-lights svg { display: block; }
 .xmas-lights__wire { fill: none; stroke: var(--color-xmas-wire); stroke-width: 2; }
@@ -590,9 +594,18 @@ body.is-playing { overflow: hidden; }
 @keyframes xmas-twinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 @media (prefers-reduced-motion: reduce) { .xmas-lights__bulb { animation: none; } }
 .hero__sign { margin: var(--space-4) 0 0; max-width: 60ch; color: var(--color-xmas-sign); font-size: var(--text-md); font-weight: var(--font-weight-bold); }
+.advent__sign .hero__sign { font-family: var(--font-display); font-style: italic; font-weight: var(--font-weight-medium); }
 /* The Christmas welcome: one message and one button, the calendar right below. */
 .hero-band--xmas .hero { padding-bottom: var(--space-4); }
-.hero-band--xmas .eyebrow { color: var(--color-xmas-sign); font-size: var(--text-md); letter-spacing: 0; text-transform: none; }
+.hero-band--xmas .eyebrow { color: var(--color-xmas-sign); font-family: var(--font-display); font-style: italic; font-weight: var(--font-weight-medium); font-size: var(--text-lg); letter-spacing: 0; text-transform: none; }
+.hero-band--xmas .hero__title { max-width: none; font-family: var(--font-display); font-weight: 600; font-size: clamp(2.5rem, 5.6vw, 3.9rem); line-height: 1.04; letter-spacing: -0.015em; }
+.hero-band--xmas .hero__lead { color: var(--color-xmas-muted); }
+/* the gold button: the one way into all games */
+.hero-band--xmas .btn--primary { border-color: var(--color-xmas-button-border); background: linear-gradient(180deg, var(--color-xmas-button-top), var(--color-xmas-button-bottom)); color: var(--color-xmas-button-text); box-shadow: 0 8px 22px var(--color-xmas-shadow), inset 0 1px 0 var(--color-xmas-button-shine); }
+.hero-band--xmas .btn--primary:hover { background: linear-gradient(180deg, var(--color-advent-foil-top), var(--color-xmas-button-top)); }
+.hero-band--xmas .btn--secondary { border-color: var(--color-advent-line); background: transparent; color: var(--color-xmas-text); }
+.hero-band--xmas .btn--secondary:hover { background: var(--color-advent-board-bg); }
+.hero-band--xmas .btn:focus-visible { outline-color: var(--color-advent-today); }
 .hero-band--xmas .byline { display: none; }
 .hero-band--xmas .hero__lead { margin-top: var(--space-3); }
 .hero-band--xmas .actions { margin-top: var(--space-5); }
@@ -619,10 +632,16 @@ body.is-playing { overflow: hidden; }
 /* ---------- Advent calendar (advent.js): 24 doors, the page's centerpiece at Christmas ---------- */
 .advent { position: relative; z-index: 1; padding-bottom: var(--space-7); }
 .advent[hidden] { display: none; }
-.advent__note { margin: 0 0 var(--space-3); min-height: 1.5em; color: var(--color-text-muted); font-size: var(--text-sm); }
-.advent__grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: var(--advent-gap); }
+.advent__note { margin: 0 0 var(--space-3); min-height: 1.5em; color: var(--color-xmas-note); font-size: var(--text-sm); }
+.advent__grid {
+  list-style: none; margin: 0; padding: var(--advent-board-pad); display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: var(--advent-gap);
+  /* a printed board: a gold line with a second, fainter one around it */
+  border: 1px solid var(--color-advent-line-soft); border-radius: var(--advent-board-radius);
+  outline: 1px solid color-mix(in srgb, var(--color-advent-line) 22%, transparent); outline-offset: 5px;
+  background: var(--color-advent-board-bg);
+}
 @media (max-width: 899px) { .advent__grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
-@media (max-width: 599px) { .advent__grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--advent-gap-narrow); } }
+@media (max-width: 599px) { .advent__grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--advent-gap-narrow); padding: var(--space-3); } }
 .door {
   position: relative;
   display: grid;
@@ -631,9 +650,11 @@ body.is-playing { overflow: hidden; }
   aspect-ratio: 1;
   padding: 0;
   overflow: hidden;
-  border: 2px solid var(--color-advent-line);
+  border: 1px solid var(--color-advent-line);
   border-radius: var(--advent-radius);
-  background: var(--color-advent-door-bg);
+  /* an embossed cardboard door: fir green with a fine second frame inside */
+  background: linear-gradient(160deg, var(--color-advent-door-top), var(--color-advent-door-bottom));
+  box-shadow: inset 0 0 0 var(--advent-frame) var(--color-advent-door-bg), inset 0 0 0 calc(var(--advent-frame) + 1px) var(--color-advent-line-soft), 0 6px 14px var(--color-xmas-shadow);
   color: var(--color-advent-line);
   font: inherit;
   cursor: pointer;
@@ -641,37 +662,50 @@ body.is-playing { overflow: hidden; }
 }
 .door:hover { transform: translateY(-2px); }
 .door:focus-visible { outline: 3px solid var(--color-advent-today); outline-offset: 3px; }
-.door__num { position: relative; font-size: var(--advent-num); font-weight: var(--font-weight-black); line-height: 1; }
-.door__note { position: absolute; left: 0; right: 0; bottom: var(--space-2); font-size: var(--text-xs); font-weight: var(--font-weight-bold); text-align: center; }
-.door__icon { position: absolute; top: var(--space-1); right: var(--space-1); display: grid; place-items: center; opacity: 0.8; }
-.door__pic { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-/* a game door: its coin picture behind the number */
-.door--game::after { content: ''; position: absolute; inset: 0; background: var(--color-advent-pic-shade); }
-.door--game .door__num, .door--game .door__note, .door--game .door__icon { z-index: 1; color: var(--color-advent-pic-text); text-shadow: 0 1px 6px var(--color-advent-open-text); }
-/* still closed: a dashed frame and a small lock (never color alone) */
-.door--locked { border-style: dashed; cursor: default; }
+.door__num { position: relative; font-family: var(--font-display); font-size: var(--advent-num); font-weight: 600; line-height: 1; }
+/* gold foil on the number, where the browser can clip a gradient to text */
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .door:not(.door--game):not(.door--open) .door__num { background: linear-gradient(180deg, var(--color-advent-foil-top), var(--color-advent-foil-bottom)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+}
+@media (forced-colors: active) { .door .door__num { background: none; -webkit-text-fill-color: currentColor; } }
+.door__note { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: var(--space-1) 0; background: var(--color-advent-ribbon); color: var(--color-advent-ribbon-text); font-family: var(--font-display); font-style: italic; font-size: var(--text-sm); font-weight: var(--font-weight-medium); text-align: center; }
+.door__icon { position: absolute; top: var(--space-2); right: var(--space-2); z-index: 2; display: grid; place-items: center; opacity: 0.8; }
+.door__pic { position: absolute; inset: var(--advent-frame); width: calc(100% - 2 * var(--advent-frame)); height: calc(100% - 2 * var(--advent-frame)); border-radius: calc(var(--advent-radius) - var(--advent-frame)); object-fit: cover; }
+/* a game door: its picture in the frame, the day on a small gold seal in the corner */
+.door--game .door__num {
+  position: absolute; left: var(--space-2); top: var(--space-2); z-index: 2; display: grid; place-items: center;
+  min-width: var(--advent-badge); height: var(--advent-badge); padding: 0 var(--space-1); border: 1px solid var(--color-advent-foil-top); border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, var(--color-advent-foil-top), var(--color-advent-foil-bottom)); color: var(--color-advent-badge-text);
+  font-size: var(--text-md); box-shadow: 0 2px 6px var(--color-xmas-shadow);
+}
+/* still closed: a fainter frame, a dimmed picture and a small lock (never color alone) */
+.door--locked { border-color: var(--color-advent-line-soft); cursor: default; }
 .door--locked:hover { transform: none; }
-.door--locked .door__pic { filter: saturate(0.6); }
-.door--game:not(.door--locked)::after { background: var(--color-advent-pic-shade-open); }
-/* today's door: a bright frame with a ring and the word "Heute" */
-.door--today { border-color: var(--color-advent-today); box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-advent-line) 45%, transparent); }
-/* opened by the player: filled, with a check mark */
-.door--open { background: var(--color-advent-open-bg); color: var(--color-advent-open-text); }
-.door--open.door--game::after { background: none; }
-.door--open.door--game .door__num { font-size: var(--text-md); position: absolute; left: var(--space-2); top: var(--space-1); }
+.door--locked:not(.door--game) .door__num { opacity: 0.72; }
+.door--locked .door__pic { filter: sepia(0.35) saturate(0.55) brightness(0.62); }
+.door--locked .door__icon { color: var(--color-advent-line); opacity: 0.6; }
+/* today's door: a bright frame with a glowing ring and a ribbon with the word "Heute" */
+.door--today { border: 2px solid var(--color-advent-today); box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-advent-line) 28%, transparent), 0 0 30px color-mix(in srgb, var(--color-advent-line) 55%, transparent); }
+/* opened by the player: the cream inside of the door, with a check mark */
+.door--open:not(.door--game) { background: linear-gradient(160deg, var(--color-advent-open-bg), var(--color-advent-open-bg-deep)); box-shadow: inset 0 0 0 var(--advent-frame) var(--color-advent-open-bg), inset 0 0 0 calc(var(--advent-frame) + 1px) var(--color-advent-open-frame), 0 6px 14px var(--color-xmas-shadow); color: var(--color-advent-open-text); }
 .door__icon--open { opacity: 1; }
+.door--open.door--game .door__icon--open { padding: 3px; border-radius: 50%; background: var(--color-advent-foil-top); color: var(--color-advent-badge-text); }
 .door.is-shaking { animation: door-shake 0.35s ease; }
 @keyframes door-shake { 0%, 100% { transform: none; } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
 @media (prefers-reduced-motion: reduce) { .door, .door:hover { transition: none; transform: none; } .door.is-shaking { animation: none; } }
 /* door 24, Christmas Eve: a golden star door */
-.door--finale { border-width: 3px; background: linear-gradient(160deg, var(--color-advent-finale-a), var(--color-advent-finale-b)); box-shadow: 0 0 var(--space-4) color-mix(in srgb, var(--color-advent-line) 40%, transparent); }
+.door--finale { border-color: var(--color-advent-line); background: linear-gradient(160deg, var(--color-advent-finale-a), var(--color-advent-finale-b)); box-shadow: inset 0 0 0 var(--advent-frame) var(--color-advent-finale-a), inset 0 0 0 calc(var(--advent-frame) + 1px) var(--color-advent-line-soft), 0 0 var(--space-4) color-mix(in srgb, var(--color-advent-line) 35%, transparent); }
+.door--finale.door--locked:not(.door--game) .door__num { opacity: 1; }
+/* today's glow stays when that door is opened or is the finale (their own shadows would replace it) */
+.door--today.door--open:not(.door--game) { box-shadow: inset 0 0 0 var(--advent-frame) var(--color-advent-open-bg), inset 0 0 0 calc(var(--advent-frame) + 1px) var(--color-advent-open-frame), 0 0 0 4px color-mix(in srgb, var(--color-advent-line) 28%, transparent), 0 0 30px color-mix(in srgb, var(--color-advent-line) 55%, transparent); }
+.door--today.door--finale:not(.door--open) { border-color: var(--color-advent-today); box-shadow: inset 0 0 0 var(--advent-frame) var(--color-advent-finale-a), inset 0 0 0 calc(var(--advent-frame) + 1px) var(--color-advent-line-soft), 0 0 0 4px color-mix(in srgb, var(--color-advent-line) 28%, transparent), 0 0 30px color-mix(in srgb, var(--color-advent-line) 55%, transparent); }
 .door--finale .door__num { margin-top: var(--space-4); }
 .door__star { position: absolute; top: 18%; left: 0; right: 0; display: grid; place-items: center; color: var(--color-advent-line); animation: door-twinkle 2.4s ease-in-out infinite; }
 .door--open .door__star { color: var(--color-advent-open-text); }
 @keyframes door-twinkle { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.25); opacity: 0.75; } }
 @media (prefers-reduced-motion: reduce) { .door__star { animation: none; } }
 .advent__sign { display: flex; align-items: center; gap: var(--space-5); margin-top: var(--space-6); }
-.advent__sign .hero__sign { margin: 0; font-size: var(--text-lg); }
+.advent__sign .hero__sign { margin: 0; font-size: var(--text-lg); text-wrap: balance; }
 .advent__art { flex: none; width: min(40%, 15rem); height: auto; }
 @media (max-width: 599px) { .advent__sign { flex-direction: column; align-items: flex-start; gap: var(--space-3); } .advent__art { width: min(70%, 15rem); } }
 
@@ -762,6 +796,12 @@ details.advent-board > .advent-board__lead { margin-top: 0; }
   box-shadow: var(--shadow-md);
 }
 .advent-dialog::backdrop { background: var(--color-advent-scrim); }
+.advent-dialog { --color-focus: var(--color-advent-today); }
+.advent-dialog .btn--primary { border-color: var(--color-xmas-button-border); background: linear-gradient(180deg, var(--color-xmas-button-top), var(--color-xmas-button-bottom)); color: var(--color-xmas-button-text); }
+.advent-dialog .btn--primary:hover { background: linear-gradient(180deg, var(--color-advent-foil-top), var(--color-xmas-button-top)); }
+.advent-dialog .btn--secondary { border-color: var(--color-advent-line); color: var(--color-advent-dialog-text); }
+.advent-case__title, .advent-game__name, .advent-finale__title, .advent-raffle__title, .advent-raffle__note-title { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.01em; }
+.advent-dialog__day { font-family: var(--font-display); font-style: italic; font-weight: var(--font-weight-medium); font-size: var(--text-lg); }
 .advent-dialog__body { display: grid; gap: var(--space-4); padding: var(--space-5); }
 .advent-dialog__close {
   /* stays in the corner while the content scrolls; takes no room of its own (no float: that would narrow the content) */
@@ -958,3 +998,18 @@ details.advent-board > .advent-board__lead { margin-top: 0; }
 .card--feature { border-color: var(--color-primary); box-shadow: inset 0 4px 0 var(--color-primary), var(--shadow-sm); }
 .pause__actions .btn--secondary { background: var(--xr-button-bg); color: var(--xr-button-text); border-color: var(--xr-panel-border); }
 .pause__actions .btn--secondary:hover { background: var(--xr-button-hover); }
+
+/* ---------- Christmas edition: the page below the calendar (cream paper, tokens in .page--xmas) ---------- */
+body.is-xmas { background: var(--color-xmas-paper, var(--color-bg)); }
+.page--xmas .section__title { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.01em; color: var(--color-heading); }
+.page--xmas .clients__item { border-radius: var(--radius-md); box-shadow: 0 8px 18px var(--color-xmas-card-shadow); }
+.page--xmas .clients__coin { box-shadow: 0 0 0 3px var(--color-surface), 0 0 0 4px var(--color-coin-ring); }
+.page--xmas .clients__name { font-family: var(--font-display); font-weight: 600; font-size: var(--text-lg); color: var(--color-heading); }
+.page--xmas .callout--feature { border: 1px solid var(--color-border); border-left: 3px solid var(--color-coin-ring); border-radius: var(--radius-md); background: var(--color-surface); }
+.page--xmas .callout__title { font-family: var(--font-display); font-weight: 600; color: var(--color-heading); }
+.page--xmas .footer__link { color: var(--color-link); }
+.page--xmas .invite { border-color: var(--color-coin-ring); }
+.page--xmas .invite__coin { box-shadow: 0 0 0 3px var(--color-coin-ring); }
+.page--xmas .invite__eyebrow { color: var(--color-sponsor); }
+.page--xmas .invite__title { font-family: var(--font-display); font-weight: 600; }
+.page--xmas .invite .btn--primary { box-shadow: none; }
