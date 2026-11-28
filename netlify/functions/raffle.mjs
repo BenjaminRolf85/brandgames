@@ -1,5 +1,5 @@
 // Raffle behind door 24 of the advent calendar: places at our AI event (Frankfurt, 15 March 2027).
-//   POST   /api/raffle  { name, company, email, consent: true, lang }   one entry per e-mail address
+//   POST   /api/raffle  { name, company, email, consent: true, lang }   one entry per e-mail address (the first one stays)
 //   GET    /api/raffle                                                   { open, from, until }
 //   GET    /api/raffle  + "authorization: Bearer <RAFFLE_KEY>"           { entries, count } for the organizer
 //   DELETE /api/raffle?id=<entry id> + the same header                   removes one entry
@@ -77,13 +77,16 @@ export async function handle(req, store, { now = Date.now(), secret = '' } = {})
 
     const key = `entry/${entryId(email)}`;
     const before = await store.get(key, { type: 'json' });
+    // One lot per address, and the first entry stays as it is: nobody can prove here that an
+    // address is theirs, so a second submission must not rewrite someone's entry. The answer is
+    // the same either way (it does not tell whether an address already takes part).
+    if (before && !organizer) return json({ ok: true }, 201);
     if (!before) {
       const { blobs } = await store.list({ prefix: 'entry/' });
       if (blobs.length >= MAX_ENTRIES) return json({ error: 'full' }, 503);
     }
-    // The same address again replaces the entry: one lot per person.
     await store.setJSON(key, { name, company, email, lang: body?.lang === 'en' ? 'en' : 'de', date: before?.date ?? now, ...(organizer ? { test: true } : {}) });
-    return json({ ok: true, again: Boolean(before) }, before ? 200 : 201);
+    return json({ ok: true }, 201);
   }
   return json({ error: 'method not allowed' }, 405);
 }
@@ -93,5 +96,7 @@ export default async (req) => handle(req, getStore({ name: 'raffle', consistency
 export const config = {
   path: '/api/raffle',
   method: ['GET', 'POST', 'DELETE'],
-  rateLimit: { windowLimit: 20, windowSize: 60, aggregateBy: ['ip', 'domain'] },
+  // Generous on purpose: a whole company or an event network shares one address, and every visitor
+  // of door 24 asks twice (is it open, then the entry).
+  rateLimit: { windowLimit: 240, windowSize: 60, aggregateBy: ['ip', 'domain'] },
 };

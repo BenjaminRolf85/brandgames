@@ -731,6 +731,7 @@ const STRINGS = {
     tipTitle: 'Tipp',
     tip: 'Mit „Neu ausrichten“ im Menü holst du das Quiz jederzeit auf Augenhöhe vor dich, z. B. wenn du dich umdrehst oder hinsetzt. Mit „Höher“ und „Tiefer“ passt du die Höhe an.',
     footer: 'Echomotion AR Experience by Echomotion - AI Trainings & More · Läuft im Browser, ohne Installation. Gespeichert werden nur die Namen und Punkte, die du freiwillig in die Bestenliste einträgst, und anonym, wie oft welches Spiel gespielt wird (ohne Cookies, ohne Kennungen).',
+    footerXmas: 'Echomotion AR Experience by Echomotion - AI Trainings & More · Läuft im Browser, ohne Installation. Gespeichert werden nur die Namen und Punkte, die du freiwillig in die Bestenliste einträgst, und anonym, wie oft welches Spiel gespielt wird (ohne Cookies, ohne Kennungen). Wer an der Verlosung in Türchen 24 teilnimmt: Name, Unternehmen und E-Mail-Adresse speichern wir nur für die Verlosung und die Einladung und löschen sie danach.',
   },
   en: {
     appTitle: 'Echomotion AR Experience',
@@ -1462,6 +1463,7 @@ const STRINGS = {
     tipTitle: 'Tip',
     tip: 'Use “Recenter” in the menu to bring the quiz back in front of you at eye level at any time, e.g. after turning around or sitting down. Use “Higher” and “Lower” to adjust the height.',
     footer: 'Echomotion AR Experience by Echomotion - AI Trainings & More · Runs in the browser, no install. Only the names and scores you choose to submit to the leaderboard are stored, plus anonymous counts of how often each game is played (no cookies, no identifiers).',
+    footerXmas: 'Echomotion AR Experience by Echomotion - AI Trainings & More · Runs in the browser, no install. Only the names and scores you choose to submit to the leaderboard are stored, plus anonymous counts of how often each game is played (no cookies, no identifiers). If you enter the raffle behind door 24: we store your name, company and e-mail address only for the raffle and the invitation and delete them afterwards.',
   },
 };
 
